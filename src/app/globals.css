@@ -1,26 +1,239 @@
-@import "tailwindcss";
-
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --tagora-yellow: #F4D10B;
+  --tagora-yellow-dark: #C9A600;
+  --tagora-blue: #1F4E79;
+
+  --bg-main: #F5F7FA;
+  --bg-card: #FFFFFF;
+
+  --text-main: #2B2B2B;
+  --text-secondary: #6B7280;
+
+  --border-light: #D9D9D9;
+
+  --success: #16A34A;
+  --error: #DC2626;
+  --info: #1F4E79;
+
+  --shadow-soft: 0 6px 18px rgba(31, 78, 121, 0.08);
+  --radius: 12px;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+* {
+  box-sizing: border-box;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
+html,
 body {
-  background: var(--background);
-  color: var(--foreground);
+  padding: 0;
+  margin: 0;
   font-family: Arial, Helvetica, sans-serif;
+  background: var(--bg-main);
+  color: var(--text-main);
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+.page-container {
+  min-height: 100vh;
+  background: var(--bg-main);
+  padding: 24px;
+}
+
+.page-header {
+  background: var(--tagora-blue);
+  color: white;
+  padding: 18px 24px;
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-soft);
+  margin-bottom: 24px;
+}
+
+.page-title {
+  margin: 0;
+  font-size: 28px;
+  font-weight: 700;
+}
+
+.page-subtitle {
+  margin-top: 6px;
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 14px;
+}
+
+.card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-soft);
+  padding: 18px;
+}
+
+.card + .card {
+  margin-top: 16px;
+}
+
+.section-title {
+  margin: 0 0 14px 0;
+  font-size: 22px;
+  color: var(--tagora-blue);
+}
+
+.muted {
+  color: var(--text-secondary);
+}
+
+.tagora-btn {
+  display: inline-block;
+  border: none;
+  border-radius: 10px;
+  padding: 12px 18px;
+  cursor: pointer;
+  transition: 0.2s ease;
+}
+
+.tagora-btn-primary {
+  background: var(--tagora-yellow);
+  color: var(--text-main);
+  border: 1px solid var(--tagora-yellow);
+}
+
+.tagora-btn-primary:hover {
+  background: var(--tagora-yellow-dark);
+  border-color: var(--tagora-yellow-dark);
+}
+
+.tagora-btn-secondary {
+  background: var(--tagora-blue);
+  color: white;
+  border: 1px solid var(--tagora-blue);
+}
+
+.tagora-btn-secondary:hover {
+  opacity: 0.92;
+}
+
+.tagora-btn-danger {
+  background: white;
+  color: var(--error);
+  border: 1px solid var(--error);
+}
+
+.tagora-btn-danger:hover {
+  background: #fff5f5;
+}
+
+.tagora-input,
+.tagora-textarea,
+.tagora-select {
+  width: 100%;
+  background: white;
+  border: 1px solid var(--border-light);
+  border-radius: 10px;
+  padding: 12px 14px;
+  color: var(--text-main);
+  outline: none;
+  transition: 0.2s ease;
+}
+
+.tagora-input:focus,
+.tagora-textarea:focus,
+.tagora-select:focus {
+  border-color: var(--tagora-yellow);
+  box-shadow: 0 0 0 3px rgba(244, 209, 11, 0.18);
+}
+
+.tagora-textarea {
+  min-height: 120px;
+  resize: vertical;
+}
+
+.grid-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.grid-3 {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+}
+
+.summary-box {
+  background: #fffdf0;
+  border: 1px solid #f0e3a0;
+  border-radius: 10px;
+  padding: 12px;
+}
+
+.media-grid {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.media-card {
+  width: 220px;
+  background: white;
+  border: 1px solid var(--border-light);
+  border-radius: 10px;
+  padding: 10px;
+  box-shadow: var(--shadow-soft);
+}
+
+.media-thumb {
+  width: 100%;
+  height: 200px;
+  object-fit: cover;
+  border-radius: 8px;
+  border: 1px solid var(--border-light);
+  margin-bottom: 10px;
+}
+
+.actions-row {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.spacer-8 {
+  height: 8px;
+}
+
+.spacer-16 {
+  height: 16px;
+}
+
+.spacer-24 {
+  height: 24px;
+}
+
+@media (max-width: 900px) {
+  .grid-2,
+  .grid-3 {
+    grid-template-columns: 1fr;
+  }
+
+  .page-container {
+    padding: 16px;
+  }
+
+  .page-title {
+    font-size: 24px;
+  }
+
+  .media-card {
+    width: 100%;
+  }
 }
