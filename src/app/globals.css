@@ -1,3 +1,5 @@
+@import "tailwindcss";
+
 :root {
   --tagora-yellow: #F4D10B;
   --tagora-yellow-dark: #C9A600;

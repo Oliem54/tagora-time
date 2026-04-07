@@ -1,0 +1,4 @@
+[
+  { "id": "1", "nom": "Billy Paquet", "taux_base_titan": 32.5 },
+  { "id": "2", "nom": "Autre Employé", "taux_base_titan": 28.0 }
+]
