@@ -1,14 +1,16 @@
 import Image from "next/image";
 
 type HeaderTagoraProps = {
-  title: string;
-  subtitle: string;
+  title?: string;
+  subtitle?: string;
 };
 
 export default function HeaderTagora({
   title,
   subtitle,
 }: HeaderTagoraProps) {
+  const hasText = Boolean(title || subtitle);
+
   return (
     <div
       style={{
@@ -19,18 +21,15 @@ export default function HeaderTagora({
         marginBottom: 24,
         display: "flex",
         alignItems: "center",
-        gap: 34,
+        justifyContent: hasText ? "flex-start" : "center",
+        gap: hasText ? 34 : 0,
         boxShadow: "0 12px 30px rgba(15, 47, 99, 0.18)",
       }}
     >
       <div
         style={{
-          width: 260,
+          width: 240,
           flexShrink: 0,
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "flex-start",
-          justifyContent: "center",
         }}
       >
         <Image
@@ -47,42 +46,36 @@ export default function HeaderTagora({
           }}
         />
 
-        <div
-          style={{
-            fontSize: 34,
-            fontWeight: 700,
-            lineHeight: 1,
-            color: "white",
-            marginTop: -78,
-            marginLeft: 40,
-          }}
-        >
-          Time
-        </div>
       </div>
 
-      <div>
-        <div
-          style={{
-            fontSize: 38,
-            fontWeight: 800,
-            lineHeight: 1.1,
-            marginBottom: 6,
-          }}
-        >
-          {title}
-        </div>
+      {hasText ? (
+        <div>
+          {title ? (
+            <div
+              style={{
+                fontSize: 38,
+                fontWeight: 800,
+                lineHeight: 1.1,
+                marginBottom: subtitle ? 6 : 0,
+              }}
+            >
+              {title}
+            </div>
+          ) : null}
 
-        <div
-          style={{
-            fontSize: 18,
-            color: "rgba(255,255,255,0.88)",
-            lineHeight: 1.3,
-          }}
-        >
-          {subtitle}
+          {subtitle ? (
+            <div
+              style={{
+                fontSize: 18,
+                color: "rgba(255,255,255,0.88)",
+                lineHeight: 1.3,
+              }}
+            >
+              {subtitle}
+            </div>
+          ) : null}
         </div>
-      </div>
+      ) : null}
     </div>
   );
 }

@@ -57,33 +57,17 @@ export default function DirectionDocumentsPage() {
           >
             <div
               style={{
-                display: "flex",
-                flexDirection: "column",
                 alignItems: "center",
                 justifyContent: "center",
-                lineHeight: 1,
               }}
             >
               <Image
                 src="/logo.png"
-                alt="Logo Time"
+                alt="Logo TAGORA"
                 width={180}
                 height={180}
                 priority
               />
-
-              <div
-                style={{
-                  marginTop: -58,
-                  fontSize: 30,
-                  fontWeight: 700,
-                  color: "white",
-                  textAlign: "center",
-                  lineHeight: 1,
-                }}
-              >
-                Time
-              </div>
             </div>
 
             <div style={{ color: "white" }}>

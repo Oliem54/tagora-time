@@ -212,14 +212,14 @@ Je soussigné(e), [nom du client], confirme avoir reçu ou remis les items liés
               <div className="flex flex-col sm:flex-row gap-4">
                 <button
                   type="button"
-                  className="px-6 py-4 rounded-xl bg-black text-white font-semibold text-lg hover:opacity-90 transition"
+                  className="tagora-dark-action px-6 py-4 rounded-xl font-semibold text-lg transition"
                 >
                   Démarrer l’enregistrement
                 </button>
 
                 <button
                   type="button"
-                  className="px-6 py-4 rounded-xl border border-black text-black font-semibold text-lg hover:bg-black hover:text-white transition"
+                  className="tagora-dark-outline-action px-6 py-4 rounded-xl border font-semibold text-lg transition"
                 >
                   Arrêter l’enregistrement
                 </button>
@@ -229,14 +229,14 @@ Je soussigné(e), [nom du client], confirme avoir reçu ou remis les items liés
             <div className="flex flex-col sm:flex-row gap-4">
               <button
                 type="submit"
-                className="px-6 py-4 rounded-xl bg-black text-white font-semibold text-lg hover:opacity-90 transition"
+                className="tagora-dark-action px-6 py-4 rounded-xl font-semibold text-lg transition"
               >
                 Enregistrer le dossier
               </button>
 
               <button
                 type="button"
-                className="px-6 py-4 rounded-xl border border-black text-black font-semibold text-lg hover:bg-black hover:text-white transition"
+                className="tagora-dark-outline-action px-6 py-4 rounded-xl border font-semibold text-lg transition"
               >
                 Envoyer à la direction
               </button>

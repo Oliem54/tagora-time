@@ -1,12 +1,15 @@
 "use client";
 
+import AccessNotice from "@/app/components/AccessNotice";
 import HeaderTagora from "../../../components/HeaderTagora";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { useCurrentAccess } from "@/app/hooks/useCurrentAccess";
 import { supabase } from "../../../lib/supabase/client";
 
 export default function NewDossierPage() {
   const router = useRouter();
+  const { loading: accessLoading, hasPermission } = useCurrentAccess();
 
   const [nom, setNom] = useState("");
   const [client, setClient] = useState("");
@@ -49,6 +52,43 @@ export default function NewDossierPage() {
     alert("Dossier créé");
     router.push("/employe/dashboard");
   };
+
+  if (accessLoading) {
+    return (
+      <div
+        style={{
+          minHeight: "100vh",
+          background: "#f5f7fb",
+          padding: "30px 40px",
+          color: "#0f172a",
+          fontFamily: "Arial, sans-serif",
+        }}
+      >
+        <HeaderTagora title="Nouveau dossier" subtitle="Chargement des acces" />
+        <AccessNotice description="Verification de vos autorisations en cours." />
+      </div>
+    );
+  }
+
+  if (!hasPermission("dossiers")) {
+    return (
+      <div
+        style={{
+          minHeight: "100vh",
+          background: "#f5f7fb",
+          padding: "30px 40px",
+          color: "#0f172a",
+          fontFamily: "Arial, sans-serif",
+        }}
+      >
+        <HeaderTagora
+          title="Nouveau dossier"
+          subtitle="Creation d un dossier terrain"
+        />
+        <AccessNotice description="La permission dossiers est necessaire pour creer un nouveau dossier terrain." />
+      </div>
+    );
+  }
 
   return (
     <div

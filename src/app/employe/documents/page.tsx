@@ -1,95 +1,304 @@
+"use client";
+
 import Link from "next/link";
+import { useEffect, useMemo, useState } from "react";
+import AccessNotice from "@/app/components/AccessNotice";
+import HeaderTagora from "@/app/components/HeaderTagora";
+import { useCurrentAccess } from "@/app/hooks/useCurrentAccess";
+import { supabase } from "@/app/lib/supabase/client";
+
+type DossierRow = {
+  id: number;
+  nom: string | null;
+  client: string | null;
+  description: string | null;
+  statut: string | null;
+  created_at?: string | null;
+};
+
+type MediaRow = {
+  id: number;
+  dossier_id: number;
+  image_url: string | null;
+};
+
+type NoteRow = {
+  id: number;
+  dossier_id: number;
+};
+
+type DocumentRow = {
+  id: number;
+  reference: string;
+  client: string;
+  type: string;
+  date: string;
+  statut: string;
+  statutColor: string;
+  statutBg: string;
+  mediaCount: number;
+  notesCount: number;
+};
+
+function getStatusPresentation(status: string) {
+  if (status === "TerminÃ©" || status === "Envoye") {
+    return { color: "#15803d", background: "#dcfce7" };
+  }
+
+  if (status === "En cours" || status === "En attente") {
+    return { color: "#b45309", background: "#fef3c7" };
+  }
+
+  return { color: "#1d4ed8", background: "#dbeafe" };
+}
 
 export default function EmployeDocumentsPage() {
+  const { user, loading: accessLoading, hasPermission } = useCurrentAccess();
+  const [loading, setLoading] = useState(true);
+  const [rows, setRows] = useState<DocumentRow[]>([]);
+
+  useEffect(() => {
+    async function loadDocuments() {
+      if (accessLoading) {
+        return;
+      }
+
+      if (!user || !hasPermission("documents")) {
+        setRows([]);
+        setLoading(false);
+        return;
+      }
+
+      setLoading(true);
+
+      const { data: dossiersData, error: dossiersError } = await supabase
+        .from("dossiers")
+        .select("id, nom, client, description, statut, created_at")
+        .eq("user_id", user.id)
+        .order("id", { ascending: false });
+
+      if (dossiersError) {
+        setRows([]);
+        setLoading(false);
+        return;
+      }
+
+      const dossiers = (dossiersData ?? []) as DossierRow[];
+      const dossierIds = dossiers.map((item) => item.id);
+
+      if (dossierIds.length === 0) {
+        setRows([]);
+        setLoading(false);
+        return;
+      }
+
+      const [{ data: mediasData }, { data: notesData }] = await Promise.all([
+        supabase
+          .from("photos_dossier")
+          .select("id, dossier_id, image_url")
+          .in("dossier_id", dossierIds),
+        supabase
+          .from("notes_dossier")
+          .select("id, dossier_id")
+          .in("dossier_id", dossierIds),
+      ]);
+
+      const mediaCountByDossier: Record<number, number> = {};
+      ((mediasData ?? []) as MediaRow[]).forEach((item) => {
+        mediaCountByDossier[item.dossier_id] =
+          (mediaCountByDossier[item.dossier_id] || 0) + 1;
+      });
+
+      const noteCountByDossier: Record<number, number> = {};
+      ((notesData ?? []) as NoteRow[]).forEach((item) => {
+        noteCountByDossier[item.dossier_id] =
+          (noteCountByDossier[item.dossier_id] || 0) + 1;
+      });
+
+      setRows(
+        dossiers.map((item) => {
+          const status = item.statut || "Nouveau";
+          const statusPresentation = getStatusPresentation(status);
+
+          return {
+            id: item.id,
+            reference: item.nom || `Dossier #${item.id}`,
+            client: item.client || "-",
+            type: item.description || "Document terrain",
+            date: item.created_at?.slice(0, 10) || "-",
+            statut: status,
+            statutColor: statusPresentation.color,
+            statutBg: statusPresentation.background,
+            mediaCount: mediaCountByDossier[item.id] || 0,
+            notesCount: noteCountByDossier[item.id] || 0,
+          };
+        })
+      );
+
+      setLoading(false);
+    }
+
+    void loadDocuments();
+  }, [accessLoading, hasPermission, user]);
+
+  const stats = useMemo(() => {
+    return {
+      total: rows.length,
+      completed: rows.filter((row) => row.statut === "TerminÃ©").length,
+      pending: rows.filter((row) => row.statut !== "TerminÃ©").length,
+    };
+  }, [rows]);
+
   return (
-    <main className="min-h-screen bg-white text-black p-6 md:p-10">
-      <div className="max-w-6xl mx-auto">
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-8">
-          <div>
-            <h1 className="text-4xl font-bold">Mes documents terrain</h1>
-            <p className="text-gray-600 mt-2">
-              Gérez vos preuves photo, bons de livraison, ramassages et documents client
-            </p>
-          </div>
+    <main className="tagora-app-shell">
+      <div className="tagora-app-content" style={{ maxWidth: 1400 }}>
+        <HeaderTagora
+          title="Mes documents terrain"
+          subtitle="Centralisez vos preuves photo, confirmations et dossiers terrain dans un espace unifie."
+        />
 
-          <Link
-            href="/employe/dashboard"
-            className="px-5 py-3 rounded-xl border border-gray-300 hover:bg-gray-100 transition text-center"
-          >
-            Retour au tableau de bord
-          </Link>
-        </div>
+        {!hasPermission("documents") && !accessLoading ? (
+          <AccessNotice description="La permission documents est necessaire pour afficher ce module et ses contenus associes." />
+        ) : (
+          <>
+            <div className="tagora-stat-grid" style={{ marginBottom: 24 }}>
+              <div className="tagora-stat-card">
+                <div className="tagora-stat-label">Total dossiers</div>
+                <div className="tagora-stat-value">{stats.total}</div>
+                <p className="tagora-note" style={{ marginTop: 10 }}>
+                  Documents relies a vos dossiers terrain
+                </p>
+              </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-5 mb-8">
-          <div className="rounded-2xl border border-gray-200 shadow-sm p-6">
-            <h2 className="text-2xl font-bold mb-2">Total dossiers</h2>
-            <p className="text-4xl font-bold">12</p>
-            <p className="text-gray-600 mt-2">Documents créés</p>
-          </div>
+              <div className="tagora-stat-card">
+                <div className="tagora-stat-label">Termines</div>
+                <div className="tagora-stat-value">{stats.completed}</div>
+                <p className="tagora-note" style={{ marginTop: 10 }}>
+                  Dossiers completes ou deja transmis
+                </p>
+              </div>
 
-          <div className="rounded-2xl border border-gray-200 shadow-sm p-6">
-            <h2 className="text-2xl font-bold mb-2">Envoyés</h2>
-            <p className="text-4xl font-bold">9</p>
-            <p className="text-gray-600 mt-2">À la direction et à l’utilisateur</p>
-          </div>
+              <div className="tagora-stat-card">
+                <div className="tagora-stat-label">En suivi</div>
+                <div className="tagora-stat-value">{stats.pending}</div>
+                <p className="tagora-note" style={{ marginTop: 10 }}>
+                  Dossiers a completer ou encore actifs
+                </p>
+              </div>
+            </div>
 
-          <div className="rounded-2xl border border-gray-200 shadow-sm p-6">
-            <h2 className="text-2xl font-bold mb-2">En attente</h2>
-            <p className="text-4xl font-bold">3</p>
-            <p className="text-gray-600 mt-2">À compléter ou envoyer</p>
-          </div>
-        </div>
+            <div className="tagora-panel" style={{ marginBottom: 24 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 16, flexWrap: "wrap", alignItems: "center" }}>
+                <div>
+                  <h2 className="section-title" style={{ marginBottom: 10 }}>Actions rapides</h2>
+                  <p className="tagora-note">
+                    Creez un nouveau dossier terrain ou ajoutez des medias a un dossier existant sans quitter le module documents.
+                  </p>
+                </div>
 
-        <div className="flex flex-col sm:flex-row gap-4 mb-8">
-          <Link
-            href="/employe/documents/new"
-            className="px-6 py-4 rounded-xl bg-black text-white font-semibold text-lg hover:opacity-90 transition text-center"
-          >
-            Ajouter un dossier terrain
-          </Link>
+                <div className="tagora-actions">
+                  <Link
+                    href="/employe/documents/new"
+                    className="tagora-dark-action rounded-xl px-6 py-4 text-center text-base font-semibold transition"
+                  >
+                    Ajouter un dossier terrain
+                  </Link>
 
-          <Link
-            href="/employe/documents/new"
-            className="px-6 py-4 rounded-xl border border-black text-black font-semibold text-lg hover:bg-black hover:text-white transition text-center"
-          >
-            Ajouter des photos
-          </Link>
-        </div>
+                  <Link
+                    href="/employe/dashboard"
+                    className="tagora-dark-outline-action rounded-xl border px-6 py-4 text-center text-base font-semibold transition"
+                  >
+                    Retour au dashboard
+                  </Link>
+                </div>
+              </div>
+            </div>
 
-        <div className="rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
-          <div className="grid grid-cols-1 md:grid-cols-5 gap-4 px-6 py-4 bg-gray-50 font-semibold">
-            <div>Référence</div>
-            <div>Client</div>
-            <div>Type</div>
-            <div>Date</div>
-            <div>Statut</div>
-          </div>
+            <div className="tagora-panel">
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 16, flexWrap: "wrap", alignItems: "center", marginBottom: 18 }}>
+                <div>
+                  <h2 className="section-title" style={{ marginBottom: 10 }}>Liste recente des documents</h2>
+                  <p className="tagora-note">Vue densemble des dossiers terrain reels accessibles avec vos permissions.</p>
+                </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-5 gap-4 px-6 py-4 border-t border-gray-200">
-            <div>RAM-1038</div>
-            <div>Client Tremblay</div>
-            <div>Ramassage</div>
-            <div>2026-04-03</div>
-            <div className="text-green-600 font-medium">Envoyé</div>
-          </div>
+                <div className="tagora-panel-muted" style={{ padding: "12px 16px" }}>
+                  <span className="tagora-note">Les lignes ci-dessous sont lues depuis Supabase avec RLS active.</span>
+                </div>
+              </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-5 gap-4 px-6 py-4 border-t border-gray-200">
-            <div>LIV-24001</div>
-            <div>Client Dupont</div>
-            <div>Livraison</div>
-            <div>2026-04-03</div>
-            <div className="text-green-600 font-medium">Envoyé</div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-5 gap-4 px-6 py-4 border-t border-gray-200">
-            <div>VIN-123456</div>
-            <div>Client Gagnon</div>
-            <div>Dommage avant ramassage</div>
-            <div>2026-04-03</div>
-            <div className="text-orange-500 font-medium">En attente</div>
-          </div>
-        </div>
+              {loading ? (
+                <p className="tagora-note">Chargement des documents...</p>
+              ) : rows.length === 0 ? (
+                <div className="tagora-panel-muted">
+                  <p className="tagora-note">Aucun document ou dossier terrain visible pour le moment.</p>
+                </div>
+              ) : (
+                <div style={{ overflowX: "auto" }}>
+                  <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 760 }}>
+                    <thead>
+                      <tr style={{ background: "#f8fafc" }}>
+                        <th style={tableHeadStyle}>Reference</th>
+                        <th style={tableHeadStyle}>Client</th>
+                        <th style={tableHeadStyle}>Type</th>
+                        <th style={tableHeadStyle}>Date</th>
+                        <th style={tableHeadStyle}>Pieces</th>
+                        <th style={tableHeadStyle}>Statut</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {rows.map((row) => (
+                        <tr key={row.id}>
+                          <td style={tableCellStyle}>{row.reference}</td>
+                          <td style={tableCellStyle}>{row.client}</td>
+                          <td style={tableCellStyle}>{row.type}</td>
+                          <td style={tableCellStyle}>{row.date}</td>
+                          <td style={tableCellStyle}>
+                            {row.mediaCount} media, {row.notesCount} note{row.notesCount > 1 ? "s" : ""}
+                          </td>
+                          <td style={tableCellStyle}>
+                            <span
+                              style={{
+                                display: "inline-flex",
+                                alignItems: "center",
+                                padding: "6px 12px",
+                                borderRadius: 999,
+                                fontSize: 13,
+                                fontWeight: 700,
+                                color: row.statutColor,
+                                background: row.statutBg,
+                              }}
+                            >
+                              {row.statut}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </>
+        )}
       </div>
     </main>
   );
 }
+
+const tableHeadStyle: React.CSSProperties = {
+  textAlign: "left",
+  padding: "14px 16px",
+  borderBottom: "1px solid #e2e8f0",
+  fontSize: 13,
+  color: "#64748b",
+  textTransform: "uppercase",
+  letterSpacing: "0.04em",
+};
+
+const tableCellStyle: React.CSSProperties = {
+  padding: "16px",
+  borderBottom: "1px solid #e5e7eb",
+  fontSize: 14,
+  color: "#0f172a",
+  verticalAlign: "middle",
+};

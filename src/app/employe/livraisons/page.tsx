@@ -254,6 +254,7 @@ export default function EmployeLivraisonsPage() {
       >
         <button
           onClick={() => router.push("/employe/dashboard")}
+          className="tagora-navy-action"
           style={{
             padding: "12px 20px",
             border: "none",
@@ -540,6 +541,7 @@ export default function EmployeLivraisonsPage() {
                     <button
                       onClick={() => handleLivree(livraison)}
                       disabled={savingId === livraison.id}
+                      className="tagora-navy-action"
                       style={{
                         padding: "12px 20px",
                         border: "none",

@@ -1,9 +1,12 @@
 "use client";
 
-import HeaderTagora from "../../../components/HeaderTagora";
-import { useEffect, useState } from "react";
+import { ChangeEvent, useCallback, useEffect, useMemo, useState } from "react";
+import Image from "next/image";
 import { useParams, useRouter } from "next/navigation";
+import HeaderTagora from "../../../components/HeaderTagora";
+import AccessNotice from "../../../components/AccessNotice";
 import { supabase } from "../../../lib/supabase/client";
+import { useCurrentAccess } from "../../../hooks/useCurrentAccess";
 
 type Note = {
   id: number;
@@ -38,8 +41,10 @@ function isVideo(url: string) {
 }
 
 export default function DossierPage() {
-  const { id } = useParams();
+  const params = useParams<{ id: string }>();
+  const dossierId = Number(params.id);
   const router = useRouter();
+  const { user, loading: accessLoading, hasPermission } = useCurrentAccess();
 
   const [contenu, setContenu] = useState("");
   const [notes, setNotes] = useState<Note[]>([]);
@@ -47,74 +52,117 @@ export default function DossierPage() {
   const [dossier, setDossier] = useState<Dossier | null>(null);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
+  const [feedback, setFeedback] = useState("");
+  const [documentsNotice, setDocumentsNotice] = useState("");
 
-  const dossierId = Number(id);
+  const canUseDocuments = hasPermission("documents");
 
-  const fetchDossier = async () => {
+  const dossierTitle = useMemo(() => {
+    if (!dossier) return `Dossier #${dossierId}`;
+    return dossier.nom || dossier.client || `Dossier #${dossierId}`;
+  }, [dossier, dossierId]);
+
+  const fetchDossier = useCallback(async () => {
     const { data, error } = await supabase
       .from("dossiers")
       .select("id, nom, client, description, nb_photos, nb_notes, nb_fichiers")
       .eq("id", dossierId)
       .single();
 
-    if (!error) {
-      setDossier(data);
+    if (error) {
+      setFeedback(
+        "Ce dossier n est pas accessible avec votre session actuelle ou n existe plus."
+      );
+      setDossier(null);
+      return false;
     }
-  };
 
-  const fetchNotes = async () => {
+    setDossier(data);
+    return true;
+  }, [dossierId]);
+
+  const fetchNotes = useCallback(async () => {
     const { data, error } = await supabase
       .from("notes_dossier")
       .select("*")
       .eq("dossier_id", dossierId)
       .order("created_at", { ascending: false });
 
-    if (!error) {
-      setNotes(data || []);
+    if (error) {
+      setNotes([]);
+      setDocumentsNotice(
+        "Les notes et fichiers de ce dossier sont limites sur votre compte."
+      );
+      return;
     }
-  };
 
-  const fetchPhotos = async () => {
+    setNotes(data || []);
+  }, [dossierId]);
+
+  const fetchPhotos = useCallback(async () => {
     const { data, error } = await supabase
       .from("photos_dossier")
       .select("*")
       .eq("dossier_id", dossierId)
       .order("id", { ascending: false });
 
-    if (!error) {
-      setPhotos(data || []);
+    if (error) {
+      setPhotos([]);
+      setDocumentsNotice(
+        "Les notes et fichiers de ce dossier sont limites sur votre compte."
+      );
+      return;
     }
-  };
+
+    setPhotos(data || []);
+  }, [dossierId]);
 
   useEffect(() => {
-    const init = async () => {
-      const { data: userData } = await supabase.auth.getUser();
+    async function init() {
+      if (accessLoading) return;
 
-      if (!userData.user) {
+      if (!user) {
         router.push("/employe/login");
         return;
       }
 
-      await fetchDossier();
-      await fetchNotes();
-      await fetchPhotos();
-      setLoading(false);
-    };
+      if (!hasPermission("dossiers")) {
+        setLoading(false);
+        return;
+      }
 
-    init();
-  }, [dossierId, router]);
+      setLoading(true);
+      setFeedback("");
+      setDocumentsNotice("");
+
+      const dossierLoaded = await fetchDossier();
+
+      if (dossierLoaded && canUseDocuments) {
+        await Promise.all([fetchNotes(), fetchPhotos()]);
+      } else {
+        setNotes([]);
+        setPhotos([]);
+        if (!canUseDocuments) {
+          setDocumentsNotice(
+            "La permission documents n est pas active sur votre compte. Les notes et medias sont masques, mais le dossier reste consultable."
+          );
+        }
+      }
+
+      setLoading(false);
+    }
+
+    void init();
+  }, [accessLoading, canUseDocuments, dossierId, fetchDossier, fetchNotes, fetchPhotos, hasPermission, router, user]);
 
   const handleAddNote = async () => {
-    if (!contenu.trim()) {
-      alert("Écris une note");
+    if (!user) {
+      router.push("/employe/login");
       return;
     }
 
-    const { data: userData } = await supabase.auth.getUser();
-
-    if (!userData.user) {
-      alert("Non connecté");
-      router.push("/employe/login");
+    if (!contenu.trim()) {
+      setFeedback("Ecris une note avant de l ajouter.");
       return;
     }
 
@@ -122,12 +170,14 @@ export default function DossierPage() {
       {
         dossier_id: dossierId,
         contenu,
-        user_id: userData.user.id,
+        user_id: user.id,
       },
     ]);
 
     if (error) {
-      alert("Erreur: " + error.message);
+      setFeedback(
+        "Impossible d ajouter la note. Verifie la permission documents sur ce compte."
+      );
       return;
     }
 
@@ -139,30 +189,20 @@ export default function DossierPage() {
       .eq("id", dossierId);
 
     setContenu("");
+    setFeedback("");
     await fetchDossier();
     await fetchNotes();
   };
 
-  const handleUploadPhoto = async (
-    e: React.ChangeEvent<HTMLInputElement>
-  ) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    const { data: userData } = await supabase.auth.getUser();
-
-    if (!userData.user) {
-      alert("Non connecté");
-      router.push("/employe/login");
-      return;
-    }
+  const handleUploadPhoto = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file || !user) return;
 
     setUploading(true);
+    setFeedback("");
 
     const fileExt = file.name.split(".").pop();
-    const fileName = `${Date.now()}-${Math.random()
-      .toString(36)
-      .slice(2)}.${fileExt}`;
+    const fileName = `${Date.now()}-${Math.random().toString(36).slice(2)}.${fileExt}`;
     const filePath = `dossier-${dossierId}/${fileName}`;
 
     const { error: uploadError } = await supabase.storage
@@ -170,7 +210,9 @@ export default function DossierPage() {
       .upload(filePath, file);
 
     if (uploadError) {
-      alert("Erreur upload: " + uploadError.message);
+      setFeedback(
+        "Impossible d envoyer ce fichier. Verifie la permission documents et l acces au stockage."
+      );
       setUploading(false);
       return;
     }
@@ -181,28 +223,28 @@ export default function DossierPage() {
 
     const imageUrl = publicUrlData.publicUrl;
 
-    const { error: insertError } = await supabase
-      .from("photos_dossier")
-      .insert([
-        {
-          dossier_id: dossierId,
-          image_url: imageUrl,
-          user_id: userData.user.id,
-        },
-      ]);
+    const { error: insertError } = await supabase.from("photos_dossier").insert([
+      {
+        dossier_id: dossierId,
+        image_url: imageUrl,
+        user_id: user.id,
+      },
+    ]);
 
     if (insertError) {
-      alert("Erreur enregistrement photo: " + insertError.message);
+      setFeedback(
+        "Le fichier a ete envoye mais son enregistrement a echoue. Verifie les droits documents."
+      );
       setUploading(false);
       return;
     }
 
-    const isUploadedVideo = isVideo(imageUrl);
+    const uploadedVideo = isVideo(imageUrl);
 
     await supabase
       .from("dossiers")
       .update({
-        nb_photos: isUploadedVideo
+        nb_photos: uploadedVideo
           ? dossier?.nb_photos || 0
           : (dossier?.nb_photos || 0) + 1,
         nb_fichiers: (dossier?.nb_fichiers || 0) + 1,
@@ -212,30 +254,26 @@ export default function DossierPage() {
     await fetchDossier();
     await fetchPhotos();
     setUploading(false);
-
-    e.target.value = "";
+    event.target.value = "";
   };
 
   const handleDeletePhoto = async (photoId: number, imageUrl: string) => {
     const confirmation = window.confirm("Supprimer ce fichier ?");
     if (!confirmation) return;
 
-    const { error } = await supabase
-      .from("photos_dossier")
-      .delete()
-      .eq("id", photoId);
+    const { error } = await supabase.from("photos_dossier").delete().eq("id", photoId);
 
     if (error) {
-      alert("Erreur suppression: " + error.message);
+      setFeedback("Impossible de supprimer ce fichier pour le moment.");
       return;
     }
 
-    const isDeletedVideo = isVideo(imageUrl);
+    const deletedVideo = isVideo(imageUrl);
 
     await supabase
       .from("dossiers")
       .update({
-        nb_photos: isDeletedVideo
+        nb_photos: deletedVideo
           ? dossier?.nb_photos || 0
           : Math.max((dossier?.nb_photos || 0) - 1, 0),
         nb_fichiers: Math.max((dossier?.nb_fichiers || 0) - 1, 0),
@@ -246,298 +284,218 @@ export default function DossierPage() {
     await fetchPhotos();
   };
 
-  if (loading) {
+  if (accessLoading || loading) {
     return (
-      <div
-        style={{
-          minHeight: "100vh",
-          background: "#f5f7fb",
-          padding: "30px 40px",
-          fontFamily: "Arial, sans-serif",
-        }}
-      >
-        Chargement...
+      <div className="page-container">
+        <HeaderTagora title={`Dossier #${dossierId}`} subtitle="Notes, photos et videos terrain" />
+        <AccessNotice description="Verification des acces dossier et chargement des donnees en cours." />
+      </div>
+    );
+  }
+
+  if (!hasPermission("dossiers")) {
+    return (
+      <div className="page-container">
+        <HeaderTagora title={`Dossier #${dossierId}`} subtitle="Notes, photos et videos terrain" />
+        <AccessNotice description="La permission dossiers n est pas active sur votre compte. Le detail du dossier reste donc bloque." />
       </div>
     );
   }
 
   return (
-    <div
-      style={{
-        minHeight: "100vh",
-        background: "#f5f7fb",
-        padding: "30px 40px",
-        color: "#0f172a",
-        fontFamily: "Arial, sans-serif",
-      }}
-    >
-      <HeaderTagora
-        title={`Dossier #${dossierId}`}
-        subtitle="Notes, photos et vidéos terrain"
-      />
+    <div className="page-container">
+      <HeaderTagora title={dossierTitle} subtitle="Notes, photos et videos terrain" />
 
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "1.2fr 1fr",
-          gap: 20,
-          alignItems: "start",
-        }}
-      >
-        <div
-          style={{
-            background: "white",
-            borderRadius: 20,
-            padding: 24,
-            border: "1px solid #e5e7eb",
-            boxShadow: "0 16px 36px rgba(15, 23, 42, 0.08)",
-          }}
-        >
-          <h2
-            style={{
-              marginTop: 0,
-              marginBottom: 18,
-              fontSize: 28,
-              color: "#17376b",
-            }}
-          >
-            Ajouter une note
-          </h2>
-
-          <textarea
-            placeholder="Écrire une note terrain..."
-            value={contenu}
-            onChange={(e) => setContenu(e.target.value)}
-            onFocus={(e) => {
-              e.currentTarget.style.border = "1px solid #17376b";
-              e.currentTarget.style.boxShadow =
-                "0 0 0 3px rgba(23, 55, 107, 0.15)";
-            }}
-            onBlur={(e) => {
-              e.currentTarget.style.border = "1px solid #cbd5e1";
-              e.currentTarget.style.boxShadow = "none";
-            }}
-            style={{
-              width: "100%",
-              height: 130,
-              padding: 14,
-              border: "1px solid #cbd5e1",
-              borderRadius: 12,
-              background: "white",
-              color: "black",
-              display: "block",
-              resize: "none",
-              boxSizing: "border-box",
-              outline: "none",
-              transition: "all 0.2s ease",
-            }}
-          />
-
-          <br />
-
-          <button
-            onClick={handleAddNote}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.transform = "scale(1.05)";
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.transform = "scale(1)";
-            }}
-            style={{
-              padding: "12px 18px",
-              border: "none",
-              borderRadius: 12,
-              background: "#d6b21f",
-              color: "#1e293b",
-              cursor: "pointer",
-              fontWeight: 700,
-              fontSize: 15,
-              transition: "all 0.15s ease",
-            }}
-          >
-            Ajouter la note
-          </button>
-
-          <h2
-            style={{
-              marginTop: 28,
-              marginBottom: 16,
-              fontSize: 26,
-              color: "#17376b",
-            }}
-          >
-            Notes
-          </h2>
-
-          {notes.length === 0 ? (
-            <p>Aucune note pour le moment.</p>
-          ) : (
-            notes.map((note) => (
-              <div
-                key={note.id}
-                style={{
-                  border: "1px solid #e5e7eb",
-                  marginBottom: 10,
-                  padding: 14,
-                  borderRadius: 14,
-                  background: "#fafafa",
-                  boxShadow: "0 6px 14px rgba(15, 23, 42, 0.04)",
-                }}
-              >
-                {note.contenu}
-              </div>
-            ))
-          )}
+      {feedback ? <AccessNotice title="Action bloquee" description={feedback} /> : null}
+      {documentsNotice ? (
+        <div style={{ marginTop: feedback ? 18 : 0 }}>
+          <AccessNotice title="Acces partiel" description={documentsNotice} />
         </div>
+      ) : null}
 
-        <div
-          style={{
-            background: "white",
-            borderRadius: 20,
-            padding: 24,
-            border: "1px solid #e5e7eb",
-            boxShadow: "0 16px 36px rgba(15, 23, 42, 0.08)",
-          }}
-        >
-          <h2
-            style={{
-              marginTop: 0,
-              marginBottom: 16,
-              fontSize: 28,
-              color: "#17376b",
-            }}
-          >
-            Ajouter photos et vidéos
-          </h2>
-
-          <p style={{ marginBottom: 8 }}>Maximum 15 fichiers par dossier</p>
-
-          <p style={{ marginTop: 0, color: "#475569" }}>
-            Fichiers déjà dans le dossier : {dossier?.nb_fichiers || 0}/15
-          </p>
-
-          <input
-            type="file"
-            accept="image/*,video/*"
-            onChange={handleUploadPhoto}
-            style={{
-              width: "100%",
-              padding: 12,
-              borderRadius: 12,
-              border: "1px solid #cbd5e1",
-              background: "white",
-              boxSizing: "border-box",
-            }}
-          />
-
-          {uploading && <p>Upload en cours...</p>}
-
-          <h2
-            style={{
-              marginTop: 28,
-              marginBottom: 16,
-              fontSize: 26,
-              color: "#17376b",
-            }}
-          >
-            Photos et vidéos du dossier
-          </h2>
-
-          {photos.length === 0 ? (
-            <p>Aucun fichier pour le moment.</p>
-          ) : (
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))",
-                gap: 14,
-              }}
-            >
-              {photos.map((photo) => (
-                <div
-                  key={photo.id}
-                  style={{
-                    border: "1px solid #e5e7eb",
-                    borderRadius: 14,
-                    padding: 10,
-                    background: "#fff",
-                    boxShadow: "0 8px 20px rgba(15, 23, 42, 0.05)",
-                  }}
-                >
-                  <div
-                    style={{
-                      width: "100%",
-                      height: 140,
-                      overflow: "hidden",
-                      borderRadius: 10,
-                      background: "#f8fafc",
-                      marginBottom: 10,
-                    }}
-                  >
-                    {isVideo(photo.image_url) ? (
-                      <video
-                        src={photo.image_url}
-                        controls
-                        style={{
-                          width: "100%",
-                          height: "100%",
-                          objectFit: "cover",
-                          display: "block",
-                        }}
-                      />
-                    ) : (
-                      <img
-                        src={photo.image_url}
-                        alt="Photo dossier"
-                        style={{
-                          width: "100%",
-                          height: "100%",
-                          objectFit: "cover",
-                          display: "block",
-                        }}
-                      />
-                    )}
-                  </div>
-
-                  <button
-                    onClick={() => handleDeletePhoto(photo.id, photo.image_url)}
-                    style={{
-                      padding: "8px 12px",
-                      border: "1px solid #fca5a5",
-                      borderRadius: 12,
-                      background: "#fff",
-                      color: "#dc2626",
-                      cursor: "pointer",
-                      fontWeight: 700,
-                      transition: "all 0.15s ease",
-                    }}
-                  >
-                    Supprimer
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
+      <div className="tagora-panel" style={{ marginTop: 24 }}>
+        <h2 className="section-title" style={{ marginBottom: 12 }}>
+          Resume du dossier
+        </h2>
+        {dossier ? (
+          <div className="tagora-note" style={{ display: "grid", gap: 8 }}>
+            <div><strong>Nom :</strong> {dossier.nom || `Dossier #${dossier.id}`}</div>
+            <div><strong>Client :</strong> {dossier.client || "-"}</div>
+            <div><strong>Description :</strong> {dossier.description || "-"}</div>
+            <div><strong>Photos :</strong> {dossier.nb_photos || 0}</div>
+            <div><strong>Notes :</strong> {dossier.nb_notes || 0}</div>
+            <div><strong>Fichiers :</strong> {dossier.nb_fichiers || 0}</div>
+          </div>
+        ) : (
+          <p className="tagora-note">Aucun detail de dossier disponible.</p>
+        )}
       </div>
 
-      <br />
+      {canUseDocuments ? (
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "minmax(0, 1.1fr) minmax(0, 1fr)",
+            gap: 20,
+            alignItems: "start",
+            marginTop: 24,
+          }}
+        >
+          <div className="tagora-panel">
+            <h2 className="section-title" style={{ marginBottom: 18 }}>
+              Ajouter une note
+            </h2>
 
-      <button
-        onClick={() => router.push("/employe/dashboard")}
-        style={{
-          padding: "12px 18px",
-          border: "none",
-          borderRadius: 12,
-          background: "#17376b",
-          color: "white",
-          cursor: "pointer",
-          fontWeight: 700,
-          fontSize: 16,
-        }}
-      >
-        Retour au dashboard
-      </button>
+            <textarea
+              placeholder="Ecrire une note terrain..."
+              value={contenu}
+              onChange={(event) => setContenu(event.target.value)}
+              className="tagora-textarea"
+            />
+
+            <button
+              onClick={handleAddNote}
+              className="tagora-dark-action"
+              style={{ marginTop: 18 }}
+            >
+              Ajouter la note
+            </button>
+
+            <h2 className="section-title" style={{ marginTop: 28, marginBottom: 16 }}>
+              Notes
+            </h2>
+
+            {notes.length === 0 ? (
+              <p className="tagora-note">Aucune note pour le moment.</p>
+            ) : (
+              <div style={{ display: "grid", gap: 12 }}>
+                {notes.map((note) => (
+                  <div
+                    key={note.id}
+                    style={{
+                      border: "1px solid #e5e7eb",
+                      marginBottom: 0,
+                      padding: 14,
+                      borderRadius: 14,
+                      background: "#fafafa",
+                    }}
+                  >
+                    <div style={{ color: "#0f172a", marginBottom: note.created_at ? 8 : 0 }}>
+                      {note.contenu}
+                    </div>
+                    {note.created_at ? (
+                      <div className="tagora-note">
+                        {new Date(note.created_at).toLocaleString("fr-CA")}
+                      </div>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="tagora-panel">
+            <h2 className="section-title" style={{ marginBottom: 16 }}>
+              Ajouter photos et videos
+            </h2>
+
+            <p className="tagora-note" style={{ marginBottom: 8 }}>
+              Maximum 15 fichiers par dossier.
+            </p>
+
+            <p className="tagora-note" style={{ marginBottom: 18 }}>
+              Fichiers deja dans le dossier : {dossier?.nb_fichiers || 0}/15
+            </p>
+
+            <input
+              type="file"
+              accept="image/*,video/*"
+              onChange={handleUploadPhoto}
+              className="tagora-input"
+            />
+
+            {uploading ? <p className="tagora-note" style={{ marginTop: 12 }}>Upload en cours...</p> : null}
+
+            <h2 className="section-title" style={{ marginTop: 28, marginBottom: 16 }}>
+              Photos et videos du dossier
+            </h2>
+
+            {photos.length === 0 ? (
+              <p className="tagora-note">Aucun fichier pour le moment.</p>
+            ) : (
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))",
+                  gap: 14,
+                }}
+              >
+                {photos.map((photo) => (
+                  <div
+                    key={photo.id}
+                    style={{
+                      border: "1px solid #e5e7eb",
+                      borderRadius: 14,
+                      padding: 10,
+                      background: "#fff",
+                    }}
+                  >
+                    <div
+                      style={{
+                        width: "100%",
+                        height: 140,
+                        overflow: "hidden",
+                        borderRadius: 10,
+                        background: "#f8fafc",
+                        marginBottom: 10,
+                        position: "relative",
+                      }}
+                    >
+                      {isVideo(photo.image_url) ? (
+                        <video
+                          src={photo.image_url}
+                          controls
+                          style={{
+                            width: "100%",
+                            height: "100%",
+                            objectFit: "cover",
+                            display: "block",
+                          }}
+                        />
+                      ) : (
+                        <Image
+                          src={photo.image_url}
+                          alt="Photo dossier"
+                          fill
+                          sizes="200px"
+                          style={{ objectFit: "cover" }}
+                        />
+                      )}
+                    </div>
+
+                    <button
+                      onClick={() => handleDeletePhoto(photo.id, photo.image_url)}
+                      className="tagora-dark-outline-action"
+                    >
+                      Supprimer
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      ) : null}
+
+      <div className="actions-row" style={{ marginTop: 24 }}>
+        <button
+          onClick={() => router.push("/employe/dashboard")}
+          className="tagora-navy-action"
+        >
+          Retour au dashboard
+        </button>
+      </div>
     </div>
   );
 }
+

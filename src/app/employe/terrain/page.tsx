@@ -1,9 +1,11 @@
 "use client";
 
-import HeaderTagora from "../../components/HeaderTagora";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import HeaderTagora from "../../components/HeaderTagora";
+import AccessNotice from "../../components/AccessNotice";
 import { supabase } from "../../lib/supabase/client";
+import { useCurrentAccess } from "../../hooks/useCurrentAccess";
 
 type SortieTerrain = {
   id: number;
@@ -29,8 +31,7 @@ type DossierOption = {
 
 function formatDateTime(dateString: string | null) {
   if (!dateString) return "-";
-  const d = new Date(dateString);
-  return d.toLocaleString("fr-CA");
+  return new Date(dateString).toLocaleString("fr-CA");
 }
 
 function calculerTempsTotal(departIso: string, retourIso: string) {
@@ -44,15 +45,12 @@ function calculerTempsTotal(departIso: string, retourIso: string) {
   const heures = Math.floor(totalMinutes / 60);
   const minutes = totalMinutes % 60;
 
-  if (heures > 0) {
-    return `${heures}h ${minutes}min`;
-  }
-
-  return `${minutes} min`;
+  return heures > 0 ? `${heures}h ${minutes}min` : `${minutes} min`;
 }
 
 export default function TerrainPage() {
   const router = useRouter();
+  const { user, loading: accessLoading, hasPermission } = useCurrentAccess();
 
   const [compagnie, setCompagnie] = useState("");
   const [client, setClient] = useState("");
@@ -63,53 +61,20 @@ export default function TerrainPage() {
   const [notes, setNotes] = useState("");
 
   const [saving, setSaving] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [sortieActive, setSortieActive] = useState<SortieTerrain | null>(null);
   const [historique, setHistorique] = useState<SortieTerrain[]>([]);
   const [dossiers, setDossiers] = useState<DossierOption[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [feedback, setFeedback] = useState("");
+  const [secondaryNotice, setSecondaryNotice] = useState("");
 
   const getNomDossier = (id: number | null) => {
     if (!id) return "-";
-    const dossier = dossiers.find((d) => d.id === id);
+    const dossier = dossiers.find((item) => item.id === id);
     return dossier?.nom || `Dossier #${id}`;
   };
 
-  const chargerDossiers = async () => {
-    const { data: userData } = await supabase.auth.getUser();
-
-    if (!userData.user) {
-      router.push("/employe/login");
-      return;
-    }
-
-    const { data, error } = await supabase
-      .from("dossiers")
-      .select("id, nom, client")
-      .eq("user_id", userData.user.id)
-      .order("id", { ascending: false });
-
-    if (error) {
-      alert("Erreur chargement dossiers : " + error.message);
-      return;
-    }
-
-    const dossiersFiltres = (data || []).filter(
-      (d) => d.nom?.trim() || d.client?.trim()
-    ) as DossierOption[];
-
-    setDossiers(dossiersFiltres);
-  };
-
-  const chargerSorties = async () => {
-    const { data: userData } = await supabase.auth.getUser();
-
-    if (!userData.user) {
-      router.push("/employe/login");
-      return;
-    }
-
-    const userId = userData.user.id;
-
+  async function chargerSorties(userId: string) {
     const { data, error } = await supabase
       .from("sorties_terrain")
       .select("*")
@@ -117,35 +82,64 @@ export default function TerrainPage() {
       .order("id", { ascending: false });
 
     if (error) {
-      alert("Erreur chargement sorties : " + error.message);
+      setFeedback(
+        "Les sorties terrain ne sont pas accessibles pour le moment. Verifie vos permissions terrain."
+      );
+      setSortieActive(null);
+      setHistorique([]);
       return;
     }
 
     const sorties = (data || []) as SortieTerrain[];
+    setSortieActive(sorties.find((item) => item.statut === "en_cours") || null);
+    setHistorique(sorties.filter((item) => item.statut !== "en_cours").slice(0, 10));
+  }
 
-    const active = sorties.find((s) => s.statut === "en_cours") || null;
-    const terminees = sorties.filter((s) => s.statut !== "en_cours");
+  async function chargerDossiers(userId: string) {
+    const { data, error } = await supabase
+      .from("dossiers")
+      .select("id, nom, client")
+      .eq("user_id", userId)
+      .order("id", { ascending: false });
 
-    setSortieActive(active);
-    setHistorique(terminees.slice(0, 10));
-  };
+    if (error) {
+      setDossiers([]);
+      setSecondaryNotice(
+        "Les dossiers lies ne sont pas disponibles sur ce compte. Vous pouvez tout de meme gerer vos sorties terrain sans rattacher de dossier."
+      );
+      return;
+    }
+
+    const dossiersFiltres = (data || []).filter(
+      (item) => item.nom?.trim() || item.client?.trim()
+    ) as DossierOption[];
+
+    setDossiers(dossiersFiltres);
+    setSecondaryNotice("");
+  }
 
   useEffect(() => {
-    const init = async () => {
-      const { data: userData } = await supabase.auth.getUser();
+    async function init() {
+      if (accessLoading) return;
 
-      if (!userData.user) {
+      if (!user) {
         router.push("/employe/login");
         return;
       }
 
-      await chargerDossiers();
-      await chargerSorties();
-      setLoading(false);
-    };
+      if (!hasPermission("terrain")) {
+        setLoading(false);
+        return;
+      }
 
-    init();
-  }, [router]);
+      setLoading(true);
+      setFeedback("");
+      await Promise.all([chargerSorties(user.id), chargerDossiers(user.id)]);
+      setLoading(false);
+    }
+
+    void init();
+  }, [accessLoading, hasPermission, router, user]);
 
   const handleChoixDossier = (value: string) => {
     setDossierId(value);
@@ -153,7 +147,7 @@ export default function TerrainPage() {
     const id = Number(value);
     if (!id) return;
 
-    const dossierChoisi = dossiers.find((d) => d.id === id);
+    const dossierChoisi = dossiers.find((item) => item.id === id);
     if (!dossierChoisi) return;
 
     if (!client && dossierChoisi.client) {
@@ -162,38 +156,34 @@ export default function TerrainPage() {
   };
 
   const handleDemarrer = async () => {
+    if (!user) {
+      router.push("/employe/login");
+      return;
+    }
+
     if (!compagnie.trim()) {
-      alert("Entre une compagnie");
+      setFeedback("Entre une compagnie avant de demarrer la sortie.");
       return;
     }
 
     if (!client.trim()) {
-      alert("Entre un client");
+      setFeedback("Entre un client avant de demarrer la sortie.");
       return;
     }
 
     if (!vehicule.trim()) {
-      alert("Entre un véhicule");
+      setFeedback("Entre un vehicule avant de demarrer la sortie.");
       return;
     }
 
     if (!kmDepart.trim()) {
-      alert("Entre le km de départ");
+      setFeedback("Entre le kilometre de depart.");
       return;
     }
 
     const kmDepartNumber = Number(kmDepart);
-
     if (Number.isNaN(kmDepartNumber)) {
-      alert("Le km de départ doit être un nombre");
-      return;
-    }
-
-    const { data: userData } = await supabase.auth.getUser();
-
-    if (!userData.user) {
-      alert("Non connecté");
-      router.push("/employe/login");
+      setFeedback("Le kilometre de depart doit etre numerique.");
       return;
     }
 
@@ -201,8 +191,7 @@ export default function TerrainPage() {
     const dossierNom = dossierIdNumber ? getNomDossier(dossierIdNumber) : null;
 
     setSaving(true);
-
-    const now = new Date().toISOString();
+    setFeedback("");
 
     const { error } = await supabase.from("sorties_terrain").insert([
       {
@@ -212,21 +201,21 @@ export default function TerrainPage() {
         dossier_id: dossierIdNumber,
         vehicule,
         km_depart: kmDepartNumber,
-        notes,
-        heure_depart: now,
+        notes: notes.trim() || null,
+        heure_depart: new Date().toISOString(),
         statut: "en_cours",
-        user_id: userData.user.id,
+        user_id: user.id,
       },
     ]);
 
     setSaving(false);
 
     if (error) {
-      alert("Erreur : " + error.message);
+      setFeedback(
+        "Impossible de demarrer la sortie. Verifie l acces terrain ou les champs requis."
+      );
       return;
     }
-
-    alert("Sortie terrain démarrée");
 
     setCompagnie("");
     setClient("");
@@ -235,25 +224,28 @@ export default function TerrainPage() {
     setKmDepart("");
     setKmArrivee("");
     setNotes("");
-
-    await chargerSorties();
+    await chargerSorties(user.id);
   };
 
   const handleTerminer = async () => {
+    if (!user) {
+      router.push("/employe/login");
+      return;
+    }
+
     if (!sortieActive) {
-      alert("Aucune sortie active");
+      setFeedback("Aucune sortie active a terminer.");
       return;
     }
 
     if (!kmArrivee.trim()) {
-      alert("Entre le km de retour");
+      setFeedback("Entre le kilometre de retour.");
       return;
     }
 
     const kmArriveeNumber = Number(kmArrivee);
-
     if (Number.isNaN(kmArriveeNumber)) {
-      alert("Le km de retour doit être un nombre");
+      setFeedback("Le kilometre de retour doit etre numerique.");
       return;
     }
 
@@ -264,6 +256,7 @@ export default function TerrainPage() {
     );
 
     setSaving(true);
+    setFeedback("");
 
     const { error } = await supabase
       .from("sorties_terrain")
@@ -279,289 +272,210 @@ export default function TerrainPage() {
     setSaving(false);
 
     if (error) {
-      alert("Erreur : " + error.message);
+      setFeedback(
+        "Impossible de terminer la sortie. Verifie que la sortie est toujours accessible."
+      );
       return;
     }
 
-    alert("Sortie terrain terminée");
-
     setKmArrivee("");
     setNotes("");
-
-    await chargerSorties();
+    await chargerSorties(user.id);
   };
 
-  if (loading) {
+  if (accessLoading || loading) {
     return (
-      <div
-        style={{
-          minHeight: "100vh",
-          background: "#f5f7fb",
-          padding: "30px 40px",
-          fontFamily: "Arial, sans-serif",
-        }}
-      >
-        Chargement...
+      <div className="page-container">
+        <HeaderTagora
+          title="Terrain employe"
+          subtitle="Sorties, livraisons et interventions"
+        />
+        <AccessNotice description="Verification des acces terrain et chargement des donnees en cours." />
+      </div>
+    );
+  }
+
+  if (!hasPermission("terrain")) {
+    return (
+      <div className="page-container">
+        <HeaderTagora
+          title="Terrain employe"
+          subtitle="Sorties, livraisons et interventions"
+        />
+        <AccessNotice description="La permission terrain n est pas active sur votre compte. Cette page reste masquee tant que cet acces n a pas ete accorde." />
       </div>
     );
   }
 
   return (
-    <div
-      style={{
-        minHeight: "100vh",
-        background: "#f5f7fb",
-        padding: "30px 40px",
-        color: "#0f172a",
-        fontFamily: "Arial, sans-serif",
-      }}
-    >
+    <div className="page-container">
       <HeaderTagora
-        title="Terrain employé"
+        title="Terrain employe"
         subtitle="Sorties, livraisons et interventions"
       />
+
+      {feedback ? <AccessNotice title="Action bloquee" description={feedback} /> : null}
+      {secondaryNotice ? (
+        <div style={{ marginTop: feedback ? 18 : 0 }}>
+          <AccessNotice title="Acces partiel" description={secondaryNotice} />
+        </div>
+      ) : null}
 
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: "1fr 1fr",
+          gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
           gap: 24,
           alignItems: "start",
+          marginTop: 24,
           marginBottom: 24,
         }}
       >
-        <div
-          style={{
-            background: "white",
-            borderRadius: 20,
-            padding: 26,
-            border: "1px solid #e5e7eb",
-            boxShadow: "0 16px 36px rgba(15, 23, 42, 0.08)",
-          }}
-        >
-          <h2 style={{ marginTop: 0, color: "#17376b" }}>
-            Démarrer une sortie
+        <div className="tagora-panel">
+          <h2 className="section-title" style={{ marginBottom: 18 }}>
+            Demarrer une sortie
           </h2>
 
-          <div style={{ marginBottom: 16 }}>
-            <div style={{ fontWeight: 700, marginBottom: 6 }}>Compagnie</div>
-            <input
-              value={compagnie}
-              onChange={(e) => setCompagnie(e.target.value)}
-              style={{
-                width: "100%",
-                padding: 14,
-                borderRadius: 12,
-                border: "1px solid #cbd5e1",
-                outline: "none",
-                boxSizing: "border-box",
-              }}
-            />
-          </div>
+          <div className="tagora-form-grid">
+            <label className="tagora-field">
+              <span className="tagora-label">Compagnie</span>
+              <input
+                value={compagnie}
+                onChange={(event) => setCompagnie(event.target.value)}
+                className="tagora-input"
+              />
+            </label>
 
-          <div style={{ marginBottom: 16 }}>
-            <div style={{ fontWeight: 700, marginBottom: 6 }}>Client</div>
-            <input
-              value={client}
-              onChange={(e) => setClient(e.target.value)}
-              style={{
-                width: "100%",
-                padding: 14,
-                borderRadius: 12,
-                border: "1px solid #cbd5e1",
-                outline: "none",
-                boxSizing: "border-box",
-              }}
-            />
-          </div>
+            <label className="tagora-field">
+              <span className="tagora-label">Client</span>
+              <input
+                value={client}
+                onChange={(event) => setClient(event.target.value)}
+                className="tagora-input"
+              />
+            </label>
 
-          <div style={{ marginBottom: 16 }}>
-            <div style={{ fontWeight: 700, marginBottom: 6 }}>Dossier lié</div>
-            <select
-              value={dossierId}
-              onChange={(e) => handleChoixDossier(e.target.value)}
-              style={{
-                width: "100%",
-                padding: 14,
-                borderRadius: 12,
-                border: "1px solid #cbd5e1",
-                outline: "none",
-                boxSizing: "border-box",
-                background: "white",
-              }}
-            >
-              <option value="">Choisir un dossier</option>
-              {dossiers.map((dossier) => (
-                <option key={dossier.id} value={dossier.id}>
-                  {dossier.nom || `Dossier #${dossier.id}`}
-                  {dossier.client ? ` - ${dossier.client}` : ""}
-                </option>
-              ))}
-            </select>
-          </div>
+            <label className="tagora-field">
+              <span className="tagora-label">Dossier lie</span>
+              <select
+                value={dossierId}
+                onChange={(event) => handleChoixDossier(event.target.value)}
+                className="tagora-input"
+              >
+                <option value="">Choisir un dossier</option>
+                {dossiers.map((dossier) => (
+                  <option key={dossier.id} value={dossier.id}>
+                    {dossier.nom || `Dossier #${dossier.id}`}
+                    {dossier.client ? ` - ${dossier.client}` : ""}
+                  </option>
+                ))}
+              </select>
+            </label>
 
-          <div style={{ marginBottom: 16 }}>
-            <div style={{ fontWeight: 700, marginBottom: 6 }}>Véhicule</div>
-            <input
-              value={vehicule}
-              onChange={(e) => setVehicule(e.target.value)}
-              placeholder="Camion 1, Camion 2, Personnel"
-              style={{
-                width: "100%",
-                padding: 14,
-                borderRadius: 12,
-                border: "1px solid #cbd5e1",
-                outline: "none",
-                boxSizing: "border-box",
-              }}
-            />
-          </div>
+            <label className="tagora-field">
+              <span className="tagora-label">Vehicule</span>
+              <input
+                value={vehicule}
+                onChange={(event) => setVehicule(event.target.value)}
+                placeholder="Camion 1, personnel, remorque"
+                className="tagora-input"
+              />
+            </label>
 
-          <div style={{ marginBottom: 16 }}>
-            <div style={{ fontWeight: 700, marginBottom: 6 }}>KM départ</div>
-            <input
-              value={kmDepart}
-              onChange={(e) => setKmDepart(e.target.value)}
-              placeholder="Ex: 2587"
-              type="number"
-              style={{
-                width: "100%",
-                padding: 14,
-                borderRadius: 12,
-                border: "1px solid #cbd5e1",
-                outline: "none",
-                boxSizing: "border-box",
-              }}
-            />
-          </div>
+            <label className="tagora-field">
+              <span className="tagora-label">KM depart</span>
+              <input
+                value={kmDepart}
+                onChange={(event) => setKmDepart(event.target.value)}
+                type="number"
+                className="tagora-input"
+              />
+            </label>
 
-          <div style={{ marginBottom: 16 }}>
-            <div style={{ fontWeight: 700, marginBottom: 6 }}>Notes départ</div>
-            <textarea
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              placeholder="Ajoute les détails de la sortie..."
-              style={{
-                width: "100%",
-                height: 120,
-                padding: 14,
-                borderRadius: 12,
-                border: "1px solid #cbd5e1",
-                resize: "none",
-                outline: "none",
-                boxSizing: "border-box",
-              }}
-            />
+            <label className="tagora-field" style={{ gridColumn: "1 / -1" }}>
+              <span className="tagora-label">Notes depart</span>
+              <textarea
+                value={notes}
+                onChange={(event) => setNotes(event.target.value)}
+                placeholder="Details de la sortie, consignes, client, contraintes."
+                className="tagora-textarea"
+              />
+            </label>
           </div>
 
           <button
             onClick={handleDemarrer}
             disabled={saving || !!sortieActive}
-            style={{
-              padding: "12px 20px",
-              border: "none",
-              borderRadius: 12,
-              background: sortieActive ? "#94a3b8" : "#d6b21f",
-              color: sortieActive ? "white" : "#1e293b",
-              cursor: sortieActive ? "not-allowed" : "pointer",
-              fontWeight: 700,
-              fontSize: 16,
-            }}
+            className="tagora-dark-action"
+            style={{ marginTop: 18 }}
           >
-            {saving ? "Enregistrement..." : "Démarrer la sortie"}
+            {saving ? "Enregistrement..." : "Demarrer la sortie"}
           </button>
         </div>
 
-        <div
-          style={{
-            background: "white",
-            borderRadius: 20,
-            padding: 26,
-            border: "1px solid #e5e7eb",
-            boxShadow: "0 16px 36px rgba(15, 23, 42, 0.08)",
-          }}
-        >
-          <h2 style={{ marginTop: 0, color: "#17376b" }}>Sortie active</h2>
+        <div className="tagora-panel">
+          <h2 className="section-title" style={{ marginBottom: 18 }}>
+            Sortie active
+          </h2>
 
           {!sortieActive ? (
-            <p>Aucune sortie en cours pour le moment.</p>
+            <p className="tagora-note">
+              Aucune sortie en cours pour le moment.
+            </p>
           ) : (
             <>
-              <div style={{ marginBottom: 10 }}>
-                <strong>Compagnie :</strong> {sortieActive.compagnie || "-"}
-              </div>
-              <div style={{ marginBottom: 10 }}>
-                <strong>Client :</strong> {sortieActive.client || "-"}
-              </div>
-              <div style={{ marginBottom: 10 }}>
-                <strong>Dossier :</strong>{" "}
-                {sortieActive.dossier_id
-                  ? getNomDossier(sortieActive.dossier_id)
-                  : sortieActive.dossier || "-"}
-              </div>
-              <div style={{ marginBottom: 10 }}>
-                <strong>Véhicule :</strong> {sortieActive.vehicule || "-"}
-              </div>
-              <div style={{ marginBottom: 10 }}>
-                <strong>KM départ :</strong> {sortieActive.km_depart ?? "-"}
-              </div>
-              <div style={{ marginBottom: 18 }}>
-                <strong>Heure départ :</strong>{" "}
-                {formatDateTime(sortieActive.heure_depart)}
-              </div>
-
-              <div style={{ marginBottom: 16 }}>
-                <div style={{ fontWeight: 700, marginBottom: 6 }}>KM retour</div>
-                <input
-                  value={kmArrivee}
-                  onChange={(e) => setKmArrivee(e.target.value)}
-                  placeholder="Ex: 2644"
-                  type="number"
-                  style={{
-                    width: "100%",
-                    padding: 14,
-                    borderRadius: 12,
-                    border: "1px solid #cbd5e1",
-                    outline: "none",
-                    boxSizing: "border-box",
-                  }}
-                />
-              </div>
-
-              <div style={{ marginBottom: 16 }}>
-                <div style={{ fontWeight: 700, marginBottom: 6 }}>
-                  Notes de fin
+              <div className="tagora-note" style={{ display: "grid", gap: 8 }}>
+                <div>
+                  <strong>Compagnie :</strong> {sortieActive.compagnie || "-"}
                 </div>
-                <textarea
-                  value={notes}
-                  onChange={(e) => setNotes(e.target.value)}
-                  placeholder="Complète les détails de fin de sortie..."
-                  style={{
-                    width: "100%",
-                    height: 120,
-                    padding: 14,
-                    borderRadius: 12,
-                    border: "1px solid #cbd5e1",
-                    resize: "none",
-                    outline: "none",
-                    boxSizing: "border-box",
-                  }}
-                />
+                <div>
+                  <strong>Client :</strong> {sortieActive.client || "-"}
+                </div>
+                <div>
+                  <strong>Dossier :</strong>{" "}
+                  {sortieActive.dossier_id
+                    ? getNomDossier(sortieActive.dossier_id)
+                    : sortieActive.dossier || "-"}
+                </div>
+                <div>
+                  <strong>Vehicule :</strong> {sortieActive.vehicule || "-"}
+                </div>
+                <div>
+                  <strong>KM depart :</strong> {sortieActive.km_depart ?? "-"}
+                </div>
+                <div>
+                  <strong>Heure depart :</strong>{" "}
+                  {formatDateTime(sortieActive.heure_depart)}
+                </div>
+              </div>
+
+              <div className="tagora-form-grid" style={{ marginTop: 18 }}>
+                <label className="tagora-field">
+                  <span className="tagora-label">KM retour</span>
+                  <input
+                    value={kmArrivee}
+                    onChange={(event) => setKmArrivee(event.target.value)}
+                    type="number"
+                    className="tagora-input"
+                  />
+                </label>
+
+                <label className="tagora-field" style={{ gridColumn: "1 / -1" }}>
+                  <span className="tagora-label">Notes de fin</span>
+                  <textarea
+                    value={notes}
+                    onChange={(event) => setNotes(event.target.value)}
+                    placeholder="Completer les details de fin de sortie."
+                    className="tagora-textarea"
+                  />
+                </label>
               </div>
 
               <button
                 onClick={handleTerminer}
                 disabled={saving}
-                style={{
-                  padding: "12px 20px",
-                  border: "none",
-                  borderRadius: 12,
-                  background: "#17376b",
-                  color: "white",
-                  cursor: "pointer",
-                  fontWeight: 700,
-                  fontSize: 16,
-                }}
+                className="tagora-navy-action"
+                style={{ marginTop: 18 }}
               >
                 {saving ? "Enregistrement..." : "Terminer la sortie"}
               </button>
@@ -570,20 +484,15 @@ export default function TerrainPage() {
         </div>
       </div>
 
-      <div
-        style={{
-          background: "white",
-          borderRadius: 20,
-          padding: 26,
-          border: "1px solid #e5e7eb",
-          boxShadow: "0 16px 36px rgba(15, 23, 42, 0.08)",
-          marginBottom: 20,
-        }}
-      >
-        <h2 style={{ marginTop: 0, color: "#17376b" }}>Historique récent</h2>
+      <div className="tagora-panel">
+        <h2 className="section-title" style={{ marginBottom: 18 }}>
+          Historique recent
+        </h2>
 
         {historique.length === 0 ? (
-          <p>Aucune sortie terminée pour le moment.</p>
+          <p className="tagora-note">
+            Aucune sortie terminee pour le moment.
+          </p>
         ) : (
           <div style={{ display: "grid", gap: 14 }}>
             {historique.map((sortie) => {
@@ -597,47 +506,49 @@ export default function TerrainPage() {
                   key={sortie.id}
                   style={{
                     border: "1px solid #e5e7eb",
-                    borderRadius: 14,
+                    borderRadius: 16,
                     padding: 16,
                     background: "#fafafa",
                   }}
                 >
-                  <div style={{ marginBottom: 6 }}>
-                    <strong>Client :</strong> {sortie.client || "-"}
-                  </div>
-                  <div style={{ marginBottom: 6 }}>
-                    <strong>Compagnie :</strong> {sortie.compagnie || "-"}
-                  </div>
-                  <div style={{ marginBottom: 6 }}>
-                    <strong>Dossier :</strong>{" "}
-                    {sortie.dossier_id
-                      ? getNomDossier(sortie.dossier_id)
-                      : sortie.dossier || "-"}
-                  </div>
-                  <div style={{ marginBottom: 6 }}>
-                    <strong>Véhicule :</strong> {sortie.vehicule || "-"}
-                  </div>
-                  <div style={{ marginBottom: 6 }}>
-                    <strong>Départ :</strong> {formatDateTime(sortie.heure_depart)}
-                  </div>
-                  <div style={{ marginBottom: 6 }}>
-                    <strong>Retour :</strong> {formatDateTime(sortie.heure_retour)}
-                  </div>
-                  <div style={{ marginBottom: 6 }}>
-                    <strong>Temps total :</strong> {sortie.temps_total || "-"}
-                  </div>
-                  <div style={{ marginBottom: 6 }}>
-                    <strong>KM départ :</strong> {sortie.km_depart ?? "-"}
-                  </div>
-                  <div style={{ marginBottom: 6 }}>
-                    <strong>KM retour :</strong> {sortie.km_arrivee ?? "-"}
-                  </div>
-                  <div style={{ marginBottom: 6 }}>
-                    <strong>Distance :</strong>{" "}
-                    {distance != null ? `${distance} km` : "-"}
-                  </div>
-                  <div>
-                    <strong>Notes :</strong> {sortie.notes || "-"}
+                  <div className="tagora-note" style={{ display: "grid", gap: 6 }}>
+                    <div>
+                      <strong>Client :</strong> {sortie.client || "-"}
+                    </div>
+                    <div>
+                      <strong>Compagnie :</strong> {sortie.compagnie || "-"}
+                    </div>
+                    <div>
+                      <strong>Dossier :</strong>{" "}
+                      {sortie.dossier_id
+                        ? getNomDossier(sortie.dossier_id)
+                        : sortie.dossier || "-"}
+                    </div>
+                    <div>
+                      <strong>Vehicule :</strong> {sortie.vehicule || "-"}
+                    </div>
+                    <div>
+                      <strong>Depart :</strong> {formatDateTime(sortie.heure_depart)}
+                    </div>
+                    <div>
+                      <strong>Retour :</strong> {formatDateTime(sortie.heure_retour)}
+                    </div>
+                    <div>
+                      <strong>Temps total :</strong> {sortie.temps_total || "-"}
+                    </div>
+                    <div>
+                      <strong>KM depart :</strong> {sortie.km_depart ?? "-"}
+                    </div>
+                    <div>
+                      <strong>KM retour :</strong> {sortie.km_arrivee ?? "-"}
+                    </div>
+                    <div>
+                      <strong>Distance :</strong>{" "}
+                      {distance != null ? `${distance} km` : "-"}
+                    </div>
+                    <div>
+                      <strong>Notes :</strong> {sortie.notes || "-"}
+                    </div>
                   </div>
                 </div>
               );
@@ -646,21 +557,14 @@ export default function TerrainPage() {
         )}
       </div>
 
-      <button
-        onClick={() => router.push("/employe/dashboard")}
-        style={{
-          padding: "12px 20px",
-          border: "none",
-          borderRadius: 12,
-          background: "#17376b",
-          color: "white",
-          cursor: "pointer",
-          fontWeight: 700,
-          fontSize: 16,
-        }}
-      >
-        Retour au dashboard
-      </button>
+      <div className="actions-row" style={{ marginTop: 24 }}>
+        <button
+          onClick={() => router.push("/employe/dashboard")}
+          className="tagora-navy-action"
+        >
+          Retour au dashboard
+        </button>
+      </div>
     </div>
   );
 }

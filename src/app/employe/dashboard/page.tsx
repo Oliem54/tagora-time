@@ -1,5 +1,7 @@
 "use client";
 
+import AccessNotice from "@/app/components/AccessNotice";
+import { useCurrentAccess } from "@/app/hooks/useCurrentAccess";
 import HeaderTagora from "../../components/HeaderTagora";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -66,6 +68,7 @@ function getStatutStyle(statut: string) {
 
 export default function EmployeDashboardPage() {
   const router = useRouter();
+  const { user, loading: accessLoading, hasPermission } = useCurrentAccess();
 
   const [email, setEmail] = useState("");
   const [dossiers, setDossiers] = useState<DossierCard[]>([]);
@@ -73,15 +76,24 @@ export default function EmployeDashboardPage() {
 
   useEffect(() => {
     const loadData = async () => {
-      const { data: userData } = await supabase.auth.getUser();
+      if (accessLoading) {
+        return;
+      }
 
-      if (!userData.user) {
+      if (!user) {
         router.push("/employe/login");
         return;
       }
 
-      const userId = userData.user.id;
-      setEmail(userData.user.email || "");
+      setEmail(user.email || "");
+
+      if (!hasPermission("dossiers")) {
+        setDossiers([]);
+        setLoading(false);
+        return;
+      }
+
+      const userId = user.id;
 
       const { data: dossiersData, error: dossiersError } = await supabase
         .from("dossiers")
@@ -178,7 +190,7 @@ export default function EmployeDashboardPage() {
     };
 
     loadData();
-  }, [router]);
+  }, [accessLoading, hasPermission, router, user]);
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
@@ -218,7 +230,7 @@ export default function EmployeDashboardPage() {
     );
   };
 
-  if (loading) {
+  if (loading || accessLoading) {
     return (
       <div
         style={{
@@ -260,32 +272,35 @@ export default function EmployeDashboardPage() {
           marginBottom: 28,
         }}
       >
-        <button
-          onClick={() => router.push("/employe/dossiers/new")}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.transform = "scale(1.05)";
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.transform = "scale(1)";
-          }}
-          style={{
-            padding: "14px 22px",
-            border: "none",
-            borderRadius: 14,
-            background: "#d6b21f",
-            color: "#1e293b",
-            cursor: "pointer",
-            fontSize: 18,
-            fontWeight: 700,
-            boxShadow: "0 8px 18px rgba(214, 178, 31, 0.28)",
-            transition: "all 0.15s ease",
-          }}
-        >
-          Ajouter un dossier
-        </button>
+        {hasPermission("dossiers") ? (
+          <button
+            onClick={() => router.push("/employe/dossiers/new")}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.transform = "scale(1.05)";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.transform = "scale(1)";
+            }}
+            style={{
+              padding: "14px 22px",
+              border: "none",
+              borderRadius: 14,
+              background: "#d6b21f",
+              color: "#1e293b",
+              cursor: "pointer",
+              fontSize: 18,
+              fontWeight: 700,
+              boxShadow: "0 8px 18px rgba(214, 178, 31, 0.28)",
+              transition: "all 0.15s ease",
+            }}
+          >
+            Ajouter un dossier
+          </button>
+        ) : null}
 
         <button
           onClick={() => router.push("/employe/terrain")}
+          className="tagora-navy-action"
           style={{
             padding: "14px 22px",
             border: "none",
@@ -302,26 +317,30 @@ export default function EmployeDashboardPage() {
           Terrain employé
         </button>
 
-        <button
-          onClick={() => router.push("/employe/livraisons")}
-          style={{
-            padding: "14px 22px",
-            border: "none",
-            borderRadius: 14,
-            background: "#17376b",
-            color: "white",
-            cursor: "pointer",
-            fontSize: 18,
-            fontWeight: 700,
-            boxShadow: "0 8px 18px rgba(23, 55, 107, 0.22)",
-            transition: "all 0.15s ease",
-          }}
-        >
-          Livraisons
-        </button>
+        {hasPermission("livraisons") ? (
+          <button
+            onClick={() => router.push("/employe/livraisons")}
+            className="tagora-navy-action"
+            style={{
+              padding: "14px 22px",
+              border: "none",
+              borderRadius: 14,
+              background: "#17376b",
+              color: "white",
+              cursor: "pointer",
+              fontSize: 18,
+              fontWeight: 700,
+              boxShadow: "0 8px 18px rgba(23, 55, 107, 0.22)",
+              transition: "all 0.15s ease",
+            }}
+          >
+            Livraisons
+          </button>
+        ) : null}
 
         <button
           onClick={handleLogout}
+          className="tagora-navy-action"
           style={{
             padding: "14px 22px",
             border: "none",
@@ -349,7 +368,9 @@ export default function EmployeDashboardPage() {
         Mes dossiers
       </div>
 
-      {dossiers.length === 0 ? (
+      {!hasPermission("dossiers") ? (
+        <AccessNotice description="La permission dossiers n est pas active sur votre compte. Les actions et donnees de dossier sont donc masquees sur ce dashboard." />
+      ) : dossiers.length === 0 ? (
         <div
           style={{
             background: "white",
@@ -575,3 +596,4 @@ export default function EmployeDashboardPage() {
     </div>
   );
 }
+

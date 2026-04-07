@@ -1,8 +1,11 @@
 "use client";
 
-import Image from "next/image";
+import Link from "next/link";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import HeaderTagora from "@/app/components/HeaderTagora";
+import FeedbackMessage from "@/app/components/FeedbackMessage";
+import { getHomePathForRole, getUserRole } from "@/app/lib/auth/roles";
 import { supabase } from "../../lib/supabase/client";
 
 export default function LoginPage() {
@@ -10,8 +13,13 @@ export default function LoginPage() {
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [message, setMessage] = useState("");
+  const [messageType, setMessageType] = useState<"success" | "error" | null>(null);
 
   const handleLogin = async () => {
+    setMessage("");
+    setMessageType(null);
+
     const { error } = await supabase.auth.signInWithPassword({
       email,
       password,
@@ -22,102 +30,95 @@ export default function LoginPage() {
       return;
     }
 
-    router.push("/employe/dashboard");
+    const { data: userData } = await supabase.auth.getUser();
+    const role = getUserRole(userData.user);
+
+    if (!role) {
+      await supabase.auth.signOut();
+      setMessage("Aucun role n'est defini sur ce compte Supabase.");
+      setMessageType("error");
+      return;
+    }
+
+    if (role !== "employe") {
+      await supabase.auth.signOut();
+      setMessage("Ce compte n'a pas acces au portail employe.");
+      setMessageType("error");
+      return;
+    }
+
+    setMessage("Connexion reussie.");
+    setMessageType("success");
+    router.replace(getHomePathForRole(role));
   };
 
   return (
-    <div className="page-container">
-      <div className="page-header">
-        <div
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-            justifyContent: "center",
-          }}
-        >
-          <Image
-            src="/logo.png"
-            alt="Logo Time"
-            width={360}
-            height={360}
-            priority
-          />
+    <main className="tagora-app-shell">
+      <div className="tagora-app-content" style={{ maxWidth: 980 }}>
+        <HeaderTagora
+          title="Connexion employe"
+          subtitle="Accedez a votre espace depuis l'entree de connexion canonique."
+        />
 
-          <h1
-            className="page-title"
-            style={{
-              margin: "-95px 0 0 0",
-              lineHeight: 1,
-              fontSize: 40,
-              textAlign: "center",
-            }}
-          >
-            Time
-          </h1>
-
-          <div
-            className="page-subtitle"
-            style={{
-              textAlign: "center",
-              marginTop: 0,
-            }}
-          >
-            Connexion employé
-          </div>
-        </div>
-      </div>
-
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "center",
-          marginTop: 20,
-        }}
-      >
-        <div
-          className="card"
-          style={{
-            width: "100%",
-            maxWidth: 520,
-            textAlign: "center",
-          }}
-        >
-          <h2 className="section-title" style={{ textAlign: "center" }}>
+        <div className="tagora-panel" style={{ maxWidth: 560, margin: "0 auto" }}>
+          <h2 className="section-title" style={{ marginBottom: 10 }}>
             Se connecter
           </h2>
 
-          <div className="spacer-16" />
+          <p className="tagora-note" style={{ marginBottom: 24 }}>
+            Connectez-vous pour acceder a votre tableau de bord, vos sorties terrain et vos documents.
+          </p>
 
-          <input
-            className="tagora-input"
-            placeholder="Adresse courriel"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            style={{ textAlign: "center" }}
-          />
+          <p className="tagora-note" style={{ marginBottom: 20 }}>
+            Pas encore d acces ? Soumettez une demande de creation de compte. Aucun acces ne sera ouvert avant validation par la direction.
+          </p>
 
-          <div className="spacer-16" />
+          <FeedbackMessage message={message} type={messageType} />
 
-          <input
-            className="tagora-input"
-            placeholder="Mot de passe"
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            style={{ textAlign: "center" }}
-          />
+          <div className="tagora-form-grid">
+            <div>
+              <label className="tagora-field-label">Adresse courriel</label>
+              <input
+                className="tagora-input"
+                placeholder="votre@courriel.com"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+              />
+            </div>
 
-          <div className="spacer-24" />
+            <div>
+              <label className="tagora-field-label">Mot de passe</label>
+              <input
+                className="tagora-input"
+                placeholder="Votre mot de passe"
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+              />
+            </div>
+          </div>
 
-          <button
-            className="tagora-btn tagora-btn-primary"
-            onClick={handleLogin}
-          >
-            Connexion
-          </button>
+          <div className="tagora-actions" style={{ marginTop: 24 }}>
+            <button className="tagora-btn tagora-btn-primary" onClick={handleLogin}>
+              Connexion
+            </button>
+
+            <Link
+              href="/"
+              className="tagora-dark-outline-action rounded-xl border px-5 py-3 text-sm font-medium transition"
+            >
+              Retour accueil
+            </Link>
+
+            <Link
+              href="/demande-compte?portal=employe"
+              className="tagora-dark-outline-action rounded-xl border px-5 py-3 text-sm font-medium transition"
+            >
+              Creer un compte
+            </Link>
+          </div>
         </div>
       </div>
-    </div>
+    </main>
   );
 }

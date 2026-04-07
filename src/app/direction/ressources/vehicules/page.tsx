@@ -218,7 +218,7 @@ export default function Page() {
               </div>
 
               <div style={{ display: "flex", gap: 12, marginTop: 20, flexWrap: "wrap" }}>
-                <button type="submit" style={primaryButtonStyle} disabled={saving}>
+                <button type="submit" className="tagora-dark-action" style={primaryButtonStyle} disabled={saving}>
                   {saving ? "Enregistrement..." : "Ajouter"}
                 </button>
               </div>

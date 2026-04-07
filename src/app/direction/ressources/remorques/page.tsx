@@ -191,7 +191,7 @@ export default function Page() {
               </div>
 
               <div style={{ marginTop: 16 }}>
-                <button style={primaryButtonStyle}>
+                <button className="tagora-dark-action" style={primaryButtonStyle}>
                   {editingId ? "Enregistrer" : "Ajouter"}
                 </button>
 

@@ -454,6 +454,7 @@ export default function Page() {
               <div style={{ display: "flex", gap: 12, marginTop: 20, flexWrap: "wrap" }}>
                 <button
                   type="submit"
+                  className="tagora-dark-action"
                   style={primaryButtonStyle}
                   disabled={saving || uploadingRecto || uploadingVerso}
                 >
