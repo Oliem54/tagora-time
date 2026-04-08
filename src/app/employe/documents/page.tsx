@@ -56,6 +56,8 @@ export default function EmployeDocumentsPage() {
   const { user, loading: accessLoading, hasPermission } = useCurrentAccess();
   const [loading, setLoading] = useState(true);
   const [rows, setRows] = useState<DocumentRow[]>([]);
+  const userId = user?.id ?? null;
+  const canUseDocuments = hasPermission("documents");
 
   useEffect(() => {
     async function loadDocuments() {
@@ -63,7 +65,7 @@ export default function EmployeDocumentsPage() {
         return;
       }
 
-      if (!user || !hasPermission("documents")) {
+      if (!userId || !canUseDocuments) {
         setRows([]);
         setLoading(false);
         return;
@@ -74,7 +76,7 @@ export default function EmployeDocumentsPage() {
       const { data: dossiersData, error: dossiersError } = await supabase
         .from("dossiers")
         .select("id, nom, client, description, statut, created_at")
-        .eq("user_id", user.id)
+        .eq("user_id", userId)
         .order("id", { ascending: false });
 
       if (dossiersError) {
@@ -139,15 +141,26 @@ export default function EmployeDocumentsPage() {
     }
 
     void loadDocuments();
-  }, [accessLoading, hasPermission, user]);
+  }, [accessLoading, canUseDocuments, userId]);
 
   const stats = useMemo(() => {
     return {
       total: rows.length,
-      completed: rows.filter((row) => row.statut === "TerminÃ©").length,
-      pending: rows.filter((row) => row.statut !== "TerminÃ©").length,
+      completed: rows.filter((row) => row.statut === "Termine").length,
+      pending: rows.filter((row) => row.statut !== "Termine").length,
     };
   }, [rows]);
+
+  if (accessLoading) {
+    return (
+      <main className="tagora-app-shell">
+        <div className="tagora-app-content" style={{ maxWidth: 1400 }}>
+          <HeaderTagora title="Mes documents terrain" subtitle="Chargement des acces et des documents" />
+          <AccessNotice description="Verification de la session et des permissions documents en cours." />
+        </div>
+      </main>
+    );
+  }
 
   return (
     <main className="tagora-app-shell">
@@ -190,7 +203,7 @@ export default function EmployeDocumentsPage() {
             <div className="tagora-panel" style={{ marginBottom: 24 }}>
               <div style={{ display: "flex", justifyContent: "space-between", gap: 16, flexWrap: "wrap", alignItems: "center" }}>
                 <div>
-                  <h2 className="section-title" style={{ marginBottom: 10 }}>Actions rapides</h2>
+                  <h2 className="section-title" style={{ marginBottom: 8 }}>Actions rapides</h2>
                   <p className="tagora-note">
                     Creez un nouveau dossier terrain ou ajoutez des medias a un dossier existant sans quitter le module documents.
                   </p>
@@ -199,14 +212,14 @@ export default function EmployeDocumentsPage() {
                 <div className="tagora-actions">
                   <Link
                     href="/employe/documents/new"
-                    className="tagora-dark-action rounded-xl px-6 py-4 text-center text-base font-semibold transition"
+                    className="tagora-dark-action rounded-xl px-6 py-3 text-center text-base font-semibold transition"
                   >
                     Ajouter un dossier terrain
                   </Link>
 
                   <Link
                     href="/employe/dashboard"
-                    className="tagora-dark-outline-action rounded-xl border px-6 py-4 text-center text-base font-semibold transition"
+                    className="tagora-dark-outline-action rounded-xl border px-6 py-3 text-center text-base font-semibold transition"
                   >
                     Retour au dashboard
                   </Link>
@@ -217,7 +230,7 @@ export default function EmployeDocumentsPage() {
             <div className="tagora-panel">
               <div style={{ display: "flex", justifyContent: "space-between", gap: 16, flexWrap: "wrap", alignItems: "center", marginBottom: 18 }}>
                 <div>
-                  <h2 className="section-title" style={{ marginBottom: 10 }}>Liste recente des documents</h2>
+                  <h2 className="section-title" style={{ marginBottom: 8 }}>Liste recente des documents</h2>
                   <p className="tagora-note">Vue densemble des dossiers terrain reels accessibles avec vos permissions.</p>
                 </div>
 

@@ -3,7 +3,9 @@
 import HeaderTagora from "../../components/HeaderTagora";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import AccessNotice from "../../components/AccessNotice";
 import { supabase } from "../../lib/supabase/client";
+import { useCurrentAccess } from "../../hooks/useCurrentAccess";
 
 type Livraison = {
   id: number;
@@ -81,10 +83,12 @@ function getTodayLocalDate() {
 
 export default function EmployeLivraisonsPage() {
   const router = useRouter();
+  const { user, loading: accessLoading, hasPermission } = useCurrentAccess();
 
   const [livraisons, setLivraisons] = useState<Livraison[]>([]);
   const [loading, setLoading] = useState(true);
   const [savingId, setSavingId] = useState<number | null>(null);
+  const [feedback, setFeedback] = useState("");
   const [kmDepartValues, setKmDepartValues] = useState<Record<number, string>>(
     {}
   );
@@ -93,6 +97,7 @@ export default function EmployeLivraisonsPage() {
   );
 
   const dateDuJour = getTodayLocalDate();
+  const canUseLivraisons = hasPermission("livraisons");
 
   const chargerLivraisons = async () => {
     const { data, error } = await supabase
@@ -103,7 +108,7 @@ export default function EmployeLivraisonsPage() {
       .order("id", { ascending: true });
 
     if (error) {
-      alert("Erreur chargement livraisons : " + error.message);
+      setFeedback("Erreur chargement livraisons : " + error.message);
       return;
     }
 
@@ -111,20 +116,25 @@ export default function EmployeLivraisonsPage() {
   };
 
   useEffect(() => {
-    const init = async () => {
-      const { data: userData } = await supabase.auth.getUser();
+    async function init() {
+      if (accessLoading) return;
 
-      if (!userData.user) {
+      if (!user) {
         router.push("/employe/login");
+        return;
+      }
+
+      if (!canUseLivraisons) {
+        setLoading(false);
         return;
       }
 
       await chargerLivraisons();
       setLoading(false);
-    };
+    }
 
-    init();
-  }, [router]);
+    void init();
+  }, [accessLoading, canUseLivraisons, router, user]);
 
   const stats = useMemo(() => {
     const total = livraisons.length;
@@ -139,14 +149,14 @@ export default function EmployeLivraisonsPage() {
     const kmDepart = kmDepartValues[livraison.id];
 
     if (!kmDepart?.trim()) {
-      alert("Entre le km départ");
+      setFeedback("Entre le km depart.");
       return;
     }
 
     const kmDepartNumber = Number(kmDepart);
 
     if (Number.isNaN(kmDepartNumber)) {
-      alert("Le km départ doit être un nombre");
+      setFeedback("Le km depart doit etre un nombre.");
       return;
     }
 
@@ -164,7 +174,7 @@ export default function EmployeLivraisonsPage() {
     setSavingId(null);
 
     if (error) {
-      alert("Erreur démarrage : " + error.message);
+      setFeedback("Erreur demarrage : " + error.message);
       return;
     }
 
@@ -175,14 +185,14 @@ export default function EmployeLivraisonsPage() {
     const kmArrivee = kmArriveeValues[livraison.id];
 
     if (!kmArrivee?.trim()) {
-      alert("Entre le km arrivée");
+      setFeedback("Entre le km arrivee.");
       return;
     }
 
     const kmArriveeNumber = Number(kmArrivee);
 
     if (Number.isNaN(kmArriveeNumber)) {
-      alert("Le km arrivée doit être un nombre");
+      setFeedback("Le km arrivee doit etre un nombre.");
       return;
     }
 
@@ -207,82 +217,54 @@ export default function EmployeLivraisonsPage() {
     setSavingId(null);
 
     if (error) {
-      alert("Erreur livraison : " + error.message);
+      setFeedback("Erreur livraison : " + error.message);
       return;
     }
 
     await chargerLivraisons();
   };
 
-  if (loading) {
+  if (accessLoading || loading) {
     return (
-      <div
-        style={{
-          minHeight: "100vh",
-          background: "#f5f7fb",
-          padding: "30px 40px",
-          fontFamily: "Arial, sans-serif",
-        }}
-      >
-        Chargement...
+      <div className="page-container">
+        <HeaderTagora title="Tournee du jour" subtitle="Livraisons du jour classees par ordre d arret" />
+        <AccessNotice description="Verification des acces livraisons et chargement des donnees en cours." />
+      </div>
+    );
+  }
+
+  if (!canUseLivraisons) {
+    return (
+      <div className="page-container">
+        <HeaderTagora title="Tournee du jour" subtitle="Livraisons du jour classees par ordre d arret" />
+        <AccessNotice description="La permission livraisons n est pas active sur votre compte. Ce module reste masque." />
       </div>
     );
   }
 
   return (
-    <div
-      style={{
-        minHeight: "100vh",
-        background: "#f5f7fb",
-        padding: "30px 40px",
-        color: "#0f172a",
-        fontFamily: "Arial, sans-serif",
-      }}
-    >
+    <div className="page-container">
       <HeaderTagora
         title="Tournée du jour"
         subtitle="Livraisons du jour classées par ordre d’arrêt"
       />
+
+      {feedback ? <AccessNotice title="Action bloquee" description={feedback} /> : null}
 
       <div
         style={{
           display: "flex",
           gap: 12,
           flexWrap: "wrap",
-          marginBottom: 24,
+          marginBottom: 20,
         }}
       >
-        <button
-          onClick={() => router.push("/employe/dashboard")}
-          className="tagora-navy-action"
-          style={{
-            padding: "12px 20px",
-            border: "none",
-            borderRadius: 12,
-            background: "#17376b",
-            color: "white",
-            cursor: "pointer",
-            fontWeight: 700,
-            fontSize: 16,
-          }}
-        >
+        <button onClick={() => router.push("/employe/dashboard")} className="tagora-dark-outline-action">
           Retour au dashboard
         </button>
 
-        <button
-          onClick={chargerLivraisons}
-          style={{
-            padding: "12px 20px",
-            border: "none",
-            borderRadius: 12,
-            background: "#d6b21f",
-            color: "#1e293b",
-            cursor: "pointer",
-            fontWeight: 700,
-            fontSize: 16,
-          }}
-        >
-          Rafraîchir
+        <button onClick={chargerLivraisons} className="tagora-dark-action">
+          Actualiser
         </button>
       </div>
 
@@ -291,7 +273,7 @@ export default function EmployeLivraisonsPage() {
           display: "grid",
           gridTemplateColumns: "repeat(4, minmax(180px, 1fr))",
           gap: 16,
-          marginBottom: 24,
+          marginBottom: 20,
         }}
       >
         <div
@@ -299,6 +281,7 @@ export default function EmployeLivraisonsPage() {
             background: "white",
             borderRadius: 18,
             padding: 18,
+            minHeight: 116,
             border: "1px solid #e5e7eb",
             boxShadow: "0 10px 24px rgba(15, 23, 42, 0.06)",
           }}
@@ -312,6 +295,7 @@ export default function EmployeLivraisonsPage() {
             background: "white",
             borderRadius: 18,
             padding: 18,
+            minHeight: 116,
             border: "1px solid #e5e7eb",
             boxShadow: "0 10px 24px rgba(15, 23, 42, 0.06)",
           }}
@@ -325,6 +309,7 @@ export default function EmployeLivraisonsPage() {
             background: "white",
             borderRadius: 18,
             padding: 18,
+            minHeight: 116,
             border: "1px solid #e5e7eb",
             boxShadow: "0 10px 24px rgba(15, 23, 42, 0.06)",
           }}
@@ -338,6 +323,7 @@ export default function EmployeLivraisonsPage() {
             background: "white",
             borderRadius: 18,
             padding: 18,
+            minHeight: 116,
             border: "1px solid #e5e7eb",
             boxShadow: "0 10px 24px rgba(15, 23, 42, 0.06)",
           }}
@@ -484,27 +470,14 @@ export default function EmployeLivraisonsPage() {
                           [livraison.id]: e.target.value,
                         }))
                       }
-                      style={{
-                        padding: 12,
-                        borderRadius: 12,
-                        border: "1px solid #cbd5e1",
-                        minWidth: 180,
-                      }}
+                      className="tagora-input"
+                      style={{ minWidth: 180 }}
                     />
 
                     <button
                       onClick={() => handleDemarrer(livraison)}
                       disabled={savingId === livraison.id}
-                      style={{
-                        padding: "12px 20px",
-                        border: "none",
-                        borderRadius: 12,
-                        background: "#d6b21f",
-                        color: "#1e293b",
-                        cursor: "pointer",
-                        fontWeight: 700,
-                        fontSize: 16,
-                      }}
+                      className="tagora-dark-action"
                     >
                       {savingId === livraison.id ? "Enregistrement..." : "Démarrer"}
                     </button>
@@ -530,28 +503,14 @@ export default function EmployeLivraisonsPage() {
                           [livraison.id]: e.target.value,
                         }))
                       }
-                      style={{
-                        padding: 12,
-                        borderRadius: 12,
-                        border: "1px solid #cbd5e1",
-                        minWidth: 180,
-                      }}
+                      className="tagora-input"
+                      style={{ minWidth: 180 }}
                     />
 
                     <button
                       onClick={() => handleLivree(livraison)}
                       disabled={savingId === livraison.id}
                       className="tagora-navy-action"
-                      style={{
-                        padding: "12px 20px",
-                        border: "none",
-                        borderRadius: 12,
-                        background: "#17376b",
-                        color: "white",
-                        cursor: "pointer",
-                        fontWeight: 700,
-                        fontSize: 16,
-                      }}
                     >
                       {savingId === livraison.id ? "Enregistrement..." : "Marquer livrée"}
                     </button>

@@ -55,15 +55,7 @@ export default function NewDossierPage() {
 
   if (accessLoading) {
     return (
-      <div
-        style={{
-          minHeight: "100vh",
-          background: "#f5f7fb",
-          padding: "30px 40px",
-          color: "#0f172a",
-          fontFamily: "Arial, sans-serif",
-        }}
-      >
+      <div className="page-container">
         <HeaderTagora title="Nouveau dossier" subtitle="Chargement des acces" />
         <AccessNotice description="Verification de vos autorisations en cours." />
       </div>
@@ -72,15 +64,7 @@ export default function NewDossierPage() {
 
   if (!hasPermission("dossiers")) {
     return (
-      <div
-        style={{
-          minHeight: "100vh",
-          background: "#f5f7fb",
-          padding: "30px 40px",
-          color: "#0f172a",
-          fontFamily: "Arial, sans-serif",
-        }}
-      >
+      <div className="page-container">
         <HeaderTagora
           title="Nouveau dossier"
           subtitle="Creation d un dossier terrain"
@@ -91,15 +75,7 @@ export default function NewDossierPage() {
   }
 
   return (
-    <div
-      style={{
-        minHeight: "100vh",
-        background: "#f5f7fb",
-        padding: "30px 40px",
-        color: "#0f172a",
-        fontFamily: "Arial, sans-serif",
-      }}
-    >
+    <div className="page-container">
       <HeaderTagora
         title="Nouveau dossier"
         subtitle="Création d’un dossier terrain"
@@ -110,6 +86,7 @@ export default function NewDossierPage() {
           background: "white",
           borderRadius: 20,
           padding: 28,
+          marginTop: 24,
           border: "1px solid #e5e7eb",
           boxShadow: "0 16px 36px rgba(15, 23, 42, 0.08)",
           maxWidth: 900,
@@ -118,15 +95,15 @@ export default function NewDossierPage() {
         <h2
           style={{
             marginTop: 0,
-            marginBottom: 22,
-            fontSize: 28,
+            marginBottom: 18,
+            fontSize: 24,
             color: "#17376b",
           }}
         >
           Créer un dossier
         </h2>
 
-        <div style={{ marginBottom: 18 }}>
+        <div style={{ marginBottom: 16 }}>
           <div
             style={{
               marginBottom: 8,
@@ -141,29 +118,11 @@ export default function NewDossierPage() {
             placeholder="Nom du dossier"
             value={nom}
             onChange={(e) => setNom(e.target.value)}
-            onFocus={(e) => {
-              e.currentTarget.style.border = "1px solid #17376b";
-              e.currentTarget.style.boxShadow =
-                "0 0 0 3px rgba(23, 55, 107, 0.15)";
-            }}
-            onBlur={(e) => {
-              e.currentTarget.style.border = "1px solid #cbd5e1";
-              e.currentTarget.style.boxShadow = "none";
-            }}
-            style={{
-              width: "100%",
-              padding: 14,
-              borderRadius: 12,
-              border: "1px solid #cbd5e1",
-              fontSize: 16,
-              boxSizing: "border-box",
-              outline: "none",
-              transition: "all 0.2s ease",
-            }}
+            className="tagora-input"
           />
         </div>
 
-        <div style={{ marginBottom: 18 }}>
+        <div style={{ marginBottom: 16 }}>
           <div
             style={{
               marginBottom: 8,
@@ -178,29 +137,11 @@ export default function NewDossierPage() {
             placeholder="Client"
             value={client}
             onChange={(e) => setClient(e.target.value)}
-            onFocus={(e) => {
-              e.currentTarget.style.border = "1px solid #17376b";
-              e.currentTarget.style.boxShadow =
-                "0 0 0 3px rgba(23, 55, 107, 0.15)";
-            }}
-            onBlur={(e) => {
-              e.currentTarget.style.border = "1px solid #cbd5e1";
-              e.currentTarget.style.boxShadow = "none";
-            }}
-            style={{
-              width: "100%",
-              padding: 14,
-              borderRadius: 12,
-              border: "1px solid #cbd5e1",
-              fontSize: 16,
-              boxSizing: "border-box",
-              outline: "none",
-              transition: "all 0.2s ease",
-            }}
+            className="tagora-input"
           />
         </div>
 
-        <div style={{ marginBottom: 24 }}>
+        <div style={{ marginBottom: 20 }}>
           <div
             style={{
               marginBottom: 8,
@@ -215,68 +156,17 @@ export default function NewDossierPage() {
             placeholder="Description"
             value={description}
             onChange={(e) => setDescription(e.target.value)}
-            onFocus={(e) => {
-              e.currentTarget.style.border = "1px solid #17376b";
-              e.currentTarget.style.boxShadow =
-                "0 0 0 3px rgba(23, 55, 107, 0.15)";
-            }}
-            onBlur={(e) => {
-              e.currentTarget.style.border = "1px solid #cbd5e1";
-              e.currentTarget.style.boxShadow = "none";
-            }}
-            style={{
-              width: "100%",
-              height: 130,
-              padding: 14,
-              borderRadius: 12,
-              border: "1px solid #cbd5e1",
-              fontSize: 16,
-              resize: "none",
-              boxSizing: "border-box",
-              outline: "none",
-              transition: "all 0.2s ease",
-            }}
+            className="tagora-textarea"
+            style={{ height: 130, resize: "none" }}
           />
         </div>
 
         <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-          <button
-            onClick={handleSubmit}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.transform = "scale(1.05)";
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.transform = "scale(1)";
-            }}
-            disabled={saving}
-            style={{
-              padding: "12px 20px",
-              border: "none",
-              borderRadius: 12,
-              background: "#d6b21f",
-              color: "#1e293b",
-              cursor: "pointer",
-              fontWeight: 700,
-              fontSize: 16,
-              transition: "all 0.15s ease",
-            }}
-          >
-            {saving ? "Enregistrement..." : "Créer le dossier"}
+          <button onClick={handleSubmit} disabled={saving} className="tagora-dark-action">
+            {saving ? "Enregistrement..." : "Creer le dossier"}
           </button>
 
-          <button
-            onClick={() => router.push("/employe/dashboard")}
-            style={{
-              padding: "12px 20px",
-              border: "none",
-              borderRadius: 12,
-              background: "#17376b",
-              color: "white",
-              cursor: "pointer",
-              fontWeight: 700,
-              fontSize: 16,
-            }}
-          >
+          <button onClick={() => router.push("/employe/dashboard")} className="tagora-dark-outline-action">
             Retour au dashboard
           </button>
         </div>
