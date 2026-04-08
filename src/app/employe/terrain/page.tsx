@@ -51,6 +51,8 @@ function calculerTempsTotal(departIso: string, retourIso: string) {
 export default function TerrainPage() {
   const router = useRouter();
   const { user, loading: accessLoading, hasPermission } = useCurrentAccess();
+  const userId = user?.id ?? null;
+  const canUseTerrain = hasPermission("terrain");
 
   const [compagnie, setCompagnie] = useState("");
   const [client, setClient] = useState("");
@@ -122,24 +124,24 @@ export default function TerrainPage() {
     async function init() {
       if (accessLoading) return;
 
-      if (!user) {
+      if (!userId) {
         router.push("/employe/login");
         return;
       }
 
-      if (!hasPermission("terrain")) {
+      if (!canUseTerrain) {
         setLoading(false);
         return;
       }
 
       setLoading(true);
       setFeedback("");
-      await Promise.all([chargerSorties(user.id), chargerDossiers(user.id)]);
+      await Promise.all([chargerSorties(userId), chargerDossiers(userId)]);
       setLoading(false);
     }
 
     void init();
-  }, [accessLoading, hasPermission, router, user]);
+  }, [accessLoading, canUseTerrain, router, userId]);
 
   const handleChoixDossier = (value: string) => {
     setDossierId(value);
@@ -295,7 +297,7 @@ export default function TerrainPage() {
     );
   }
 
-  if (!hasPermission("terrain")) {
+  if (!canUseTerrain) {
     return (
       <div className="page-container">
         <HeaderTagora
@@ -331,7 +333,7 @@ export default function TerrainPage() {
           marginBottom: 24,
         }}
       >
-        <div className="tagora-panel">
+        <div className="tagora-panel" style={{ minHeight: 540 }}>
           <h2 className="section-title" style={{ marginBottom: 18 }}>
             Demarrer une sortie
           </h2>
@@ -413,7 +415,7 @@ export default function TerrainPage() {
           </button>
         </div>
 
-        <div className="tagora-panel">
+        <div className="tagora-panel" style={{ minHeight: 540 }}>
           <h2 className="section-title" style={{ marginBottom: 18 }}>
             Sortie active
           </h2>
@@ -474,7 +476,7 @@ export default function TerrainPage() {
               <button
                 onClick={handleTerminer}
                 disabled={saving}
-                className="tagora-navy-action"
+                className="tagora-dark-action"
                 style={{ marginTop: 18 }}
               >
                 {saving ? "Enregistrement..." : "Terminer la sortie"}
@@ -560,7 +562,7 @@ export default function TerrainPage() {
       <div className="actions-row" style={{ marginTop: 24 }}>
         <button
           onClick={() => router.push("/employe/dashboard")}
-          className="tagora-navy-action"
+          className="tagora-dark-outline-action"
         >
           Retour au dashboard
         </button>

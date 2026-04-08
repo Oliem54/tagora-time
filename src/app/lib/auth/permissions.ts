@@ -102,6 +102,7 @@ export function getRequiredPermissionForPath(pathname: string) {
   if (
     pathname.startsWith("/employe/terrain") ||
     pathname.startsWith("/direction/terrain") ||
+    pathname.startsWith("/direction/horodateur") ||
     pathname.startsWith("/direction/sorties-terrain") ||
     pathname.startsWith("/direction/temps-titan") ||
     pathname.startsWith("/direction/facturation-titan")

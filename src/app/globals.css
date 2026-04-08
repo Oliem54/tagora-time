@@ -125,100 +125,152 @@ select {
   opacity: 0.92;
 }
 
+/* ── Shared base for all action button variants ── */
+.tagora-dark-action,
+.tagora-dark-outline-action,
+.tagora-navy-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  padding: 10px 20px;
+  border-radius: 12px;
+  border: 1px solid transparent;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: transform 140ms ease, box-shadow 140ms ease, background 140ms ease;
+}
+
 .tagora-dark-action,
 .tagora-dark-action:link,
 .tagora-dark-action:visited {
-  background: #111827;
+  background: linear-gradient(135deg, #0f2948 0%, #1f3b63 100%);
   color: #ffffff !important;
-  border-color: #111827;
+  border-color: #0b1f3a;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.20);
   -webkit-text-fill-color: #ffffff;
 }
 
 .tagora-dark-action:hover {
-  background: #1f2937;
+  background: linear-gradient(135deg, #17376b 0%, #2a4f87 100%);
   color: #ffffff !important;
+  transform: translateY(-1px);
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.30);
 }
 
 .tagora-dark-action:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 3px rgba(17, 24, 39, 0.18);
+  box-shadow: 0 0 0 3px rgba(15, 41, 72, 0.24);
 }
 
 .tagora-dark-action:disabled,
 .tagora-dark-action[aria-disabled="true"] {
-  background: #374151;
-  border-color: #374151;
+  background: #64748b;
+  border-color: #475569;
   color: #ffffff !important;
   -webkit-text-fill-color: #ffffff;
   opacity: 0.72;
   cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
 }
 
 .tagora-dark-outline-action,
 .tagora-dark-outline-action:link,
 .tagora-dark-outline-action:visited {
-  background: transparent;
-  color: #111827;
-  border-color: #111827;
+  background: #ffffff;
+  color: #0f2948 !important;
+  border-color: #0f2948;
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.08);
 }
 
 .tagora-dark-outline-action:hover {
-  background: #111827;
+  background: #0f2948;
   color: #ffffff !important;
-  border-color: #111827;
+  border-color: #0f2948;
   -webkit-text-fill-color: #ffffff;
+  transform: translateY(-1px);
+  box-shadow: 0 6px 14px rgba(15, 23, 42, 0.22);
 }
 
 .tagora-dark-outline-action:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 3px rgba(17, 24, 39, 0.18);
+  box-shadow: 0 0 0 3px rgba(15, 41, 72, 0.20);
 }
 
 .tagora-dark-outline-action:disabled,
 .tagora-dark-outline-action[aria-disabled="true"] {
-  background: #f3f4f6;
-  border-color: #d1d5db;
-  color: #6b7280 !important;
+  background: #f8fafc;
+  border-color: #cbd5e1;
+  color: #94a3b8 !important;
   cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
 }
 
 .tagora-navy-action,
 .tagora-navy-action:link,
 .tagora-navy-action:visited {
-  background: #17376b;
+  background: linear-gradient(135deg, #17376b 0%, #245496 100%);
   color: #ffffff !important;
-  border-color: #17376b;
+  border-color: #13305f;
+  box-shadow: 0 4px 12px rgba(23, 55, 107, 0.22);
   -webkit-text-fill-color: #ffffff;
 }
 
 .tagora-navy-action:hover {
-  background: #14325f;
+  background: linear-gradient(135deg, #1f4080 0%, #2b62b0 100%);
   color: #ffffff !important;
+  transform: translateY(-1px);
+  box-shadow: 0 8px 20px rgba(23, 55, 107, 0.34);
 }
 
 .tagora-navy-action:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 3px rgba(23, 55, 107, 0.18);
+  box-shadow: 0 0 0 3px rgba(23, 55, 107, 0.24);
 }
 
 .tagora-navy-action:disabled,
 .tagora-navy-action[aria-disabled="true"] {
   background: #64748b;
-  border-color: #64748b;
+  border-color: #475569;
   color: #ffffff !important;
   -webkit-text-fill-color: #ffffff;
   opacity: 0.72;
   cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
 }
 
-.tagora-btn-danger {
-  background: white;
-  color: var(--error);
-  border: 1px solid var(--error);
+.tagora-btn-danger,
+.tagora-btn-danger:link,
+.tagora-btn-danger:visited {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  padding: 10px 20px;
+  border-radius: 12px;
+  border: 1px solid #dc2626;
+  background: #fff5f5;
+  color: #b91c1c !important;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: transform 140ms ease, box-shadow 140ms ease, background 140ms ease;
+  box-shadow: 0 2px 6px rgba(220, 38, 38, 0.12);
 }
 
 .tagora-btn-danger:hover {
-  background: #fff5f5;
+  background: #dc2626;
+  color: #ffffff !important;
+  -webkit-text-fill-color: #ffffff;
+  transform: translateY(-1px);
+  box-shadow: 0 6px 14px rgba(220, 38, 38, 0.30);
 }
 
 .tagora-input,

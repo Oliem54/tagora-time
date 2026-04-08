@@ -69,6 +69,9 @@ function getStatutStyle(statut: string) {
 export default function EmployeDashboardPage() {
   const router = useRouter();
   const { user, loading: accessLoading, hasPermission } = useCurrentAccess();
+  const userId = user?.id ?? null;
+  const canUseDossiers = hasPermission("dossiers");
+  const canUseLivraisons = hasPermission("livraisons");
 
   const [email, setEmail] = useState("");
   const [dossiers, setDossiers] = useState<DossierCard[]>([]);
@@ -80,20 +83,18 @@ export default function EmployeDashboardPage() {
         return;
       }
 
-      if (!user) {
+      if (!userId) {
         router.push("/employe/login");
         return;
       }
 
-      setEmail(user.email || "");
+      setEmail(user?.email || "");
 
-      if (!hasPermission("dossiers")) {
+      if (!canUseDossiers) {
         setDossiers([]);
         setLoading(false);
         return;
       }
-
-      const userId = user.id;
 
       const { data: dossiersData, error: dossiersError } = await supabase
         .from("dossiers")
@@ -190,7 +191,7 @@ export default function EmployeDashboardPage() {
     };
 
     loadData();
-  }, [accessLoading, hasPermission, router, user]);
+  }, [accessLoading, canUseDossiers, router, user?.email, userId]);
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
@@ -232,33 +233,33 @@ export default function EmployeDashboardPage() {
 
   if (loading || accessLoading) {
     return (
-      <div
-        style={{
-          minHeight: "100vh",
-          background: "#f5f7fb",
-          padding: "30px 40px",
-          fontFamily: "Arial, sans-serif",
-        }}
-      >
-        Chargement...
+      <div className="page-container">
+        <HeaderTagora title="Dashboard employe" subtitle="Chargement de votre espace" />
+        <AccessNotice description="Verification des acces et synchronisation des dossiers en cours." />
       </div>
     );
   }
 
   return (
-    <div
-      style={{
-        minHeight: "100vh",
-        background: "#f5f7fb",
-        padding: "30px 40px",
-        color: "#0f172a",
-        fontFamily: "Arial, sans-serif",
-      }}
-    >
+    <div className="page-container">
       <HeaderTagora
         title="Dashboard employé"
         subtitle="Vue d’ensemble des dossiers terrain"
       />
+
+      <div className="tagora-panel" style={{ marginTop: 24, marginBottom: 18 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 14, flexWrap: "wrap", alignItems: "center" }}>
+          <div>
+            <h2 className="section-title" style={{ marginBottom: 8 }}>Horodateur central</h2>
+            <p className="tagora-note">
+              Pointez rapidement votre quart, vos pauses et vos sorties terrain depuis un seul module.
+            </p>
+          </div>
+          <button className="tagora-dark-action" onClick={() => router.push("/employe/horodateur")}>
+            Ouvrir l horodateur
+          </button>
+        </div>
+      </div>
 
       <div style={{ marginBottom: 18, fontSize: 18 }}>
         Connecté comme : {email}
@@ -269,106 +270,44 @@ export default function EmployeDashboardPage() {
           display: "flex",
           gap: 14,
           flexWrap: "wrap",
-          marginBottom: 28,
+          marginBottom: 24,
         }}
       >
-        {hasPermission("dossiers") ? (
+        {canUseDossiers ? (
           <button
             onClick={() => router.push("/employe/dossiers/new")}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.transform = "scale(1.05)";
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.transform = "scale(1)";
-            }}
-            style={{
-              padding: "14px 22px",
-              border: "none",
-              borderRadius: 14,
-              background: "#d6b21f",
-              color: "#1e293b",
-              cursor: "pointer",
-              fontSize: 18,
-              fontWeight: 700,
-              boxShadow: "0 8px 18px rgba(214, 178, 31, 0.28)",
-              transition: "all 0.15s ease",
-            }}
+            className="tagora-dark-action"
           >
             Ajouter un dossier
           </button>
         ) : null}
 
-        <button
-          onClick={() => router.push("/employe/terrain")}
-          className="tagora-navy-action"
-          style={{
-            padding: "14px 22px",
-            border: "none",
-            borderRadius: 14,
-            background: "#17376b",
-            color: "white",
-            cursor: "pointer",
-            fontSize: 18,
-            fontWeight: 700,
-            boxShadow: "0 8px 18px rgba(23, 55, 107, 0.22)",
-            transition: "all 0.15s ease",
-          }}
-        >
+        <button onClick={() => router.push("/employe/terrain")} className="tagora-navy-action">
           Terrain employé
         </button>
 
-        {hasPermission("livraisons") ? (
-          <button
-            onClick={() => router.push("/employe/livraisons")}
-            className="tagora-navy-action"
-            style={{
-              padding: "14px 22px",
-              border: "none",
-              borderRadius: 14,
-              background: "#17376b",
-              color: "white",
-              cursor: "pointer",
-              fontSize: 18,
-              fontWeight: 700,
-              boxShadow: "0 8px 18px rgba(23, 55, 107, 0.22)",
-              transition: "all 0.15s ease",
-            }}
-          >
+        {canUseLivraisons ? (
+          <button onClick={() => router.push("/employe/livraisons")} className="tagora-navy-action">
             Livraisons
           </button>
         ) : null}
 
-        <button
-          onClick={handleLogout}
-          className="tagora-navy-action"
-          style={{
-            padding: "14px 22px",
-            border: "none",
-            borderRadius: 14,
-            background: "#17376b",
-            color: "white",
-            cursor: "pointer",
-            fontSize: 18,
-            fontWeight: 700,
-            boxShadow: "0 8px 18px rgba(23, 55, 107, 0.22)",
-            transition: "all 0.15s ease",
-          }}
-        >
+        <button onClick={handleLogout} className="tagora-dark-outline-action">
           Se déconnecter
         </button>
       </div>
 
       <div
         style={{
-          fontSize: 24,
+          fontSize: 22,
           fontWeight: 800,
-          marginBottom: 18,
+          marginBottom: 14,
         }}
       >
         Mes dossiers
       </div>
 
-      {!hasPermission("dossiers") ? (
+      {!canUseDossiers ? (
         <AccessNotice description="La permission dossiers n est pas active sur votre compte. Les actions et donnees de dossier sont donc masquees sur ce dashboard." />
       ) : dossiers.length === 0 ? (
         <div
@@ -389,18 +328,8 @@ export default function EmployeDashboardPage() {
             Commence par créer ton premier dossier terrain
           </div>
 
-          <button
-            onClick={() => router.push("/employe/dossiers/new")}
-            style={{
-              padding: "12px 20px",
-              borderRadius: 12,
-              background: "#d6b21f",
-              border: "none",
-              fontWeight: 700,
-              cursor: "pointer",
-            }}
-          >
-            Créer un dossier
+          <button onClick={() => router.push("/employe/dossiers/new")} className="tagora-dark-action">
+            Creer un dossier
           </button>
         </div>
       ) : (
@@ -418,6 +347,7 @@ export default function EmployeDashboardPage() {
                 background: "white",
                 borderRadius: 24,
                 padding: 24,
+                minHeight: 420,
                 border: "1px solid #e5e7eb",
                 boxShadow: "0 20px 40px rgba(15, 23, 42, 0.08)",
                 transition: "all 0.2s ease",
@@ -533,41 +463,13 @@ export default function EmployeDashboardPage() {
               ) : null}
 
               <div style={{ display: "flex", gap: 12, marginBottom: 12 }}>
-                <button
-                  onClick={() => router.push(`/employe/dossiers/${dossier.id}`)}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.transform = "scale(1.05)";
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.transform = "scale(1)";
-                  }}
-                  style={{
-                    padding: "12px 18px",
-                    border: "none",
-                    borderRadius: 12,
-                    background: "#d6b21f",
-                    color: "#1e293b",
-                    cursor: "pointer",
-                    fontSize: 15,
-                    fontWeight: 700,
-                    transition: "all 0.15s ease",
-                  }}
-                >
-                  Voir
+                <button onClick={() => router.push(`/employe/dossiers/${dossier.id}`)} className="tagora-dark-action">
+                  Ouvrir le dossier
                 </button>
 
                 <button
                   onClick={() => handleDelete(dossier.id)}
-                  style={{
-                    padding: "12px 18px",
-                    borderRadius: 12,
-                    border: "1px solid #fca5a5",
-                    background: "#fff",
-                    color: "#dc2626",
-                    cursor: "pointer",
-                    fontWeight: 700,
-                    transition: "all 0.15s ease",
-                  }}
+                  className="tagora-btn-danger"
                 >
                   Supprimer
                 </button>

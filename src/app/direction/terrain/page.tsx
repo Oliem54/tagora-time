@@ -13,16 +13,19 @@ export default function DirectionTerrainPage() {
     {
       href: "/direction/sorties-terrain",
       label: "Sorties terrain",
+      actionLabel: "Consulter les sorties",
       description: "Suivre les executions reelles, les kilometres et les temps de route.",
     },
     {
       href: "/direction/temps-titan",
       label: "Temps Titan",
+      actionLabel: "Consulter les heures",
       description: "Consolider les heures, couts et refacturations Titan.",
     },
     {
       href: "/direction/facturation-titan",
       label: "Facturation Titan",
+      actionLabel: "Voir la facturation",
       description: "Verifier les montants a facturer sur la periode.",
     },
   ];
@@ -62,11 +65,23 @@ export default function DirectionTerrainPage() {
 
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(250px, 1fr))", gap: 16 }}>
           {terrainLinks.map((item) => (
-            <div key={item.href} className="tagora-panel" style={{ margin: 0 }}>
-              <h3 className="section-title" style={{ marginBottom: 8 }}>{item.label}</h3>
-              <p className="tagora-note" style={{ marginBottom: 16 }}>{item.description}</p>
+            <div
+              key={item.href}
+              className="tagora-panel"
+              style={{
+                margin: 0,
+                minHeight: 190,
+                display: "flex",
+                flexDirection: "column",
+                justifyContent: "space-between",
+              }}
+            >
+              <div>
+                <h3 className="section-title" style={{ marginBottom: 8 }}>{item.label}</h3>
+                <p className="tagora-note" style={{ marginBottom: 16 }}>{item.description}</p>
+              </div>
               <button className="tagora-navy-action" onClick={() => router.push(item.href)}>
-                Ouvrir
+                {item.actionLabel}
               </button>
             </div>
           ))}

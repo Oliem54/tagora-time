@@ -94,15 +94,17 @@ export default function FacturationTitanPage() {
     }
   }, []);
 
+  const hasTerrainPerm = hasPermission("terrain");
+
   useEffect(() => {
     if (accessLoading) return;
     if (!user) return;
-    if (!hasPermission("terrain")) {
+    if (!hasTerrainPerm) {
       setLoading(false);
       return;
     }
     void loadData();
-  }, [accessLoading, hasPermission, loadData, user]);
+  }, [accessLoading, hasTerrainPerm, loadData, user]);
 
   const filteredRows = useMemo(() => {
     return rows.filter((row) => {
@@ -134,7 +136,7 @@ export default function FacturationTitanPage() {
     return null;
   }
 
-  if (!hasPermission("terrain")) {
+  if (!hasTerrainPerm) {
     return (
       <div className="page-container">
         <HeaderTagora title="Facturation Titan" subtitle="Synthese des elements a facturer a Titan" />
