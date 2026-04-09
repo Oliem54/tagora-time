@@ -5,16 +5,13 @@ import { useRouter } from "next/navigation";
 import HeaderTagora from "@/app/components/HeaderTagora";
 import AccessNotice from "@/app/components/AccessNotice";
 import { useCurrentAccess } from "@/app/hooks/useCurrentAccess";
+import {
+  buildHorodateurLoadError,
+  HorodateurEventType,
+} from "@/app/lib/horodateur";
 import { supabase } from "@/app/lib/supabase/client";
 
-type EventType =
-  | "quart_debut"
-  | "pause_debut"
-  | "pause_fin"
-  | "sortie_depart"
-  | "sortie_retour"
-  | "quart_fin"
-  | "anomalie";
+type EventType = HorodateurEventType;
 
 type HorodateurEvent = {
   id: string;
@@ -160,13 +157,13 @@ function computeWorkedMinutes(events: HorodateurEvent[]) {
 
 export default function EmployeHorodateurPage() {
   const router = useRouter();
-  const { user, loading: accessLoading } = useCurrentAccess();
+  const { user, loading: accessLoading, hasPermission } = useCurrentAccess();
+  const canUseTerrain = hasPermission("terrain");
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [events, setEvents] = useState<HorodateurEvent[]>([]);
   const [feedback, setFeedback] = useState("");
-  const [anomalies, setAnomalies] = useState<string[]>([]);
   const [dossiers, setDossiers] = useState<DossierOption[]>([]);
   const [livraisons, setLivraisons] = useState<LivraisonOption[]>([]);
 
@@ -177,57 +174,7 @@ export default function EmployeHorodateurPage() {
   const state = useMemo(() => computeState(events), [events]);
   const lastEvent = useMemo(() => (events.length > 0 ? events[events.length - 1] : null), [events]);
   const workedMinutes = useMemo(() => computeWorkedMinutes(events), [events]);
-
-  async function loadEvents(userId: string) {
-    const { data, error } = await supabase
-      .from("horodateur_events")
-      .select("id, user_id, event_type, occurred_at, source_module, livraison_id, dossier_id, sortie_id, notes, metadata")
-      .eq("user_id", userId)
-      .gte("occurred_at", startOfTodayIso())
-      .order("occurred_at", { ascending: true });
-
-    if (error) {
-      setEvents([]);
-      setFeedback("Impossible de charger l horodateur du jour.");
-      return;
-    }
-
-    setEvents((data ?? []) as HorodateurEvent[]);
-  }
-
-  async function loadContext(userId: string) {
-    const [{ data: dossiersData }, { data: livraisonsData }] = await Promise.all([
-      supabase.from("dossiers").select("id, nom, client").eq("user_id", userId).order("id", { ascending: false }).limit(50),
-      supabase
-        .from("livraisons_planifiees")
-        .select("id, date_livraison, heure_prevue, client, dossier_id")
-        .gte("date_livraison", new Date().toISOString().slice(0, 10))
-        .order("date_livraison", { ascending: true })
-        .limit(30),
-    ]);
-
-    setDossiers((dossiersData ?? []) as DossierOption[]);
-    setLivraisons((livraisonsData ?? []) as LivraisonOption[]);
-  }
-
-  useEffect(() => {
-    async function init() {
-      if (accessLoading) return;
-      if (!user) {
-        router.push("/employe/login");
-        return;
-      }
-
-      setLoading(true);
-      setFeedback("");
-      await Promise.all([loadEvents(user.id), loadContext(user.id)]);
-      setLoading(false);
-    }
-
-    void init();
-  }, [accessLoading, router, user]);
-
-  useEffect(() => {
+  const anomalies = useMemo(() => {
     const next: string[] = [];
 
     if (state === "en_quart") {
@@ -242,8 +189,64 @@ export default function EmployeHorodateurPage() {
       next.push("Sortie en cours: retour sortie attendu.");
     }
 
-    setAnomalies(next);
+    return next;
   }, [state]);
+
+  async function loadEvents(userId: string) {
+    const { data, error } = await supabase
+      .from("horodateur_events")
+      .select("id, user_id, event_type, occurred_at, source_module, livraison_id, dossier_id, sortie_id, notes, metadata")
+      .eq("user_id", userId)
+      .gte("occurred_at", startOfTodayIso())
+      .order("occurred_at", { ascending: true });
+
+    if (error) {
+      setEvents([]);
+      setFeedback(buildHorodateurLoadError(error, "employe"));
+      return;
+    }
+
+    setEvents((data ?? []) as HorodateurEvent[]);
+  }
+
+  useEffect(() => {
+    async function init() {
+      if (accessLoading) return;
+      if (!user) {
+        router.push("/employe/login");
+        return;
+      }
+
+      setLoading(true);
+      setFeedback("");
+
+      const loadContext = async () => {
+        if (!canUseTerrain) {
+          setDossiers([]);
+          setLivraisons([]);
+          return;
+        }
+
+        const [{ data: dossiersData }, { data: livraisonsData }] = await Promise.all([
+          supabase.from("dossiers").select("id, nom, client").eq("user_id", user.id).order("id", { ascending: false }).limit(50),
+          supabase
+            .from("livraisons_planifiees")
+            .select("id, date_livraison, heure_prevue, client, dossier_id")
+            .gte("date_livraison", new Date().toISOString().slice(0, 10))
+            .order("date_livraison", { ascending: true })
+            .limit(30),
+        ]);
+
+        setDossiers((dossiersData ?? []) as DossierOption[]);
+        setLivraisons((livraisonsData ?? []) as LivraisonOption[]);
+      };
+
+      await Promise.all([loadEvents(user.id), loadContext()]);
+      setLoading(false);
+    }
+
+    void init();
+  }, [accessLoading, canUseTerrain, router, user]);
 
   async function insertHorodateurEvent(
     userId: string,
@@ -289,7 +292,12 @@ export default function EmployeHorodateurPage() {
 
     const allowed =
       (state === "hors_quart" && action === "quart_debut") ||
-      (state === "en_quart" && ["pause_debut", "sortie_depart", "quart_fin"].includes(action)) ||
+      (state === "en_quart" &&
+        [
+          "pause_debut",
+          ...(canUseTerrain ? ["sortie_depart"] : []),
+          "quart_fin",
+        ].includes(action)) ||
       (state === "en_pause" && action === "pause_fin") ||
       (state === "en_sortie" && action === "sortie_retour");
 
@@ -483,9 +491,11 @@ export default function EmployeHorodateurPage() {
             <button className="tagora-dark-action" onClick={() => void handleAction("pause_debut")} disabled={saving}>
               Debut pause
             </button>
-            <button className="tagora-navy-action" onClick={() => void handleAction("sortie_depart")} disabled={saving}>
-              Depart sortie
-            </button>
+            {canUseTerrain ? (
+              <button className="tagora-navy-action" onClick={() => void handleAction("sortie_depart")} disabled={saving}>
+                Depart sortie
+              </button>
+            ) : null}
             <button className="tagora-dark-outline-action" onClick={() => void handleAction("quart_fin")} disabled={saving}>
               Fin du quart
             </button>
@@ -508,7 +518,7 @@ export default function EmployeHorodateurPage() {
           <AccessNotice title="Quart termine" description="Le quart est clos pour aujourd hui. Un nouveau quart pourra etre demarre au prochain cycle." />
         )}
 
-        {state === "en_quart" ? (
+        {state === "en_quart" && canUseTerrain ? (
           <div className="tagora-panel-muted" style={{ marginTop: 16 }}>
             <h3 className="section-title" style={{ fontSize: 18, marginBottom: 10 }}>Contexte sortie (optionnel)</h3>
             <div className="tagora-form-grid">
@@ -542,6 +552,12 @@ export default function EmployeHorodateurPage() {
               </label>
             </div>
           </div>
+        ) : null}
+
+        {state === "en_quart" && !canUseTerrain ? (
+          <p className="tagora-note" style={{ marginTop: 16 }}>
+            Les sorties terrain sont masquees sur ce compte. Le pointage quart et pause reste disponible.
+          </p>
         ) : null}
       </section>
 

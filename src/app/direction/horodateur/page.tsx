@@ -4,16 +4,13 @@ import { useEffect, useMemo, useState } from "react";
 import HeaderTagora from "@/app/components/HeaderTagora";
 import AccessNotice from "@/app/components/AccessNotice";
 import { useCurrentAccess } from "@/app/hooks/useCurrentAccess";
+import {
+  buildHorodateurLoadError,
+  HorodateurEventType,
+} from "@/app/lib/horodateur";
 import { supabase } from "@/app/lib/supabase/client";
 
-type EventType =
-  | "quart_debut"
-  | "pause_debut"
-  | "pause_fin"
-  | "sortie_depart"
-  | "sortie_retour"
-  | "quart_fin"
-  | "anomalie";
+type EventType = HorodateurEventType;
 
 type HorodateurEvent = {
   id: string;
@@ -157,7 +154,7 @@ export default function DirectionHorodateurPage() {
 
       if (error) {
         setEvents([]);
-        setErrorText("Impossible de charger la supervision horodateur.");
+        setErrorText(buildHorodateurLoadError(error, "direction"));
         setLoading(false);
         return;
       }

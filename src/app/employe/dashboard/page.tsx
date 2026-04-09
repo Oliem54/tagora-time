@@ -292,6 +292,10 @@ export default function EmployeDashboardPage() {
           </button>
         ) : null}
 
+        <button onClick={() => router.push("/ameliorations")} className="tagora-navy-action">
+          Ameliorations
+        </button>
+
         <button onClick={handleLogout} className="tagora-dark-outline-action">
           Se déconnecter
         </button>

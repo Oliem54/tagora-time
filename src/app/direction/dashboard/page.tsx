@@ -82,6 +82,13 @@ export default function DirectionDashboardPage() {
       permission: null,
       description: "Traiter les demandes de creation de compte en attente.",
     },
+    {
+      href: "/ameliorations",
+      label: "Ameliorations",
+      actionLabel: "Envoyer une recommandation",
+      permission: null,
+      description: "Centraliser les idees, correctifs et points a ameliorer.",
+    },
   ];
 
   const visibleLinks = quickLinks.filter((item) =>
