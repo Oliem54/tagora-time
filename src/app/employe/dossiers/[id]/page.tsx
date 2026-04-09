@@ -45,6 +45,7 @@ export default function DossierPage() {
   const dossierId = Number(params.id);
   const router = useRouter();
   const { user, loading: accessLoading, hasPermission } = useCurrentAccess();
+  const userId = user?.id ?? null;
 
   const [contenu, setContenu] = useState("");
   const [notes, setNotes] = useState<Note[]>([]);
@@ -56,6 +57,7 @@ export default function DossierPage() {
   const [documentsNotice, setDocumentsNotice] = useState("");
 
   const canUseDocuments = hasPermission("documents");
+  const canUseDossiers = hasPermission("dossiers");
 
   const dossierTitle = useMemo(() => {
     if (!dossier) return `Dossier #${dossierId}`;
@@ -121,12 +123,12 @@ export default function DossierPage() {
     async function init() {
       if (accessLoading) return;
 
-      if (!user) {
+      if (!userId) {
         router.push("/employe/login");
         return;
       }
 
-      if (!hasPermission("dossiers")) {
+      if (!canUseDossiers) {
         setLoading(false);
         return;
       }
@@ -153,7 +155,7 @@ export default function DossierPage() {
     }
 
     void init();
-  }, [accessLoading, canUseDocuments, dossierId, fetchDossier, fetchNotes, fetchPhotos, hasPermission, router, user]);
+  }, [accessLoading, canUseDocuments, canUseDossiers, dossierId, fetchDossier, fetchNotes, fetchPhotos, router, userId]);
 
   const handleAddNote = async () => {
     if (!user) {
@@ -293,7 +295,7 @@ export default function DossierPage() {
     );
   }
 
-  if (!hasPermission("dossiers")) {
+  if (!canUseDossiers) {
     return (
       <div className="page-container">
         <HeaderTagora title={`Dossier #${dossierId}`} subtitle="Notes, photos et videos terrain" />
@@ -341,7 +343,7 @@ export default function DossierPage() {
             marginTop: 24,
           }}
         >
-          <div className="tagora-panel">
+          <div className="tagora-panel" style={{ minHeight: 560 }}>
             <h2 className="section-title" style={{ marginBottom: 18 }}>
               Ajouter une note
             </h2>
@@ -353,11 +355,7 @@ export default function DossierPage() {
               className="tagora-textarea"
             />
 
-            <button
-              onClick={handleAddNote}
-              className="tagora-dark-action"
-              style={{ marginTop: 18 }}
-            >
+            <button onClick={handleAddNote} className="tagora-dark-action" style={{ marginTop: 16 }}>
               Ajouter la note
             </button>
 
@@ -394,7 +392,7 @@ export default function DossierPage() {
             )}
           </div>
 
-          <div className="tagora-panel">
+          <div className="tagora-panel" style={{ minHeight: 560 }}>
             <h2 className="section-title" style={{ marginBottom: 16 }}>
               Ajouter photos et videos
             </h2>
@@ -490,7 +488,7 @@ export default function DossierPage() {
       <div className="actions-row" style={{ marginTop: 24 }}>
         <button
           onClick={() => router.push("/employe/dashboard")}
-          className="tagora-navy-action"
+          className="tagora-dark-outline-action"
         >
           Retour au dashboard
         </button>

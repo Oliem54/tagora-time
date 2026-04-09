@@ -212,14 +212,15 @@ export default function TempsTitanPage() {
   }, []);
 
   const blocked = !accessLoading && !!user && !hasPermission("terrain");
+  const userId = user?.id ?? null;
 
   useEffect(() => {
-    if (accessLoading || !user || blocked) return;
+    if (accessLoading || !userId || blocked) return;
     const timeout = setTimeout(() => {
       void loadAll();
     }, 0);
     return () => clearTimeout(timeout);
-  }, [accessLoading, blocked, loadAll, user]);
+  }, [accessLoading, blocked, loadAll, userId]);
 
   const employeSelection = useMemo(() => employes.find((item) => String(item.id) === form.employe_id), [employes, form.employe_id]);
   const dureeCalculee = useMemo(() => diffHours(form.heure_debut, form.heure_fin), [form.heure_debut, form.heure_fin]);

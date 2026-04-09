@@ -26,6 +26,8 @@ export default function Page() {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [linkedDataNotice, setLinkedDataNotice] = useState("");
+  const [viewMode, setViewMode] = useState<"liste" | "calendrier">("liste");
+  const [calendarDate, setCalendarDate] = useState(new Date());
 
   const [filtre, setFiltre] = useState({
     chauffeur_id: "",
@@ -243,6 +245,39 @@ export default function Page() {
                 : statut}
       </span>
     );
+  }
+
+  function getCalendarDays() {
+    const year = calendarDate.getFullYear();
+    const month = calendarDate.getMonth();
+    const firstDay = new Date(year, month, 1);
+    const lastDay = new Date(year, month + 1, 0);
+    const daysInMonth = lastDay.getDate();
+    const startingDayOfWeek = (firstDay.getDay() + 6) % 7;
+
+    const days = [];
+    for (let i = 0; i < startingDayOfWeek; i++) days.push(null);
+    for (let i = 1; i <= daysInMonth; i++) days.push(i);
+    return days;
+  }
+
+  function formatDateISO(day: number) {
+    const year = calendarDate.getFullYear();
+    const month = String(calendarDate.getMonth() + 1).padStart(2, "0");
+    const d = String(day).padStart(2, "0");
+    return `${year}-${month}-${d}`;
+  }
+
+  function getLivraisonsByDate(dateStr: string) {
+    return livraisonsFiltrees.filter((l) => l.date_livraison === dateStr);
+  }
+
+  function prevMonth() {
+    setCalendarDate(new Date(calendarDate.getFullYear(), calendarDate.getMonth() - 1, 1));
+  }
+
+  function nextMonth() {
+    setCalendarDate(new Date(calendarDate.getFullYear(), calendarDate.getMonth() + 1, 1));
   }
 
   const livraisonsFiltrees = useMemo(() => {
@@ -485,76 +520,185 @@ export default function Page() {
         <section className="tagora-panel">
           <div style={{ display: "flex", justifyContent: "space-between", gap: 16, flexWrap: "wrap", alignItems: "center", marginBottom: 18 }}>
             <h2 className="section-title" style={{ marginBottom: 0 }}>Livraisons planifiees</h2>
-            <button onClick={() => void fetchData()} className="tagora-dark-outline-action">Actualiser</button>
-          </div>
-
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12, marginBottom: 18 }}>
-            <select value={filtre.chauffeur_id} onChange={(e) => setFiltre({ ...filtre, chauffeur_id: e.target.value })} className="tagora-input"><option value="">Tous les chauffeurs</option>{chauffeurs.map((item) => <option key={String(item.id)} value={String(item.id)}>{String(getPersonLabel(item))}</option>)}</select>
-            <select value={filtre.vehicule_id} onChange={(e) => setFiltre({ ...filtre, vehicule_id: e.target.value })} className="tagora-input"><option value="">Tous les vehicules</option>{vehicules.map((item) => <option key={String(item.id)} value={String(item.id)}>{String(getVehiculeLabel(item))}</option>)}</select>
-            <select value={filtre.remorque_id} onChange={(e) => setFiltre({ ...filtre, remorque_id: e.target.value })} className="tagora-input"><option value="">Toutes les remorques</option>{remorques.map((item) => <option key={String(item.id)} value={String(item.id)}>{String(getRemorqueLabel(item))}</option>)}</select>
-            <select value={filtre.statut} onChange={(e) => setFiltre({ ...filtre, statut: e.target.value })} className="tagora-input"><option value="">Tous les statuts</option><option value="planifiee">Planifiee</option><option value="en_cours">En cours</option><option value="livree">Livree</option><option value="probleme">Probleme</option></select>
-          </div>
-
-          {livraisonsFiltrees.length === 0 ? (
-            <p className="tagora-note">Aucune livraison trouvee.</p>
-          ) : (
-            <div style={{ overflowX: "auto" }}>
-              <table style={tableStyle}>
-                <thead>
-                  <tr>
-                    <th style={thStyle}>ID</th>
-                    <th style={thStyle}>Dossier</th>
-                    <th style={thStyle}>Adresse</th>
-                    <th style={thStyle}>Date</th>
-                    <th style={thStyle}>Heure</th>
-                    <th style={thStyle}>Chauffeur</th>
-                    <th style={thStyle}>Vehicule</th>
-                    <th style={thStyle}>Remorque</th>
-                    <th style={thStyle}>Statut</th>
-                    <th style={thStyle}>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {livraisonsFiltrees.map((item) => {
-                    const dossier = getDossierById(item.dossier_id);
-                    const chauffeur = getChauffeurById(item.chauffeur_id);
-                    const vehicule = getVehiculeById(item.vehicule_id);
-                    const remorque = getRemorqueById(item.remorque_id);
-
-                    return (
-                      <tr key={item.id}>
-                        <td style={tdStyle}>{item.id}</td>
-                        <td style={tdStyle}>{dossier ? getDossierLabel(dossier) : item.dossier_id || "-"}</td>
-                        <td style={tdStyle}>{item.adresse || "-"}</td>
-                        <td style={tdStyle}>{item.date_livraison || "-"}</td>
-                        <td style={tdStyle}>{item.heure_prevue || "-"}</td>
-                        <td style={tdStyle}>{chauffeur ? getPersonLabel(chauffeur) : item.chauffeur_id || "-"}</td>
-                        <td style={tdStyle}>{vehicule ? getVehiculeLabel(vehicule) : item.vehicule_id || "-"}</td>
-                        <td style={tdStyle}>{remorque ? getRemorqueLabel(remorque) : item.remorque_id || "-"}</td>
-                        <td style={tdStyle}>
-                          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                            {getStatusBadge(typeof item.statut === "string" ? item.statut : "planifiee")}
-                            <select value={typeof item.statut === "string" ? item.statut : ""} onChange={(e) => void handleStatusChange(Number(item.id), e.target.value)} className="tagora-input" style={{ minWidth: 110 }}>
-                              <option value="planifiee">Planifiee</option>
-                              <option value="en_cours">En cours</option>
-                              <option value="livree">Livree</option>
-                              <option value="probleme">Probleme</option>
-                            </select>
-                          </div>
-                        </td>
-                        <td style={tdStyle}>
-                          <div className="actions-row">
-                            <button onClick={() => handleEdit(item)} className="tagora-dark-outline-action">Modifier</button>
-                            <Link href={`/direction/sorties-terrain?livraison_id=${item.id}`} className="tagora-dark-outline-action">Sortie terrain</Link>
-                            <button onClick={() => void handleDelete(Number(item.id))} className="tagora-dark-action">Supprimer</button>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <button
+                onClick={() => setViewMode("liste")}
+                style={{
+                  padding: "8px 16px",
+                  borderRadius: 8,
+                  border: "1px solid #0f2948",
+                  background: viewMode === "liste" ? "#0f2948" : "transparent",
+                  color: viewMode === "liste" ? "#fff" : "#0f2948",
+                  cursor: "pointer",
+                  fontSize: 13,
+                  fontWeight: 600,
+                  transition: "all 140ms ease",
+                }}
+              >
+                Liste
+              </button>
+              <button
+                onClick={() => setViewMode("calendrier")}
+                style={{
+                  padding: "8px 16px",
+                  borderRadius: 8,
+                  border: "1px solid #0f2948",
+                  background: viewMode === "calendrier" ? "#0f2948" : "transparent",
+                  color: viewMode === "calendrier" ? "#fff" : "#0f2948",
+                  cursor: "pointer",
+                  fontSize: 13,
+                  fontWeight: 600,
+                  transition: "all 140ms ease",
+                }}
+              >
+                Calendrier
+              </button>
+              <button onClick={() => void fetchData()} className="tagora-dark-outline-action">Actualiser</button>
             </div>
+          </div>
+
+          {viewMode === "liste" ? (
+            <>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12, marginBottom: 18 }}>
+                <select value={filtre.chauffeur_id} onChange={(e) => setFiltre({ ...filtre, chauffeur_id: e.target.value })} className="tagora-input"><option value="">Tous les chauffeurs</option>{chauffeurs.map((item) => <option key={String(item.id)} value={String(item.id)}>{String(getPersonLabel(item))}</option>)}</select>
+                <select value={filtre.vehicule_id} onChange={(e) => setFiltre({ ...filtre, vehicule_id: e.target.value })} className="tagora-input"><option value="">Tous les vehicules</option>{vehicules.map((item) => <option key={String(item.id)} value={String(item.id)}>{String(getVehiculeLabel(item))}</option>)}</select>
+                <select value={filtre.remorque_id} onChange={(e) => setFiltre({ ...filtre, remorque_id: e.target.value })} className="tagora-input"><option value="">Toutes les remorques</option>{remorques.map((item) => <option key={String(item.id)} value={String(item.id)}>{String(getRemorqueLabel(item))}</option>)}</select>
+                <select value={filtre.statut} onChange={(e) => setFiltre({ ...filtre, statut: e.target.value })} className="tagora-input"><option value="">Tous les statuts</option><option value="planifiee">Planifiee</option><option value="en_cours">En cours</option><option value="livree">Livree</option><option value="probleme">Probleme</option></select>
+              </div>
+              {livraisonsFiltrees.length === 0 ? (
+                <p className="tagora-note">Aucune livraison trouvee.</p>
+              ) : (
+                <div style={{ overflowX: "auto" }}>
+                  <table style={tableStyle}>
+                    <thead>
+                      <tr>
+                        <th style={thStyle}>ID</th>
+                        <th style={thStyle}>Dossier</th>
+                        <th style={thStyle}>Adresse</th>
+                        <th style={thStyle}>Date</th>
+                        <th style={thStyle}>Heure</th>
+                        <th style={thStyle}>Chauffeur</th>
+                        <th style={thStyle}>Vehicule</th>
+                        <th style={thStyle}>Remorque</th>
+                        <th style={thStyle}>Statut</th>
+                        <th style={thStyle}>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {livraisonsFiltrees.map((item) => {
+                        const dossier = getDossierById(item.dossier_id);
+                        const chauffeur = getChauffeurById(item.chauffeur_id);
+                        const vehicule = getVehiculeById(item.vehicule_id);
+                        const remorque = getRemorqueById(item.remorque_id);
+
+                        return (
+                          <tr key={item.id}>
+                            <td style={tdStyle}>{item.id}</td>
+                            <td style={tdStyle}>{dossier ? getDossierLabel(dossier) : item.dossier_id || "-"}</td>
+                            <td style={tdStyle}>{item.adresse || "-"}</td>
+                            <td style={tdStyle}>{item.date_livraison || "-"}</td>
+                            <td style={tdStyle}>{item.heure_prevue || "-"}</td>
+                            <td style={tdStyle}>{chauffeur ? getPersonLabel(chauffeur) : item.chauffeur_id || "-"}</td>
+                            <td style={tdStyle}>{vehicule ? getVehiculeLabel(vehicule) : item.vehicule_id || "-"}</td>
+                            <td style={tdStyle}>{remorque ? getRemorqueLabel(remorque) : item.remorque_id || "-"}</td>
+                            <td style={tdStyle}>
+                              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                                {getStatusBadge(typeof item.statut === "string" ? item.statut : "planifiee")}
+                                <select value={typeof item.statut === "string" ? item.statut : ""} onChange={(e) => void handleStatusChange(Number(item.id), e.target.value)} className="tagora-input" style={{ minWidth: 110 }}>
+                                  <option value="planifiee">Planifiee</option>
+                                  <option value="en_cours">En cours</option>
+                                  <option value="livree">Livree</option>
+                                  <option value="probleme">Probleme</option>
+                                </select>
+                              </div>
+                            </td>
+                            <td style={tdStyle}>
+                              <div className="actions-row">
+                                <button onClick={() => handleEdit(item)} className="tagora-dark-outline-action">Modifier</button>
+                                <Link href={`/direction/sorties-terrain?livraison_id=${item.id}`} className="tagora-dark-outline-action">Sortie terrain</Link>
+                                <button onClick={() => void handleDelete(Number(item.id))} className="tagora-dark-action">Supprimer</button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </>
+          ) : (
+            <>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
+                <button onClick={prevMonth} className="tagora-dark-outline-action" style={{ width: 120 }}>← Mois prec</button>
+                <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: "#0f2948" }}>
+                  {calendarDate.toLocaleString("fr-FR", { month: "long", year: "numeric" })}
+                </h3>
+                <button onClick={nextMonth} className="tagora-dark-outline-action" style={{ width: 120 }}>Mois suiv →</button>
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 8, marginBottom: 12 }}>
+                {["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"].map((d) => (
+                  <div key={d} style={{ textAlign: "center", fontWeight: 700, fontSize: 12, color: "#64748b", padding: "8px 0" }}>
+                    {d}
+                  </div>
+                ))}
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 8 }}>
+                {getCalendarDays().map((day, idx) => {
+                  const dateStr = day ? formatDateISO(day) : "";
+                  const datumsForDay = day ? getLivraisonsByDate(dateStr) : [];
+                  return (
+                    <div
+                      key={idx}
+                      style={{
+                        minHeight: 100,
+                        border: "1px solid #e5e7eb",
+                        borderRadius: 10,
+                        padding: 8,
+                        background: day ? "#ffffff" : "#f8fafc",
+                        display: "flex",
+                        flexDirection: "column",
+                        overflow: "hidden",
+                      }}
+                    >
+                      {day && (
+                        <div style={{ fontWeight: 700, fontSize: 14, color: "#0f2948", marginBottom: 6 }}>{day}</div>
+                      )}
+                      <div style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, overflow: "auto" }}>
+                        {datumsForDay.slice(0, 3).map((item) => (
+                          <button
+                            key={item.id}
+                            onClick={() => handleEdit(item)}
+                            style={{
+                              padding: "3px 6px",
+                              borderRadius: 4,
+                              border: "none",
+                              cursor: "pointer",
+                              fontSize: 11,
+                              fontWeight: 600,
+                              background: item.statut === "planifiee" ? "#6b7280" : item.statut === "en_cours" ? "#f59e0b" : item.statut === "livree" ? "#10b981" : "#ef4444",
+                              color: "#fff",
+                              textAlign: "left",
+                              whiteSpace: "nowrap",
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                              transition: "opacity 140ms ease",
+                            }}
+                            onMouseEnter={(e) => (e.currentTarget.style.opacity = "0.8")}
+                            onMouseLeave={(e) => (e.currentTarget.style.opacity = "1")}
+                          >
+                            #{item.id} {item.heure_prevue ? `@ ${item.heure_prevue}` : ""}
+                          </button>
+                        ))}
+                        {datumsForDay.length > 3 && (
+                          <div style={{ color: "#64748b", fontSize: 10, fontWeight: 600 }}>+{datumsForDay.length - 3} autre(s)</div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </>
           )}
         </section>
       </div>
