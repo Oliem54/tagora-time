@@ -71,22 +71,48 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const rateLimit = await consumeDurableAccountRequestRateLimit(req, email);
+    try {
+      const rateLimit = await consumeDurableAccountRequestRateLimit(req, email);
 
-    if (!rateLimit.ok) {
-      return NextResponse.json(
-        {
-          error:
-            "Trop de demandes ont ete envoyees. Veuillez patienter avant de recommencer.",
-        },
-        {
-          status: 429,
-          headers: {
-            "Retry-After": String(rateLimit.retryAfterSeconds),
+      if (!rateLimit.ok) {
+        return NextResponse.json(
+          {
+            error:
+              "Trop de demandes ont ete envoyees. Veuillez patienter avant de recommencer.",
           },
-        }
-      );
+          {
+            status: 429,
+            headers: {
+              "Retry-After": String(rateLimit.retryAfterSeconds),
+            },
+          }
+        );
+      }
+    } catch (rateLimitError) {
+      console.log("[account-requests] rate limit error:", rateLimitError);
     }
+
+    const payload = {
+      full_name: fullName,
+      email,
+      phone,
+      company,
+      portal_source: portalSource,
+      requested_role: requestedRole,
+      requested_permissions: requestedPermissions,
+      message,
+      status: "pending",
+      audit_log: [
+        createAuditEntry("request_submitted", "requester", {
+          ip: requestIp,
+          details: {
+            portalSource,
+            requestedRole,
+            requestedPermissions,
+          },
+        }),
+      ],
+    };
 
     let supabase = createPublicServerSupabaseClient();
 
@@ -96,33 +122,18 @@ export async function POST(req: NextRequest) {
       // Fallback public client for local setup if the service role key is not yet configured.
     }
 
+    console.log("[account-requests] payload:", payload);
+
     const { data, error } = await supabase
       .from("account_requests")
-      .insert([
-        {
-          full_name: fullName,
-          email,
-          phone,
-          company,
-          portal_source: portalSource,
-          requested_role: requestedRole,
-          requested_permissions: requestedPermissions,
-          message,
-          status: "pending",
-          audit_log: [
-            createAuditEntry("request_submitted", "requester", {
-              ip: requestIp,
-              details: {
-                portalSource,
-                requestedRole,
-                requestedPermissions,
-              },
-            }),
-          ],
-        },
-      ])
-      .select("*")
-      .single();
+      .insert([payload]);
+
+    console.log("[account-requests] data:", data);
+    console.log("[account-requests] error:", error);
+    console.log("[account-requests] error.message:", error?.message ?? null);
+    console.log("[account-requests] error.details:", error?.details ?? null);
+    console.log("[account-requests] error.hint:", error?.hint ?? null);
+    console.log("[account-requests] error.code:", error?.code ?? null);
 
     if (error) {
       const normalizedMessage = error.message.toLowerCase();
@@ -138,18 +149,34 @@ export async function POST(req: NextRequest) {
         );
       }
 
-      return NextResponse.json({ error: error.message }, { status: 500 });
+      return NextResponse.json(
+        {
+          error: error.message,
+          debug: {
+            message: error?.message ?? null,
+            details: error?.details ?? null,
+            hint: error?.hint ?? null,
+            code: error?.code ?? null,
+          },
+        },
+        { status: 500 }
+      );
     }
 
-    await notifyDirectionOfAccountRequest({
-      fullName,
-      email,
-      requestedRole,
-      portalSource,
-    });
+    try {
+      await notifyDirectionOfAccountRequest({
+        fullName,
+        email,
+        requestedRole,
+        portalSource,
+      });
+    } catch (notificationError) {
+      console.log("[account-requests] notification error:", notificationError);
+    }
 
-    return NextResponse.json({ request: data });
+    return NextResponse.json({ success: true });
   } catch (error) {
+    console.error("[account-requests][POST] unexpected error", error);
     return NextResponse.json(
       {
         error:

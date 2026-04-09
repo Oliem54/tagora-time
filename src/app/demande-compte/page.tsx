@@ -63,24 +63,44 @@ export default function DemandeComptePage() {
     setSaving(true);
 
     try {
+      const requestPayload = {
+        fullName: fullName.trim(),
+        email: email.trim(),
+        phone: phone.trim(),
+        company: company.trim(),
+        portalSource: portal,
+        requestedRole,
+        requestedPermissions: selectedPermissions,
+        message: message.trim(),
+      };
+
+      console.log("[demande-compte] donnees envoyees", requestPayload);
+
       const response = await fetch("/api/account-requests", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({
-          fullName,
-          email,
-          phone,
-          company,
-          portalSource: portal,
-          requestedRole,
-          requestedPermissions: selectedPermissions,
-          message,
-        }),
+        body: JSON.stringify(requestPayload),
       });
 
       const payload = await response.json();
+
+      console.log("[demande-compte] response.status", response.status);
+      console.log("[demande-compte] payload", payload);
+      console.log("[demande-compte] payload.debug", payload?.debug ?? null);
+
+      console.log("[demande-compte] reponse api", {
+        ok: response.ok,
+        status: response.status,
+        statusText: response.statusText,
+        payload,
+      });
+
+      console.log("[demande-compte] error.message", payload?.debug?.message ?? null);
+      console.log("[demande-compte] error.details", payload?.debug?.details ?? null);
+      console.log("[demande-compte] error.hint", payload?.debug?.hint ?? null);
+      console.log("[demande-compte] error.code", payload?.debug?.code ?? null);
 
       if (!response.ok) {
         throw new Error(payload.error || "Erreur lors de la demande.");
