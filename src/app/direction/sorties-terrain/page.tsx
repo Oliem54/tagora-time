@@ -8,6 +8,11 @@ import FeedbackMessage from "@/app/components/FeedbackMessage";
 import AccessNotice from "@/app/components/AccessNotice";
 import { supabase } from "@/app/lib/supabase/client";
 import { useCurrentAccess } from "@/app/hooks/useCurrentAccess";
+import {
+  ACCOUNT_REQUEST_COMPANIES,
+  getCompanyLabel,
+  type AccountRequestCompany,
+} from "@/app/lib/account-requests.shared";
 
 type Row = Record<string, string | number | null | undefined>;
 
@@ -20,6 +25,7 @@ const emptyForm = {
   date_sortie: "",
   heure_depart: "",
   heure_retour: "",
+  company_context: "",
   km_depart: "",
   km_retour: "",
   notes: "",
@@ -201,6 +207,11 @@ export default function Page() {
       return;
     }
 
+    if (!form.company_context) {
+      setFeedbackMessage("La compagnie est obligatoire pour chaque sortie terrain.", "error");
+      return;
+    }
+
     setSaving(true);
     clearMessage();
 
@@ -213,6 +224,7 @@ export default function Page() {
       date_sortie: form.date_sortie || null,
       heure_depart: form.heure_depart || null,
       heure_retour: form.heure_retour || null,
+      company_context: form.company_context || null,
       km_depart: form.km_depart ? Number(form.km_depart) : null,
       km_retour: form.km_retour ? Number(form.km_retour) : null,
       km_total: kmTotalPreview,
@@ -247,6 +259,7 @@ export default function Page() {
       date_sortie: typeof item.date_sortie === "string" ? item.date_sortie : "",
       heure_depart: typeof item.heure_depart === "string" ? item.heure_depart : "",
       heure_retour: typeof item.heure_retour === "string" ? item.heure_retour : "",
+      company_context: typeof item.company_context === "string" ? item.company_context : "",
       km_depart: item.km_depart ? String(item.km_depart) : "",
       km_retour: item.km_retour ? String(item.km_retour) : "",
       notes: typeof item.notes === "string" ? item.notes : "",
@@ -306,6 +319,7 @@ export default function Page() {
             <label className="tagora-field"><span className="tagora-label">Date sortie</span><input type="date" value={form.date_sortie} onChange={(e) => setForm({ ...form, date_sortie: e.target.value })} className="tagora-input" /></label>
             <label className="tagora-field"><span className="tagora-label">Heure depart</span><input type="time" value={form.heure_depart} onChange={(e) => setForm({ ...form, heure_depart: e.target.value })} className="tagora-input" /></label>
             <label className="tagora-field"><span className="tagora-label">Heure retour</span><input type="time" value={form.heure_retour} onChange={(e) => setForm({ ...form, heure_retour: e.target.value })} className="tagora-input" /></label>
+            <label className="tagora-field"><span className="tagora-label">Compagnie</span><select value={form.company_context} onChange={(e) => setForm({ ...form, company_context: e.target.value as AccountRequestCompany | "" })} className="tagora-input"><option value="">Choisir la compagnie</option>{ACCOUNT_REQUEST_COMPANIES.map((company) => <option key={company.value} value={company.value}>{company.label}</option>)}</select></label>
             <label className="tagora-field"><span className="tagora-label">KM depart</span><input type="number" value={form.km_depart} onChange={(e) => setForm({ ...form, km_depart: e.target.value })} className="tagora-input" /></label>
             <label className="tagora-field"><span className="tagora-label">KM retour</span><input type="number" value={form.km_retour} onChange={(e) => setForm({ ...form, km_retour: e.target.value })} className="tagora-input" /></label>
             <div className="tagora-panel" style={{ margin: 0 }}><div className="tagora-label">KM total calcule</div><div style={{ marginTop: 8, fontWeight: 700 }}>{kmTotalPreview ?? "-"}</div></div>
@@ -327,7 +341,7 @@ export default function Page() {
           {sorties.length === 0 ? <p className="tagora-note">Aucune sortie terrain trouvee.</p> : (
             <div style={{ overflowX: "auto" }}>
               <table style={tableStyle}>
-                <thead><tr><th style={thStyle}>ID</th><th style={thStyle}>Livraison liee</th><th style={thStyle}>Dossier</th><th style={thStyle}>Date</th><th style={thStyle}>Chauffeur</th><th style={thStyle}>Vehicule</th><th style={thStyle}>Remorque</th><th style={thStyle}>KM total</th><th style={thStyle}>Temps total</th><th style={thStyle}>Actions</th></tr></thead>
+                <thead><tr><th style={thStyle}>ID</th><th style={thStyle}>Livraison liee</th><th style={thStyle}>Dossier</th><th style={thStyle}>Date</th><th style={thStyle}>Compagnie</th><th style={thStyle}>Chauffeur</th><th style={thStyle}>Vehicule</th><th style={thStyle}>Remorque</th><th style={thStyle}>KM total</th><th style={thStyle}>Temps total</th><th style={thStyle}>Actions</th></tr></thead>
                 <tbody>
                   {sorties.map((item) => {
                     const chauffeur = getById(chauffeurs, item.chauffeur_id);
@@ -337,7 +351,7 @@ export default function Page() {
                     const dossier = livraison ? getById(dossiers, livraison.dossier_id) : getById(dossiers, item.dossier_id);
                     const livraisonLabel = livraison ? `Livraison #${String(livraison.id)}${dossier ? ` - ${String(getDossierLabel(dossier))}` : ""}` : item.livraison_id ? `Livraison #${String(item.livraison_id)}` : "-";
                     const dossierLabel = dossier ? String(getDossierLabel(dossier)) : item.dossier_id ? `Dossier #${String(item.dossier_id)}` : "-";
-                    return <tr key={String(item.id)}><td style={tdStyle}>{String(item.id)}</td><td style={tdStyle}>{livraisonLabel}</td><td style={tdStyle}>{dossierLabel}</td><td style={tdStyle}>{typeof item.date_sortie === "string" ? item.date_sortie : "-"}</td><td style={tdStyle}>{chauffeur ? String(getChauffeurLabel(chauffeur)) : item.chauffeur_id ? String(item.chauffeur_id) : "-"}</td><td style={tdStyle}>{vehicule ? String(getVehiculeLabel(vehicule)) : item.vehicule_id ? String(item.vehicule_id) : "-"}</td><td style={tdStyle}>{remorque ? String(getRemorqueLabel(remorque)) : item.remorque_id ? String(item.remorque_id) : "-"}</td><td style={tdStyle}>{item.km_total != null ? String(item.km_total) : "-"}</td><td style={tdStyle}>{typeof item.temps_total === "string" ? item.temps_total : "-"}</td><td style={tdStyle}><div className="actions-row">{livraison ? <Link href="/direction/livraisons" className="tagora-dark-outline-action">Voir livraison</Link> : null}<button onClick={() => handleEdit(item)} className="tagora-dark-outline-action">Modifier</button><button onClick={() => void handleDelete(Number(item.id))} className="tagora-dark-action">Supprimer</button></div></td></tr>;
+                    return <tr key={String(item.id)}><td style={tdStyle}>{String(item.id)}</td><td style={tdStyle}>{livraisonLabel}</td><td style={tdStyle}>{dossierLabel}</td><td style={tdStyle}>{typeof item.date_sortie === "string" ? item.date_sortie : "-"}</td><td style={tdStyle}>{typeof item.company_context === "string" ? getCompanyLabel(item.company_context as AccountRequestCompany) : "-"}</td><td style={tdStyle}>{chauffeur ? String(getChauffeurLabel(chauffeur)) : item.chauffeur_id ? String(item.chauffeur_id) : "-"}</td><td style={tdStyle}>{vehicule ? String(getVehiculeLabel(vehicule)) : item.vehicule_id ? String(item.vehicule_id) : "-"}</td><td style={tdStyle}>{remorque ? String(getRemorqueLabel(remorque)) : item.remorque_id ? String(item.remorque_id) : "-"}</td><td style={tdStyle}>{item.km_total != null ? String(item.km_total) : "-"}</td><td style={tdStyle}>{typeof item.temps_total === "string" ? item.temps_total : "-"}</td><td style={tdStyle}><div className="actions-row">{livraison ? <Link href="/direction/livraisons" className="tagora-dark-outline-action">Voir livraison</Link> : null}<button onClick={() => handleEdit(item)} className="tagora-dark-outline-action">Modifier</button><button onClick={() => void handleDelete(Number(item.id))} className="tagora-dark-action">Supprimer</button></div></td></tr>;
                   })}
                 </tbody>
               </table>

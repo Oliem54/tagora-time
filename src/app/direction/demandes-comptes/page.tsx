@@ -1,24 +1,40 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import HeaderTagora from "@/app/components/HeaderTagora";
 import FeedbackMessage from "@/app/components/FeedbackMessage";
 import { accountRequestPermissionOptions } from "@/app/lib/account-request-options";
+import {
+  getCompanyLabel,
+  type AccountRequestCompany,
+} from "@/app/lib/account-requests.shared";
 import { supabase } from "@/app/lib/supabase/client";
+
+type RequestStatus = "pending" | "invited" | "active" | "refused" | "error";
+type RequestRole = "employe" | "direction";
+type RequestAction =
+  | "approve"
+  | "refuse"
+  | "update_access"
+  | "reset_pending"
+  | "resend_invitation"
+  | "disable_access"
+  | "retry"
+  | "delete";
 
 type AccountRequest = {
   id: string;
   full_name: string;
   email: string;
   phone: string | null;
-  company: string | null;
-  portal_source: "employe" | "direction";
-  requested_role: "employe" | "direction";
+  company: AccountRequestCompany;
+  portal_source: RequestRole;
+  requested_role: RequestRole;
   requested_permissions: string[] | null;
   message: string | null;
-  status: "pending" | "invited" | "active" | "refused" | "error";
-  assigned_role: "employe" | "direction" | null;
+  status: RequestStatus;
+  assigned_role: RequestRole | null;
   assigned_permissions: string[] | null;
   review_note: string | null;
   reviewed_at: string | null;
@@ -26,8 +42,12 @@ type AccountRequest = {
   existing_account?: {
     exists: boolean;
     userId: string | null;
-    role: "employe" | "direction" | null;
+    role: RequestRole | null;
     permissions: string[];
+    company: AccountRequestCompany | null;
+    primaryCompany: AccountRequestCompany | null;
+    allowedCompanies: AccountRequestCompany[];
+    companyDirectoryContext: string | null;
     emailConfirmed: boolean;
     hasSignedIn: boolean;
     lastSignInAt: string | null;
@@ -40,105 +60,201 @@ type AccountRequest = {
   created_at: string;
 };
 
+type ActionConfig = {
+  action: RequestAction;
+  label: string;
+  tone: "primary" | "secondary" | "danger";
+};
+
+const fallbackPermissions = [...accountRequestPermissionOptions];
+
+function formatRole(role: RequestRole | null | undefined) {
+  if (role === "direction") return "Direction";
+  if (role === "employe") return "Employe";
+  return "Non defini";
+}
+
+function formatDate(value: string | null | undefined) {
+  if (!value) return "-";
+
+  return new Intl.DateTimeFormat("fr-CA", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(new Date(value));
+}
+
+function getStatusPresentation(status: RequestStatus) {
+  if (status === "active") {
+    return {
+      color: "#166534",
+      background: "#dcfce7",
+      label: "active",
+    };
+  }
+
+  if (status === "invited") {
+    return {
+      color: "#1d4ed8",
+      background: "#dbeafe",
+      label: "invited",
+    };
+  }
+
+  if (status === "refused") {
+    return {
+      color: "#991b1b",
+      background: "#fee2e2",
+      label: "refused",
+    };
+  }
+
+  if (status === "error") {
+    return {
+      color: "#b45309",
+      background: "#fef3c7",
+      label: "error",
+    };
+  }
+
+  return {
+    color: "#92400e",
+    background: "#fef3c7",
+    label: "pending",
+  };
+}
+
+function getActionsForStatus(status: RequestStatus): ActionConfig[] {
+  if (status === "pending") {
+    return [
+      { action: "approve", label: "Approuver", tone: "primary" },
+      { action: "refuse", label: "Refuser", tone: "secondary" },
+      { action: "delete", label: "Supprimer", tone: "danger" },
+    ];
+  }
+
+  if (status === "invited") {
+    return [
+      { action: "update_access", label: "Modifier role et permissions", tone: "primary" },
+      { action: "resend_invitation", label: "Renvoyer l invitation", tone: "secondary" },
+      { action: "reset_pending", label: "Remettre en pending", tone: "secondary" },
+      { action: "delete", label: "Supprimer", tone: "danger" },
+    ];
+  }
+
+  if (status === "active") {
+    return [
+      { action: "update_access", label: "Modifier role et permissions", tone: "primary" },
+      { action: "disable_access", label: "Desactiver l acces", tone: "secondary" },
+      { action: "delete", label: "Supprimer", tone: "danger" },
+    ];
+  }
+
+  if (status === "refused") {
+    return [
+      { action: "reset_pending", label: "Remettre en pending", tone: "primary" },
+      { action: "delete", label: "Supprimer", tone: "danger" },
+    ];
+  }
+
+  return [
+    { action: "retry", label: "Relancer le traitement", tone: "primary" },
+    { action: "reset_pending", label: "Remettre en pending", tone: "secondary" },
+    { action: "delete", label: "Supprimer", tone: "danger" },
+  ];
+}
+
 export default function DirectionAccountRequestsPage() {
   const [requests, setRequests] = useState<AccountRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [assignedRole, setAssignedRole] = useState<"employe" | "direction">("employe");
+  const [assignedRole, setAssignedRole] = useState<RequestRole>("employe");
   const [assignedPermissions, setAssignedPermissions] = useState<string[]>([]);
   const [reviewNote, setReviewNote] = useState("");
   const [confirmOverwriteExistingAccount, setConfirmOverwriteExistingAccount] =
     useState(false);
   const [message, setMessage] = useState("");
   const [messageType, setMessageType] = useState<"success" | "error" | null>(null);
-  const [saving, setSaving] = useState(false);
+  const [savingAction, setSavingAction] = useState<RequestAction | null>(null);
   const [permissionOptions, setPermissionOptions] = useState<
     Array<{ value: string; label: string }>
-  >([...accountRequestPermissionOptions]);
+  >(fallbackPermissions);
 
-  const pendingCount = useMemo(
-    () => requests.filter((item) => item.status === "pending").length,
+  const sortedRequests = useMemo(
+    () =>
+      [...requests].sort(
+        (left, right) =>
+          new Date(right.created_at).getTime() - new Date(left.created_at).getTime()
+      ),
     [requests]
   );
 
-  function getStatusPresentation(status: AccountRequest["status"]) {
-    if (status === "active") {
-      return {
-        color: "#166534",
-        background: "#dcfce7",
-        label: "active",
-      };
-    }
+  const selectedRequest = useMemo(
+    () => sortedRequests.find((item) => item.id === selectedId) || null,
+    [selectedId, sortedRequests]
+  );
 
-    if (status === "invited") {
-      return {
-        color: "#1d4ed8",
-        background: "#dbeafe",
-        label: "invited",
-      };
-    }
+  const counts = useMemo(
+    () => ({
+      pending: sortedRequests.filter((item) => item.status === "pending").length,
+      invited: sortedRequests.filter((item) => item.status === "invited").length,
+      active: sortedRequests.filter((item) => item.status === "active").length,
+      refused: sortedRequests.filter((item) => item.status === "refused").length,
+      error: sortedRequests.filter((item) => item.status === "error").length,
+    }),
+    [sortedRequests]
+  );
 
-    if (status === "refused") {
-      return {
-        color: "#991b1b",
-        background: "#fee2e2",
-        label: "refused",
-      };
-    }
+  const fetchRequests = useCallback(async (selectedRequestId?: string | null) => {
+    setLoading(true);
 
-    if (status === "error") {
-      return {
-        color: "#b45309",
-        background: "#fef3c7",
-        label: "error",
-      };
-    }
-
-    return {
-      color: "#92400e",
-      background: "#fef3c7",
-      label: "pending",
-    };
-  }
-
-  async function fetchRequests() {
     const {
       data: { session },
     } = await supabase.auth.getSession();
 
     const token = session?.access_token;
 
-    const response = await fetch("/api/account-requests", {
-      headers: token
-        ? {
-            Authorization: `Bearer ${token}`,
-          }
-        : {},
-    });
+    try {
+      const response = await fetch("/api/account-requests", {
+        headers: token
+          ? {
+              Authorization: `Bearer ${token}`,
+            }
+          : {},
+      });
 
-    const payload = await response.json();
+      const payload = await response.json();
 
-    if (!response.ok) {
-      setMessage(payload.error || "Erreur chargement demandes.");
+      if (!response.ok) {
+        setMessage(payload.error || "Erreur chargement demandes.");
+        setMessageType("error");
+        setRequests([]);
+        return;
+      }
+
+      const nextRequests = Array.isArray(payload.requests) ? payload.requests : [];
+      setRequests(nextRequests);
+
+      const preferredId = selectedRequestId ?? selectedId;
+      const nextSelected =
+        nextRequests.find((item: AccountRequest) => item.id === preferredId)?.id ||
+        nextRequests[0]?.id ||
+        null;
+
+      setSelectedId(nextSelected);
+      setMessage("");
+      setMessageType(null);
+    } catch {
+      setMessage("Impossible de charger les demandes.");
       setMessageType("error");
       setRequests([]);
+    } finally {
       setLoading(false);
-      return;
     }
-
-    setRequests(payload.requests ?? []);
-    setLoading(false);
-  }
+  }, [selectedId]);
 
   useEffect(() => {
-    const timer = window.setTimeout(() => {
-      void fetchRequests();
-    }, 0);
-
-    return () => {
-      window.clearTimeout(timer);
-    };
-  }, []);
+    void fetchRequests();
+  }, [fetchRequests]);
 
   useEffect(() => {
     async function loadPermissions() {
@@ -146,24 +262,35 @@ export default function DirectionAccountRequestsPage() {
         const response = await fetch("/api/permissions");
         const payload = await response.json();
 
-        if (response.ok && Array.isArray(payload.permissions) && payload.permissions.length > 0) {
+        if (
+          response.ok &&
+          Array.isArray(payload.permissions) &&
+          payload.permissions.length > 0
+        ) {
           setPermissionOptions(payload.permissions);
         }
       } catch {
-        setPermissionOptions([...accountRequestPermissionOptions]);
+        setPermissionOptions(fallbackPermissions);
       }
     }
 
     void loadPermissions();
   }, []);
 
-  function openReview(request: AccountRequest) {
-    setSelectedId(request.id);
-    setAssignedRole(request.requested_role || "employe");
-    setAssignedPermissions(request.requested_permissions || []);
-    setReviewNote("");
+  useEffect(() => {
+    if (!selectedRequest) return;
+
+    setAssignedRole(
+      selectedRequest.assigned_role ?? selectedRequest.requested_role ?? "employe"
+    );
+    setAssignedPermissions(
+      selectedRequest.assigned_permissions ??
+        selectedRequest.requested_permissions ??
+        []
+    );
+    setReviewNote(selectedRequest.review_note ?? "");
     setConfirmOverwriteExistingAccount(false);
-  }
+  }, [selectedRequest]);
 
   function togglePermission(permission: string) {
     setAssignedPermissions((prev) =>
@@ -173,10 +300,10 @@ export default function DirectionAccountRequestsPage() {
     );
   }
 
-  async function handleReview(action: "approve" | "refuse") {
-    if (!selectedId) return;
+  async function runAction(action: RequestAction) {
+    if (!selectedRequest) return;
 
-    setSaving(true);
+    setSavingAction(action);
     setMessage("");
     setMessageType(null);
 
@@ -186,115 +313,121 @@ export default function DirectionAccountRequestsPage() {
 
     const token = session?.access_token;
 
-    const response = await fetch(`/api/account-requests/${selectedId}`, {
-      method: "PATCH",
-      headers: {
-        "Content-Type": "application/json",
-        ...(token
-          ? {
-              Authorization: `Bearer ${token}`,
-            }
-          : {}),
-      },
-      body: JSON.stringify({
-        action,
-        assignedRole,
-        assignedPermissions,
-        reviewNote,
-        confirmOverwriteExistingAccount,
-      }),
-    });
+    try {
+      const response = await fetch(`/api/account-requests/${selectedRequest.id}`, {
+        method: action === "delete" ? "DELETE" : "PATCH",
+        headers: {
+          ...(action === "delete"
+            ? {}
+            : {
+                "Content-Type": "application/json",
+              }),
+          ...(token
+            ? {
+                Authorization: `Bearer ${token}`,
+              }
+            : {}),
+        },
+        ...(action === "delete"
+          ? {}
+          : {
+              body: JSON.stringify({
+                action,
+                assignedRole,
+                assignedPermissions,
+                reviewNote,
+                confirmOverwriteExistingAccount,
+              }),
+            }),
+      });
 
-    const payload = await response.json();
+      const payload = await response.json();
 
-    if (!response.ok) {
-      setMessage(payload.error || "Erreur traitement demande.");
+      if (!response.ok) {
+        setMessage(payload.error || "Erreur traitement demande.");
+        setMessageType("error");
+        return;
+      }
+
+      setMessage(getSuccessMessage(action));
+      setMessageType("success");
+      await fetchRequests(action === "delete" ? null : selectedRequest.id);
+    } catch {
+      setMessage("Erreur reseau pendant le traitement de la demande.");
       setMessageType("error");
-      setSaving(false);
-      return;
+    } finally {
+      setSavingAction(null);
     }
-
-    setMessage(
-      action === "approve"
-        ? "Demande approuvee avec succes."
-        : "Demande refusee avec succes."
-    );
-    setMessageType("success");
-    setSelectedId(null);
-    setReviewNote("");
-    await fetchRequests();
-    setSaving(false);
   }
 
   return (
     <main className="tagora-app-shell">
-      <div className="tagora-app-content" style={{ maxWidth: 1500 }}>
+      <div className="tagora-app-content" style={{ maxWidth: 1520 }}>
         <HeaderTagora
-          title="Demandes de comptes"
-          subtitle="Examinez, approuvez ou refusez les demandes avant toute activation d'acces."
+          title="Gestion des demandes de comptes"
+          subtitle="Administrez les demandes pending, invited, active, refused et error, puis intervenez directement sur l acces et les invitations."
         />
 
         <div className="tagora-stat-grid" style={{ marginBottom: 24 }}>
           <div className="tagora-stat-card">
-            <div className="tagora-stat-label">Demandes en attente</div>
-            <div className="tagora-stat-value">{pendingCount}</div>
+            <div className="tagora-stat-label">Pending</div>
+            <div className="tagora-stat-value">{counts.pending}</div>
           </div>
-
           <div className="tagora-stat-card">
-            <div className="tagora-stat-label">Total demandes</div>
-            <div className="tagora-stat-value">{requests.length}</div>
+            <div className="tagora-stat-label">Invited</div>
+            <div className="tagora-stat-value">{counts.invited}</div>
           </div>
-
           <div className="tagora-stat-card">
-            <div className="tagora-stat-label">Invitations en attente</div>
-            <div className="tagora-stat-value">
-              {requests.filter((item) => item.status === "invited").length}
-            </div>
+            <div className="tagora-stat-label">Active</div>
+            <div className="tagora-stat-value">{counts.active}</div>
           </div>
-
           <div className="tagora-stat-card">
-            <div className="tagora-stat-label">Comptes actifs</div>
-            <div className="tagora-stat-value">
-              {requests.filter((item) => item.status === "active").length}
-            </div>
+            <div className="tagora-stat-label">Refused</div>
+            <div className="tagora-stat-value">{counts.refused}</div>
           </div>
-
           <div className="tagora-stat-card">
-            <div className="tagora-stat-label">Erreurs</div>
-            <div className="tagora-stat-value">
-              {requests.filter((item) => item.status === "error").length}
-            </div>
+            <div className="tagora-stat-label">Error</div>
+            <div className="tagora-stat-value">{counts.error}</div>
           </div>
         </div>
 
         <FeedbackMessage message={message} type={messageType} />
 
-        <div className="tagora-split" style={{ gridTemplateColumns: "minmax(0, 1.5fr) minmax(340px, 0.7fr)" }}>
+        <div
+          className="tagora-split"
+          style={{ gridTemplateColumns: "minmax(0, 1.45fr) minmax(360px, 0.8fr)" }}
+        >
           <section className="tagora-panel">
-            <div style={{ display: "flex", justifyContent: "space-between", gap: 16, flexWrap: "wrap", alignItems: "center", marginBottom: 18 }}>
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                gap: 16,
+                flexWrap: "wrap",
+                alignItems: "center",
+                marginBottom: 18,
+              }}
+            >
               <div>
-                <h2 className="section-title" style={{ marginBottom: 10 }}>Liste des demandes</h2>
-                <p className="tagora-note">Chaque demande reste inactive tant que la direction ne la valide pas.</p>
+                <h2 className="section-title" style={{ marginBottom: 10 }}>
+                  Console des demandes
+                </h2>
+                <p className="tagora-note">
+                  Selectionnez une carte pour piloter son cycle de vie complet.
+                </p>
               </div>
 
               <div className="tagora-actions">
                 <button
                   type="button"
-                  className="tagora-dark-outline-action rounded-xl border px-5 py-3 text-sm font-medium transition"
-                  onClick={() => {
-                    setLoading(true);
-                    setMessage("");
-                    setMessageType(null);
-                    void fetchRequests();
-                  }}
+                  className="tagora-dark-outline-action"
+                  onClick={() => void fetchRequests()}
+                  disabled={loading}
                 >
-                  Actualiser
+                  {loading ? "Chargement..." : "Actualiser"}
                 </button>
 
-                <Link
-                  href="/direction/dashboard"
-                  className="tagora-dark-outline-action rounded-xl border px-5 py-3 text-sm font-medium transition"
-                >
+                <Link href="/direction/dashboard" className="tagora-dark-outline-action">
                   Retour dashboard
                 </Link>
               </div>
@@ -302,75 +435,99 @@ export default function DirectionAccountRequestsPage() {
 
             {loading ? (
               <p className="tagora-note">Chargement des demandes...</p>
-            ) : requests.length === 0 ? (
+            ) : sortedRequests.length === 0 ? (
               <p className="tagora-note">Aucune demande de compte pour le moment.</p>
             ) : (
               <div style={{ display: "grid", gap: 16 }}>
-                {requests.map((request) => {
+                {sortedRequests.map((request) => {
                   const status = getStatusPresentation(request.status);
+                  const isSelected = selectedId === request.id;
 
                   return (
-                    <div key={request.id} className="tagora-panel-muted">
-                    <div style={{ display: "flex", justifyContent: "space-between", gap: 16, flexWrap: "wrap", alignItems: "start" }}>
-                      <div>
-                        <h3 style={{ margin: "0 0 8px 0", fontSize: 20, color: "#17376b" }}>
-                          {request.full_name}
-                        </h3>
-                        <div className="tagora-note">{request.email}</div>
-                        <div className="tagora-note">{request.phone || "Telephone non fourni"}</div>
-                        <div className="tagora-note">{request.company || "Compagnie non fournie"}</div>
-                      </div>
-
+                    <button
+                      key={request.id}
+                      type="button"
+                      onClick={() => setSelectedId(request.id)}
+                      className="tagora-panel-muted"
+                      style={{
+                        textAlign: "left",
+                        cursor: "pointer",
+                        border: isSelected ? "2px solid #1d4ed8" : "1px solid #e2e8f0",
+                        boxShadow: isSelected
+                          ? "0 10px 26px rgba(29, 78, 216, 0.14)"
+                          : undefined,
+                      }}
+                    >
                       <div
                         style={{
-                          padding: "6px 12px",
-                          borderRadius: 999,
-                          fontSize: 13,
-                          fontWeight: 700,
-                          color: status.color,
-                          background: status.background,
+                          display: "flex",
+                          justifyContent: "space-between",
+                          gap: 16,
+                          flexWrap: "wrap",
+                          alignItems: "start",
                         }}
                       >
-                        {status.label}
-                      </div>
-                    </div>
+                        <div>
+                          <h3
+                            style={{ margin: "0 0 8px 0", fontSize: 20, color: "#17376b" }}
+                          >
+                            {request.full_name}
+                          </h3>
+                          <div className="tagora-note">{request.email}</div>
+                          <div className="tagora-note">
+                            {request.phone || "Telephone non fourni"}
+                          </div>
+                          <div className="tagora-note">
+                            {request.company
+                              ? getCompanyLabel(request.company)
+                              : "Compagnie non fournie"}
+                          </div>
+                        </div>
 
-                    <div style={{ marginTop: 14, display: "grid", gap: 6 }}>
-                      <div className="tagora-note">Portail source : {request.portal_source}</div>
-                      <div className="tagora-note">Role souhaite : {request.requested_role}</div>
-                      <div className="tagora-note">
-                        Permissions souhaitees : {(request.requested_permissions || []).join(", ") || "Aucune"}
-                      </div>
-                      <div className="tagora-note">Message : {request.message || "Aucun commentaire"}</div>
-                      {request.review_lock?.isLocked ? (
-                        <div className="tagora-note" style={{ color: "#92400e" }}>
-                          Traitement verrouille jusqu au {request.review_lock.expiresAt}.
-                        </div>
-                      ) : null}
-                      {request.existing_account?.exists ? (
-                        <div className="tagora-note" style={{ color: "#1d4ed8" }}>
-                          Compte existant : role {request.existing_account.role || "non defini"}, permissions {(request.existing_account.permissions || []).join(", ") || "aucune"}, confirme {request.existing_account.emailConfirmed ? "oui" : "non"}.
-                        </div>
-                      ) : null}
-                      {request.last_error ? (
-                        <div className="tagora-note" style={{ color: "#b45309" }}>
-                          Derniere erreur : {request.last_error}
-                        </div>
-                      ) : null}
-                    </div>
-
-                    {request.status === "pending" ? (
-                      <div className="tagora-actions" style={{ marginTop: 16 }}>
-                        <button
-                          type="button"
-                          className="tagora-btn tagora-btn-primary"
-                          onClick={() => openReview(request)}
+                        <div
+                          style={{
+                            padding: "6px 12px",
+                            borderRadius: 999,
+                            fontSize: 13,
+                            fontWeight: 700,
+                            color: status.color,
+                            background: status.background,
+                          }}
                         >
-                          Examiner
-                        </button>
+                          {status.label}
+                        </div>
                       </div>
-                    ) : null}
-                    </div>
+
+                      <div style={{ marginTop: 14, display: "grid", gap: 6 }}>
+                        <div className="tagora-note">
+                          Portail source : {formatRole(request.portal_source)}
+                        </div>
+                        <div className="tagora-note">
+                          Role demande : {formatRole(request.requested_role)}
+                        </div>
+                        <div className="tagora-note">
+                          Role attribue : {formatRole(request.assigned_role)}
+                        </div>
+                        <div className="tagora-note">
+                          Creee le : {formatDate(request.created_at)}
+                        </div>
+                        {request.reviewed_at ? (
+                          <div className="tagora-note">
+                            Derniere revue : {formatDate(request.reviewed_at)}
+                          </div>
+                        ) : null}
+                        {request.last_error ? (
+                          <div className="tagora-note" style={{ color: "#b45309" }}>
+                            Derniere erreur : {request.last_error}
+                          </div>
+                        ) : null}
+                        {request.existing_account?.exists ? (
+                          <div className="tagora-note" style={{ color: "#1d4ed8" }}>
+                            Compte existant detecte.
+                          </div>
+                        ) : null}
+                      </div>
+                    </button>
                   );
                 })}
               </div>
@@ -379,17 +536,36 @@ export default function DirectionAccountRequestsPage() {
 
           <aside className="tagora-panel">
             <h2 className="section-title" style={{ marginBottom: 10 }}>
-              Validation direction
+              Console admin
             </h2>
 
-            {!selectedId ? (
+            {!selectedRequest ? (
               <p className="tagora-note">
-                Selectionnez une demande en attente pour choisir le role final, les autorisations et la decision.
+                Selectionnez une demande pour gerer son statut, son invitation et son acces.
               </p>
             ) : (
               <div className="tagora-form-grid">
+                <div className="tagora-panel-muted" style={{ display: "grid", gap: 8 }}>
+                  <div style={{ fontSize: 20, fontWeight: 800, color: "#17376b" }}>
+                    {selectedRequest.full_name}
+                  </div>
+                  <div className="tagora-note">{selectedRequest.email}</div>
+                  <div className="tagora-note">
+                    Statut actuel : {getStatusPresentation(selectedRequest.status).label}
+                  </div>
+                  <div className="tagora-note">
+                    Portail source : {formatRole(selectedRequest.portal_source)}
+                  </div>
+                  <div className="tagora-note">
+                    Compagnie : {getCompanyLabel(selectedRequest.company)}
+                  </div>
+                  <div className="tagora-note">
+                    Message : {selectedRequest.message || "Aucun commentaire"}
+                  </div>
+                </div>
+
                 <div>
-                  <label className="tagora-field-label">Role attribue</label>
+                  <label className="tagora-field-label">Role admin cible</label>
                   <select
                     className="tagora-select"
                     value={assignedRole}
@@ -405,7 +581,7 @@ export default function DirectionAccountRequestsPage() {
                 </div>
 
                 <div>
-                  <label className="tagora-field-label">Autorisations</label>
+                  <label className="tagora-field-label">Permissions admin cibles</label>
                   <div className="tagora-panel-muted" style={{ display: "grid", gap: 10 }}>
                     {permissionOptions.map((option) => (
                       <label
@@ -424,70 +600,99 @@ export default function DirectionAccountRequestsPage() {
                 </div>
 
                 <div>
-                  <label className="tagora-field-label">Note de revue</label>
+                  <label className="tagora-field-label">Note admin</label>
                   <textarea
                     className="tagora-textarea"
                     value={reviewNote}
                     onChange={(e) => setReviewNote(e.target.value)}
-                    placeholder="Ajoutez une note interne ou une justification."
+                    placeholder="Note interne, justification ou commentaire d intervention."
                   />
                 </div>
 
-                {selectedId ? (
-                  (() => {
-                    const selectedRequest =
-                      requests.find((item) => item.id === selectedId) || null;
-
-                    if (!selectedRequest?.existing_account?.exists) {
-                      return null;
-                    }
-
-                    return (
-                      <div className="tagora-panel-muted">
-                        <p className="tagora-note" style={{ marginBottom: 10 }}>
-                          Un compte existe deja pour ce courriel.
-                        </p>
-                        <p className="tagora-note" style={{ marginBottom: 10 }}>
-                          Role actuel : {selectedRequest.existing_account.role || "non defini"}
-                        </p>
-                        <p className="tagora-note" style={{ marginBottom: 10 }}>
-                          Permissions actuelles : {(selectedRequest.existing_account.permissions || []).join(", ") || "aucune"}
-                        </p>
-                        <label
-                          style={{ display: "flex", alignItems: "center", gap: 10, color: "#334155" }}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={confirmOverwriteExistingAccount}
-                            onChange={(e) =>
-                              setConfirmOverwriteExistingAccount(e.target.checked)
-                            }
-                          />
-                          <span>Je confirme le remplacement du role et des permissions actuels.</span>
-                        </label>
+                <div className="tagora-panel-muted" style={{ display: "grid", gap: 8 }}>
+                  <div style={{ fontWeight: 800, color: "#17376b" }}>Compte existant</div>
+                  {selectedRequest.existing_account?.exists ? (
+                    <>
+                      <div className="tagora-note">Compte existant : oui</div>
+                      <div className="tagora-note">
+                        Role actuel : {formatRole(selectedRequest.existing_account.role)}
                       </div>
-                    );
-                  })()
+                      <div className="tagora-note">
+                        Compagnie actuelle :{" "}
+                        {selectedRequest.existing_account.company
+                          ? getCompanyLabel(selectedRequest.existing_account.company)
+                          : "Non definie"}
+                      </div>
+                      <div className="tagora-note">
+                        Compagnies autorisees :
+                        {selectedRequest.existing_account.allowedCompanies.length > 0
+                          ? ` ${selectedRequest.existing_account.allowedCompanies
+                              .map((company) => getCompanyLabel(company))
+                              .join(", ")}`
+                          : " aucune"}
+                      </div>
+                      <div className="tagora-note">
+                        Permissions actuelles :
+                        {selectedRequest.existing_account.permissions.length > 0
+                          ? ` ${selectedRequest.existing_account.permissions.join(", ")}`
+                          : " aucune"}
+                      </div>
+                      <div className="tagora-note">
+                        Courriel confirme :
+                        {selectedRequest.existing_account.emailConfirmed ? " oui" : " non"}
+                      </div>
+                      <div className="tagora-note">
+                        Derniere connexion :
+                        {selectedRequest.existing_account.lastSignInAt
+                          ? ` ${formatDate(selectedRequest.existing_account.lastSignInAt)}`
+                          : " aucune"}
+                      </div>
+                      <button
+                        type="button"
+                        className={
+                          confirmOverwriteExistingAccount
+                            ? "tagora-dark-action"
+                            : "tagora-dark-outline-action"
+                        }
+                        onClick={() =>
+                          setConfirmOverwriteExistingAccount((current) => !current)
+                        }
+                      >
+                        {confirmOverwriteExistingAccount
+                          ? "Ecrasement force actif"
+                          : "Forcer l ecrasement"}
+                      </button>
+                    </>
+                  ) : (
+                    <div className="tagora-note">Aucun compte existant detecte pour ce courriel.</div>
+                  )}
+                </div>
+
+                {selectedRequest.review_lock?.isLocked ? (
+                  <div className="tagora-note" style={{ color: "#92400e" }}>
+                    Traitement verrouille jusqu au {formatDate(selectedRequest.review_lock.expiresAt)}.
+                  </div>
                 ) : null}
 
-                <div className="tagora-actions">
-                  <button
-                    type="button"
-                    className="tagora-btn tagora-btn-primary"
-                    onClick={() => void handleReview("approve")}
-                    disabled={saving}
-                  >
-                    {saving ? "Traitement..." : "Approuver"}
-                  </button>
+                <div>
+                  <div className="tagora-field-label">Actions disponibles</div>
+                  <div className="tagora-actions">
+                    {getActionsForStatus(selectedRequest.status).map((item) => {
+                      const isBusy = savingAction === item.action;
 
-                  <button
-                    type="button"
-                    className="tagora-dark-outline-action rounded-xl border px-5 py-3 text-sm font-medium transition"
-                    onClick={() => void handleReview("refuse")}
-                    disabled={saving}
-                  >
-                    Refuser
-                  </button>
+                      return (
+                        <button
+                          key={item.action}
+                          type="button"
+                          className={getButtonClassName(item.tone)}
+                          onClick={() => void runAction(item.action)}
+                          disabled={Boolean(savingAction)}
+                        >
+                          {isBusy ? "Traitement..." : item.label}
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
               </div>
             )}
@@ -496,4 +701,21 @@ export default function DirectionAccountRequestsPage() {
       </div>
     </main>
   );
+}
+
+function getButtonClassName(tone: ActionConfig["tone"]) {
+  if (tone === "danger") return "tagora-btn-danger";
+  if (tone === "secondary") return "tagora-dark-outline-action";
+  return "tagora-btn tagora-btn-primary";
+}
+
+function getSuccessMessage(action: RequestAction) {
+  if (action === "approve") return "Demande approuvee avec succes.";
+  if (action === "refuse") return "Demande refusee avec succes.";
+  if (action === "update_access") return "Role et permissions mis a jour.";
+  if (action === "reset_pending") return "Demande remise en pending.";
+  if (action === "resend_invitation") return "Invitation renvoyee avec succes.";
+  if (action === "disable_access") return "Acces desactive avec succes.";
+  if (action === "retry") return "Traitement relance avec succes.";
+  return "Demande supprimee avec succes.";
 }

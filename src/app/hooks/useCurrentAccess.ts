@@ -8,11 +8,16 @@ import {
   AppPermission,
   getUserPermissions,
 } from "@/app/lib/auth/permissions";
+import {
+  buildUserCompanyAccess,
+  type UserCompanyAccess,
+} from "@/app/lib/account-requests.shared";
 
 type AccessState = {
   user: User | null;
   role: AppRole | null;
   permissions: AppPermission[];
+  companyAccess: UserCompanyAccess;
   loading: boolean;
 };
 
@@ -21,13 +26,39 @@ export function useCurrentAccess() {
     user: null,
     role: null,
     permissions: [],
+    companyAccess: buildUserCompanyAccess(null),
     loading: true,
   });
 
   useEffect(() => {
     let cancelled = false;
 
+    async function syncAccountActivation() {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      const token = session?.access_token;
+
+      if (!token) {
+        return;
+      }
+
+      try {
+        await fetch("/api/account-requests/sync-activation", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        });
+      } catch {
+        // Silent on purpose: access loading must keep working even if the sync endpoint is unavailable.
+      }
+    }
+
     async function loadAccess() {
+      await syncAccountActivation();
+
       const { data } = await supabase.auth.getUser();
       const user = data.user;
 
@@ -37,6 +68,7 @@ export function useCurrentAccess() {
         user,
         role: getUserRole(user),
         permissions: getUserPermissions(user),
+        companyAccess: buildUserCompanyAccess(user),
         loading: false,
       });
     }
