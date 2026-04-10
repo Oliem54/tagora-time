@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import HeaderTagora from "@/app/components/HeaderTagora";
 import FeedbackMessage from "@/app/components/FeedbackMessage";
@@ -21,6 +21,14 @@ type Employe = {
   photo_permis_verso_url?: string | null;
   taux_base_titan?: number | null;
 };
+
+function getErrorMessage(error: unknown) {
+  if (error instanceof Error && error.message) {
+    return error.message;
+  }
+
+  return "Erreur inconnue";
+}
 
 const emptyForm = {
   nom: "",
@@ -58,11 +66,7 @@ export default function Page() {
     setMessageType(null);
   }
 
-  useEffect(() => {
-    fetchEmployes();
-  }, []);
-
-  async function fetchEmployes() {
+  const fetchEmployes = useCallback(async () => {
     setLoading(true);
     clearMessage();
 
@@ -80,7 +84,15 @@ export default function Page() {
 
     setEmployes((res.data as Employe[]) || []);
     setLoading(false);
-  }
+  }, []);
+
+  useEffect(() => {
+    async function loadInitialEmployes() {
+      await fetchEmployes();
+    }
+
+    void loadInitialEmployes();
+  }, [fetchEmployes]);
 
   function resetForm() {
     setForm(emptyForm);
@@ -122,8 +134,8 @@ export default function Page() {
       const url = await uploadPermisFile(file, "recto");
       setForm((prev) => ({ ...prev, photo_permis_recto_url: url }));
       setFeedbackMessage("Photo recto téléversée.", "success");
-    } catch (error: any) {
-      setFeedbackMessage(`Erreur upload recto: ${error.message || "Erreur inconnue"}`, "error");
+    } catch (error: unknown) {
+      setFeedbackMessage(`Erreur upload recto: ${getErrorMessage(error)}`, "error");
     } finally {
       setUploadingRecto(false);
     }
@@ -138,8 +150,8 @@ export default function Page() {
       const url = await uploadPermisFile(file, "verso");
       setForm((prev) => ({ ...prev, photo_permis_verso_url: url }));
       setFeedbackMessage("Photo verso téléversée.", "success");
-    } catch (error: any) {
-      setFeedbackMessage(`Erreur upload verso: ${error.message || "Erreur inconnue"}`, "error");
+    } catch (error: unknown) {
+      setFeedbackMessage(`Erreur upload verso: ${getErrorMessage(error)}`, "error");
     } finally {
       setUploadingVerso(false);
     }

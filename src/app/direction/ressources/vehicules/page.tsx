@@ -1,9 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import HeaderTagora from "@/app/components/HeaderTagora";
-import FeedbackMessage from "@/app/components/FeedbackMessage";
 import { supabase } from "@/app/lib/supabase/client";
 
 type Vehicule = {
@@ -24,11 +23,7 @@ export default function Page() {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
 
-  useEffect(() => {
-    fetchVehicules();
-  }, []);
-
-  async function fetchVehicules() {
+  const fetchVehicules = useCallback(async () => {
     setLoading(true);
     setMessage("");
 
@@ -46,7 +41,15 @@ export default function Page() {
 
     setVehicules((res.data as Vehicule[]) || []);
     setLoading(false);
-  }
+  }, []);
+
+  useEffect(() => {
+    async function loadInitialVehicules() {
+      await fetchVehicules();
+    }
+
+    void loadInitialVehicules();
+  }, [fetchVehicules]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import HeaderTagora from "@/app/components/HeaderTagora";
 import { supabase } from "@/app/lib/supabase/client";
@@ -28,11 +28,7 @@ export default function Page() {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
 
-  useEffect(() => {
-    fetchRemorques();
-  }, []);
-
-  async function fetchRemorques() {
+  const fetchRemorques = useCallback(async () => {
     setLoading(true);
     setMessage("");
 
@@ -50,7 +46,15 @@ export default function Page() {
 
     setRemorques((res.data as Remorque[]) || []);
     setLoading(false);
-  }
+  }, []);
+
+  useEffect(() => {
+    async function loadInitialRemorques() {
+      await fetchRemorques();
+    }
+
+    void loadInitialRemorques();
+  }, [fetchRemorques]);
 
   function resetForm() {
     setForm(emptyForm);
@@ -191,7 +195,7 @@ export default function Page() {
               </div>
 
               <div style={{ marginTop: 16 }}>
-                <button className="tagora-dark-action" style={primaryButtonStyle}>
+                <button className="tagora-dark-action" style={primaryButtonStyle} disabled={saving}>
                   {editingId ? "Enregistrer" : "Ajouter"}
                 </button>
 

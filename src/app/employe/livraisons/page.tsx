@@ -1,7 +1,7 @@
 "use client";
 
 import HeaderTagora from "../../components/HeaderTagora";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import AccessNotice from "../../components/AccessNotice";
 import { supabase } from "../../lib/supabase/client";
@@ -99,7 +99,7 @@ export default function EmployeLivraisonsPage() {
   const dateDuJour = getTodayLocalDate();
   const canUseLivraisons = hasPermission("livraisons");
 
-  const chargerLivraisons = async () => {
+  const chargerLivraisons = useCallback(async () => {
     const { data, error } = await supabase
       .from("livraisons_planifiees")
       .select("*")
@@ -113,7 +113,7 @@ export default function EmployeLivraisonsPage() {
     }
 
     setLivraisons((data || []) as Livraison[]);
-  };
+  }, [dateDuJour]);
 
   useEffect(() => {
     async function init() {
@@ -134,16 +134,12 @@ export default function EmployeLivraisonsPage() {
     }
 
     void init();
-  }, [accessLoading, canUseLivraisons, router, user]);
+  }, [accessLoading, canUseLivraisons, chargerLivraisons, router, user]);
 
-  const stats = useMemo(() => {
-    const total = livraisons.length;
-    const planifiees = livraisons.filter((l) => l.statut === "planifiee").length;
-    const enCours = livraisons.filter((l) => l.statut === "en_cours").length;
-    const livrees = livraisons.filter((l) => l.statut === "livree").length;
-
-    return { total, planifiees, enCours, livrees };
-  }, [livraisons]);
+  const total = livraisons.length;
+  const planifiees = livraisons.filter((l) => l.statut === "planifiee").length;
+  const enCours = livraisons.filter((l) => l.statut === "en_cours").length;
+  const livrees = livraisons.filter((l) => l.statut === "livree").length;
 
   const handleDemarrer = async (livraison: Livraison) => {
     const kmDepart = kmDepartValues[livraison.id];
@@ -287,7 +283,7 @@ export default function EmployeLivraisonsPage() {
           }}
         >
           <div style={{ color: "#64748b", marginBottom: 8 }}>Total</div>
-          <div style={{ fontSize: 28, fontWeight: 800 }}>{stats.total}</div>
+          <div style={{ fontSize: 28, fontWeight: 800 }}>{total}</div>
         </div>
 
         <div
@@ -301,7 +297,7 @@ export default function EmployeLivraisonsPage() {
           }}
         >
           <div style={{ color: "#64748b", marginBottom: 8 }}>Planifiées</div>
-          <div style={{ fontSize: 28, fontWeight: 800 }}>{stats.planifiees}</div>
+          <div style={{ fontSize: 28, fontWeight: 800 }}>{planifiees}</div>
         </div>
 
         <div
@@ -315,7 +311,7 @@ export default function EmployeLivraisonsPage() {
           }}
         >
           <div style={{ color: "#64748b", marginBottom: 8 }}>En cours</div>
-          <div style={{ fontSize: 28, fontWeight: 800 }}>{stats.enCours}</div>
+          <div style={{ fontSize: 28, fontWeight: 800 }}>{enCours}</div>
         </div>
 
         <div
@@ -329,7 +325,7 @@ export default function EmployeLivraisonsPage() {
           }}
         >
           <div style={{ color: "#64748b", marginBottom: 8 }}>Livrées</div>
-          <div style={{ fontSize: 28, fontWeight: 800 }}>{stats.livrees}</div>
+          <div style={{ fontSize: 28, fontWeight: 800 }}>{livrees}</div>
         </div>
       </div>
 

@@ -1,13 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import HeaderTagora from "@/app/components/HeaderTagora";
 import FeedbackMessage from "@/app/components/FeedbackMessage";
 import { accountRequestPermissionOptions } from "@/app/lib/account-request-options";
 
-export default function DemandeComptePage() {
+function DemandeComptePageContent() {
   const searchParams = useSearchParams();
   const portal = searchParams.get("portal") === "direction" ? "direction" : "employe";
 
@@ -63,24 +63,44 @@ export default function DemandeComptePage() {
     setSaving(true);
 
     try {
+      const requestPayload = {
+        fullName: fullName.trim(),
+        email: email.trim(),
+        phone: phone.trim(),
+        company: company.trim(),
+        portalSource: portal,
+        requestedRole,
+        requestedPermissions: selectedPermissions,
+        message: message.trim(),
+      };
+
+      console.log("[demande-compte] donnees envoyees", requestPayload);
+
       const response = await fetch("/api/account-requests", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({
-          fullName,
-          email,
-          phone,
-          company,
-          portalSource: portal,
-          requestedRole,
-          requestedPermissions: selectedPermissions,
-          message,
-        }),
+        body: JSON.stringify(requestPayload),
       });
 
       const payload = await response.json();
+
+      console.log("[demande-compte] response.status", response.status);
+      console.log("[demande-compte] payload", payload);
+      console.log("[demande-compte] payload.debug", payload?.debug ?? null);
+
+      console.log("[demande-compte] reponse api", {
+        ok: response.ok,
+        status: response.status,
+        statusText: response.statusText,
+        payload,
+      });
+
+      console.log("[demande-compte] error.message", payload?.debug?.message ?? null);
+      console.log("[demande-compte] error.details", payload?.debug?.details ?? null);
+      console.log("[demande-compte] error.hint", payload?.debug?.hint ?? null);
+      console.log("[demande-compte] error.code", payload?.debug?.code ?? null);
 
       if (!response.ok) {
         throw new Error(payload.error || "Erreur lors de la demande.");
@@ -265,5 +285,24 @@ export default function DemandeComptePage() {
         </div>
       </div>
     </main>
+  );
+}
+
+export default function DemandeComptePage() {
+  return (
+    <Suspense
+      fallback={
+        <main className="tagora-app-shell">
+          <div className="tagora-app-content" style={{ maxWidth: 1100 }}>
+            <HeaderTagora
+              title="Demande de creation de compte"
+              subtitle="Chargement du formulaire..."
+            />
+          </div>
+        </main>
+      }
+    >
+      <DemandeComptePageContent />
+    </Suspense>
   );
 }
