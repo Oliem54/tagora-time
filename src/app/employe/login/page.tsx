@@ -134,6 +134,23 @@ export default function LoginPage() {
               Creer un compte
             </Link>
           </div>
+
+          <p
+            className="tagora-note"
+            style={{
+              marginTop: 36,
+              paddingTop: 20,
+              borderTop: "1px solid rgba(15, 23, 42, 0.08)",
+              textAlign: "center",
+              maxWidth: 420,
+              marginInline: "auto",
+              fontSize: 13,
+              lineHeight: 1.8,
+              color: "#526174",
+            }}
+          >
+            Tagora centralise les operations, structure les demandes et offre une visibilite claire a chaque niveau de l organisation.
+          </p>
         </div>
       </div>
     </main>
