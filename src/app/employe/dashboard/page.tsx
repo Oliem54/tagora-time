@@ -2,6 +2,7 @@
 
 import AccessNotice from "@/app/components/AccessNotice";
 import { useCurrentAccess } from "@/app/hooks/useCurrentAccess";
+import { getCompanyLabel } from "@/app/lib/account-requests.shared";
 import HeaderTagora from "../../components/HeaderTagora";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -68,7 +69,8 @@ function getStatutStyle(statut: string) {
 
 export default function EmployeDashboardPage() {
   const router = useRouter();
-  const { user, loading: accessLoading, hasPermission } = useCurrentAccess();
+  const { user, loading: accessLoading, hasPermission, companyAccess } =
+    useCurrentAccess();
   const userId = user?.id ?? null;
   const canUseDossiers = hasPermission("dossiers");
   const canUseLivraisons = hasPermission("livraisons");
@@ -263,6 +265,39 @@ export default function EmployeDashboardPage() {
 
       <div style={{ marginBottom: 18, fontSize: 18 }}>
         Connecté comme : {email}
+      </div>
+
+      <div className="tagora-panel" style={{ marginBottom: 18 }}>
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+            gap: 16,
+          }}
+        >
+          <div className="tagora-panel-muted">
+            <div className="tagora-label">Compagnie principale</div>
+            <div style={{ marginTop: 8, fontSize: 20, fontWeight: 800, color: "#17376b" }}>
+              {getCompanyLabel(companyAccess.primaryCompany ?? companyAccess.company)}
+            </div>
+          </div>
+          <div className="tagora-panel-muted">
+            <div className="tagora-label">Compagnies autorisées</div>
+            <div style={{ marginTop: 8, fontSize: 15, color: "#334155" }}>
+              {companyAccess.allowedCompanies.length > 0
+                ? companyAccess.allowedCompanies
+                    .map((company) => getCompanyLabel(company))
+                    .join(", ")
+                : "Aucune compagnie autorisée"}
+            </div>
+          </div>
+          <div className="tagora-panel-muted">
+            <div className="tagora-label">Contexte paie par défaut</div>
+            <div style={{ marginTop: 8, fontSize: 15, color: "#334155" }}>
+              {companyAccess.companyDirectoryContext || "Non configuré"}
+            </div>
+          </div>
+        </div>
       </div>
 
       <div

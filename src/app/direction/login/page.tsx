@@ -30,6 +30,23 @@ export default function DirectionLoginPage() {
       return;
     }
 
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+
+    if (session?.access_token) {
+      try {
+        await fetch("/api/account-requests/sync-activation", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${session.access_token}`,
+          },
+        });
+      } catch {
+        // Le hook d acces refera la synchronisation sur le dashboard.
+      }
+    }
+
     const { data: userData } = await supabase.auth.getUser();
     const role = getUserRole(userData.user);
 

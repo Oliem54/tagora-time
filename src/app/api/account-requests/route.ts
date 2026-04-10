@@ -3,13 +3,17 @@ import {
   buildExistingAccountSnapshot,
   getReviewLockMetadata,
   createAuditEntry,
+  isValidEmail,
+  normalizeEmail,
+  normalizeCompany,
+  normalizePermissions,
+  getCompanyDirectoryContext,
+} from "@/app/lib/account-requests.shared";
+import {
   consumeDurableAccountRequestRateLimit,
   getRequestIp,
   getStrictDirectionRequestUser,
-  isValidEmail,
-  normalizeEmail,
-  normalizePermissions,
-} from "@/app/lib/account-requests";
+} from "@/app/lib/account-requests.server";
 import { createPublicServerSupabaseClient } from "@/app/lib/supabase/server";
 import { createAdminSupabaseClient } from "@/app/lib/supabase/admin";
 import { notifyDirectionOfAccountRequest } from "@/app/lib/notifications";
@@ -49,7 +53,7 @@ export async function POST(req: NextRequest) {
     const fullName = String(body.fullName ?? "").trim();
     const email = normalizeEmail(body.email);
     const phone = String(body.phone ?? "").trim() || null;
-    const company = String(body.company ?? "").trim() || null;
+    const company = normalizeCompany(body.company);
     const portalSource = body.portalSource === "direction" ? "direction" : "employe";
     const requestedRole =
       body.requestedRole === "direction" ? "direction" : "employe";
@@ -60,6 +64,23 @@ export async function POST(req: NextRequest) {
     if (!fullName || !email) {
       return NextResponse.json(
         { error: "Le nom complet et le courriel sont obligatoires." },
+        { status: 400 }
+      );
+    }
+
+    if (!body.company) {
+      return NextResponse.json(
+        { error: "La compagnie est obligatoire." },
+        { status: 400 }
+      );
+    }
+
+    if (!company) {
+      return NextResponse.json(
+        {
+          error:
+            "Compagnie invalide. Valeurs autorisees: oliem_solutions, titan_produits_industriels.",
+        },
         { status: 400 }
       );
     }
@@ -109,6 +130,8 @@ export async function POST(req: NextRequest) {
             portalSource,
             requestedRole,
             requestedPermissions,
+            company,
+            companyDirectoryContext: getCompanyDirectoryContext(company),
           },
         }),
       ],

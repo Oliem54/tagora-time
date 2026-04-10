@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import HeaderTagora from "@/app/components/HeaderTagora";
 import AccessNotice from "@/app/components/AccessNotice";
 import { useCurrentAccess } from "@/app/hooks/useCurrentAccess";
+import { getCompanyLabel, type AccountRequestCompany } from "@/app/lib/account-requests.shared";
 import {
   buildHorodateurLoadError,
   HorodateurEventType,
@@ -23,6 +24,7 @@ type HorodateurEvent = {
   dossier_id: number | null;
   sortie_id: number | null;
   notes: string | null;
+  company_context: AccountRequestCompany | null;
   metadata: Record<string, unknown>;
 };
 
@@ -157,7 +159,8 @@ function computeWorkedMinutes(events: HorodateurEvent[]) {
 
 export default function EmployeHorodateurPage() {
   const router = useRouter();
-  const { user, loading: accessLoading, hasPermission } = useCurrentAccess();
+  const { user, loading: accessLoading, hasPermission, companyAccess } =
+    useCurrentAccess();
   const canUseTerrain = hasPermission("terrain");
 
   const [loading, setLoading] = useState(true);
@@ -170,6 +173,9 @@ export default function EmployeHorodateurPage() {
   const [selectedDossierId, setSelectedDossierId] = useState("");
   const [selectedLivraisonId, setSelectedLivraisonId] = useState("");
   const [sortieNotes, setSortieNotes] = useState("");
+  const [companyContext, setCompanyContext] = useState<AccountRequestCompany | "">("");
+  const resolvedCompanyContext =
+    companyContext || companyAccess.primaryCompany || "";
 
   const state = useMemo(() => computeState(events), [events]);
   const lastEvent = useMemo(() => (events.length > 0 ? events[events.length - 1] : null), [events]);
@@ -195,7 +201,7 @@ export default function EmployeHorodateurPage() {
   async function loadEvents(userId: string) {
     const { data, error } = await supabase
       .from("horodateur_events")
-      .select("id, user_id, event_type, occurred_at, source_module, livraison_id, dossier_id, sortie_id, notes, metadata")
+      .select("id, user_id, event_type, occurred_at, source_module, livraison_id, dossier_id, sortie_id, notes, company_context, metadata")
       .eq("user_id", userId)
       .gte("occurred_at", startOfTodayIso())
       .order("occurred_at", { ascending: true });
@@ -258,6 +264,7 @@ export default function EmployeHorodateurPage() {
       sortieId?: number | null;
       metadata?: Record<string, unknown>;
       sourceModule?: string;
+      companyContext?: AccountRequestCompany | null;
     }
   ) {
     const { error } = await supabase.from("horodateur_events").insert([
@@ -270,6 +277,9 @@ export default function EmployeHorodateurPage() {
         livraison_id: options?.livraisonId ?? null,
         sortie_id: options?.sortieId ?? null,
         notes: options?.notes ?? null,
+        company_context:
+          options?.companyContext ??
+          (resolvedCompanyContext ? resolvedCompanyContext : null),
         metadata: options?.metadata ?? {},
       },
     ]);
@@ -287,6 +297,11 @@ export default function EmployeHorodateurPage() {
   async function handleAction(action: EventType) {
     if (!user) {
       router.push("/employe/login");
+      return;
+    }
+
+    if (!resolvedCompanyContext) {
+      setFeedback("Choisissez une compagnie avant d enregistrer un pointage.");
       return;
     }
 
@@ -325,6 +340,7 @@ export default function EmployeHorodateurPage() {
             dossier_id: dossierId,
             dossier: dossier?.nom || null,
             livraison_id: livraisonId,
+            company_context: resolvedCompanyContext || null,
             date_sortie: new Date().toISOString().slice(0, 10),
             heure_depart: new Date().toISOString(),
             statut: "en_cours",
@@ -346,6 +362,7 @@ export default function EmployeHorodateurPage() {
         sortieId: Number(sortieData.id),
         notes: sortieNotes.trim() || undefined,
         metadata: { user_email: user.email ?? null },
+        companyContext: resolvedCompanyContext || null,
       });
 
       if (insertError) {
@@ -405,6 +422,7 @@ export default function EmployeHorodateurPage() {
         livraisonId: activeSortie.livraison_id,
         sortieId: Number(activeSortie.id),
         metadata: { user_email: user.email ?? null },
+        companyContext: resolvedCompanyContext || null,
       });
 
       if (insertError) {
@@ -418,6 +436,7 @@ export default function EmployeHorodateurPage() {
 
     const insertError = await insertHorodateurEvent(user.id, action, {
       metadata: { user_email: user.email ?? null },
+      companyContext: resolvedCompanyContext || null,
     });
 
     if (insertError) {
@@ -471,6 +490,14 @@ export default function EmployeHorodateurPage() {
             <div className="tagora-label">Temps travaille aujourd hui</div>
             <div style={{ marginTop: 8, fontSize: 22, fontWeight: 800, color: "#0f2948" }}>{formatMinutes(workedMinutes)}</div>
           </div>
+          <div className="tagora-panel-muted">
+            <div className="tagora-label">Compagnie active</div>
+            <div style={{ marginTop: 8, fontSize: 18, fontWeight: 700, color: "#0f2948" }}>
+              {resolvedCompanyContext
+                ? getCompanyLabel(resolvedCompanyContext)
+                : "Choisir une compagnie"}
+            </div>
+          </div>
         </div>
       </section>
 
@@ -479,6 +506,26 @@ export default function EmployeHorodateurPage() {
         <p className="tagora-note" style={{ marginBottom: 16 }}>
           Les actions s adaptent automatiquement a votre etat courant pour eviter les erreurs de sequence.
         </p>
+
+        <div className="tagora-panel-muted" style={{ marginBottom: 16 }}>
+          <label className="tagora-field" style={{ marginBottom: 0 }}>
+            <span className="tagora-label">Contexte compagnie</span>
+            <select
+              className="tagora-input"
+              value={resolvedCompanyContext}
+              onChange={(e) =>
+                setCompanyContext(e.target.value as AccountRequestCompany | "")
+              }
+            >
+              <option value="">Choisir une compagnie</option>
+              {companyAccess.allowedCompanies.map((company) => (
+                <option key={company} value={company}>
+                  {getCompanyLabel(company)}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
 
         {state === "hors_quart" && (
           <button className="tagora-dark-action" onClick={() => void handleAction("quart_debut")} disabled={saving}>
@@ -595,6 +642,7 @@ export default function EmployeHorodateurPage() {
                     <td style={tdStyle}>{formatDateTime(event.occurred_at)}</td>
                     <td style={tdStyle}>{getEventLabel(event.event_type)}</td>
                     <td style={tdStyle}>
+                      {event.company_context ? `${getCompanyLabel(event.company_context)} / ` : ""}
                       {event.livraison_id ? `Livraison #${event.livraison_id}` : "-"}
                       {event.dossier_id ? ` / Dossier #${event.dossier_id}` : ""}
                       {event.sortie_id ? ` / Sortie #${event.sortie_id}` : ""}

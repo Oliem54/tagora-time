@@ -5,6 +5,11 @@ import HeaderTagora from "@/app/components/HeaderTagora";
 import AccessNotice from "@/app/components/AccessNotice";
 import { supabase } from "@/app/lib/supabase/client";
 import { useCurrentAccess } from "@/app/hooks/useCurrentAccess";
+import {
+  ACCOUNT_REQUEST_COMPANIES,
+  getCompanyLabel,
+  type AccountRequestCompany,
+} from "@/app/lib/account-requests.shared";
 
 type PaymentStatus = "paye" | "non_paye" | "";
 
@@ -12,6 +17,7 @@ type Employe = {
   id: string | number;
   nom: string;
   taux_base_titan: number | null;
+  primary_company?: AccountRequestCompany | null;
 };
 
 type TempsTitanDbRow = {
@@ -34,6 +40,7 @@ type TempsTitanDbRow = {
   total_salaire: number | null;
   total_benefice: number | null;
   total_titan: number | null;
+  company_context: AccountRequestCompany | null;
 };
 
 type SortieTitanRow = {
@@ -43,6 +50,7 @@ type SortieTitanRow = {
   date_sortie: string | null;
   temps_total: string | null;
   refacturer_a_titan: boolean | null;
+  company_context: AccountRequestCompany | null;
 };
 
 type UnifiedRow = {
@@ -60,6 +68,7 @@ type UnifiedRow = {
   total_titan: number;
   total_salaire: number;
   total_benefice: number;
+  company_context: AccountRequestCompany | null;
 };
 
 type FormState = {
@@ -69,6 +78,7 @@ type FormState = {
   heure_fin: string;
   type_travail: string;
   notes: string;
+  company_context: AccountRequestCompany | "";
 };
 
 function todayIso() {
@@ -88,6 +98,7 @@ function initialForm(): FormState {
     heure_fin: "",
     type_travail: "entrepot",
     notes: "",
+    company_context: "",
   };
 }
 
@@ -149,6 +160,10 @@ export default function TempsTitanPage() {
   const [form, setForm] = useState<FormState>(initialForm());
   const [dateDebut, setDateDebut] = useState(firstDayOfMonthIso());
   const [dateFin, setDateFin] = useState(todayIso());
+  const [companyFilter, setCompanyFilter] = useState<AccountRequestCompany | "">("");
+  const employeSelection = useMemo(() => employes.find((item) => String(item.id) === form.employe_id), [employes, form.employe_id]);
+  const resolvedCompanyContext =
+    form.company_context || employeSelection?.primary_company || "";
 
   const loadAll = useCallback(async () => {
     setLoading(true);
@@ -156,9 +171,9 @@ export default function TempsTitanPage() {
     setSuccessMessage("");
 
     const results = await Promise.allSettled([
-      supabase.from("chauffeurs").select("id, nom, taux_base_titan").order("id", { ascending: true }),
+      supabase.from("chauffeurs").select("id, nom, taux_base_titan, primary_company").order("id", { ascending: true }),
       supabase.from("temps_titan").select("*").order("date_travail", { ascending: false }).order("id", { ascending: false }),
-      supabase.from("sorties_terrain").select("id, chauffeur_id, livraison_id, date_sortie, temps_total, refacturer_a_titan").eq("refacturer_a_titan", true).order("date_sortie", { ascending: false }),
+      supabase.from("sorties_terrain").select("id, chauffeur_id, livraison_id, date_sortie, temps_total, refacturer_a_titan, company_context").eq("refacturer_a_titan", true).order("date_sortie", { ascending: false }),
     ]);
 
     const notices: string[] = [];
@@ -170,7 +185,12 @@ export default function TempsTitanPage() {
       notices.push("chauffeurs");
       setEmployes([]);
     } else {
-      setEmployes((employesRes.data ?? []).map((row) => ({ id: row.id, nom: row.nom ?? "", taux_base_titan: row.taux_base_titan != null ? Number(row.taux_base_titan) : null })));
+      setEmployes((employesRes.data ?? []).map((row) => ({
+        id: row.id,
+        nom: row.nom ?? "",
+        taux_base_titan: row.taux_base_titan != null ? Number(row.taux_base_titan) : null,
+        primary_company: (row as Record<string, unknown>).primary_company as AccountRequestCompany | null,
+      })));
     }
 
     if (!tempsRes || tempsRes.error) {
@@ -197,6 +217,7 @@ export default function TempsTitanPage() {
         total_salaire: toNumber(row.total_salaire),
         total_benefice: toNumber(row.total_benefice),
         total_titan: toNumber(row.total_titan),
+        company_context: typeof row.company_context === "string" ? (row.company_context as AccountRequestCompany) : null,
       })));
     }
 
@@ -222,7 +243,6 @@ export default function TempsTitanPage() {
     return () => clearTimeout(timeout);
   }, [accessLoading, blocked, loadAll, userId]);
 
-  const employeSelection = useMemo(() => employes.find((item) => String(item.id) === form.employe_id), [employes, form.employe_id]);
   const dureeCalculee = useMemo(() => diffHours(form.heure_debut, form.heure_fin), [form.heure_debut, form.heure_fin]);
   const tauxBaseTitan = employeSelection?.taux_base_titan ?? 0;
   const margeTitan = tauxBaseTitan * 0.15;
@@ -249,6 +269,7 @@ export default function TempsTitanPage() {
       total_titan: toNumber(row.total_titan),
       total_salaire: toNumber(row.total_salaire),
       total_benefice: toNumber(row.total_benefice),
+      company_context: row.company_context ?? null,
     }));
 
     const sortieRows = sortiesTitan.map((row) => {
@@ -271,6 +292,7 @@ export default function TempsTitanPage() {
         total_titan: dureeHeures * (base + marge),
         total_salaire: dureeHeures * base,
         total_benefice: dureeHeures * marge,
+        company_context: row.company_context ?? employe?.primary_company ?? null,
       };
     });
 
@@ -278,8 +300,13 @@ export default function TempsTitanPage() {
   }, [employes, sortiesTitan, tempsTitan]);
 
   const filteredRows = useMemo(() => {
-    return unifiedRows.filter((row) => (!dateDebut || row.date_travail >= dateDebut) && (!dateFin || row.date_travail <= dateFin));
-  }, [dateDebut, dateFin, unifiedRows]);
+    return unifiedRows.filter(
+      (row) =>
+        (!dateDebut || row.date_travail >= dateDebut) &&
+        (!dateFin || row.date_travail <= dateFin) &&
+        (!companyFilter || row.company_context === companyFilter)
+    );
+  }, [companyFilter, dateDebut, dateFin, unifiedRows]);
 
   const totals = useMemo(() => {
     return {
@@ -310,6 +337,11 @@ export default function TempsTitanPage() {
       return;
     }
 
+    if (!resolvedCompanyContext) {
+      setErrorMessage("Choisir une compagnie avant d ajouter l entree Titan.");
+      return;
+    }
+
     setSaving(true);
     const { error } = await supabase.from("temps_titan").insert({
       employe_id: form.employe_id,
@@ -319,6 +351,7 @@ export default function TempsTitanPage() {
       heure_fin: form.heure_fin,
       duree_totale: hoursToText(dureeCalculee),
       duree_heures: dureeCalculee,
+      company_context: resolvedCompanyContext || null,
       type_travail: form.type_travail,
       notes: form.notes || null,
       ajoute_manuellement: true,
@@ -392,6 +425,7 @@ export default function TempsTitanPage() {
             <label className="tagora-field"><span className="tagora-label">Heure debut</span><input type="time" value={form.heure_debut} onChange={(e) => setForm((prev) => ({ ...prev, heure_debut: e.target.value }))} className="tagora-input" /></label>
             <label className="tagora-field"><span className="tagora-label">Heure fin</span><input type="time" value={form.heure_fin} onChange={(e) => setForm((prev) => ({ ...prev, heure_fin: e.target.value }))} className="tagora-input" /></label>
             <label className="tagora-field"><span className="tagora-label">Type de travail</span><select value={form.type_travail} onChange={(e) => setForm((prev) => ({ ...prev, type_travail: e.target.value }))} className="tagora-input"><option value="entrepot">Entrepot</option><option value="manutention">Manutention</option><option value="chargement">Chargement</option><option value="dechargement">Dechargement</option><option value="assemblage">Assemblage</option><option value="autre">Autre</option></select></label>
+            <label className="tagora-field"><span className="tagora-label">Compagnie</span><select value={resolvedCompanyContext} onChange={(e) => setForm((prev) => ({ ...prev, company_context: e.target.value as AccountRequestCompany | "" }))} className="tagora-input"><option value="">Choisir la compagnie</option>{ACCOUNT_REQUEST_COMPANIES.map((company) => <option key={company.value} value={company.value}>{company.label}</option>)}</select></label>
             <div className="tagora-panel" style={{ margin: 0 }}><div className="tagora-label">Duree calculee</div><div style={{ marginTop: 8, fontWeight: 700 }}>{hoursToText(dureeCalculee)}</div></div>
             <div className="tagora-panel" style={{ margin: 0 }}><div className="tagora-label">Total Titan calcule</div><div style={{ marginTop: 8, fontWeight: 700 }}>{formatMoney(totalTitanCalcule)}</div></div>
             <label className="tagora-field" style={{ gridColumn: "1 / -1" }}><span className="tagora-label">Notes</span><textarea value={form.notes} onChange={(e) => setForm((prev) => ({ ...prev, notes: e.target.value }))} className="tagora-textarea" /></label>
@@ -409,6 +443,10 @@ export default function TempsTitanPage() {
               <p className="tagora-note">Entrees manuelles et lignes issues des sorties terrain refacturables.</p>
             </div>
             <div className="actions-row">
+              <select value={companyFilter} onChange={(e) => setCompanyFilter(e.target.value as AccountRequestCompany | "")} className="tagora-input">
+                <option value="">Toutes les compagnies</option>
+                {ACCOUNT_REQUEST_COMPANIES.map((company) => <option key={company.value} value={company.value}>{company.label}</option>)}
+              </select>
               <input type="date" value={dateDebut} onChange={(e) => setDateDebut(e.target.value)} className="tagora-input" />
               <input type="date" value={dateFin} onChange={(e) => setDateFin(e.target.value)} className="tagora-input" />
             </div>
@@ -421,6 +459,7 @@ export default function TempsTitanPage() {
                   <th style={thStyle}>Source</th>
                   <th style={thStyle}>ID</th>
                   <th style={thStyle}>Date</th>
+                  <th style={thStyle}>Compagnie</th>
                   <th style={thStyle}>Employe</th>
                   <th style={thStyle}>Type</th>
                   <th style={thStyle}>Duree</th>
@@ -432,13 +471,14 @@ export default function TempsTitanPage() {
               </thead>
               <tbody>
                 {filteredRows.length === 0 ? (
-                  <tr><td style={tdStyle} colSpan={10}>Aucune donnee sur la periode.</td></tr>
+                  <tr><td style={tdStyle} colSpan={11}>Aucune donnee sur la periode.</td></tr>
                 ) : (
                   filteredRows.map((row) => (
                     <tr key={row.sourceId}>
                       <td style={tdStyle}>{row.source === "manuel" ? "Manuel" : "Sortie"}</td>
                       <td style={tdStyle}>{row.sourceId}</td>
                       <td style={tdStyle}>{row.date_travail || "-"}</td>
+                      <td style={tdStyle}>{row.company_context ? getCompanyLabel(row.company_context) : "-"}</td>
                       <td style={tdStyle}>{row.employe_nom}</td>
                       <td style={tdStyle}>{row.type_travail || "-"}</td>
                       <td style={tdStyle}>{row.duree_totale}</td>

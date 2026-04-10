@@ -1,12 +1,17 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import HeaderTagora from "@/app/components/HeaderTagora";
 import FeedbackMessage from "@/app/components/FeedbackMessage";
 import AccessNotice from "@/app/components/AccessNotice";
 import { supabase } from "@/app/lib/supabase/client";
 import { useCurrentAccess } from "@/app/hooks/useCurrentAccess";
+import {
+  ACCOUNT_REQUEST_COMPANIES,
+  getCompanyLabel,
+  type AccountRequestCompany,
+} from "@/app/lib/account-requests.shared";
 
 type Row = Record<string, string | number | null | undefined>;
 
@@ -45,6 +50,7 @@ export default function Page() {
     vehicule_id: "",
     remorque_id: "",
     statut: "",
+    company_context: "",
   });
 
   const [newForm, setNewForm] = useState({
@@ -54,6 +60,7 @@ export default function Page() {
     dossier_id: "",
     date_livraison: "",
     statut: "planifiee",
+    company_context: "",
   });
 
   function setFeedbackMessage(msg: string, type: "success" | "error") {
@@ -155,6 +162,7 @@ export default function Page() {
       vehicule_id: "",
       remorque_id: "",
       statut: "",
+      company_context: "",
     });
   }
 
@@ -166,6 +174,7 @@ export default function Page() {
       dossier_id: "",
       date_livraison: "",
       statut: "planifiee",
+      company_context: "",
     });
     setShowCreateForm(false);
   }
@@ -280,15 +289,13 @@ export default function Page() {
     setCalendarDate(new Date(calendarDate.getFullYear(), calendarDate.getMonth() + 1, 1));
   }
 
-  const livraisonsFiltrees = useMemo(() => {
-    return livraisons.filter((item) => {
-      const okChauffeur = !filtre.chauffeur_id || String(item.chauffeur_id) === String(filtre.chauffeur_id);
-      const okVehicule = !filtre.vehicule_id || String(item.vehicule_id) === String(filtre.vehicule_id);
-      const okRemorque = !filtre.remorque_id || String(item.remorque_id) === String(filtre.remorque_id);
-      const okStatut = !filtre.statut || item.statut === filtre.statut;
-      return okChauffeur && okVehicule && okRemorque && okStatut;
-    });
-  }, [filtre, livraisons]);
+  const livraisonsFiltrees = livraisons.filter((item) => {
+    const okChauffeur = !filtre.chauffeur_id || String(item.chauffeur_id) === String(filtre.chauffeur_id);
+    const okVehicule = !filtre.vehicule_id || String(item.vehicule_id) === String(filtre.vehicule_id);
+    const okRemorque = !filtre.remorque_id || String(item.remorque_id) === String(filtre.remorque_id);
+    const okStatut = !filtre.statut || item.statut === filtre.statut;
+    return okChauffeur && okVehicule && okRemorque && okStatut;
+  });
 
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
@@ -304,7 +311,14 @@ export default function Page() {
       vehicule_id: form.vehicule_id ? Number(form.vehicule_id) : null,
       remorque_id: form.remorque_id ? Number(form.remorque_id) : null,
       statut: form.statut || null,
+      company_context: form.company_context || null,
     };
+
+    if (!payload.company_context) {
+      setFeedbackMessage("La compagnie est obligatoire pour chaque livraison.", "error");
+      setSaving(false);
+      return;
+    }
 
     const res = editingId
       ? await supabase.from("livraisons_planifiees").update(payload).eq("id", editingId)
@@ -334,7 +348,14 @@ export default function Page() {
       dossier_id: newForm.dossier_id ? Number(newForm.dossier_id) : null,
       date_livraison: newForm.date_livraison || null,
       statut: newForm.statut || null,
+      company_context: newForm.company_context || null,
     };
+
+    if (!payload.company_context) {
+      setFeedbackMessage("La compagnie est obligatoire pour chaque livraison.", "error");
+      setSaving(false);
+      return;
+    }
 
     const res = await supabase.from("livraisons_planifiees").insert([payload]);
 
@@ -362,6 +383,7 @@ export default function Page() {
       vehicule_id: item.vehicule_id ? String(item.vehicule_id) : "",
       remorque_id: item.remorque_id ? String(item.remorque_id) : "",
       statut: typeof item.statut === "string" ? item.statut : "",
+      company_context: typeof item.company_context === "string" ? item.company_context : "",
     });
 
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -447,6 +469,13 @@ export default function Page() {
               </select>
             </label>
             <label className="tagora-field">
+              <span className="tagora-label">Compagnie</span>
+              <select value={newForm.company_context} onChange={(e) => setNewForm({ ...newForm, company_context: e.target.value as AccountRequestCompany | "" })} className="tagora-input" required>
+                <option value="">Choisir une compagnie</option>
+                {ACCOUNT_REQUEST_COMPANIES.map((company) => <option key={company.value} value={company.value}>{company.label}</option>)}
+              </select>
+            </label>
+            <label className="tagora-field">
               <span className="tagora-label">Vehicule</span>
               <select value={newForm.vehicule_id} onChange={(e) => setNewForm({ ...newForm, vehicule_id: e.target.value })} className="tagora-input" required>
                 <option value="">Choisir un vehicule</option>
@@ -507,6 +536,7 @@ export default function Page() {
                 <label className="tagora-field"><span className="tagora-label">Chauffeur</span><select value={form.chauffeur_id} onChange={(e) => setForm({ ...form, chauffeur_id: e.target.value })} className="tagora-input"><option value="">Choisir un chauffeur</option>{chauffeurs.map((item) => <option key={String(item.id)} value={String(item.id)}>{String(getPersonLabel(item))}</option>)}</select></label>
                 <label className="tagora-field"><span className="tagora-label">Vehicule</span><select value={form.vehicule_id} onChange={(e) => setForm({ ...form, vehicule_id: e.target.value })} className="tagora-input"><option value="">Choisir un vehicule</option>{vehicules.map((item) => <option key={String(item.id)} value={String(item.id)}>{String(getVehiculeLabel(item))}</option>)}</select></label>
                 <label className="tagora-field"><span className="tagora-label">Remorque</span><select value={form.remorque_id} onChange={(e) => setForm({ ...form, remorque_id: e.target.value })} className="tagora-input"><option value="">Choisir une remorque</option>{remorques.map((item) => <option key={String(item.id)} value={String(item.id)}>{String(getRemorqueLabel(item))}</option>)}</select></label>
+                <label className="tagora-field"><span className="tagora-label">Compagnie</span><select value={form.company_context} onChange={(e) => setForm({ ...form, company_context: e.target.value as AccountRequestCompany | "" })} className="tagora-input"><option value="">Choisir une compagnie</option>{ACCOUNT_REQUEST_COMPANIES.map((company) => <option key={company.value} value={company.value}>{company.label}</option>)}</select></label>
                 <label className="tagora-field"><span className="tagora-label">Statut</span><select value={form.statut} onChange={(e) => setForm({ ...form, statut: e.target.value })} className="tagora-input"><option value="planifiee">Planifiee</option><option value="en_cours">En cours</option><option value="livree">Livree</option><option value="probleme">Probleme</option></select></label>
                 <div className="actions-row" style={{ gridColumn: "1 / -1" }}>
                   <button type="submit" className="tagora-dark-action" disabled={saving}>{saving ? "Sauvegarde..." : "Enregistrer les changements"}</button>
@@ -577,6 +607,7 @@ export default function Page() {
                         <th style={thStyle}>Adresse</th>
                         <th style={thStyle}>Date</th>
                         <th style={thStyle}>Heure</th>
+                        <th style={thStyle}>Compagnie</th>
                         <th style={thStyle}>Chauffeur</th>
                         <th style={thStyle}>Vehicule</th>
                         <th style={thStyle}>Remorque</th>
@@ -598,6 +629,7 @@ export default function Page() {
                             <td style={tdStyle}>{item.adresse || "-"}</td>
                             <td style={tdStyle}>{item.date_livraison || "-"}</td>
                             <td style={tdStyle}>{item.heure_prevue || "-"}</td>
+                            <td style={tdStyle}>{typeof item.company_context === "string" ? getCompanyLabel(item.company_context as AccountRequestCompany) : "-"}</td>
                             <td style={tdStyle}>{chauffeur ? getPersonLabel(chauffeur) : item.chauffeur_id || "-"}</td>
                             <td style={tdStyle}>{vehicule ? getVehiculeLabel(vehicule) : item.vehicule_id || "-"}</td>
                             <td style={tdStyle}>{remorque ? getRemorqueLabel(remorque) : item.remorque_id || "-"}</td>

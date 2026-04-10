@@ -4,6 +4,11 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import HeaderTagora from "@/app/components/HeaderTagora";
 import FeedbackMessage from "@/app/components/FeedbackMessage";
+import {
+  ACCOUNT_REQUEST_COMPANIES,
+  getCompanyLabel,
+  type AccountRequestCompany,
+} from "@/app/lib/account-requests.shared";
 import { supabase } from "@/app/lib/supabase/client";
 
 type Employe = {
@@ -20,6 +25,9 @@ type Employe = {
   photo_permis_recto_url?: string | null;
   photo_permis_verso_url?: string | null;
   taux_base_titan?: number | null;
+  primary_company?: AccountRequestCompany | null;
+  can_work_for_oliem_solutions?: boolean | null;
+  can_work_for_titan_produits_industriels?: boolean | null;
 };
 
 function getErrorMessage(error: unknown) {
@@ -43,6 +51,9 @@ const emptyForm = {
   photo_permis_recto_url: "",
   photo_permis_verso_url: "",
   taux_base_titan: "",
+  primary_company: "oliem_solutions" as AccountRequestCompany,
+  can_work_for_oliem_solutions: true,
+  can_work_for_titan_produits_industriels: false,
 };
 
 export default function Page() {
@@ -181,6 +192,11 @@ export default function Page() {
       photo_permis_recto_url: form.photo_permis_recto_url || null,
       photo_permis_verso_url: form.photo_permis_verso_url || null,
       taux_base_titan: form.taux_base_titan ? Number(form.taux_base_titan) : null,
+      primary_company: form.primary_company || null,
+      can_work_for_oliem_solutions: Boolean(form.can_work_for_oliem_solutions),
+      can_work_for_titan_produits_industriels: Boolean(
+        form.can_work_for_titan_produits_industriels
+      ),
     };
 
     let res;
@@ -218,6 +234,10 @@ export default function Page() {
       photo_permis_recto_url: item.photo_permis_recto_url || "",
       photo_permis_verso_url: item.photo_permis_verso_url || "",
       taux_base_titan: item.taux_base_titan ? String(item.taux_base_titan) : "",
+      primary_company: item.primary_company || "oliem_solutions",
+      can_work_for_oliem_solutions: item.can_work_for_oliem_solutions ?? true,
+      can_work_for_titan_produits_industriels:
+        item.can_work_for_titan_produits_industriels ?? false,
     });
 
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -385,6 +405,26 @@ export default function Page() {
                 </div>
 
                 <div>
+                  <label style={labelStyle}>Compagnie principale</label>
+                  <select
+                    value={form.primary_company}
+                    onChange={(e) =>
+                      setForm({
+                        ...form,
+                        primary_company: e.target.value as AccountRequestCompany,
+                      })
+                    }
+                    style={inputStyle}
+                  >
+                    {ACCOUNT_REQUEST_COMPANIES.map((company) => (
+                      <option key={company.value} value={company.value}>
+                        {company.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
                   <label style={labelStyle}>Taux de base Titan ($/h)</label>
                   <input
                     type="number"
@@ -461,6 +501,34 @@ export default function Page() {
                   />
                   <span>Employé actif</span>
                 </label>
+
+                <label style={checkboxRowStyle}>
+                  <input
+                    type="checkbox"
+                    checked={Boolean(form.can_work_for_oliem_solutions)}
+                    onChange={(e) =>
+                      setForm({
+                        ...form,
+                        can_work_for_oliem_solutions: e.target.checked,
+                      })
+                    }
+                  />
+                  <span>Peut travailler pour Oliem Solutions</span>
+                </label>
+
+                <label style={checkboxRowStyle}>
+                  <input
+                    type="checkbox"
+                    checked={Boolean(form.can_work_for_titan_produits_industriels)}
+                    onChange={(e) =>
+                      setForm({
+                        ...form,
+                        can_work_for_titan_produits_industriels: e.target.checked,
+                      })
+                    }
+                  />
+                  <span>Peut travailler pour Titan Produits Industriels</span>
+                </label>
               </div>
 
               <div style={{ display: "flex", gap: 12, marginTop: 20, flexWrap: "wrap" }}>
@@ -532,6 +600,8 @@ export default function Page() {
                       <th style={thStyle}>Permis</th>
                       <th style={thStyle}>Classe</th>
                       <th style={thStyle}>Expiration</th>
+                      <th style={thStyle}>Compagnie principale</th>
+                      <th style={thStyle}>Compagnies permises</th>
                       <th style={thStyle}>Taux Titan</th>
                       <th style={thStyle}>Actif</th>
                       <th style={thStyle}>Photos</th>
@@ -547,6 +617,23 @@ export default function Page() {
                         <td style={tdStyle}>{item.numero_permis || ""}</td>
                         <td style={tdStyle}>{item.classe_permis || ""}</td>
                         <td style={tdStyle}>{item.expiration_permis || ""}</td>
+                        <td style={tdStyle}>
+                          {item.primary_company
+                            ? getCompanyLabel(item.primary_company)
+                            : "-"}
+                        </td>
+                        <td style={tdStyle}>
+                          {[
+                            item.can_work_for_oliem_solutions
+                              ? getCompanyLabel("oliem_solutions")
+                              : null,
+                            item.can_work_for_titan_produits_industriels
+                              ? getCompanyLabel("titan_produits_industriels")
+                              : null,
+                          ]
+                            .filter(Boolean)
+                            .join(", ") || "-"}
+                        </td>
                         <td style={tdStyle}>{item.taux_base_titan ? `${item.taux_base_titan.toFixed(2)} $/h` : "-"}</td>
                         <td style={tdStyle}>{item.actif ? "Oui" : "Non"}</td>
                         <td style={tdStyle}>

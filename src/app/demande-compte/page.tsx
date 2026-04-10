@@ -6,6 +6,7 @@ import { useSearchParams } from "next/navigation";
 import HeaderTagora from "@/app/components/HeaderTagora";
 import FeedbackMessage from "@/app/components/FeedbackMessage";
 import { accountRequestPermissionOptions } from "@/app/lib/account-request-options";
+import { ACCOUNT_REQUEST_COMPANIES } from "@/app/lib/account-requests.shared";
 
 function DemandeComptePageContent() {
   const searchParams = useSearchParams();
@@ -14,7 +15,9 @@ function DemandeComptePageContent() {
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
-  const [company, setCompany] = useState("");
+  const [company, setCompany] = useState<
+    "oliem_solutions" | "titan_produits_industriels" | ""
+  >("");
   const [requestedRole, setRequestedRole] = useState<"employe" | "direction">(portal);
   const [message, setMessage] = useState("");
   const [selectedPermissions, setSelectedPermissions] = useState<string[]>([]);
@@ -67,7 +70,7 @@ function DemandeComptePageContent() {
         fullName: fullName.trim(),
         email: email.trim(),
         phone: phone.trim(),
-        company: company.trim(),
+        company,
         portalSource: portal,
         requestedRole,
         requestedPermissions: selectedPermissions,
@@ -186,12 +189,26 @@ function DemandeComptePageContent() {
 
                 <div>
                   <label className="tagora-field-label">Compagnie</label>
-                  <input
-                    className="tagora-input"
+                  <select
+                    className="tagora-select"
                     value={company}
-                    onChange={(e) => setCompany(e.target.value)}
-                    placeholder="TAGORA"
-                  />
+                    onChange={(e) =>
+                      setCompany(
+                        e.target.value as
+                          | "oliem_solutions"
+                          | "titan_produits_industriels"
+                          | ""
+                      )
+                    }
+                    required
+                  >
+                    <option value="">Selectionner une compagnie</option>
+                    {ACCOUNT_REQUEST_COMPANIES.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
                 </div>
               </div>
 

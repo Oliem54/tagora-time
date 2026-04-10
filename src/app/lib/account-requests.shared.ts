@@ -1,9 +1,4 @@
-import "server-only";
-
 import type { User } from "@supabase/supabase-js";
-import { NextRequest } from "next/server";
-import { createAdminSupabaseClient } from "@/app/lib/supabase/admin";
-import { createPublicServerSupabaseClient } from "@/app/lib/supabase/server";
 import { AppRole, getUserRole } from "@/app/lib/auth/roles";
 import {
   AppPermission,
@@ -26,6 +21,8 @@ export const ACCOUNT_REQUEST_COMPANIES = [
 
 export type AccountRequestCompany =
   (typeof ACCOUNT_REQUEST_COMPANIES)[number]["value"];
+export type CompanyDirectoryContext =
+  (typeof ACCOUNT_REQUEST_COMPANIES)[number]["directoryContext"];
 
 export type AccountRequestStatus =
   | "pending"
@@ -60,6 +57,10 @@ export type ExistingAccountSnapshot = {
   userId: string | null;
   role: AppRole | null;
   permissions: AppPermission[];
+  company: AccountRequestCompany | null;
+  primaryCompany: AccountRequestCompany | null;
+  allowedCompanies: AccountRequestCompany[];
+  companyDirectoryContext: CompanyDirectoryContext | null;
   emailConfirmed: boolean;
   hasSignedIn: boolean;
   lastSignInAt: string | null;
@@ -90,15 +91,17 @@ export type AccountRequestRow = {
   created_at: string;
 };
 
+export type UserCompanyAccess = {
+  company: AccountRequestCompany | null;
+  primaryCompany: AccountRequestCompany | null;
+  allowedCompanies: AccountRequestCompany[];
+  canWorkForOliemSolutions: boolean;
+  canWorkForTitanProduitsIndustriels: boolean;
+  companyDirectoryContext: CompanyDirectoryContext | null;
+};
+
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 export const ACCOUNT_REVIEW_LOCK_WINDOW_MS = 10 * 60 * 1000;
-
-function getBearerToken(req: NextRequest) {
-  const authHeader = req.headers.get("authorization");
-  return authHeader?.startsWith("Bearer ")
-    ? authHeader.slice("Bearer ".length)
-    : null;
-}
 
 export function normalizeEmail(value: unknown) {
   return String(value ?? "").trim().toLowerCase();
@@ -124,6 +127,28 @@ export function normalizeCompany(value: unknown): AccountRequestCompany | null {
   )?.value ?? null;
 }
 
+export function normalizeCompanyList(value: unknown): AccountRequestCompany[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return Array.from(
+    new Set(
+      value
+        .map((item) => normalizeCompany(item))
+        .filter((item): item is AccountRequestCompany => Boolean(item))
+    )
+  );
+}
+
+function humanizeCompanyValue(value: string) {
+  return value
+    .split("_")
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
 export function getCompanyLabel(company: AccountRequestCompany | null | undefined) {
   if (!company) {
     return "Compagnie non definie";
@@ -131,11 +156,7 @@ export function getCompanyLabel(company: AccountRequestCompany | null | undefine
 
   return (
     ACCOUNT_REQUEST_COMPANIES.find((item) => item.value === company)?.label ??
-    company
-      .split("_")
-      .filter(Boolean)
-      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-      .join(" ")
+    humanizeCompanyValue(company)
   );
 }
 
@@ -148,15 +169,102 @@ export function getCompanyDirectoryContext(
   );
 }
 
-export function getRequestIp(req: NextRequest) {
-  const forwardedFor = req.headers.get("x-forwarded-for");
-  const realIp = req.headers.get("x-real-ip");
+export function buildCompanyAccessFlags(
+  primaryCompany: AccountRequestCompany | null | undefined,
+  allowedCompaniesInput?: unknown
+) {
+  const allowedCompanies = normalizeCompanyList(allowedCompaniesInput);
+  const normalizedPrimaryCompany = normalizeCompany(primaryCompany);
+  const mergedCompanies = Array.from(
+    new Set(
+      [
+        ...allowedCompanies,
+        ...(normalizedPrimaryCompany ? [normalizedPrimaryCompany] : []),
+      ].filter(Boolean)
+    )
+  ) as AccountRequestCompany[];
+
+  return {
+    primary_company: normalizedPrimaryCompany,
+    allowed_companies: mergedCompanies,
+    can_work_for_oliem_solutions: mergedCompanies.includes("oliem_solutions"),
+    can_work_for_titan_produits_industriels: mergedCompanies.includes(
+      "titan_produits_industriels"
+    ),
+    company_directory_context: getCompanyDirectoryContext(normalizedPrimaryCompany),
+  };
+}
+
+export function getUserPrimaryCompany(user: User | null | undefined) {
+  if (!user) return null;
 
   return (
-    forwardedFor?.split(",")[0]?.trim() ||
-    realIp?.trim() ||
-    "unknown"
+    normalizeCompany(user.app_metadata?.primary_company) ??
+    normalizeCompany(user.user_metadata?.primary_company) ??
+    normalizeCompany(user.app_metadata?.company) ??
+    normalizeCompany(user.user_metadata?.company)
   );
+}
+
+export function getUserAllowedCompanies(user: User | null | undefined) {
+  if (!user) return [];
+
+  const appAllowedCompanies = normalizeCompanyList(
+    user.app_metadata?.allowed_companies
+  );
+
+  if (appAllowedCompanies.length > 0) {
+    const primaryCompany = getUserPrimaryCompany(user);
+    return Array.from(
+      new Set([
+        ...appAllowedCompanies,
+        ...(primaryCompany ? [primaryCompany] : []),
+      ])
+    );
+  }
+
+  const userAllowedCompanies = normalizeCompanyList(
+    user.user_metadata?.allowed_companies
+  );
+  const primaryCompany = getUserPrimaryCompany(user);
+  const booleanCompanies = [
+    user.app_metadata?.can_work_for_oliem_solutions === true ||
+    user.user_metadata?.can_work_for_oliem_solutions === true
+      ? "oliem_solutions"
+      : null,
+    user.app_metadata?.can_work_for_titan_produits_industriels === true ||
+    user.user_metadata?.can_work_for_titan_produits_industriels === true
+      ? "titan_produits_industriels"
+      : null,
+  ].filter(Boolean) as AccountRequestCompany[];
+
+  return Array.from(
+    new Set([
+      ...userAllowedCompanies,
+      ...booleanCompanies,
+      ...(primaryCompany ? [primaryCompany] : []),
+    ])
+  );
+}
+
+export function buildUserCompanyAccess(
+  user: User | null | undefined
+): UserCompanyAccess {
+  const primaryCompany = getUserPrimaryCompany(user);
+  const allowedCompanies = getUserAllowedCompanies(user);
+  const fallbackCompany =
+    primaryCompany ?? allowedCompanies[0] ?? normalizeCompany(user?.app_metadata?.company);
+
+  return {
+    company: fallbackCompany,
+    primaryCompany,
+    allowedCompanies,
+    canWorkForOliemSolutions: allowedCompanies.includes("oliem_solutions"),
+    canWorkForTitanProduitsIndustriels: allowedCompanies.includes(
+      "titan_produits_industriels"
+    ),
+    companyDirectoryContext: getCompanyDirectoryContext(fallbackCompany),
+  };
 }
 
 export function createAuditEntry(
@@ -206,56 +314,6 @@ export function getReviewLockMetadata(reviewStartedAt: string | null) {
   };
 }
 
-export async function getAuthenticatedRequestUser(req: NextRequest) {
-  const token = getBearerToken(req);
-
-  if (!token) {
-    return { user: null, role: null };
-  }
-
-  const supabase = createPublicServerSupabaseClient();
-  const { data, error } = await supabase.auth.getUser(token);
-
-  if (error || !data.user) {
-    return { user: null, role: null };
-  }
-
-  return {
-    user: data.user,
-    role: getUserRole(data.user),
-  };
-}
-
-export async function getStrictDirectionRequestUser(req: NextRequest) {
-  const token = getBearerToken(req);
-
-  if (!token) {
-    return { user: null, role: null };
-  }
-
-  const publicSupabase = createPublicServerSupabaseClient();
-  const { data, error } = await publicSupabase.auth.getUser(token);
-
-  if (error || !data.user) {
-    return { user: null, role: null };
-  }
-
-  const adminSupabase = createAdminSupabaseClient();
-  const { data: adminUserData, error: adminUserError } =
-    await adminSupabase.auth.admin.getUserById(data.user.id);
-
-  const user = adminUserData.user;
-
-  if (adminUserError || !user || getUserRole(user) !== "direction") {
-    return { user: null, role: null };
-  }
-
-  return {
-    user,
-    role: "direction" as const,
-  };
-}
-
 export function hasUserActivatedAccess(user: User | null | undefined) {
   if (!user) return false;
 
@@ -267,71 +325,22 @@ export function hasUserActivatedAccess(user: User | null | undefined) {
   );
 }
 
-export function buildExistingAccountSnapshot(user: User | null | undefined): ExistingAccountSnapshot {
+export function buildExistingAccountSnapshot(
+  user: User | null | undefined
+): ExistingAccountSnapshot {
+  const companyAccess = buildUserCompanyAccess(user);
+
   return {
     exists: Boolean(user),
     userId: user?.id ?? null,
     role: getUserRole(user),
     permissions: getUserPermissions(user),
+    company: companyAccess.company,
+    primaryCompany: companyAccess.primaryCompany,
+    allowedCompanies: companyAccess.allowedCompanies,
+    companyDirectoryContext: companyAccess.companyDirectoryContext,
     emailConfirmed: Boolean(user?.email_confirmed_at || user?.confirmed_at),
     hasSignedIn: Boolean(user?.last_sign_in_at),
     lastSignInAt: user?.last_sign_in_at ?? null,
   };
-}
-
-export async function consumeDurableAccountRequestRateLimit(
-  req: NextRequest,
-  email: string
-) {
-  const supabase = createPublicServerSupabaseClient();
-  const normalizedEmail = normalizeEmail(email);
-  const ip = getRequestIp(req);
-
-  const applyLimit = async (
-    scope: "ip" | "email",
-    identifier: string,
-    maxAttempts: number,
-    windowSeconds: number,
-    blockSeconds: number
-  ) => {
-    const { data, error } = await supabase.rpc(
-      "consume_account_request_rate_limit",
-      {
-        p_scope: scope,
-        p_identifier: identifier,
-        p_max_attempts: maxAttempts,
-        p_window_seconds: windowSeconds,
-        p_block_seconds: blockSeconds,
-      }
-    );
-
-    if (error) {
-      throw error;
-    }
-
-    const result = Array.isArray(data) ? data[0] : data;
-
-    return {
-      allowed: Boolean(result?.allowed),
-      retryAfterSeconds: Number(result?.retry_after_seconds ?? 0),
-    };
-  };
-
-  const ipResult = await applyLimit("ip", ip, 6, 10 * 60, 15 * 60);
-
-  if (!ipResult.allowed) {
-    return { ok: false, retryAfterSeconds: ipResult.retryAfterSeconds, key: "ip" };
-  }
-
-  const emailResult = await applyLimit("email", normalizedEmail, 3, 60 * 60, 60 * 60);
-
-  if (!emailResult.allowed) {
-    return {
-      ok: false,
-      retryAfterSeconds: emailResult.retryAfterSeconds,
-      key: "email",
-    };
-  }
-
-  return { ok: true };
 }

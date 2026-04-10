@@ -55,6 +55,13 @@ export default function DirectionDashboardPage() {
       description: "Suivre les heures terrain refacturables a Titan.",
     },
     {
+      href: "/direction/paie-compagnies",
+      label: "Paie par compagnie",
+      actionLabel: "Voir la paie",
+      permission: "terrain" as const,
+      description: "Ventiler les heures et les couts par compagnie, avec export CSV.",
+    },
+    {
       href: "/direction/facturation-titan",
       label: "Facturation Titan",
       actionLabel: "Voir la facturation",
