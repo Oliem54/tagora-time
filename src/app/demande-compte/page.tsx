@@ -1,13 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import HeaderTagora from "@/app/components/HeaderTagora";
 import FeedbackMessage from "@/app/components/FeedbackMessage";
 import { accountRequestPermissionOptions } from "@/app/lib/account-request-options";
 
-export default function DemandeComptePage() {
+function DemandeComptePageContent() {
   const searchParams = useSearchParams();
   const portal = searchParams.get("portal") === "direction" ? "direction" : "employe";
 
@@ -285,5 +285,24 @@ export default function DemandeComptePage() {
         </div>
       </div>
     </main>
+  );
+}
+
+export default function DemandeComptePage() {
+  return (
+    <Suspense
+      fallback={
+        <main className="tagora-app-shell">
+          <div className="tagora-app-content" style={{ maxWidth: 1100 }}>
+            <HeaderTagora
+              title="Demande de creation de compte"
+              subtitle="Chargement du formulaire..."
+            />
+          </div>
+        </main>
+      }
+    >
+      <DemandeComptePageContent />
+    </Suspense>
   );
 }
