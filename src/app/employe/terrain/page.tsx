@@ -6,10 +6,15 @@ import HeaderTagora from "../../components/HeaderTagora";
 import AccessNotice from "../../components/AccessNotice";
 import { supabase } from "../../lib/supabase/client";
 import { useCurrentAccess } from "../../hooks/useCurrentAccess";
+import {
+  getCompanyLabel,
+  type AccountRequestCompany,
+} from "../../lib/account-requests.shared";
 
 type SortieTerrain = {
   id: number;
   compagnie: string | null;
+  company_context?: AccountRequestCompany | null;
   client: string | null;
   dossier: string | null;
   dossier_id: number | null;
@@ -50,11 +55,12 @@ function calculerTempsTotal(departIso: string, retourIso: string) {
 
 export default function TerrainPage() {
   const router = useRouter();
-  const { user, loading: accessLoading, hasPermission } = useCurrentAccess();
+  const { user, loading: accessLoading, hasPermission, companyAccess } =
+    useCurrentAccess();
   const userId = user?.id ?? null;
   const canUseTerrain = hasPermission("terrain");
 
-  const [compagnie, setCompagnie] = useState("");
+  const [companyContext, setCompanyContext] = useState<AccountRequestCompany | "">("");
   const [client, setClient] = useState("");
   const [dossierId, setDossierId] = useState("");
   const [vehicule, setVehicule] = useState("");
@@ -69,6 +75,8 @@ export default function TerrainPage() {
   const [dossiers, setDossiers] = useState<DossierOption[]>([]);
   const [feedback, setFeedback] = useState("");
   const [secondaryNotice, setSecondaryNotice] = useState("");
+  const resolvedCompanyContext =
+    companyContext || companyAccess.primaryCompany || "";
 
   const getNomDossier = (id: number | null) => {
     if (!id) return "-";
@@ -163,7 +171,7 @@ export default function TerrainPage() {
       return;
     }
 
-    if (!compagnie.trim()) {
+    if (!resolvedCompanyContext) {
       setFeedback("Entre une compagnie avant de demarrer la sortie.");
       return;
     }
@@ -197,7 +205,8 @@ export default function TerrainPage() {
 
     const { error } = await supabase.from("sorties_terrain").insert([
       {
-        compagnie,
+        compagnie: getCompanyLabel(resolvedCompanyContext),
+        company_context: resolvedCompanyContext,
         client,
         dossier: dossierNom,
         dossier_id: dossierIdNumber,
@@ -219,7 +228,7 @@ export default function TerrainPage() {
       return;
     }
 
-    setCompagnie("");
+    setCompanyContext("");
     setClient("");
     setDossierId("");
     setVehicule("");
@@ -268,6 +277,7 @@ export default function TerrainPage() {
         temps_total: tempsTotal,
         statut: "terminee",
         notes: notes.trim() ? notes : sortieActive.notes,
+        company_context: sortieActive.company_context ?? resolvedCompanyContext || null,
       })
       .eq("id", sortieActive.id);
 
@@ -341,11 +351,20 @@ export default function TerrainPage() {
           <div className="tagora-form-grid">
             <label className="tagora-field">
               <span className="tagora-label">Compagnie</span>
-              <input
-                value={compagnie}
-                onChange={(event) => setCompagnie(event.target.value)}
+              <select
+                value={resolvedCompanyContext}
+                onChange={(event) =>
+                  setCompanyContext(event.target.value as AccountRequestCompany | "")
+                }
                 className="tagora-input"
-              />
+              >
+                <option value="">Choisir une compagnie</option>
+                {companyAccess.allowedCompanies.map((company) => (
+                  <option key={company} value={company}>
+                    {getCompanyLabel(company)}
+                  </option>
+                ))}
+              </select>
             </label>
 
             <label className="tagora-field">
@@ -428,7 +447,10 @@ export default function TerrainPage() {
             <>
               <div className="tagora-note" style={{ display: "grid", gap: 8 }}>
                 <div>
-                  <strong>Compagnie :</strong> {sortieActive.compagnie || "-"}
+                  <strong>Compagnie :</strong>{" "}
+                  {sortieActive.company_context
+                    ? getCompanyLabel(sortieActive.company_context)
+                    : sortieActive.compagnie || "-"}
                 </div>
                 <div>
                   <strong>Client :</strong> {sortieActive.client || "-"}
@@ -518,7 +540,10 @@ export default function TerrainPage() {
                       <strong>Client :</strong> {sortie.client || "-"}
                     </div>
                     <div>
-                      <strong>Compagnie :</strong> {sortie.compagnie || "-"}
+                      <strong>Compagnie :</strong>{" "}
+                      {sortie.company_context
+                        ? getCompanyLabel(sortie.company_context)
+                        : sortie.compagnie || "-"}
                     </div>
                     <div>
                       <strong>Dossier :</strong>{" "}

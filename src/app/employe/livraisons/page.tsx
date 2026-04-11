@@ -6,6 +6,10 @@ import { useRouter } from "next/navigation";
 import AccessNotice from "../../components/AccessNotice";
 import { supabase } from "../../lib/supabase/client";
 import { useCurrentAccess } from "../../hooks/useCurrentAccess";
+import {
+  getCompanyLabel,
+  type AccountRequestCompany,
+} from "../../lib/account-requests.shared";
 
 type Livraison = {
   id: number;
@@ -23,6 +27,7 @@ type Livraison = {
   km_arrivee: number | null;
   temps_total: string | null;
   dossier_id: number | null;
+  company_context?: AccountRequestCompany | null;
 };
 
 function formatDateTime(dateString: string | null) {
@@ -390,6 +395,12 @@ export default function EmployeLivraisonsPage() {
                     </div>
                     <div style={{ marginBottom: 6 }}>
                       <strong>Heure prévue :</strong> {livraison.heure_prevue || "-"}
+                    </div>
+                    <div style={{ marginBottom: 6 }}>
+                      <strong>Compagnie :</strong>{" "}
+                      {livraison.company_context
+                        ? getCompanyLabel(livraison.company_context)
+                        : "-"}
                     </div>
                     <div style={{ marginBottom: 6 }}>
                       <strong>Chauffeur :</strong> {livraison.chauffeur || "-"}

@@ -49,11 +49,12 @@ export default function Home() {
 
             <div className="mt-10 w-full max-w-4xl rounded-[28px] border border-slate-200 bg-white px-6 py-8 text-left shadow-[0_18px_50px_rgba(15,41,72,0.10)] md:px-8">
               <p className="text-sm font-semibold uppercase tracking-[0.22em] text-[var(--tagora-blue-soft)]">
-                TAGORA Time
+                Tagora
               </p>
               <p className="mt-3 text-base leading-7 text-slate-600 md:text-lg">
-                Une interface de travail claire pour les equipes terrain et la direction, avec un
-                univers visuel bleu fonce constant et un logo garde uniquement sur support sombre.
+                Tagora fournit une infrastructure de gestion centralisee permettant de piloter les
+                operations, structurer les demandes et maintenir une visibilite strategique en
+                temps reel.
               </p>
             </div>
           </div>

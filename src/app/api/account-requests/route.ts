@@ -11,8 +11,9 @@ import {
 } from "@/app/lib/account-requests.shared";
 import {
   consumeDurableAccountRequestRateLimit,
+  getAccountRequestsRequestDebug,
   getRequestIp,
-  getStrictDirectionRequestUser,
+  resolveDirectionRequestUser,
 } from "@/app/lib/account-requests.server";
 import { createPublicServerSupabaseClient } from "@/app/lib/supabase/server";
 import { createAdminSupabaseClient } from "@/app/lib/supabase/admin";
@@ -211,11 +212,113 @@ export async function POST(req: NextRequest) {
 }
 
 export async function GET(req: NextRequest) {
-  try {
-    const { role } = await getStrictDirectionRequestUser(req);
+  const includeDebug = req.nextUrl.searchParams.get("debug") === "1";
+  const requestDebug = getAccountRequestsRequestDebug(req);
 
-    if (role !== "direction") {
-      return NextResponse.json({ error: "Acces refuse." }, { status: 403 });
+  console.log("API CALLED - AUTH HEADER:", req.headers.get("authorization"));
+
+  console.log(
+    "[account-requests][GET][received]",
+    JSON.stringify({
+      inferredSource: requestDebug.inferredSource,
+      hasClientMarker: requestDebug.hasClientMarker,
+      hasAuthorizationHeader: requestDebug.hasAuthorizationHeader,
+      secFetchMode: requestDebug.secFetchMode,
+      secFetchDest: requestDebug.secFetchDest,
+      referer: requestDebug.referer,
+    })
+  );
+
+  try {
+    if (!requestDebug.hasClientMarker) {
+      const debug = {
+        apiRoute: "/api/account-requests",
+        apiBlockReason: "non_client_account_requests_call",
+        jwtRole: null,
+        tokenRole: null,
+        adminRole: null,
+        userId: null,
+        email: null,
+        hasAuthorizationHeader: requestDebug.hasAuthorizationHeader,
+        tokenReadable: false,
+        adminReadable: false,
+        roleMismatch: false,
+        requestSource: requestDebug.inferredSource,
+        clientMarker: requestDebug.clientMarker,
+        denialReason: "non_client_account_requests_call",
+        denialMessage:
+          "La route /api/account-requests n accepte plus que les appels marques depuis le navigateur authentifie.",
+      };
+
+      console.error("[account-requests][GET] rejected unmarked call", debug);
+      return NextResponse.json(
+        {
+          error: "Appel refuse: requete non marquee comme navigateur authentifie.",
+          debug,
+        },
+        { status: 400 }
+      );
+    }
+
+    const access = await resolveDirectionRequestUser(req);
+    const debug = {
+      apiRoute: "/api/account-requests",
+      apiBlockReason: access.debug.apiBlockReason,
+      jwtRole: access.debug.jwtRole,
+      tokenRole: access.debug.tokenRole,
+      adminRole: access.debug.adminRole,
+      userId: access.debug.userId,
+      email: access.debug.email,
+      hasAuthorizationHeader: access.debug.hasAuthorizationHeader,
+      tokenReadable: access.debug.tokenReadable,
+      adminReadable: access.debug.adminReadable,
+      roleMismatch: access.debug.roleMismatch,
+      requestSource: requestDebug.inferredSource,
+      clientMarker: requestDebug.clientMarker,
+      frontGate: {
+        areaRole: "direction",
+        requiredPermission: null,
+        blocksBeforeDataRead: false,
+      },
+      sqlFunctions: {
+        current_app_role: "used by RLS, but not used by this API route",
+        is_direction_user: "used by RLS, but not used by this API route",
+        has_app_permission:
+          "not required for /direction/demandes-comptes in AuthGate or API",
+      },
+      dataAccess: {
+        source: "createAdminSupabaseClient",
+        bypassesRls: true,
+        accountRequestsPoliciesBlockDirectReadsForAuthenticatedUsers: true,
+        profileTableUsedForThisPage: false,
+        companyOrAccountStatusUsedToAuthorizePage: false,
+      },
+      denialReason: access.debug.apiBlockReason,
+      denialMessage:
+        access.debug.apiBlockReason === "missing_bearer_token"
+          ? "La requete API est partie sans token Bearer."
+          : access.debug.apiBlockReason === "token_user_lookup_failed"
+            ? "Le token est present mais n a pas pu etre relu via auth.getUser()."
+            : access.debug.apiBlockReason === "authenticated_user_missing"
+              ? "Aucun utilisateur authentifie n a ete retrouve pour ce token."
+              : access.debug.apiBlockReason === "admin_user_lookup_failed"
+                ? "Le rechargement via auth.admin.getUserById() a echoue, mais le JWT peut rester exploitable."
+                : access.debug.apiBlockReason === "admin_user_missing"
+                  ? "Aucun utilisateur n a ete retourne par auth.admin.getUserById()."
+                  : access.debug.apiBlockReason === "direction_role_missing"
+                    ? "Aucune source de role ne confirme direction."
+                    : null,
+    };
+
+    if (access.role !== "direction") {
+      console.error("[account-requests][GET] access denied", debug);
+      return NextResponse.json(
+        {
+          error: "Acces refuse.",
+          debug,
+        },
+        { status: 403 }
+      );
     }
 
     const supabase = createAdminSupabaseClient();
@@ -245,12 +348,22 @@ export async function GET(req: NextRequest) {
       };
     });
 
-    return NextResponse.json({ requests: enrichedRequests });
+    return NextResponse.json(
+      includeDebug ? { requests: enrichedRequests, debug } : { requests: enrichedRequests }
+    );
   } catch (error) {
+    console.error("[account-requests][GET] unexpected error", error);
     return NextResponse.json(
       {
         error:
           error instanceof Error ? error.message : "Erreur chargement demandes.",
+        debug: includeDebug
+          ? {
+              denialReason: "unexpected_error",
+              denialMessage:
+                error instanceof Error ? error.message : "Erreur chargement demandes.",
+            }
+          : undefined,
       },
       { status: 500 }
     );

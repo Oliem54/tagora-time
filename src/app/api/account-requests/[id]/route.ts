@@ -13,7 +13,10 @@ import {
   normalizePermissions,
   type AccountRequestRow,
 } from "@/app/lib/account-requests.shared";
-import { getStrictDirectionRequestUser } from "@/app/lib/account-requests.server";
+import {
+  getAccountRequestsRequestDebug,
+  getStrictDirectionRequestUser,
+} from "@/app/lib/account-requests.server";
 import { getUserPermissions } from "@/app/lib/auth/permissions";
 import { getUserRole, type AppRole } from "@/app/lib/auth/roles";
 import { createAdminSupabaseClient } from "@/app/lib/supabase/admin";
@@ -345,6 +348,30 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const requestDebug = getAccountRequestsRequestDebug(req);
+
+    console.log(
+      "[account-requests][PATCH][received]",
+      JSON.stringify({
+        inferredSource: requestDebug.inferredSource,
+        hasClientMarker: requestDebug.hasClientMarker,
+        hasAuthorizationHeader: requestDebug.hasAuthorizationHeader,
+        secFetchMode: requestDebug.secFetchMode,
+        secFetchDest: requestDebug.secFetchDest,
+        referer: requestDebug.referer,
+      })
+    );
+
+    if (!requestDebug.hasClientMarker) {
+      return NextResponse.json(
+        {
+          error:
+            "Appel refuse: la route /api/account-requests/[id] n accepte que les appels marques depuis le navigateur authentifie.",
+        },
+        { status: 400 }
+      );
+    }
+
     const { user, role } = await getStrictDirectionRequestUser(req);
 
     if (!user || role !== "direction") {
@@ -788,6 +815,30 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const requestDebug = getAccountRequestsRequestDebug(req);
+
+    console.log(
+      "[account-requests][DELETE][received]",
+      JSON.stringify({
+        inferredSource: requestDebug.inferredSource,
+        hasClientMarker: requestDebug.hasClientMarker,
+        hasAuthorizationHeader: requestDebug.hasAuthorizationHeader,
+        secFetchMode: requestDebug.secFetchMode,
+        secFetchDest: requestDebug.secFetchDest,
+        referer: requestDebug.referer,
+      })
+    );
+
+    if (!requestDebug.hasClientMarker) {
+      return NextResponse.json(
+        {
+          error:
+            "Appel refuse: la route /api/account-requests/[id] n accepte que les appels marques depuis le navigateur authentifie.",
+        },
+        { status: 400 }
+      );
+    }
+
     const { user, role } = await getStrictDirectionRequestUser(req);
 
     if (!user || role !== "direction") {
