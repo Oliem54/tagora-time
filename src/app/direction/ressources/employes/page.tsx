@@ -297,7 +297,7 @@ export default function Page() {
             </div>
 
             <Link href="/direction/ressources" style={backButtonStyle}>
-              Retour aux ressources
+              Retour
             </Link>
           </div>
 
@@ -539,10 +539,12 @@ export default function Page() {
                   disabled={saving || uploadingRecto || uploadingVerso}
                 >
                   {saving
-                    ? "Enregistrement..."
+                    ? editingId
+                      ? "Application..."
+                      : "Creation..."
                     : editingId
-                    ? "Enregistrer les changements"
-                    : "Ajouter"}
+                    ? "Appliquer les changements"
+                    : "Creer"}
                 </button>
 
                 {editingId ? (
@@ -671,7 +673,7 @@ export default function Page() {
                               onClick={() => handleEdit(item)}
                               style={smallButtonStyle}
                             >
-                              Modifier
+                              Appliquer les changements
                             </button>
 
                             <button

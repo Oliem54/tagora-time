@@ -3,10 +3,16 @@
 import { ChangeEvent, useCallback, useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import { useParams, useRouter } from "next/navigation";
-import HeaderTagora from "../../../components/HeaderTagora";
-import AccessNotice from "../../../components/AccessNotice";
 import { supabase } from "../../../lib/supabase/client";
 import { useCurrentAccess } from "../../../hooks/useCurrentAccess";
+import AuthenticatedPageHeader from "@/app/components/ui/AuthenticatedPageHeader";
+import SectionCard from "@/app/components/ui/SectionCard";
+import StatCard from "@/app/components/ui/StatCard";
+import AppCard from "@/app/components/ui/AppCard";
+import InfoRow from "@/app/components/ui/InfoRow";
+import FormField from "@/app/components/ui/FormField";
+import PrimaryButton from "@/app/components/ui/PrimaryButton";
+import SecondaryButton from "@/app/components/ui/SecondaryButton";
 
 type Note = {
   id: number;
@@ -288,212 +294,148 @@ export default function DossierPage() {
 
   if (accessLoading || loading) {
     return (
-      <div className="page-container">
-        <HeaderTagora title={`Dossier #${dossierId}`} subtitle="Notes, photos et videos terrain" />
-        <AccessNotice description="Verification des acces dossier et chargement des donnees en cours." />
-      </div>
+      <main className="tagora-app-shell">
+        <div className="tagora-app-content">
+          <AuthenticatedPageHeader title={`Dossier #${dossierId}`} subtitle="Notes et medias." />
+          <SectionCard title="Chargement" subtitle="Acces en cours." />
+        </div>
+      </main>
     );
   }
 
   if (!canUseDossiers) {
     return (
-      <div className="page-container">
-        <HeaderTagora title={`Dossier #${dossierId}`} subtitle="Notes, photos et videos terrain" />
-        <AccessNotice description="La permission dossiers n est pas active sur votre compte. Le detail du dossier reste donc bloque." />
-      </div>
+      <main className="tagora-app-shell">
+        <div className="tagora-app-content">
+          <AuthenticatedPageHeader title={`Dossier #${dossierId}`} subtitle="Notes et medias." />
+          <SectionCard title="Acces bloque" subtitle="Permission requise." />
+        </div>
+      </main>
     );
   }
 
   return (
-    <div className="page-container">
-      <HeaderTagora title={dossierTitle} subtitle="Notes, photos et videos terrain" />
+    <main className="tagora-app-shell">
+      <div className="tagora-app-content ui-stack-lg">
+        <AuthenticatedPageHeader
+          title={dossierTitle}
+          subtitle="Notes et medias."
+          actions={<SecondaryButton onClick={() => router.push("/employe/dashboard")}>Retour</SecondaryButton>}
+        />
 
-      {feedback ? <AccessNotice title="Action bloquee" description={feedback} /> : null}
-      {documentsNotice ? (
-        <div style={{ marginTop: feedback ? 18 : 0 }}>
-          <AccessNotice title="Acces partiel" description={documentsNotice} />
+        {feedback ? <SectionCard title="Action" subtitle={feedback} tone="muted" /> : null}
+        {documentsNotice ? <SectionCard title="Acces partiel" subtitle={documentsNotice} tone="muted" /> : null}
+
+        <div className="ui-grid-auto">
+          <StatCard label="Photos" value={dossier?.nb_photos || 0} />
+          <StatCard label="Notes" value={dossier?.nb_notes || 0} />
+          <StatCard label="Fichiers" value={dossier?.nb_fichiers || 0} />
         </div>
-      ) : null}
 
-      <div className="tagora-panel" style={{ marginTop: 24 }}>
-        <h2 className="section-title" style={{ marginBottom: 12 }}>
-          Resume du dossier
-        </h2>
-        {dossier ? (
-          <div className="tagora-note" style={{ display: "grid", gap: 8 }}>
-            <div><strong>Nom :</strong> {dossier.nom || `Dossier #${dossier.id}`}</div>
-            <div><strong>Client :</strong> {dossier.client || "-"}</div>
-            <div><strong>Description :</strong> {dossier.description || "-"}</div>
-            <div><strong>Photos :</strong> {dossier.nb_photos || 0}</div>
-            <div><strong>Notes :</strong> {dossier.nb_notes || 0}</div>
-            <div><strong>Fichiers :</strong> {dossier.nb_fichiers || 0}</div>
-          </div>
-        ) : (
-          <p className="tagora-note">Aucun detail de dossier disponible.</p>
-        )}
-      </div>
+        <SectionCard title="Resume" subtitle="Informations principales.">
+          {dossier ? (
+            <div className="ui-grid-3">
+              <InfoRow label="Nom" value={dossier.nom || `Dossier #${dossier.id}`} />
+              <InfoRow label="Client" value={dossier.client || "-"} />
+              <InfoRow label="Description" value={dossier.description || "-"} />
+            </div>
+          ) : (
+            <AppCard tone="muted">
+              <p className="ui-text-muted" style={{ margin: 0 }}>Aucun detail.</p>
+            </AppCard>
+          )}
+        </SectionCard>
 
-      {canUseDocuments ? (
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "minmax(0, 1.1fr) minmax(0, 1fr)",
-            gap: 20,
-            alignItems: "start",
-            marginTop: 24,
-          }}
-        >
-          <div className="tagora-panel" style={{ minHeight: 560 }}>
-            <h2 className="section-title" style={{ marginBottom: 18 }}>
-              Ajouter une note
-            </h2>
-
-            <textarea
-              placeholder="Ecrire une note terrain..."
-              value={contenu}
-              onChange={(event) => setContenu(event.target.value)}
-              className="tagora-textarea"
-            />
-
-            <button onClick={handleAddNote} className="tagora-dark-action" style={{ marginTop: 16 }}>
-              Ajouter la note
-            </button>
-
-            <h2 className="section-title" style={{ marginTop: 28, marginBottom: 16 }}>
-              Notes
-            </h2>
-
-            {notes.length === 0 ? (
-              <p className="tagora-note">Aucune note pour le moment.</p>
-            ) : (
-              <div style={{ display: "grid", gap: 12 }}>
-                {notes.map((note) => (
-                  <div
-                    key={note.id}
-                    style={{
-                      border: "1px solid #e5e7eb",
-                      marginBottom: 0,
-                      padding: 14,
-                      borderRadius: 14,
-                      background: "#fafafa",
-                    }}
-                  >
-                    <div style={{ color: "#0f172a", marginBottom: note.created_at ? 8 : 0 }}>
-                      {note.contenu}
-                    </div>
-                    {note.created_at ? (
-                      <div className="tagora-note">
-                        {new Date(note.created_at).toLocaleString("fr-CA")}
-                      </div>
-                    ) : null}
+        {canUseDocuments ? (
+          <div className="ui-grid-2" style={{ alignItems: "start" }}>
+            <SectionCard title="Notes" subtitle="Notes du dossier.">
+              <div className="ui-stack-md">
+                <FormField label="Nouvelle note">
+                  <textarea
+                    placeholder="Ecrire une note terrain..."
+                    value={contenu}
+                    onChange={(event) => setContenu(event.target.value)}
+                    className="tagora-textarea"
+                  />
+                </FormField>
+                <div>
+                  <PrimaryButton onClick={handleAddNote}>Creer</PrimaryButton>
+                </div>
+                {notes.length === 0 ? (
+                  <AppCard tone="muted">
+                    <p className="ui-text-muted" style={{ margin: 0 }}>Aucune note.</p>
+                  </AppCard>
+                ) : (
+                  <div className="ui-stack-sm">
+                    {notes.map((note) => (
+                      <AppCard key={note.id} tone="muted" className="ui-stack-xs">
+                        <div style={{ color: "var(--ui-color-text)" }}>{note.contenu}</div>
+                        {note.created_at ? (
+                          <div className="ui-text-muted">{new Date(note.created_at).toLocaleString("fr-CA")}</div>
+                        ) : null}
+                      </AppCard>
+                    ))}
                   </div>
-                ))}
+                )}
               </div>
-            )}
-          </div>
+            </SectionCard>
 
-          <div className="tagora-panel" style={{ minHeight: 560 }}>
-            <h2 className="section-title" style={{ marginBottom: 16 }}>
-              Ajouter photos et videos
-            </h2>
-
-            <p className="tagora-note" style={{ marginBottom: 8 }}>
-              Maximum 15 fichiers par dossier.
-            </p>
-
-            <p className="tagora-note" style={{ marginBottom: 18 }}>
-              Fichiers deja dans le dossier : {dossier?.nb_fichiers || 0}/15
-            </p>
-
-            <input
-              type="file"
-              accept="image/*,video/*"
-              onChange={handleUploadPhoto}
-              className="tagora-input"
-            />
-
-            {uploading ? <p className="tagora-note" style={{ marginTop: 12 }}>Upload en cours...</p> : null}
-
-            <h2 className="section-title" style={{ marginTop: 28, marginBottom: 16 }}>
-              Photos et videos du dossier
-            </h2>
-
-            {photos.length === 0 ? (
-              <p className="tagora-note">Aucun fichier pour le moment.</p>
-            ) : (
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))",
-                  gap: 14,
-                }}
-              >
-                {photos.map((photo) => (
+            <SectionCard title="Medias" subtitle="Photos et videos.">
+              <div className="ui-stack-md">
+                <div className="ui-grid-2">
+                  <InfoRow label="Maximum" value="15 fichiers" compact />
+                  <InfoRow label="Occupation" value={`${dossier?.nb_fichiers || 0}/15`} compact />
+                </div>
+                <FormField label="Ajouter un fichier" hint="Images et videos acceptees.">
+                  <input type="file" accept="image/*,video/*" onChange={handleUploadPhoto} className="tagora-input" />
+                </FormField>
+                {uploading ? <div className="ui-text-muted">Upload en cours...</div> : null}
+                {photos.length === 0 ? (
+                  <AppCard tone="muted">
+                    <p className="ui-text-muted" style={{ margin: 0 }}>Aucun fichier.</p>
+                  </AppCard>
+                ) : (
                   <div
-                    key={photo.id}
                     style={{
-                      border: "1px solid #e5e7eb",
-                      borderRadius: 14,
-                      padding: 10,
-                      background: "#fff",
+                      display: "grid",
+                      gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))",
+                      gap: "var(--ui-space-4)",
                     }}
                   >
-                    <div
-                      style={{
-                        width: "100%",
-                        height: 140,
-                        overflow: "hidden",
-                        borderRadius: 10,
-                        background: "#f8fafc",
-                        marginBottom: 10,
-                        position: "relative",
-                      }}
-                    >
-                      {isVideo(photo.image_url) ? (
-                        <video
-                          src={photo.image_url}
-                          controls
+                    {photos.map((photo) => (
+                      <AppCard key={photo.id} className="ui-stack-sm">
+                        <div
                           style={{
                             width: "100%",
-                            height: "100%",
-                            objectFit: "cover",
-                            display: "block",
+                            height: 160,
+                            overflow: "hidden",
+                            borderRadius: "var(--ui-radius-sm)",
+                            background: "#f8fafc",
+                            position: "relative",
                           }}
-                        />
-                      ) : (
-                        <Image
-                          src={photo.image_url}
-                          alt="Photo dossier"
-                          fill
-                          sizes="200px"
-                          style={{ objectFit: "cover" }}
-                        />
-                      )}
-                    </div>
-
-                    <button
-                      onClick={() => handleDeletePhoto(photo.id, photo.image_url)}
-                      className="tagora-dark-outline-action"
-                    >
-                      Supprimer
-                    </button>
+                        >
+                          {isVideo(photo.image_url) ? (
+                            <video
+                              src={photo.image_url}
+                              controls
+                              style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
+                            />
+                          ) : (
+                            <Image src={photo.image_url} alt="Photo dossier" fill sizes="200px" style={{ objectFit: "cover" }} />
+                          )}
+                        </div>
+                        <SecondaryButton onClick={() => handleDeletePhoto(photo.id, photo.image_url)}>
+                          Supprimer
+                        </SecondaryButton>
+                      </AppCard>
+                    ))}
                   </div>
-                ))}
+                )}
               </div>
-            )}
+            </SectionCard>
           </div>
-        </div>
-      ) : null}
-
-      <div className="actions-row" style={{ marginTop: 24 }}>
-        <button
-          onClick={() => router.push("/employe/dashboard")}
-          className="tagora-dark-outline-action"
-        >
-          Retour au dashboard
-        </button>
+        ) : null}
       </div>
-    </div>
+    </main>
   );
 }
-

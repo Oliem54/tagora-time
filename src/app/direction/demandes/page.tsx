@@ -40,6 +40,7 @@ const permissionLabelByValue = new Map(
     permission.label,
   ])
 );
+type SupportedPermission = (typeof accountRequestPermissionOptions)[number]["value"];
 
 function formatRole(role: AppRole) {
   return role === "direction" ? "Direction" : "Employe";
@@ -58,14 +59,18 @@ function formatPermissions(permissions: string[] | null) {
   }
 
   return permissions
-    .map((permission) => permissionLabelByValue.get(permission) ?? permission)
+    .map((permission) => {
+      const supportedPermission = permission as SupportedPermission;
+
+      return permissionLabelByValue.get(supportedPermission) ?? permission;
+    })
     .join(", ");
 }
 
 function getDisplayStatus(status: AccountRequestStatus) {
   if (status === "active") {
     return {
-      label: "active",
+      label: "actif",
       color: "#166534",
       background: "#dcfce7",
       borderColor: "#86efac",
@@ -74,7 +79,7 @@ function getDisplayStatus(status: AccountRequestStatus) {
 
   if (status === "invited") {
     return {
-      label: "invited",
+      label: "invite",
       color: "#1d4ed8",
       background: "#dbeafe",
       borderColor: "#93c5fd",
@@ -83,7 +88,7 @@ function getDisplayStatus(status: AccountRequestStatus) {
 
   if (status === "refused") {
     return {
-      label: "rejected",
+      label: "refuse",
       color: "#991b1b",
       background: "#fee2e2",
       borderColor: "#fca5a5",
@@ -92,7 +97,7 @@ function getDisplayStatus(status: AccountRequestStatus) {
 
   if (status === "error") {
     return {
-      label: "error",
+      label: "erreur",
       color: "#9a3412",
       background: "#ffedd5",
       borderColor: "#fdba74",
@@ -100,7 +105,7 @@ function getDisplayStatus(status: AccountRequestStatus) {
   }
 
   return {
-    label: "pending",
+    label: "en attente",
     color: "#92400e",
     background: "#fef3c7",
     borderColor: "#fcd34d",
@@ -234,7 +239,7 @@ export default function DirectionDemandesPage() {
       <div className="tagora-app-content" style={{ maxWidth: 1600 }}>
         <HeaderTagora
           title="Demandes de creation de compte"
-          subtitle="Consultez les demandes entrantes, suivez leur statut et preparez leur traitement par la direction."
+          subtitle="Demandes et statuts."
         />
 
         <div className="tagora-stat-grid" style={{ marginBottom: 24 }}>
@@ -264,9 +269,7 @@ export default function DirectionDemandesPage() {
               <h2 className="section-title" style={{ marginBottom: 10 }}>
                 Liste des demandes
               </h2>
-              <p className="tagora-note">
-                Les demandes sont affichees de la plus recente a la plus ancienne.
-              </p>
+                <p className="tagora-note">Plus recentes d abord.</p>
             </div>
 
             <button
@@ -283,11 +286,11 @@ export default function DirectionDemandesPage() {
 
           {loading ? (
             <p className="tagora-note" style={{ marginTop: 18 }}>
-              Chargement des demandes...
+              Chargement...
             </p>
           ) : sortedRequests.length === 0 ? (
             <p className="tagora-note" style={{ marginTop: 18 }}>
-              Aucune demande de creation de compte pour le moment.
+              Aucune demande.
             </p>
           ) : (
             <div

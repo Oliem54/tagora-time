@@ -8,12 +8,13 @@ import {
   normalizeCompany,
   normalizePermissions,
   getCompanyDirectoryContext,
+  type AccountRequestCompany,
 } from "@/app/lib/account-requests.shared";
 import {
   consumeDurableAccountRequestRateLimit,
   getAccountRequestsRequestDebug,
   getRequestIp,
-  resolveDirectionRequestUser,
+  getStrictDirectionRequestUser,
 } from "@/app/lib/account-requests.server";
 import { createPublicServerSupabaseClient } from "@/app/lib/supabase/server";
 import { createAdminSupabaseClient } from "@/app/lib/supabase/admin";
@@ -45,6 +46,199 @@ async function listAllAuthUsers() {
   }
 
   return users;
+}
+
+type ChauffeurProfileRow = {
+  id: number;
+  auth_user_id?: string | null;
+  nom?: string | null;
+  courriel?: string | null;
+  telephone?: string | null;
+  actif?: boolean | null;
+  notes?: string | null;
+  primary_company?: AccountRequestCompany | null;
+  taux_base_titan?: number | null;
+  social_benefits_percent?: number | null;
+  titan_billable?: boolean | null;
+  schedule_start?: string | null;
+  schedule_end?: string | null;
+  scheduled_work_days?: string[] | null;
+  planned_daily_hours?: number | null;
+  planned_weekly_hours?: number | null;
+  pause_minutes?: number | null;
+  expected_breaks_count?: number | null;
+  break_1_label?: string | null;
+  break_1_minutes?: number | null;
+  break_1_paid?: boolean | null;
+  break_2_label?: string | null;
+  break_2_minutes?: number | null;
+  break_2_paid?: boolean | null;
+  break_3_label?: string | null;
+  break_3_minutes?: number | null;
+  break_3_paid?: boolean | null;
+  break_am_enabled?: boolean | null;
+  break_am_time?: string | null;
+  break_am_minutes?: number | null;
+  break_am_paid?: boolean | null;
+  lunch_enabled?: boolean | null;
+  lunch_time?: string | null;
+  lunch_minutes?: number | null;
+  lunch_paid?: boolean | null;
+  break_pm_enabled?: boolean | null;
+  break_pm_time?: string | null;
+  break_pm_minutes?: number | null;
+  break_pm_paid?: boolean | null;
+  sms_alert_depart_terrain?: boolean | null;
+  sms_alert_arrivee_terrain?: boolean | null;
+  sms_alert_sortie?: boolean | null;
+  sms_alert_retour?: boolean | null;
+  sms_alert_pause_debut?: boolean | null;
+  sms_alert_pause_fin?: boolean | null;
+  sms_alert_dinner_debut?: boolean | null;
+  sms_alert_dinner_fin?: boolean | null;
+  sms_alert_quart_debut?: boolean | null;
+  sms_alert_quart_fin?: boolean | null;
+};
+
+function buildEmployeeProfileSnapshot(
+  profile: ChauffeurProfileRow | null | undefined,
+  request: {
+    full_name: string;
+    email: string;
+    phone: string | null;
+    company: AccountRequestCompany | null;
+  },
+  authUserId: string | null
+) {
+  const benefitsPercent =
+    profile?.social_benefits_percent != null
+      ? Number(profile.social_benefits_percent)
+      : 15;
+  const hourlyRate =
+    profile?.taux_base_titan != null ? Number(profile.taux_base_titan) : null;
+  const expectedBreaksCount =
+    profile?.expected_breaks_count != null
+      ? Number(profile.expected_breaks_count)
+      : 0;
+  const breakAmEnabled =
+    profile?.break_am_enabled ?? Boolean(profile?.break_1_minutes);
+  const lunchEnabled =
+    profile?.lunch_enabled ?? Boolean(profile?.break_2_minutes);
+  const breakPmEnabled =
+    profile?.break_pm_enabled ?? Boolean(profile?.break_3_minutes);
+  const breakItems = [
+    {
+      label: "Pause AM",
+      minutes:
+        profile?.break_am_minutes != null
+          ? Number(profile.break_am_minutes)
+          : profile?.break_1_minutes != null
+            ? Number(profile.break_1_minutes)
+            : 0,
+      paid: profile?.break_am_paid ?? profile?.break_1_paid ?? true,
+      enabled: breakAmEnabled,
+    },
+    {
+      label: "Diner",
+      minutes:
+        profile?.lunch_minutes != null
+          ? Number(profile.lunch_minutes)
+          : profile?.break_2_minutes != null
+            ? Number(profile.break_2_minutes)
+            : 0,
+      paid: profile?.lunch_paid ?? profile?.break_2_paid ?? false,
+      enabled: lunchEnabled,
+    },
+    {
+      label: "Pause PM",
+      minutes:
+        profile?.break_pm_minutes != null
+          ? Number(profile.break_pm_minutes)
+          : profile?.break_3_minutes != null
+            ? Number(profile.break_3_minutes)
+            : 0,
+      paid: profile?.break_pm_paid ?? profile?.break_3_paid ?? true,
+      enabled: breakPmEnabled,
+    },
+  ];
+  const totalBreakMinutes = breakItems.reduce(
+    (sum, item) => sum + (item.enabled && item.minutes > 0 ? item.minutes : 0),
+    0
+  );
+  const totalUnpaidBreakMinutes = breakItems.reduce(
+    (sum, item) =>
+      sum + (item.enabled && item.minutes > 0 && !item.paid ? item.minutes : 0),
+    0
+  );
+
+  return {
+    id: profile?.id ?? null,
+    auth_user_id: profile?.auth_user_id ?? authUserId,
+    nom: profile?.nom ?? request.full_name,
+    courriel: profile?.courriel ?? request.email,
+    telephone: profile?.telephone ?? request.phone,
+    actif: profile?.actif ?? true,
+    notes: profile?.notes ?? null,
+    primary_company: profile?.primary_company ?? request.company ?? null,
+    taux_base_titan: hourlyRate,
+    social_benefits_percent: benefitsPercent,
+    titan_billable: profile?.titan_billable ?? false,
+    schedule_start: profile?.schedule_start ?? null,
+    schedule_end: profile?.schedule_end ?? null,
+    scheduled_work_days: Array.isArray(profile?.scheduled_work_days)
+      ? profile?.scheduled_work_days
+      : [],
+    planned_daily_hours:
+      profile?.planned_daily_hours != null
+        ? Number(profile.planned_daily_hours)
+        : null,
+    planned_weekly_hours:
+      profile?.planned_weekly_hours != null
+        ? Number(profile.planned_weekly_hours)
+        : null,
+    pause_minutes:
+      profile?.pause_minutes != null ? Number(profile.pause_minutes) : null,
+    expected_breaks_count:
+      expectedBreaksCount ||
+      [breakAmEnabled, lunchEnabled, breakPmEnabled].filter(Boolean).length,
+    break_1_label: "Pause AM",
+    break_1_minutes: breakItems[0].minutes,
+    break_1_paid: breakItems[0].paid,
+    break_2_label: "Diner",
+    break_2_minutes: breakItems[1].minutes,
+    break_2_paid: breakItems[1].paid,
+    break_3_label: "Pause PM",
+    break_3_minutes: breakItems[2].minutes,
+    break_3_paid: breakItems[2].paid,
+    break_am_enabled: breakAmEnabled,
+    break_am_time: profile?.break_am_time ?? null,
+    break_am_minutes: breakItems[0].minutes,
+    break_am_paid: breakItems[0].paid,
+    lunch_enabled: lunchEnabled,
+    lunch_time: profile?.lunch_time ?? null,
+    lunch_minutes: breakItems[1].minutes,
+    lunch_paid: breakItems[1].paid,
+    break_pm_enabled: breakPmEnabled,
+    break_pm_time: profile?.break_pm_time ?? null,
+    break_pm_minutes: breakItems[2].minutes,
+    break_pm_paid: breakItems[2].paid,
+    sms_alert_depart_terrain: profile?.sms_alert_depart_terrain ?? true,
+    sms_alert_arrivee_terrain: profile?.sms_alert_arrivee_terrain ?? true,
+    sms_alert_sortie: profile?.sms_alert_sortie ?? true,
+    sms_alert_retour: profile?.sms_alert_retour ?? true,
+    sms_alert_pause_debut: profile?.sms_alert_pause_debut ?? true,
+    sms_alert_pause_fin: profile?.sms_alert_pause_fin ?? true,
+    sms_alert_dinner_debut: profile?.sms_alert_dinner_debut ?? true,
+    sms_alert_dinner_fin: profile?.sms_alert_dinner_fin ?? true,
+    sms_alert_quart_debut: profile?.sms_alert_quart_debut ?? true,
+    sms_alert_quart_fin: profile?.sms_alert_quart_fin ?? true,
+    total_break_minutes: totalBreakMinutes,
+    total_unpaid_break_minutes: totalUnpaidBreakMinutes,
+    billable_hourly_cost:
+      hourlyRate != null
+        ? Number((hourlyRate * (1 + benefitsPercent / 100)).toFixed(2))
+        : null,
+  };
 }
 
 export async function POST(req: NextRequest) {
@@ -110,8 +304,8 @@ export async function POST(req: NextRequest) {
           }
         );
       }
-    } catch (rateLimitError) {
-      console.log("[account-requests] rate limit error:", rateLimitError);
+    } catch {
+      // Ignore temporary rate-limit backend failures and continue normal validation.
     }
 
     const payload = {
@@ -146,18 +340,7 @@ export async function POST(req: NextRequest) {
       // Fallback public client for local setup if the service role key is not yet configured.
     }
 
-    console.log("[account-requests] payload:", payload);
-
-    const { data, error } = await supabase
-      .from("account_requests")
-      .insert([payload]);
-
-    console.log("[account-requests] data:", data);
-    console.log("[account-requests] error:", error);
-    console.log("[account-requests] error.message:", error?.message ?? null);
-    console.log("[account-requests] error.details:", error?.details ?? null);
-    console.log("[account-requests] error.hint:", error?.hint ?? null);
-    console.log("[account-requests] error.code:", error?.code ?? null);
+    const { error } = await supabase.from("account_requests").insert([payload]);
 
     if (error) {
       const normalizedMessage = error.message.toLowerCase();
@@ -173,18 +356,7 @@ export async function POST(req: NextRequest) {
         );
       }
 
-      return NextResponse.json(
-        {
-          error: error.message,
-          debug: {
-            message: error?.message ?? null,
-            details: error?.details ?? null,
-            hint: error?.hint ?? null,
-            code: error?.code ?? null,
-          },
-        },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
     try {
@@ -194,13 +366,12 @@ export async function POST(req: NextRequest) {
         requestedRole,
         portalSource,
       });
-    } catch (notificationError) {
-      console.log("[account-requests] notification error:", notificationError);
+    } catch {
+      // Notification failures must not block the request flow.
     }
 
     return NextResponse.json({ success: true });
   } catch (error) {
-    console.error("[account-requests][POST] unexpected error", error);
     return NextResponse.json(
       {
         error:
@@ -212,113 +383,20 @@ export async function POST(req: NextRequest) {
 }
 
 export async function GET(req: NextRequest) {
-  const includeDebug = req.nextUrl.searchParams.get("debug") === "1";
   const requestDebug = getAccountRequestsRequestDebug(req);
-
-  console.log("API CALLED - AUTH HEADER:", req.headers.get("authorization"));
-
-  console.log(
-    "[account-requests][GET][received]",
-    JSON.stringify({
-      inferredSource: requestDebug.inferredSource,
-      hasClientMarker: requestDebug.hasClientMarker,
-      hasAuthorizationHeader: requestDebug.hasAuthorizationHeader,
-      secFetchMode: requestDebug.secFetchMode,
-      secFetchDest: requestDebug.secFetchDest,
-      referer: requestDebug.referer,
-    })
-  );
 
   try {
     if (!requestDebug.hasClientMarker) {
-      const debug = {
-        apiRoute: "/api/account-requests",
-        apiBlockReason: "non_client_account_requests_call",
-        jwtRole: null,
-        tokenRole: null,
-        adminRole: null,
-        userId: null,
-        email: null,
-        hasAuthorizationHeader: requestDebug.hasAuthorizationHeader,
-        tokenReadable: false,
-        adminReadable: false,
-        roleMismatch: false,
-        requestSource: requestDebug.inferredSource,
-        clientMarker: requestDebug.clientMarker,
-        denialReason: "non_client_account_requests_call",
-        denialMessage:
-          "La route /api/account-requests n accepte plus que les appels marques depuis le navigateur authentifie.",
-      };
-
-      console.error("[account-requests][GET] rejected unmarked call", debug);
       return NextResponse.json(
-        {
-          error: "Appel refuse: requete non marquee comme navigateur authentifie.",
-          debug,
-        },
+        { error: "Appel refuse: requete non marquee comme navigateur authentifie." },
         { status: 400 }
       );
     }
 
-    const access = await resolveDirectionRequestUser(req);
-    const debug = {
-      apiRoute: "/api/account-requests",
-      apiBlockReason: access.debug.apiBlockReason,
-      jwtRole: access.debug.jwtRole,
-      tokenRole: access.debug.tokenRole,
-      adminRole: access.debug.adminRole,
-      userId: access.debug.userId,
-      email: access.debug.email,
-      hasAuthorizationHeader: access.debug.hasAuthorizationHeader,
-      tokenReadable: access.debug.tokenReadable,
-      adminReadable: access.debug.adminReadable,
-      roleMismatch: access.debug.roleMismatch,
-      requestSource: requestDebug.inferredSource,
-      clientMarker: requestDebug.clientMarker,
-      frontGate: {
-        areaRole: "direction",
-        requiredPermission: null,
-        blocksBeforeDataRead: false,
-      },
-      sqlFunctions: {
-        current_app_role: "used by RLS, but not used by this API route",
-        is_direction_user: "used by RLS, but not used by this API route",
-        has_app_permission:
-          "not required for /direction/demandes-comptes in AuthGate or API",
-      },
-      dataAccess: {
-        source: "createAdminSupabaseClient",
-        bypassesRls: true,
-        accountRequestsPoliciesBlockDirectReadsForAuthenticatedUsers: true,
-        profileTableUsedForThisPage: false,
-        companyOrAccountStatusUsedToAuthorizePage: false,
-      },
-      denialReason: access.debug.apiBlockReason,
-      denialMessage:
-        access.debug.apiBlockReason === "missing_bearer_token"
-          ? "La requete API est partie sans token Bearer."
-          : access.debug.apiBlockReason === "token_user_lookup_failed"
-            ? "Le token est present mais n a pas pu etre relu via auth.getUser()."
-            : access.debug.apiBlockReason === "authenticated_user_missing"
-              ? "Aucun utilisateur authentifie n a ete retrouve pour ce token."
-              : access.debug.apiBlockReason === "admin_user_lookup_failed"
-                ? "Le rechargement via auth.admin.getUserById() a echoue, mais le JWT peut rester exploitable."
-                : access.debug.apiBlockReason === "admin_user_missing"
-                  ? "Aucun utilisateur n a ete retourne par auth.admin.getUserById()."
-                  : access.debug.apiBlockReason === "direction_role_missing"
-                    ? "Aucune source de role ne confirme direction."
-                    : null,
-    };
+    const { user, role } = await getStrictDirectionRequestUser(req);
 
-    if (access.role !== "direction") {
-      console.error("[account-requests][GET] access denied", debug);
-      return NextResponse.json(
-        {
-          error: "Acces refuse.",
-          debug,
-        },
-        { status: 403 }
-      );
+    if (!user || role !== "direction") {
+      return NextResponse.json({ error: "Acces refuse." }, { status: 403 });
     }
 
     const supabase = createAdminSupabaseClient();
@@ -332,38 +410,73 @@ export async function GET(req: NextRequest) {
     }
 
     const authUsers = await listAllAuthUsers();
+    const { data: chauffeurProfiles } = await supabase
+      .from("chauffeurs")
+      .select(
+        "id, auth_user_id, nom, courriel, telephone, actif, notes, primary_company, taux_base_titan, social_benefits_percent, titan_billable, schedule_start, schedule_end, scheduled_work_days, planned_daily_hours, planned_weekly_hours, pause_minutes, expected_breaks_count, break_1_label, break_1_minutes, break_1_paid, break_2_label, break_2_minutes, break_2_paid, break_3_label, break_3_minutes, break_3_paid, break_am_enabled, break_am_time, break_am_minutes, break_am_paid, lunch_enabled, lunch_time, lunch_minutes, lunch_paid, break_pm_enabled, break_pm_time, break_pm_minutes, break_pm_paid, sms_alert_depart_terrain, sms_alert_arrivee_terrain, sms_alert_sortie, sms_alert_retour, sms_alert_pause_debut, sms_alert_pause_fin, sms_alert_dinner_debut, sms_alert_dinner_fin, sms_alert_quart_debut, sms_alert_quart_fin"
+      )
+      .order("id", { ascending: true });
+
     const userByEmail = new Map(
       authUsers
         .filter((user) => Boolean(user.email))
         .map((user) => [String(user.email).toLowerCase(), user] as const)
     );
+    const profileById = new Map(
+      ((chauffeurProfiles ?? []) as ChauffeurProfileRow[]).map((profile) => [
+        String(profile.id),
+        profile,
+      ] as const)
+    );
+    const profileByAuthUserId = new Map(
+      ((chauffeurProfiles ?? []) as ChauffeurProfileRow[])
+        .filter((profile) => Boolean(profile.auth_user_id))
+        .map((profile) => [String(profile.auth_user_id), profile] as const)
+    );
+    const profileByEmail = new Map(
+      ((chauffeurProfiles ?? []) as ChauffeurProfileRow[])
+        .filter((profile) => Boolean(profile.courriel))
+        .map((profile) => [normalizeEmail(profile.courriel), profile] as const)
+    );
 
     const enrichedRequests = (data ?? []).map((request) => {
       const existingAccount = userByEmail.get(String(request.email).toLowerCase());
+      const existingChauffeurId = Number(
+        existingAccount?.app_metadata?.chauffeur_id ??
+          existingAccount?.user_metadata?.chauffeur_id ??
+          NaN
+      );
+      const matchedProfile =
+        (Number.isFinite(existingChauffeurId)
+          ? profileById.get(String(existingChauffeurId))
+          : null) ??
+        (existingAccount?.id ? profileByAuthUserId.get(existingAccount.id) : null) ??
+        profileByEmail.get(String(request.email).toLowerCase()) ??
+        null;
 
       return {
         ...request,
         existing_account: buildExistingAccountSnapshot(existingAccount),
+        employee_profile: buildEmployeeProfileSnapshot(
+          matchedProfile,
+          {
+            full_name: request.full_name,
+            email: request.email,
+            phone: request.phone,
+            company: request.company,
+          },
+          existingAccount?.id ?? null
+        ),
         review_lock: getReviewLockMetadata(request.review_started_at),
       };
     });
 
-    return NextResponse.json(
-      includeDebug ? { requests: enrichedRequests, debug } : { requests: enrichedRequests }
-    );
+    return NextResponse.json({ requests: enrichedRequests });
   } catch (error) {
-    console.error("[account-requests][GET] unexpected error", error);
     return NextResponse.json(
       {
         error:
           error instanceof Error ? error.message : "Erreur chargement demandes.",
-        debug: includeDebug
-          ? {
-              denialReason: "unexpected_error",
-              denialMessage:
-                error instanceof Error ? error.message : "Erreur chargement demandes.",
-            }
-          : undefined,
       },
       { status: 500 }
     );

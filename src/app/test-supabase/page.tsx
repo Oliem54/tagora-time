@@ -10,8 +10,8 @@ export default function TestSupabasePage() {
     const test = async () => {
       const { data, error } = await supabase.from("test").select("*");
 
-      console.log("DATA:", data);
-      console.log("ERROR:", error);
+      console.log("DONNEES:", data);
+      console.log("ERREUR:", error);
 
       if (error) {
         setResultat(
@@ -23,7 +23,7 @@ export default function TestSupabasePage() {
             (error.details || "aucun détail")
         );
       } else {
-        setResultat("DATA: " + JSON.stringify(data));
+        setResultat("Donnees : " + JSON.stringify(data));
       }
     };
 

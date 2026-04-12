@@ -10,6 +10,10 @@ import {
   getCompanyLabel,
   type AccountRequestCompany,
 } from "@/app/lib/account-requests.shared";
+import {
+  buildBreakEntries,
+  computeWorkTimeSummary,
+} from "@/app/lib/work-time";
 
 type PaymentStatus = "paye" | "non_paye" | "";
 
@@ -17,6 +21,7 @@ type Employe = {
   id: string | number;
   nom: string;
   taux_base_titan: number | null;
+  social_benefits_percent: number | null;
   primary_company?: AccountRequestCompany | null;
 };
 
@@ -29,6 +34,15 @@ type TempsTitanDbRow = {
   heure_fin: string | null;
   duree_totale: string | number | null;
   duree_heures: number | null;
+  presence_minutes: number | null;
+  paid_break_minutes: number | null;
+  unpaid_break_minutes: number | null;
+  payable_minutes: number | null;
+  facturable_minutes: number | null;
+  temps_presence: string | null;
+  temps_payable: string | null;
+  temps_non_payable: string | null;
+  temps_facturable: string | null;
   type_travail: string | null;
   livraison: string | null;
   notes: string | null;
@@ -49,6 +63,10 @@ type SortieTitanRow = {
   livraison_id: string | number | null;
   date_sortie: string | null;
   temps_total: string | null;
+  payable_minutes: number | null;
+  temps_payable: string | null;
+  temps_non_payable: string | null;
+  facturable_minutes: number | null;
   refacturer_a_titan: boolean | null;
   company_context: AccountRequestCompany | null;
 };
@@ -61,6 +79,9 @@ type UnifiedRow = {
   date_travail: string;
   duree_totale: string;
   duree_heures: number;
+  presence_text: string;
+  payable_text: string;
+  non_payable_text: string;
   type_travail: string;
   livraison: string;
   refacturee_a_titan: boolean;
@@ -76,6 +97,12 @@ type FormState = {
   date_travail: string;
   heure_debut: string;
   heure_fin: string;
+  morning_break_minutes: string;
+  morning_break_paid: "paid" | "unpaid";
+  lunch_minutes: string;
+  lunch_paid: "paid" | "unpaid";
+  afternoon_break_minutes: string;
+  afternoon_break_paid: "paid" | "unpaid";
   type_travail: string;
   notes: string;
   company_context: AccountRequestCompany | "";
@@ -96,6 +123,12 @@ function initialForm(): FormState {
     date_travail: todayIso(),
     heure_debut: "",
     heure_fin: "",
+    morning_break_minutes: "0",
+    morning_break_paid: "paid",
+    lunch_minutes: "0",
+    lunch_paid: "unpaid",
+    afternoon_break_minutes: "0",
+    afternoon_break_paid: "paid",
     type_travail: "entrepot",
     notes: "",
     company_context: "",
@@ -164,6 +197,25 @@ export default function TempsTitanPage() {
   const employeSelection = useMemo(() => employes.find((item) => String(item.id) === form.employe_id), [employes, form.employe_id]);
   const resolvedCompanyContext =
     form.company_context || employeSelection?.primary_company || "";
+  const titanBreaks = useMemo(
+    () =>
+      buildBreakEntries({
+        morningMinutes: form.morning_break_minutes,
+        morningPaid: form.morning_break_paid === "paid",
+        lunchMinutes: form.lunch_minutes,
+        lunchPaid: form.lunch_paid === "paid",
+        afternoonMinutes: form.afternoon_break_minutes,
+        afternoonPaid: form.afternoon_break_paid === "paid",
+      }),
+    [
+      form.afternoon_break_minutes,
+      form.afternoon_break_paid,
+      form.lunch_minutes,
+      form.lunch_paid,
+      form.morning_break_minutes,
+      form.morning_break_paid,
+    ]
+  );
 
   const loadAll = useCallback(async () => {
     setLoading(true);
@@ -171,9 +223,9 @@ export default function TempsTitanPage() {
     setSuccessMessage("");
 
     const results = await Promise.allSettled([
-      supabase.from("chauffeurs").select("id, nom, taux_base_titan, primary_company").order("id", { ascending: true }),
+      supabase.from("chauffeurs").select("id, nom, taux_base_titan, social_benefits_percent, primary_company").order("id", { ascending: true }),
       supabase.from("temps_titan").select("*").order("date_travail", { ascending: false }).order("id", { ascending: false }),
-      supabase.from("sorties_terrain").select("id, chauffeur_id, livraison_id, date_sortie, temps_total, refacturer_a_titan, company_context").eq("refacturer_a_titan", true).order("date_sortie", { ascending: false }),
+      supabase.from("sorties_terrain").select("id, chauffeur_id, livraison_id, date_sortie, temps_total, payable_minutes, temps_payable, temps_non_payable, facturable_minutes, refacturer_a_titan, company_context").eq("refacturer_a_titan", true).order("date_sortie", { ascending: false }),
     ]);
 
     const notices: string[] = [];
@@ -189,6 +241,10 @@ export default function TempsTitanPage() {
         id: row.id,
         nom: row.nom ?? "",
         taux_base_titan: row.taux_base_titan != null ? Number(row.taux_base_titan) : null,
+        social_benefits_percent:
+          (row as Record<string, unknown>).social_benefits_percent != null
+            ? Number((row as Record<string, unknown>).social_benefits_percent)
+            : 15,
         primary_company: (row as Record<string, unknown>).primary_company as AccountRequestCompany | null,
       })));
     }
@@ -206,6 +262,17 @@ export default function TempsTitanPage() {
         heure_fin: typeof row.heure_fin === "string" ? row.heure_fin : null,
         duree_totale: typeof row.duree_totale === "string" || typeof row.duree_totale === "number" ? row.duree_totale : null,
         duree_heures: toNumber(row.duree_heures),
+        presence_minutes: toNumber(row.presence_minutes),
+        paid_break_minutes: toNumber(row.paid_break_minutes),
+        unpaid_break_minutes: toNumber(row.unpaid_break_minutes),
+        payable_minutes: toNumber(row.payable_minutes),
+        facturable_minutes: toNumber(row.facturable_minutes),
+        temps_presence: typeof row.temps_presence === "string" ? row.temps_presence : null,
+        temps_payable: typeof row.temps_payable === "string" ? row.temps_payable : null,
+        temps_non_payable:
+          typeof row.temps_non_payable === "string" ? row.temps_non_payable : null,
+        temps_facturable:
+          typeof row.temps_facturable === "string" ? row.temps_facturable : null,
         type_travail: typeof row.type_travail === "string" ? row.type_travail : null,
         livraison: typeof row.livraison === "string" ? row.livraison : null,
         notes: typeof row.notes === "string" ? row.notes : null,
@@ -244,12 +311,22 @@ export default function TempsTitanPage() {
   }, [accessLoading, blocked, loadAll, userId]);
 
   const dureeCalculee = useMemo(() => diffHours(form.heure_debut, form.heure_fin), [form.heure_debut, form.heure_fin]);
+  const titanSummary = useMemo(
+    () =>
+      computeWorkTimeSummary({
+        start: form.heure_debut,
+        end: form.heure_fin,
+        breaks: titanBreaks,
+      }),
+    [form.heure_debut, form.heure_fin, titanBreaks]
+  );
   const tauxBaseTitan = employeSelection?.taux_base_titan ?? 0;
-  const margeTitan = tauxBaseTitan * 0.15;
+  const socialBenefitsPercent = employeSelection?.social_benefits_percent ?? 15;
+  const margeTitan = tauxBaseTitan * (socialBenefitsPercent / 100);
   const tauxTotalTitan = tauxBaseTitan + margeTitan;
-  const totalSalaireCalcule = dureeCalculee * tauxBaseTitan;
-  const totalBeneficeCalcule = dureeCalculee * margeTitan;
-  const totalTitanCalcule = dureeCalculee * tauxTotalTitan;
+  const totalSalaireCalcule = titanSummary.payableHours * tauxBaseTitan;
+  const totalBeneficeCalcule = titanSummary.facturableHours * margeTitan;
+  const totalTitanCalcule = titanSummary.facturableHours * tauxTotalTitan;
 
   const unifiedRows = useMemo<UnifiedRow[]>(() => {
     const employeMap = new Map(employes.map((item) => [String(item.id), item]));
@@ -260,8 +337,35 @@ export default function TempsTitanPage() {
       id: row.id,
       employe_nom: row.employe_nom ?? "-",
       date_travail: row.date_travail ?? "",
-      duree_totale: typeof row.duree_totale === "string" ? row.duree_totale : hoursToText(toNumber(row.duree_heures)),
-      duree_heures: toNumber(row.duree_heures),
+      duree_totale:
+        row.temps_payable ??
+        (typeof row.duree_totale === "string"
+          ? row.duree_totale
+          : hoursToText(toNumber(row.duree_heures))),
+      duree_heures:
+        row.payable_minutes != null && row.payable_minutes > 0
+          ? row.payable_minutes / 60
+          : toNumber(row.duree_heures),
+      presence_text:
+        row.temps_presence ??
+        (row.presence_minutes != null && row.presence_minutes > 0
+          ? hoursToText(row.presence_minutes / 60)
+          : row.temps_payable ??
+            (typeof row.duree_totale === "string"
+              ? row.duree_totale
+              : hoursToText(toNumber(row.duree_heures)))),
+      payable_text:
+        row.temps_payable ??
+        (row.payable_minutes != null && row.payable_minutes > 0
+          ? hoursToText(row.payable_minutes / 60)
+          : typeof row.duree_totale === "string"
+            ? row.duree_totale
+            : hoursToText(toNumber(row.duree_heures))),
+      non_payable_text:
+        row.temps_non_payable ??
+        (row.unpaid_break_minutes != null && row.unpaid_break_minutes > 0
+          ? hoursToText(row.unpaid_break_minutes / 60)
+          : "0 min"),
       type_travail: row.type_travail ?? "",
       livraison: row.livraison ?? "-",
       refacturee_a_titan: !!row.refacturee_a_titan,
@@ -275,16 +379,27 @@ export default function TempsTitanPage() {
     const sortieRows = sortiesTitan.map((row) => {
       const employe = row.chauffeur_id ? employeMap.get(String(row.chauffeur_id)) : undefined;
       const base = toNumber(employe?.taux_base_titan);
-      const marge = base * 0.15;
-      const dureeHeures = parseHoursFromText(row.temps_total);
+      const benefitsPercent = employe?.social_benefits_percent ?? 15;
+      const marge = base * (benefitsPercent / 100);
+      const dureeHeures =
+        row.payable_minutes != null && row.payable_minutes > 0
+          ? row.payable_minutes / 60
+          : parseHoursFromText(row.temps_total);
       return {
         source: "sortie" as const,
         sourceId: `sortie-${row.id}`,
         id: typeof row.id === "number" || typeof row.id === "string" ? row.id : 0,
         employe_nom: employe?.nom ?? "-",
         date_travail: row.date_sortie ?? "",
-        duree_totale: row.temps_total ?? hoursToText(dureeHeures),
+        duree_totale: row.temps_payable ?? row.temps_total ?? hoursToText(dureeHeures),
         duree_heures: dureeHeures,
+        presence_text: row.temps_total ?? row.temps_payable ?? hoursToText(dureeHeures),
+        payable_text: row.temps_payable ?? row.temps_total ?? hoursToText(dureeHeures),
+        non_payable_text:
+          row.temps_non_payable ??
+          (row.payable_minutes != null && parseHoursFromText(row.temps_total) > dureeHeures
+            ? hoursToText(parseHoursFromText(row.temps_total) - dureeHeures)
+            : "0 min"),
         type_travail: "livraison",
         livraison: row.livraison_id ? `Livraison #${row.livraison_id}` : "-",
         refacturee_a_titan: true,
@@ -337,6 +452,11 @@ export default function TempsTitanPage() {
       return;
     }
 
+    if (titanSummary.payableMinutes <= 0) {
+      setErrorMessage("Le temps payable doit etre superieur a zero.");
+      return;
+    }
+
     if (!resolvedCompanyContext) {
       setErrorMessage("Choisir une compagnie avant d ajouter l entree Titan.");
       return;
@@ -349,8 +469,23 @@ export default function TempsTitanPage() {
       date_travail: form.date_travail,
       heure_debut: form.heure_debut,
       heure_fin: form.heure_fin,
-      duree_totale: hoursToText(dureeCalculee),
-      duree_heures: dureeCalculee,
+      duree_totale: titanSummary.payableText,
+      duree_heures: titanSummary.payableHours,
+      morning_break_minutes: Number(form.morning_break_minutes || 0),
+      morning_break_paid: form.morning_break_paid === "paid",
+      lunch_minutes: Number(form.lunch_minutes || 0),
+      lunch_paid: form.lunch_paid === "paid",
+      afternoon_break_minutes: Number(form.afternoon_break_minutes || 0),
+      afternoon_break_paid: form.afternoon_break_paid === "paid",
+      presence_minutes: titanSummary.presenceMinutes,
+      paid_break_minutes: titanSummary.paidBreakMinutes,
+      unpaid_break_minutes: titanSummary.unpaidBreakMinutes,
+      payable_minutes: titanSummary.payableMinutes,
+      facturable_minutes: titanSummary.facturableMinutes,
+      temps_presence: titanSummary.presenceText,
+      temps_payable: titanSummary.payableText,
+      temps_non_payable: titanSummary.nonPayableText,
+      temps_facturable: titanSummary.facturableText,
       company_context: resolvedCompanyContext || null,
       type_travail: form.type_travail,
       notes: form.notes || null,
@@ -426,11 +561,25 @@ export default function TempsTitanPage() {
             <label className="tagora-field"><span className="tagora-label">Heure fin</span><input type="time" value={form.heure_fin} onChange={(e) => setForm((prev) => ({ ...prev, heure_fin: e.target.value }))} className="tagora-input" /></label>
             <label className="tagora-field"><span className="tagora-label">Type de travail</span><select value={form.type_travail} onChange={(e) => setForm((prev) => ({ ...prev, type_travail: e.target.value }))} className="tagora-input"><option value="entrepot">Entrepot</option><option value="manutention">Manutention</option><option value="chargement">Chargement</option><option value="dechargement">Dechargement</option><option value="assemblage">Assemblage</option><option value="autre">Autre</option></select></label>
             <label className="tagora-field"><span className="tagora-label">Compagnie</span><select value={resolvedCompanyContext} onChange={(e) => setForm((prev) => ({ ...prev, company_context: e.target.value as AccountRequestCompany | "" }))} className="tagora-input"><option value="">Choisir la compagnie</option>{ACCOUNT_REQUEST_COMPANIES.map((company) => <option key={company.value} value={company.value}>{company.label}</option>)}</select></label>
-            <div className="tagora-panel" style={{ margin: 0 }}><div className="tagora-label">Duree calculee</div><div style={{ marginTop: 8, fontWeight: 700 }}>{hoursToText(dureeCalculee)}</div></div>
+            <div className="tagora-panel-muted" style={{ gridColumn: "1 / -1" }}>
+              <div className="tagora-label" style={{ marginBottom: 12 }}>Pauses et diner</div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12 }}>
+                <label className="tagora-field"><span className="tagora-label">Pause matin</span><input type="number" min="0" value={form.morning_break_minutes} onChange={(e) => setForm((prev) => ({ ...prev, morning_break_minutes: e.target.value }))} className="tagora-input" /></label>
+                <label className="tagora-field"><span className="tagora-label">Pause matin</span><select value={form.morning_break_paid} onChange={(e) => setForm((prev) => ({ ...prev, morning_break_paid: e.target.value as "paid" | "unpaid" }))} className="tagora-input"><option value="paid">Payee</option><option value="unpaid">Non payee</option></select></label>
+                <label className="tagora-field"><span className="tagora-label">Diner</span><input type="number" min="0" value={form.lunch_minutes} onChange={(e) => setForm((prev) => ({ ...prev, lunch_minutes: e.target.value }))} className="tagora-input" /></label>
+                <label className="tagora-field"><span className="tagora-label">Diner</span><select value={form.lunch_paid} onChange={(e) => setForm((prev) => ({ ...prev, lunch_paid: e.target.value as "paid" | "unpaid" }))} className="tagora-input"><option value="paid">Paye</option><option value="unpaid">Non paye</option></select></label>
+                <label className="tagora-field"><span className="tagora-label">Pause apres-midi</span><input type="number" min="0" value={form.afternoon_break_minutes} onChange={(e) => setForm((prev) => ({ ...prev, afternoon_break_minutes: e.target.value }))} className="tagora-input" /></label>
+                <label className="tagora-field"><span className="tagora-label">Pause apres-midi</span><select value={form.afternoon_break_paid} onChange={(e) => setForm((prev) => ({ ...prev, afternoon_break_paid: e.target.value as "paid" | "unpaid" }))} className="tagora-input"><option value="paid">Payee</option><option value="unpaid">Non payee</option></select></label>
+              </div>
+            </div>
+            <div className="tagora-panel" style={{ margin: 0 }}><div className="tagora-label">Presence</div><div style={{ marginTop: 8, fontWeight: 700 }}>{titanSummary.presenceText}</div></div>
+            <div className="tagora-panel" style={{ margin: 0 }}><div className="tagora-label">Pauses payees</div><div style={{ marginTop: 8, fontWeight: 700 }}>{titanSummary.paidBreakText}</div></div>
+            <div className="tagora-panel" style={{ margin: 0 }}><div className="tagora-label">Pauses non payees</div><div style={{ marginTop: 8, fontWeight: 700 }}>{titanSummary.unpaidBreakText}</div></div>
+            <div className="tagora-panel" style={{ margin: 0 }}><div className="tagora-label">Temps payable</div><div style={{ marginTop: 8, fontWeight: 700 }}>{titanSummary.payableText}</div></div>
             <div className="tagora-panel" style={{ margin: 0 }}><div className="tagora-label">Total Titan calcule</div><div style={{ marginTop: 8, fontWeight: 700 }}>{formatMoney(totalTitanCalcule)}</div></div>
             <label className="tagora-field" style={{ gridColumn: "1 / -1" }}><span className="tagora-label">Notes</span><textarea value={form.notes} onChange={(e) => setForm((prev) => ({ ...prev, notes: e.target.value }))} className="tagora-textarea" /></label>
             <div className="actions-row" style={{ gridColumn: "1 / -1" }}>
-              <button type="submit" disabled={saving} className="tagora-dark-action">{saving ? "Enregistrement..." : "Ajouter"}</button>
+              <button type="submit" disabled={saving} className="tagora-dark-action">{saving ? "Creation..." : "Creer"}</button>
               <button type="button" className="tagora-dark-outline-action" onClick={() => void loadAll()}>Actualiser</button>
             </div>
           </form>
@@ -462,7 +611,9 @@ export default function TempsTitanPage() {
                   <th style={thStyle}>Compagnie</th>
                   <th style={thStyle}>Employe</th>
                   <th style={thStyle}>Type</th>
-                  <th style={thStyle}>Duree</th>
+                  <th style={thStyle}>Presence</th>
+                  <th style={thStyle}>Non paye</th>
+                  <th style={thStyle}>Payable</th>
                   <th style={thStyle}>Livraison</th>
                   <th style={thStyle}>Salaire</th>
                   <th style={thStyle}>Benefice</th>
@@ -471,7 +622,7 @@ export default function TempsTitanPage() {
               </thead>
               <tbody>
                 {filteredRows.length === 0 ? (
-                  <tr><td style={tdStyle} colSpan={11}>Aucune donnee sur la periode.</td></tr>
+                  <tr><td style={tdStyle} colSpan={13}>Aucune donnee sur la periode.</td></tr>
                 ) : (
                   filteredRows.map((row) => (
                     <tr key={row.sourceId}>
@@ -481,7 +632,9 @@ export default function TempsTitanPage() {
                       <td style={tdStyle}>{row.company_context ? getCompanyLabel(row.company_context) : "-"}</td>
                       <td style={tdStyle}>{row.employe_nom}</td>
                       <td style={tdStyle}>{row.type_travail || "-"}</td>
-                      <td style={tdStyle}>{row.duree_totale}</td>
+                      <td style={tdStyle}>{row.presence_text}</td>
+                      <td style={tdStyle}>{row.non_payable_text}</td>
+                      <td style={tdStyle}>{row.payable_text}</td>
                       <td style={tdStyle}>{row.livraison || "-"}</td>
                       <td style={tdStyle}>{formatMoney(row.total_salaire)}</td>
                       <td style={tdStyle}>{formatMoney(row.total_benefice)}</td>

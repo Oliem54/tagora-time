@@ -113,6 +113,8 @@ export async function POST(req: NextRequest) {
       activationDetected && requestRow.status === "invited"
         ? "active"
         : requestRow.status;
+    const metadataStatus: "invited" | "active" =
+      nextStatus === "active" ? "active" : "invited";
 
     const nowIso = new Date().toISOString();
 
@@ -121,14 +123,14 @@ export async function POST(req: NextRequest) {
       {
         app_metadata: buildSynchronizedMetadata({
           requestRow,
-          status: nextStatus,
+          status: metadataStatus,
           role,
           permissions,
           existingMetadata: adminUser.app_metadata,
         }),
         user_metadata: buildSynchronizedMetadata({
           requestRow,
-          status: nextStatus,
+          status: metadataStatus,
           role,
           permissions,
           existingMetadata: adminUser.user_metadata,

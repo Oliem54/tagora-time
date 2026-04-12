@@ -1,22 +1,173 @@
 "use client";
 
+import { useMemo } from "react";
+import { motion } from "framer-motion";
+import {
+  ArrowUpRight,
+  BriefcaseBusiness,
+  Clock3,
+  FileStack,
+  Files,
+  ReceiptText,
+  Route,
+  TimerReset,
+  Truck,
+  UsersRound,
+  Waypoints,
+  type LucideIcon,
+} from "lucide-react";
 import { useRouter } from "next/navigation";
-import HeaderTagora from "../../components/HeaderTagora";
-import AccessNotice from "../../components/AccessNotice";
 import { supabase } from "../../lib/supabase/client";
 import { useCurrentAccess } from "../../hooks/useCurrentAccess";
+import AuthenticatedPageHeader from "@/app/components/ui/AuthenticatedPageHeader";
+import SectionCard from "@/app/components/ui/SectionCard";
+import AppCard from "@/app/components/ui/AppCard";
+import SecondaryButton from "@/app/components/ui/SecondaryButton";
+import StatusBadge from "@/app/components/ui/StatusBadge";
 
-type QuickLink = {
+type ModulePermission = "documents" | "livraisons" | "terrain" | "ressources" | null;
+type ModuleGroupId = "operations" | "gestion" | "administration";
+
+type ModuleDefinition = {
   href: string;
   label: string;
-  actionLabel: string;
-  permission: "documents" | "livraisons" | "terrain" | "ressources" | null;
   description: string;
+  permission: ModulePermission;
+  group: ModuleGroupId;
+  icon: LucideIcon;
+  accent: string;
+};
+
+type ModuleGroup = {
+  id: ModuleGroupId;
+  title: string;
+  subtitle: string;
 };
 
 type DirectionDashboardClientProps = {
   pendingAccountsCount: number;
 };
+
+const MODULE_GROUPS: ModuleGroup[] = [
+  {
+    id: "operations",
+    title: "Operations terrain",
+    subtitle: "Terrain et suivi.",
+  },
+  {
+    id: "gestion",
+    title: "Gestion interne",
+    subtitle: "Documents et ressources.",
+  },
+  {
+    id: "administration",
+    title: "Administration",
+    subtitle: "Demandes et controles.",
+  },
+];
+
+const MODULES: ModuleDefinition[] = [
+  {
+    href: "/direction/livraisons",
+    label: "Livraisons",
+    description: "Planification et suivi.",
+    permission: "livraisons",
+    group: "operations",
+    icon: Truck,
+    accent:
+      "linear-gradient(135deg, rgba(59,130,246,0.16) 0%, rgba(15,41,72,0.08) 100%)",
+  },
+  {
+    href: "/direction/terrain",
+    label: "Terrain",
+    description: "Carte en direct et equipes.",
+    permission: "terrain",
+    group: "operations",
+    icon: Waypoints,
+    accent:
+      "linear-gradient(135deg, rgba(16,185,129,0.18) 0%, rgba(15,41,72,0.08) 100%)",
+  },
+  {
+    href: "/direction/sorties-terrain",
+    label: "Sorties terrain",
+    description: "Kilometres et temps.",
+    permission: "terrain",
+    group: "operations",
+    icon: Route,
+    accent:
+      "linear-gradient(135deg, rgba(245,158,11,0.18) 0%, rgba(15,41,72,0.08) 100%)",
+  },
+  {
+    href: "/direction/temps-titan",
+    label: "Temps Titan",
+    description: "Heures et refacturation.",
+    permission: "terrain",
+    group: "operations",
+    icon: TimerReset,
+    accent:
+      "linear-gradient(135deg, rgba(99,102,241,0.18) 0%, rgba(15,41,72,0.08) 100%)",
+  },
+  {
+    href: "/direction/documents",
+    label: "Documents",
+    description: "Dossiers et pieces.",
+    permission: "documents",
+    group: "gestion",
+    icon: Files,
+    accent:
+      "linear-gradient(135deg, rgba(14,165,233,0.18) 0%, rgba(15,41,72,0.08) 100%)",
+  },
+  {
+    href: "/direction/ressources",
+    label: "Ressources",
+    description: "Employes et flotte.",
+    permission: "ressources",
+    group: "gestion",
+    icon: BriefcaseBusiness,
+    accent:
+      "linear-gradient(135deg, rgba(236,72,153,0.16) 0%, rgba(15,41,72,0.08) 100%)",
+  },
+  {
+    href: "/direction/horodateur",
+    label: "Horodateur",
+    description: "Quarts et anomalies.",
+    permission: "terrain",
+    group: "administration",
+    icon: Clock3,
+    accent:
+      "linear-gradient(135deg, rgba(34,197,94,0.18) 0%, rgba(15,41,72,0.08) 100%)",
+  },
+  {
+    href: "/direction/demandes-comptes",
+    label: "Gestion des comptes employe",
+    description: "Acces et fiches.",
+    permission: null,
+    group: "administration",
+    icon: UsersRound,
+    accent:
+      "linear-gradient(135deg, rgba(244,114,182,0.18) 0%, rgba(15,41,72,0.08) 100%)",
+  },
+  {
+    href: "/direction/paie-compagnies",
+    label: "Paie par compagnie",
+    description: "Heures et couts.",
+    permission: "terrain",
+    group: "administration",
+    icon: ReceiptText,
+    accent:
+      "linear-gradient(135deg, rgba(168,85,247,0.18) 0%, rgba(15,41,72,0.08) 100%)",
+  },
+  {
+    href: "/direction/facturation-titan",
+    label: "Facturation Titan",
+    description: "Montants a facturer.",
+    permission: "terrain",
+    group: "administration",
+    icon: FileStack,
+    accent:
+      "linear-gradient(135deg, rgba(251,146,60,0.18) 0%, rgba(15,41,72,0.08) 100%)",
+  },
+];
 
 export default function DirectionDashboardClient({
   pendingAccountsCount,
@@ -24,92 +175,18 @@ export default function DirectionDashboardClient({
   const router = useRouter();
   const { user, loading, hasPermission } = useCurrentAccess();
 
-  const quickLinks: QuickLink[] = [
-    {
-      href: "/direction/documents",
-      label: "Documents",
-      actionLabel: "Voir les documents",
-      permission: "documents" as const,
-      description: "Consulter les dossiers, photos et pieces partagees.",
-    },
-    {
-      href: "/direction/livraisons",
-      label: "Livraisons",
-      actionLabel: "Gerer les livraisons",
-      permission: "livraisons" as const,
-      description: "Planifier et suivre les livraisons operationnelles.",
-    },
-    {
-      href: "/direction/terrain",
-      label: "Terrain",
-      actionLabel: "Acceder au terrain",
-      permission: "terrain" as const,
-      description: "Acceder aux sorties terrain et au suivi d execution.",
-    },
-    {
-      href: "/direction/sorties-terrain",
-      label: "Sorties terrain",
-      actionLabel: "Consulter les sorties",
-      permission: "terrain" as const,
-      description: "Saisir et consulter les sorties terrain detaillees.",
-    },
-    {
-      href: "/direction/temps-titan",
-      label: "Temps Titan",
-      actionLabel: "Consulter les heures",
-      permission: "terrain" as const,
-      description: "Suivre les heures terrain refacturables a Titan.",
-    },
-    {
-      href: "/direction/paie-compagnies",
-      label: "Paie par compagnie",
-      actionLabel: "Voir la paie",
-      permission: "terrain" as const,
-      description: "Ventiler les heures et les couts par compagnie, avec export CSV.",
-    },
-    {
-      href: "/direction/facturation-titan",
-      label: "Facturation Titan",
-      actionLabel: "Voir la facturation",
-      permission: "terrain" as const,
-      description: "Consulter la synthese de facturation Titan.",
-    },
-    {
-      href: "/direction/horodateur",
-      label: "Horodateur",
-      actionLabel: "Superviser les pointages",
-      permission: "terrain" as const,
-      description: "Suivre les quarts, pauses, sorties et anomalies V1.",
-    },
-    {
-      href: "/direction/ressources",
-      label: "Ressources",
-      actionLabel: "Gerer les ressources",
-      permission: "ressources" as const,
-      description: "Gerer employes, vehicules et remorques.",
-    },
-    {
-      href: "/direction/demandes-comptes",
-      label: "Demandes de comptes",
-      actionLabel: "Traiter les demandes",
-      permission: null,
-      description: "Traiter les demandes de creation de compte en attente.",
-    },
-    {
-      href: "/ameliorations",
-      label: "Ameliorations",
-      actionLabel: "Envoyer une recommandation",
-      permission: null,
-      description: "Centraliser les idees, correctifs et points a ameliorer.",
-    },
-  ];
-
-  const visibleLinks = quickLinks.filter((item) =>
-    item.permission ? hasPermission(item.permission) : true
+  const visibleModules = useMemo(
+    () => MODULES.filter((item) => (item.permission ? hasPermission(item.permission) : true)),
+    [hasPermission]
   );
 
-  const hiddenModules = quickLinks.filter(
-    (item) => item.permission && !hasPermission(item.permission)
+  const groupedModules = useMemo(
+    () =>
+      MODULE_GROUPS.map((group) => ({
+        ...group,
+        modules: visibleModules.filter((item) => item.group === group.id),
+      })).filter((group) => group.modules.length > 0),
+    [visibleModules]
   );
 
   async function handleLogout() {
@@ -119,10 +196,18 @@ export default function DirectionDashboardClient({
 
   if (loading) {
     return (
-      <div className="page-container">
-        <HeaderTagora title="Dashboard direction" subtitle="Vue d ensemble et gestion" />
-        <AccessNotice description="Verification de la session direction et des permissions actives." />
-      </div>
+      <main className="tagora-app-shell">
+        <div className="tagora-app-content">
+          <AuthenticatedPageHeader
+            title="Tableau de bord direction"
+            subtitle="Vue d ensemble"
+          />
+          <SectionCard
+            title="Chargement"
+            subtitle="Session en cours."
+          />
+        </div>
+      </main>
     );
   }
 
@@ -132,132 +217,160 @@ export default function DirectionDashboardClient({
   }
 
   return (
-    <div className="page-container">
-      <HeaderTagora title="Dashboard direction" subtitle="Vue d ensemble et gestion" />
+    <main className="tagora-app-shell">
+      <div className="tagora-app-content ui-stack-lg">
+        <AuthenticatedPageHeader
+          title="Tableau de bord direction"
+          subtitle="Acces modules."
+          actions={
+            <div
+              style={{
+                display: "flex",
+                gap: "var(--ui-space-3)",
+                flexWrap: "wrap",
+                alignItems: "center",
+              }}
+            >
+              <SecondaryButton onClick={handleLogout}>Se deconnecter</SecondaryButton>
+            </div>
+          }
+        />
 
-      <div className="tagora-panel" style={{ marginTop: 24 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", gap: 16, flexWrap: "wrap", alignItems: "center" }}>
-          <div>
-            <h2 className="section-title" style={{ marginBottom: 8 }}>Session</h2>
-            <p className="tagora-note">Connecte comme : {user.email || "direction"}</p>
-          </div>
-          <button className="tagora-dark-action" onClick={handleLogout}>
-            Se deconnecter
-          </button>
-        </div>
-      </div>
+        {groupedModules.map((group, groupIndex) => (
+          <motion.section
+            key={group.id}
+            initial={{ opacity: 0, y: 18 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.42, delay: groupIndex * 0.06, ease: "easeOut" }}
+          >
+            <SectionCard
+              title={group.title}
+              subtitle={group.subtitle}
+            >
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
+                  gap: "var(--ui-space-5)",
+                  alignItems: "stretch",
+                }}
+              >
+                {group.modules.map((item, moduleIndex) => {
+                  const Icon = item.icon;
+                  const isPendingAccounts = item.href === "/direction/demandes-comptes";
 
-      <div className="tagora-panel" style={{ marginTop: 24 }}>
-        <h2 className="section-title" style={{ marginBottom: 12 }}>Acces rapide</h2>
-        <p className="tagora-note" style={{ marginBottom: 18 }}>
-          Les modules visibles ici correspondent aux permissions actuellement actives sur votre compte direction.
-        </p>
-
-        {visibleLinks.length === 0 ? (
-          <AccessNotice description="Aucun module metier n est encore ouvert sur ce compte. La direction peut toutefois continuer a gerer les demandes de comptes si ce module reste visible." />
-        ) : (
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 16 }}>
-            {visibleLinks.map((item) => {
-              const showPendingBadge =
-                item.href === "/direction/demandes-comptes" &&
-                pendingAccountsCount > 0;
-
-              return (
-                <div
-                  key={item.href}
-                  className="tagora-panel"
-                  style={{
-                    margin: 0,
-                    minHeight: 210,
-                    display: "flex",
-                    flexDirection: "column",
-                    justifyContent: "space-between",
-                    border: "1px solid #d9e2ec",
-                    boxShadow: "0 8px 20px rgba(15, 23, 42, 0.06)",
-                  }}
-                >
-                  <div
-                    style={{
-                      display: "flex",
-                      alignItems: "flex-start",
-                      justifyContent: "space-between",
-                      gap: 12,
-                      marginBottom: 8,
-                    }}
-                  >
-                    <h3 className="section-title" style={{ marginBottom: 0 }}>
-                      {item.label}
-                    </h3>
-
-                    {showPendingBadge ? (
-                      <span
-                        aria-label={`${pendingAccountsCount} demandes en attente`}
+                  return (
+                    <motion.article
+                      key={item.href}
+                      initial={{ opacity: 0, y: 12 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{
+                        duration: 0.34,
+                        delay: groupIndex * 0.05 + moduleIndex * 0.03,
+                        ease: "easeOut",
+                      }}
+                      whileHover={{ y: -6 }}
+                      style={{ height: "100%" }}
+                    >
+                      <AppCard
+                        className="ui-stack-md"
                         style={{
-                          minWidth: 30,
-                          height: 30,
-                          padding: "0 10px",
-                          borderRadius: 999,
-                          background: "#991b1b",
-                          color: "#ffffff",
-                          fontSize: 13,
-                          fontWeight: 700,
-                          lineHeight: "30px",
-                          textAlign: "center",
-                          flexShrink: 0,
+                          height: "100%",
+                          minHeight: 262,
+                          display: "flex",
+                          flexDirection: "column",
+                          justifyContent: "space-between",
+                          border: "1px solid #dbe5f1",
+                          boxShadow: "0 18px 38px rgba(15, 23, 42, 0.08)",
+                          background:
+                            "linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(247,250,255,0.98) 100%)",
                         }}
                       >
-                        {pendingAccountsCount}
-                      </span>
-                    ) : null}
-                  </div>
+                        <div className="ui-stack-md" style={{ flex: 1 }}>
+                          <div
+                            style={{
+                              display: "flex",
+                              alignItems: "flex-start",
+                              justifyContent: "space-between",
+                              gap: 14,
+                            }}
+                          >
+                            <motion.div
+                              whileHover={{ y: -1, scale: 1.04 }}
+                              transition={{ duration: 0.18, ease: "easeOut" }}
+                              style={{
+                                width: 52,
+                                height: 52,
+                                borderRadius: 16,
+                                display: "inline-flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                background: item.accent,
+                                border: "1px solid rgba(23,55,107,0.08)",
+                                color: "#17376b",
+                                boxShadow: "inset 0 1px 0 rgba(255,255,255,0.4)",
+                              }}
+                            >
+                              <Icon size={24} strokeWidth={2.1} />
+                            </motion.div>
 
-                  <p className="tagora-note" style={{ marginBottom: 16 }}>
-                    {item.description}
-                  </p>
-                  <button
-                    onClick={() => router.push(item.href)}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.transform = "translateY(-1px)";
-                      e.currentTarget.style.boxShadow = "0 10px 24px rgba(15, 23, 42, 0.24)";
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.transform = "translateY(0)";
-                      e.currentTarget.style.boxShadow = "0 6px 16px rgba(15, 23, 42, 0.18)";
-                    }}
-                    style={{
-                      width: "100%",
-                      minHeight: 44,
-                      border: "1px solid #0b1f3a",
-                      borderRadius: 12,
-                      padding: "11px 14px",
-                      background: "linear-gradient(135deg, #0f2948 0%, #1f3b63 100%)",
-                      color: "#f8fafc",
-                      fontSize: 14,
-                      fontWeight: 700,
-                      letterSpacing: "0.01em",
-                      cursor: "pointer",
-                      textAlign: "center",
-                      transition: "transform 160ms ease, box-shadow 160ms ease, filter 160ms ease",
-                      boxShadow: "0 6px 16px rgba(15, 23, 42, 0.18)",
-                    }}
-                  >
-                    {item.actionLabel}
-                  </button>
-                </div>
-              );
-            })}
-          </div>
-        )}
+                            {isPendingAccounts && pendingAccountsCount > 0 ? (
+                              <StatusBadge
+                                label={`${pendingAccountsCount} attente`}
+                                tone="danger"
+                              />
+                            ) : null}
+                          </div>
+
+                          <div className="ui-stack-sm">
+                            <h3
+                              style={{
+                                margin: 0,
+                                fontSize: 24,
+                                lineHeight: 1.08,
+                                letterSpacing: "-0.03em",
+                                color: "#102544",
+                              }}
+                            >
+                              {item.label}
+                            </h3>
+                            <p
+                              style={{
+                                margin: 0,
+                                color: "#64748b",
+                                lineHeight: 1.65,
+                                fontSize: 14,
+                              }}
+                            >
+                              {item.description}
+                            </p>
+                          </div>
+                        </div>
+
+                        <motion.button
+                          type="button"
+                          className="tagora-dark-action"
+                          whileHover={{ y: -1 }}
+                          transition={{ duration: 0.16, ease: "easeOut" }}
+                          onClick={() => router.push(item.href)}
+                          style={{
+                            width: "100%",
+                            justifyContent: "space-between",
+                            marginTop: 20,
+                          }}
+                        >
+                          <span>Acceder</span>
+                          <ArrowUpRight size={16} />
+                        </motion.button>
+                      </AppCard>
+                    </motion.article>
+                  );
+                })}
+              </div>
+            </SectionCard>
+          </motion.section>
+        ))}
       </div>
-
-      {hiddenModules.length > 0 ? (
-        <div style={{ marginTop: 24 }}>
-          <AccessNotice
-            title="Modules limites"
-            description={`Les modules suivants restent masques sur ce compte : ${hiddenModules.map((item) => item.label).join(", ")}.`}
-          />
-        </div>
-      ) : null}
-    </div>
+    </main>
   );
 }

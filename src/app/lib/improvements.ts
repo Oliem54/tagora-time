@@ -4,10 +4,10 @@ export const IMPROVEMENT_MODULE_OPTIONS = [
   "Livraisons",
   "Documents",
   "Ressources",
-  "Dashboard",
+  "Tableau de bord",
   "Approbation",
   "Authentification",
-  "General",
+  "Generalites",
 ] as const;
 
 export const IMPROVEMENT_PRIORITY_OPTIONS = [

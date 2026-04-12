@@ -13,8 +13,12 @@ import {
   getCompanyLabel,
   type AccountRequestCompany,
 } from "@/app/lib/account-requests.shared";
+import {
+  buildBreakEntries,
+  computeWorkTimeSummary,
+} from "@/app/lib/work-time";
 
-type Row = Record<string, string | number | null | undefined>;
+type Row = Record<string, string | number | boolean | null | undefined>;
 
 const emptyForm = {
   livraison_id: "",
@@ -28,6 +32,13 @@ const emptyForm = {
   company_context: "",
   km_depart: "",
   km_retour: "",
+  morning_break_minutes: "0",
+  morning_break_paid: "paid",
+  lunch_minutes: "0",
+  lunch_paid: "unpaid",
+  afternoon_break_minutes: "0",
+  afternoon_break_paid: "paid",
+  refacturer_a_titan: false,
   notes: "",
 };
 
@@ -198,6 +209,35 @@ export default function Page() {
 
   const kmTotalPreview = useMemo(() => calculateKmTotal(form.km_depart, form.km_retour), [form.km_depart, form.km_retour]);
   const tempsTotalPreview = useMemo(() => calculateTempsTotal(form.heure_depart, form.heure_retour), [form.heure_depart, form.heure_retour]);
+  const breakPreview = useMemo(
+    () =>
+      buildBreakEntries({
+        morningMinutes: form.morning_break_minutes,
+        morningPaid: form.morning_break_paid === "paid",
+        lunchMinutes: form.lunch_minutes,
+        lunchPaid: form.lunch_paid === "paid",
+        afternoonMinutes: form.afternoon_break_minutes,
+        afternoonPaid: form.afternoon_break_paid === "paid",
+      }),
+    [
+      form.afternoon_break_minutes,
+      form.afternoon_break_paid,
+      form.lunch_minutes,
+      form.lunch_paid,
+      form.morning_break_minutes,
+      form.morning_break_paid,
+    ]
+  );
+  const workSummaryPreview = useMemo(
+    () =>
+      computeWorkTimeSummary({
+        start: form.heure_depart,
+        end: form.heure_retour,
+        breaks: breakPreview,
+        billable: form.refacturer_a_titan,
+      }),
+    [breakPreview, form.heure_depart, form.heure_retour, form.refacturer_a_titan]
+  );
 
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
@@ -229,6 +269,21 @@ export default function Page() {
       km_retour: form.km_retour ? Number(form.km_retour) : null,
       km_total: kmTotalPreview,
       temps_total: tempsTotalPreview || null,
+      morning_break_minutes: Number(form.morning_break_minutes || 0),
+      morning_break_paid: form.morning_break_paid === "paid",
+      lunch_minutes: Number(form.lunch_minutes || 0),
+      lunch_paid: form.lunch_paid === "paid",
+      afternoon_break_minutes: Number(form.afternoon_break_minutes || 0),
+      afternoon_break_paid: form.afternoon_break_paid === "paid",
+      presence_minutes: workSummaryPreview.presenceMinutes,
+      paid_break_minutes: workSummaryPreview.paidBreakMinutes,
+      unpaid_break_minutes: workSummaryPreview.unpaidBreakMinutes,
+      payable_minutes: workSummaryPreview.payableMinutes,
+      facturable_minutes: workSummaryPreview.facturableMinutes,
+      temps_payable: workSummaryPreview.payableText,
+      temps_non_payable: workSummaryPreview.nonPayableText,
+      temps_facturable: workSummaryPreview.facturableText,
+      refacturer_a_titan: form.refacturer_a_titan,
       notes: form.notes.trim() || null,
     };
 
@@ -262,6 +317,17 @@ export default function Page() {
       company_context: typeof item.company_context === "string" ? item.company_context : "",
       km_depart: item.km_depart ? String(item.km_depart) : "",
       km_retour: item.km_retour ? String(item.km_retour) : "",
+      morning_break_minutes:
+        item.morning_break_minutes != null ? String(item.morning_break_minutes) : "0",
+      morning_break_paid: item.morning_break_paid === false ? "unpaid" : "paid",
+      lunch_minutes: item.lunch_minutes != null ? String(item.lunch_minutes) : "0",
+      lunch_paid: item.lunch_paid === true ? "paid" : "unpaid",
+      afternoon_break_minutes:
+        item.afternoon_break_minutes != null
+          ? String(item.afternoon_break_minutes)
+          : "0",
+      afternoon_break_paid: item.afternoon_break_paid === false ? "unpaid" : "paid",
+      refacturer_a_titan: item.refacturer_a_titan === true,
       notes: typeof item.notes === "string" ? item.notes : "",
     });
   }
@@ -322,11 +388,26 @@ export default function Page() {
             <label className="tagora-field"><span className="tagora-label">Compagnie</span><select value={form.company_context} onChange={(e) => setForm({ ...form, company_context: e.target.value as AccountRequestCompany | "" })} className="tagora-input"><option value="">Choisir la compagnie</option>{ACCOUNT_REQUEST_COMPANIES.map((company) => <option key={company.value} value={company.value}>{company.label}</option>)}</select></label>
             <label className="tagora-field"><span className="tagora-label">KM depart</span><input type="number" value={form.km_depart} onChange={(e) => setForm({ ...form, km_depart: e.target.value })} className="tagora-input" /></label>
             <label className="tagora-field"><span className="tagora-label">KM retour</span><input type="number" value={form.km_retour} onChange={(e) => setForm({ ...form, km_retour: e.target.value })} className="tagora-input" /></label>
+            <div className="tagora-panel-muted" style={{ gridColumn: "1 / -1" }}>
+              <div className="tagora-label" style={{ marginBottom: 12 }}>Pauses et diner</div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12 }}>
+                <label className="tagora-field"><span className="tagora-label">Pause matin</span><input type="number" min="0" value={form.morning_break_minutes} onChange={(e) => setForm({ ...form, morning_break_minutes: e.target.value })} className="tagora-input" /></label>
+                <label className="tagora-field"><span className="tagora-label">Pause matin</span><select value={form.morning_break_paid} onChange={(e) => setForm({ ...form, morning_break_paid: e.target.value as "paid" | "unpaid" })} className="tagora-input"><option value="paid">Payee</option><option value="unpaid">Non payee</option></select></label>
+                <label className="tagora-field"><span className="tagora-label">Diner</span><input type="number" min="0" value={form.lunch_minutes} onChange={(e) => setForm({ ...form, lunch_minutes: e.target.value })} className="tagora-input" /></label>
+                <label className="tagora-field"><span className="tagora-label">Diner</span><select value={form.lunch_paid} onChange={(e) => setForm({ ...form, lunch_paid: e.target.value as "paid" | "unpaid" })} className="tagora-input"><option value="paid">Paye</option><option value="unpaid">Non paye</option></select></label>
+                <label className="tagora-field"><span className="tagora-label">Pause apres-midi</span><input type="number" min="0" value={form.afternoon_break_minutes} onChange={(e) => setForm({ ...form, afternoon_break_minutes: e.target.value })} className="tagora-input" /></label>
+                <label className="tagora-field"><span className="tagora-label">Pause apres-midi</span><select value={form.afternoon_break_paid} onChange={(e) => setForm({ ...form, afternoon_break_paid: e.target.value as "paid" | "unpaid" })} className="tagora-input"><option value="paid">Payee</option><option value="unpaid">Non payee</option></select></label>
+              </div>
+            </div>
             <div className="tagora-panel" style={{ margin: 0 }}><div className="tagora-label">KM total calcule</div><div style={{ marginTop: 8, fontWeight: 700 }}>{kmTotalPreview ?? "-"}</div></div>
             <div className="tagora-panel" style={{ margin: 0 }}><div className="tagora-label">Temps total calcule</div><div style={{ marginTop: 8, fontWeight: 700 }}>{tempsTotalPreview || "-"}</div></div>
+            <div className="tagora-panel" style={{ margin: 0 }}><div className="tagora-label">Pauses payees</div><div style={{ marginTop: 8, fontWeight: 700 }}>{workSummaryPreview.paidBreakText}</div></div>
+            <div className="tagora-panel" style={{ margin: 0 }}><div className="tagora-label">Pauses non payees</div><div style={{ marginTop: 8, fontWeight: 700 }}>{workSummaryPreview.unpaidBreakText}</div></div>
+            <div className="tagora-panel" style={{ margin: 0 }}><div className="tagora-label">Temps payable</div><div style={{ marginTop: 8, fontWeight: 700 }}>{workSummaryPreview.payableText}</div></div>
+            <div className="tagora-panel" style={{ margin: 0 }}><div className="tagora-label">Temps facturable</div><div style={{ marginTop: 8, fontWeight: 700 }}>{workSummaryPreview.facturableText}</div></div>
             <label className="tagora-field" style={{ gridColumn: "1 / -1" }}><span className="tagora-label">Notes</span><textarea value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} className="tagora-textarea" /></label>
             <div className="actions-row" style={{ gridColumn: "1 / -1" }}>
-              <button type="submit" className="tagora-dark-action" disabled={saving}>{saving ? "Enregistrement..." : editingId ? "Enregistrer les changements" : "Ajouter"}</button>
+              <button type="submit" className="tagora-dark-action" disabled={saving}>{saving ? (editingId ? "Application..." : "Creation...") : editingId ? "Appliquer les changements" : "Creer"}</button>
               {editingId ? <button type="button" className="tagora-dark-outline-action" onClick={resetForm}>Annuler</button> : null}
             </div>
           </form>
@@ -341,7 +422,7 @@ export default function Page() {
           {sorties.length === 0 ? <p className="tagora-note">Aucune sortie terrain trouvee.</p> : (
             <div style={{ overflowX: "auto" }}>
               <table style={tableStyle}>
-                <thead><tr><th style={thStyle}>ID</th><th style={thStyle}>Livraison liee</th><th style={thStyle}>Dossier</th><th style={thStyle}>Date</th><th style={thStyle}>Compagnie</th><th style={thStyle}>Chauffeur</th><th style={thStyle}>Vehicule</th><th style={thStyle}>Remorque</th><th style={thStyle}>KM total</th><th style={thStyle}>Temps total</th><th style={thStyle}>Actions</th></tr></thead>
+                <thead><tr><th style={thStyle}>ID</th><th style={thStyle}>Livraison liee</th><th style={thStyle}>Dossier</th><th style={thStyle}>Date</th><th style={thStyle}>Compagnie</th><th style={thStyle}>Chauffeur</th><th style={thStyle}>Vehicule</th><th style={thStyle}>Remorque</th><th style={thStyle}>KM total</th><th style={thStyle}>Presence</th><th style={thStyle}>Non paye</th><th style={thStyle}>Payable</th><th style={thStyle}>Actions</th></tr></thead>
                 <tbody>
                   {sorties.map((item) => {
                     const chauffeur = getById(chauffeurs, item.chauffeur_id);
@@ -351,7 +432,7 @@ export default function Page() {
                     const dossier = livraison ? getById(dossiers, livraison.dossier_id) : getById(dossiers, item.dossier_id);
                     const livraisonLabel = livraison ? `Livraison #${String(livraison.id)}${dossier ? ` - ${String(getDossierLabel(dossier))}` : ""}` : item.livraison_id ? `Livraison #${String(item.livraison_id)}` : "-";
                     const dossierLabel = dossier ? String(getDossierLabel(dossier)) : item.dossier_id ? `Dossier #${String(item.dossier_id)}` : "-";
-                    return <tr key={String(item.id)}><td style={tdStyle}>{String(item.id)}</td><td style={tdStyle}>{livraisonLabel}</td><td style={tdStyle}>{dossierLabel}</td><td style={tdStyle}>{typeof item.date_sortie === "string" ? item.date_sortie : "-"}</td><td style={tdStyle}>{typeof item.company_context === "string" ? getCompanyLabel(item.company_context as AccountRequestCompany) : "-"}</td><td style={tdStyle}>{chauffeur ? String(getChauffeurLabel(chauffeur)) : item.chauffeur_id ? String(item.chauffeur_id) : "-"}</td><td style={tdStyle}>{vehicule ? String(getVehiculeLabel(vehicule)) : item.vehicule_id ? String(item.vehicule_id) : "-"}</td><td style={tdStyle}>{remorque ? String(getRemorqueLabel(remorque)) : item.remorque_id ? String(item.remorque_id) : "-"}</td><td style={tdStyle}>{item.km_total != null ? String(item.km_total) : "-"}</td><td style={tdStyle}>{typeof item.temps_total === "string" ? item.temps_total : "-"}</td><td style={tdStyle}><div className="actions-row">{livraison ? <Link href="/direction/livraisons" className="tagora-dark-outline-action">Voir livraison</Link> : null}<button onClick={() => handleEdit(item)} className="tagora-dark-outline-action">Modifier</button><button onClick={() => void handleDelete(Number(item.id))} className="tagora-dark-action">Supprimer</button></div></td></tr>;
+                    return <tr key={String(item.id)}><td style={tdStyle}>{String(item.id)}</td><td style={tdStyle}>{livraisonLabel}</td><td style={tdStyle}>{dossierLabel}</td><td style={tdStyle}>{typeof item.date_sortie === "string" ? item.date_sortie : "-"}</td><td style={tdStyle}>{typeof item.company_context === "string" ? getCompanyLabel(item.company_context as AccountRequestCompany) : "-"}</td><td style={tdStyle}>{chauffeur ? String(getChauffeurLabel(chauffeur)) : item.chauffeur_id ? String(item.chauffeur_id) : "-"}</td><td style={tdStyle}>{vehicule ? String(getVehiculeLabel(vehicule)) : item.vehicule_id ? String(item.vehicule_id) : "-"}</td><td style={tdStyle}>{remorque ? String(getRemorqueLabel(remorque)) : item.remorque_id ? String(item.remorque_id) : "-"}</td><td style={tdStyle}>{item.km_total != null ? String(item.km_total) : "-"}</td><td style={tdStyle}>{typeof item.temps_total === "string" ? item.temps_total : "-"}</td><td style={tdStyle}>{typeof item.temps_non_payable === "string" ? item.temps_non_payable : item.unpaid_break_minutes != null ? `${String(item.unpaid_break_minutes)} min` : "-"}</td><td style={tdStyle}>{typeof item.temps_payable === "string" ? item.temps_payable : item.payable_minutes != null ? `${String(item.payable_minutes)} min` : "-"}</td><td style={tdStyle}><div className="actions-row">{livraison ? <Link href="/direction/livraisons" className="tagora-dark-outline-action">Acceder</Link> : null}<button onClick={() => handleEdit(item)} className="tagora-dark-outline-action">Appliquer les changements</button><button onClick={() => void handleDelete(Number(item.id))} className="tagora-dark-action">Supprimer</button></div></td></tr>;
                   })}
                 </tbody>
               </table>

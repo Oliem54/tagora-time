@@ -34,3 +34,9 @@ export function getHomePathForRole(role: AppRole): string {
 export function getLoginPathForRole(role: AppRole): string {
   return role === "direction" ? "/direction/login" : "/employe/login";
 }
+
+export function getPasswordChangePathForRole(role: AppRole): string {
+  return role === "direction"
+    ? "/direction/login"
+    : "/employe/mot-de-passe";
+}

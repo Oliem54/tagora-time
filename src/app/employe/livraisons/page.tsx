@@ -1,15 +1,22 @@
 "use client";
 
-import HeaderTagora from "../../components/HeaderTagora";
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import AccessNotice from "../../components/AccessNotice";
 import { supabase } from "../../lib/supabase/client";
 import { useCurrentAccess } from "../../hooks/useCurrentAccess";
 import {
   getCompanyLabel,
   type AccountRequestCompany,
 } from "../../lib/account-requests.shared";
+import AuthenticatedPageHeader from "@/app/components/ui/AuthenticatedPageHeader";
+import SectionCard from "@/app/components/ui/SectionCard";
+import StatCard from "@/app/components/ui/StatCard";
+import AppCard from "@/app/components/ui/AppCard";
+import InfoRow from "@/app/components/ui/InfoRow";
+import FormField from "@/app/components/ui/FormField";
+import PrimaryButton from "@/app/components/ui/PrimaryButton";
+import SecondaryButton from "@/app/components/ui/SecondaryButton";
+import StatusBadge from "@/app/components/ui/StatusBadge";
 
 type Livraison = {
   id: number;
@@ -28,7 +35,13 @@ type Livraison = {
   temps_total: string | null;
   dossier_id: number | null;
   company_context?: AccountRequestCompany | null;
+  company?: AccountRequestCompany | null;
+  compagnie?: AccountRequestCompany | null;
 };
+
+function getLivraisonCompany(livraison: Livraison) {
+  return livraison.company_context ?? livraison.company ?? livraison.compagnie ?? null;
+}
 
 function formatDateTime(dateString: string | null) {
   if (!dateString) return "-";
@@ -54,28 +67,10 @@ function calculerTempsTotal(departIso: string, retourIso: string) {
   return `${minutes} min`;
 }
 
-function getStatutStyle(statut: string | null) {
-  if (statut === "livree") {
-    return {
-      background: "#dcfce7",
-      color: "#166534",
-      border: "1px solid #86efac",
-    };
-  }
-
-  if (statut === "en_cours") {
-    return {
-      background: "#fef3c7",
-      color: "#92400e",
-      border: "1px solid #fcd34d",
-    };
-  }
-
-  return {
-    background: "#e2e8f0",
-    color: "#334155",
-    border: "1px solid #cbd5e1",
-  };
+function getStatusTone(statut: string | null) {
+  if (statut === "livree") return "success" as const;
+  if (statut === "en_cours") return "warning" as const;
+  return "default" as const;
 }
 
 function getTodayLocalDate() {
@@ -94,12 +89,8 @@ export default function EmployeLivraisonsPage() {
   const [loading, setLoading] = useState(true);
   const [savingId, setSavingId] = useState<number | null>(null);
   const [feedback, setFeedback] = useState("");
-  const [kmDepartValues, setKmDepartValues] = useState<Record<number, string>>(
-    {}
-  );
-  const [kmArriveeValues, setKmArriveeValues] = useState<Record<number, string>>(
-    {}
-  );
+  const [kmDepartValues, setKmDepartValues] = useState<Record<number, string>>({});
+  const [kmArriveeValues, setKmArriveeValues] = useState<Record<number, string>>({});
 
   const dateDuJour = getTodayLocalDate();
   const canUseLivraisons = hasPermission("livraisons");
@@ -163,20 +154,46 @@ export default function EmployeLivraisonsPage() {
 
     setSavingId(livraison.id);
 
-    const { error } = await supabase
-      .from("livraisons_planifiees")
-      .update({
-        statut: "en_cours",
-        heure_depart_reelle: new Date().toISOString(),
-        km_depart: kmDepartNumber,
-      })
-      .eq("id", livraison.id);
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+
+    const response = await fetch(`/api/livraisons/${livraison.id}/demarrer`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(session?.access_token
+          ? { Authorization: `Bearer ${session.access_token}` }
+          : {}),
+      },
+      body: JSON.stringify({
+        kmDepart: kmDepartNumber,
+      }),
+    });
+
+    const result = (await response.json()) as {
+      error?: string;
+      trackingUrl?: string;
+      sms?: {
+        sent: boolean;
+        skipped: boolean;
+        reason: string | null;
+      };
+    };
 
     setSavingId(null);
 
-    if (error) {
-      setFeedback("Erreur demarrage : " + error.message);
+    if (!response.ok) {
+      setFeedback("Erreur demarrage : " + (result.error || "Action refusee."));
       return;
+    }
+
+    if (result.sms?.sent) {
+      setFeedback(`Livraison demarree. SMS envoye au client. Lien: ${result.trackingUrl || "-"}`);
+    } else if (result.trackingUrl) {
+      setFeedback(`Livraison demarree. Lien de suivi pret: ${result.trackingUrl}`);
+    } else {
+      setFeedback("Livraison demarree.");
     }
 
     await chargerLivraisons();
@@ -227,307 +244,176 @@ export default function EmployeLivraisonsPage() {
 
   if (accessLoading || loading) {
     return (
-      <div className="page-container">
-        <HeaderTagora title="Tournee du jour" subtitle="Livraisons du jour classees par ordre d arret" />
-        <AccessNotice description="Verification des acces livraisons et chargement des donnees en cours." />
-      </div>
+      <main className="tagora-app-shell">
+        <div className="tagora-app-content">
+          <AuthenticatedPageHeader title="Tournee" subtitle="Livraisons du jour." />
+          <SectionCard title="Chargement" subtitle="Acces en cours." />
+        </div>
+      </main>
     );
   }
 
   if (!canUseLivraisons) {
     return (
-      <div className="page-container">
-        <HeaderTagora title="Tournee du jour" subtitle="Livraisons du jour classees par ordre d arret" />
-        <AccessNotice description="La permission livraisons n est pas active sur votre compte. Ce module reste masque." />
-      </div>
+      <main className="tagora-app-shell">
+        <div className="tagora-app-content">
+          <AuthenticatedPageHeader title="Tournee" subtitle="Livraisons du jour." />
+          <SectionCard title="Module masque" subtitle="Acces requis." />
+        </div>
+      </main>
     );
   }
 
   return (
-    <div className="page-container">
-      <HeaderTagora
-        title="Tournée du jour"
-        subtitle="Livraisons du jour classées par ordre d’arrêt"
-      />
+    <main className="tagora-app-shell">
+      <div className="tagora-app-content ui-stack-lg">
+        <AuthenticatedPageHeader
+          title="Tournee"
+          subtitle="Livraisons du jour."
+          actions={<SecondaryButton onClick={() => router.push("/employe/dashboard")}>Retour</SecondaryButton>}
+        />
 
-      {feedback ? <AccessNotice title="Action bloquee" description={feedback} /> : null}
+        {feedback ? <SectionCard title="Action" subtitle={feedback} tone="muted" /> : null}
 
-      <div
-        style={{
-          display: "flex",
-          gap: 12,
-          flexWrap: "wrap",
-          marginBottom: 20,
-        }}
-      >
-        <button onClick={() => router.push("/employe/dashboard")} className="tagora-dark-outline-action">
-          Retour au dashboard
-        </button>
-
-        <button onClick={chargerLivraisons} className="tagora-dark-action">
-          Actualiser
-        </button>
-      </div>
-
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(4, minmax(180px, 1fr))",
-          gap: 16,
-          marginBottom: 20,
-        }}
-      >
-        <div
-          style={{
-            background: "white",
-            borderRadius: 18,
-            padding: 18,
-            minHeight: 116,
-            border: "1px solid #e5e7eb",
-            boxShadow: "0 10px 24px rgba(15, 23, 42, 0.06)",
-          }}
-        >
-          <div style={{ color: "#64748b", marginBottom: 8 }}>Total</div>
-          <div style={{ fontSize: 28, fontWeight: 800 }}>{total}</div>
+        <div className="ui-grid-auto">
+          <StatCard label="Total" value={total} />
+          <StatCard label="Planifiees" value={planifiees} />
+          <StatCard label="En cours" value={enCours} tone="warning" />
+          <StatCard label="Livrees" value={livrees} tone="success" />
         </div>
 
-        <div
-          style={{
-            background: "white",
-            borderRadius: 18,
-            padding: 18,
-            minHeight: 116,
-            border: "1px solid #e5e7eb",
-            boxShadow: "0 10px 24px rgba(15, 23, 42, 0.06)",
-          }}
+        <SectionCard
+          title="Livraisons"
+          subtitle="Suivi et actions."
+          actions={<PrimaryButton onClick={chargerLivraisons}>Actualiser</PrimaryButton>}
         >
-          <div style={{ color: "#64748b", marginBottom: 8 }}>Planifiées</div>
-          <div style={{ fontSize: 28, fontWeight: 800 }}>{planifiees}</div>
-        </div>
+          {livraisons.length === 0 ? (
+            <AppCard tone="muted">
+              <p className="ui-text-muted" style={{ margin: 0 }}>
+                Aucune livraison.
+              </p>
+            </AppCard>
+          ) : (
+            <div className="ui-stack-md">
+              {livraisons.map((livraison) => {
+                const distance =
+                  livraison.km_depart != null && livraison.km_arrivee != null
+                    ? livraison.km_arrivee - livraison.km_depart
+                    : null;
 
-        <div
-          style={{
-            background: "white",
-            borderRadius: 18,
-            padding: 18,
-            minHeight: 116,
-            border: "1px solid #e5e7eb",
-            boxShadow: "0 10px 24px rgba(15, 23, 42, 0.06)",
-          }}
-        >
-          <div style={{ color: "#64748b", marginBottom: 8 }}>En cours</div>
-          <div style={{ fontSize: 28, fontWeight: 800 }}>{enCours}</div>
-        </div>
-
-        <div
-          style={{
-            background: "white",
-            borderRadius: 18,
-            padding: 18,
-            minHeight: 116,
-            border: "1px solid #e5e7eb",
-            boxShadow: "0 10px 24px rgba(15, 23, 42, 0.06)",
-          }}
-        >
-          <div style={{ color: "#64748b", marginBottom: 8 }}>Livrées</div>
-          <div style={{ fontSize: 28, fontWeight: 800 }}>{livrees}</div>
-        </div>
-      </div>
-
-      {livraisons.length === 0 ? (
-        <div
-          style={{
-            background: "white",
-            borderRadius: 20,
-            padding: 30,
-            border: "1px solid #e5e7eb",
-          }}
-        >
-          Aucune livraison prévue pour aujourd’hui.
-        </div>
-      ) : (
-        <div
-          style={{
-            display: "grid",
-            gap: 18,
-          }}
-        >
-          {livraisons.map((livraison) => {
-            const distance =
-              livraison.km_depart != null && livraison.km_arrivee != null
-                ? livraison.km_arrivee - livraison.km_depart
-                : null;
-
-            return (
-              <div
-                key={livraison.id}
-                style={{
-                  background: "white",
-                  borderRadius: 20,
-                  padding: 24,
-                  border: "1px solid #e5e7eb",
-                  boxShadow: "0 12px 28px rgba(15, 23, 42, 0.06)",
-                }}
-              >
-                <div
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    gap: 16,
-                    flexWrap: "wrap",
-                    marginBottom: 16,
-                  }}
-                >
-                  <div>
+                return (
+                  <AppCard key={livraison.id} className="ui-stack-md">
                     <div
                       style={{
-                        fontSize: 28,
-                        fontWeight: 800,
-                        color: "#17376b",
-                        marginBottom: 8,
+                        display: "flex",
+                        justifyContent: "space-between",
+                        gap: 16,
+                        alignItems: "flex-start",
+                        flexWrap: "wrap",
                       }}
                     >
-                      {livraison.client || "Sans client"}
+                      <div className="ui-stack-xs">
+                        <span className="ui-eyebrow">Livraison</span>
+                        <div
+                          style={{
+                            fontSize: 28,
+                            fontWeight: 800,
+                            color: "var(--ui-color-primary)",
+                            letterSpacing: "-0.03em",
+                          }}
+                        >
+                          {livraison.client || "Sans client"}
+                        </div>
+                      </div>
+                      <StatusBadge
+                        label={livraison.statut || "-"}
+                        tone={getStatusTone(livraison.statut)}
+                      />
                     </div>
 
-                    <div style={{ marginBottom: 6 }}>
-                      <strong>Adresse :</strong> {livraison.adresse || "-"}
+                    <div className="ui-grid-3">
+                      <InfoRow label="Adresse" value={livraison.adresse || "-"} />
+                      <InfoRow label="Heure prevue" value={livraison.heure_prevue || "-"} />
+                      <InfoRow
+                        label="Compagnie"
+                        value={getLivraisonCompany(livraison) ? getCompanyLabel(getLivraisonCompany(livraison)!) : "-"}
+                      />
+                      <InfoRow label="Chauffeur" value={livraison.chauffeur || "-"} />
+                      <InfoRow label="Vehicule" value={livraison.vehicule || "-"} />
+                      <InfoRow label="Ordre arret" value={String(livraison.ordre_arret ?? "-")} />
                     </div>
-                    <div style={{ marginBottom: 6 }}>
-                      <strong>Heure prévue :</strong> {livraison.heure_prevue || "-"}
-                    </div>
-                    <div style={{ marginBottom: 6 }}>
-                      <strong>Compagnie :</strong>{" "}
-                      {livraison.company_context
-                        ? getCompanyLabel(livraison.company_context)
-                        : "-"}
-                    </div>
-                    <div style={{ marginBottom: 6 }}>
-                      <strong>Chauffeur :</strong> {livraison.chauffeur || "-"}
-                    </div>
-                    <div style={{ marginBottom: 6 }}>
-                      <strong>Véhicule :</strong> {livraison.vehicule || "-"}
-                    </div>
-                    <div style={{ marginBottom: 6 }}>
-                      <strong>Ordre arrêt :</strong> {livraison.ordre_arret ?? "-"}
-                    </div>
-                  </div>
 
-                  <div>
-                    <div
-                      style={{
-                        ...getStatutStyle(livraison.statut),
-                        display: "inline-block",
-                        padding: "8px 14px",
-                        borderRadius: 12,
-                        fontWeight: 700,
-                        fontSize: 14,
-                      }}
-                    >
-                      {livraison.statut || "-"}
-                    </div>
-                  </div>
-                </div>
+                    <AppCard tone="muted">
+                      <div className="ui-grid-3">
+                        <InfoRow label="Depart reel" value={formatDateTime(livraison.heure_depart_reelle)} compact />
+                        <InfoRow label="Livree a" value={formatDateTime(livraison.heure_livree)} compact />
+                        <InfoRow label="Temps total" value={livraison.temps_total || "-"} compact />
+                        <InfoRow label="KM depart" value={String(livraison.km_depart ?? "-")} compact />
+                        <InfoRow label="KM arrivee" value={String(livraison.km_arrivee ?? "-")} compact />
+                        <InfoRow label="Distance" value={distance != null ? `${distance} km` : "-"} compact />
+                      </div>
+                    </AppCard>
 
-                <div
-                  style={{
-                    background: "#f8fafc",
-                    border: "1px solid #e2e8f0",
-                    borderRadius: 14,
-                    padding: 16,
-                    marginBottom: 16,
-                  }}
-                >
-                  <div style={{ marginBottom: 6 }}>
-                    <strong>Départ réel :</strong> {formatDateTime(livraison.heure_depart_reelle)}
-                  </div>
-                  <div style={{ marginBottom: 6 }}>
-                    <strong>Livrée à :</strong> {formatDateTime(livraison.heure_livree)}
-                  </div>
-                  <div style={{ marginBottom: 6 }}>
-                    <strong>KM départ :</strong> {livraison.km_depart ?? "-"}
-                  </div>
-                  <div style={{ marginBottom: 6 }}>
-                    <strong>KM arrivée :</strong> {livraison.km_arrivee ?? "-"}
-                  </div>
-                  <div style={{ marginBottom: 6 }}>
-                    <strong>Temps total :</strong> {livraison.temps_total || "-"}
-                  </div>
-                  <div>
-                    <strong>Distance :</strong> {distance != null ? `${distance} km` : "-"}
-                  </div>
-                </div>
+                    {livraison.statut === "planifiee" ? (
+                      <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "end" }}>
+                        <div style={{ minWidth: 220 }}>
+                          <FormField label="KM depart">
+                            <input
+                              type="number"
+                              placeholder="KM depart"
+                              value={kmDepartValues[livraison.id] || ""}
+                              onChange={(e) =>
+                                setKmDepartValues((prev) => ({
+                                  ...prev,
+                                  [livraison.id]: e.target.value,
+                                }))
+                              }
+                              className="tagora-input"
+                            />
+                          </FormField>
+                        </div>
+                        <PrimaryButton
+                          onClick={() => handleDemarrer(livraison)}
+                          disabled={savingId === livraison.id}
+                        >
+                          {savingId === livraison.id ? "Demarrer..." : "Demarrer"}
+                        </PrimaryButton>
+                      </div>
+                    ) : null}
 
-                {livraison.statut === "planifiee" && (
-                  <div
-                    style={{
-                      display: "flex",
-                      gap: 12,
-                      flexWrap: "wrap",
-                      alignItems: "center",
-                    }}
-                  >
-                    <input
-                      type="number"
-                      placeholder="KM départ"
-                      value={kmDepartValues[livraison.id] || ""}
-                      onChange={(e) =>
-                        setKmDepartValues((prev) => ({
-                          ...prev,
-                          [livraison.id]: e.target.value,
-                        }))
-                      }
-                      className="tagora-input"
-                      style={{ minWidth: 180 }}
-                    />
-
-                    <button
-                      onClick={() => handleDemarrer(livraison)}
-                      disabled={savingId === livraison.id}
-                      className="tagora-dark-action"
-                    >
-                      {savingId === livraison.id ? "Enregistrement..." : "Démarrer"}
-                    </button>
-                  </div>
-                )}
-
-                {livraison.statut === "en_cours" && (
-                  <div
-                    style={{
-                      display: "flex",
-                      gap: 12,
-                      flexWrap: "wrap",
-                      alignItems: "center",
-                    }}
-                  >
-                    <input
-                      type="number"
-                      placeholder="KM arrivée"
-                      value={kmArriveeValues[livraison.id] || ""}
-                      onChange={(e) =>
-                        setKmArriveeValues((prev) => ({
-                          ...prev,
-                          [livraison.id]: e.target.value,
-                        }))
-                      }
-                      className="tagora-input"
-                      style={{ minWidth: 180 }}
-                    />
-
-                    <button
-                      onClick={() => handleLivree(livraison)}
-                      disabled={savingId === livraison.id}
-                      className="tagora-navy-action"
-                    >
-                      {savingId === livraison.id ? "Enregistrement..." : "Marquer livrée"}
-                    </button>
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      )}
-    </div>
+                    {livraison.statut === "en_cours" ? (
+                      <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "end" }}>
+                        <div style={{ minWidth: 220 }}>
+                          <FormField label="KM arrivee">
+                            <input
+                              type="number"
+                              placeholder="KM arrivee"
+                              value={kmArriveeValues[livraison.id] || ""}
+                              onChange={(e) =>
+                                setKmArriveeValues((prev) => ({
+                                  ...prev,
+                                  [livraison.id]: e.target.value,
+                                }))
+                              }
+                              className="tagora-input"
+                            />
+                          </FormField>
+                        </div>
+                        <PrimaryButton
+                          onClick={() => handleLivree(livraison)}
+                          disabled={savingId === livraison.id}
+                        >
+                          {savingId === livraison.id ? "Marquer livree..." : "Marquer livree"}
+                        </PrimaryButton>
+                      </div>
+                    ) : null}
+                  </AppCard>
+                );
+              })}
+            </div>
+          )}
+        </SectionCard>
+      </div>
+    </main>
   );
 }

@@ -196,7 +196,7 @@ export default function Page() {
 
               <div style={{ marginTop: 16 }}>
                 <button className="tagora-dark-action" style={primaryButtonStyle} disabled={saving}>
-                  {editingId ? "Enregistrer" : "Ajouter"}
+                  {editingId ? "Appliquer les changements" : "Creer"}
                 </button>
 
                 {editingId && (
@@ -232,7 +232,7 @@ export default function Page() {
                       <td>{r.plaque}</td>
                       <td>{r.actif ? "Oui" : "Non"}</td>
                       <td>
-                        <button onClick={() => handleEdit(r)}>Modifier</button>
+                        <button onClick={() => handleEdit(r)}>Appliquer les changements</button>
                         <button onClick={() => handleDelete(r.id)}>Supprimer</button>
                       </td>
                     </tr>

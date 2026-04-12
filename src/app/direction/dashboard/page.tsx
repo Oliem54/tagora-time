@@ -1,7 +1,12 @@
+import type { Metadata } from "next";
 import DirectionDashboardClient from "./DirectionDashboardClient";
 import { createAdminSupabaseClient } from "../../lib/supabase/admin";
 
 export const dynamic = "force-dynamic";
+export const metadata: Metadata = {
+  title: "Tableau de bord direction",
+  description: "Acces direction Tagora.",
+};
 
 export default async function DirectionDashboardPage() {
   let pendingAccountsCount = 0;

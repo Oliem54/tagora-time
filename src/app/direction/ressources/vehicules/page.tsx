@@ -144,7 +144,7 @@ export default function Page() {
             </div>
 
             <Link href="/direction/ressources" style={backButtonStyle}>
-              Retour aux ressources
+              Retour
             </Link>
           </div>
 
@@ -222,7 +222,7 @@ export default function Page() {
 
               <div style={{ display: "flex", gap: 12, marginTop: 20, flexWrap: "wrap" }}>
                 <button type="submit" className="tagora-dark-action" style={primaryButtonStyle} disabled={saving}>
-                  {saving ? "Enregistrement..." : "Ajouter"}
+                  {saving ? "Creation..." : "Creer"}
                 </button>
               </div>
             </form>

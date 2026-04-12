@@ -5,6 +5,13 @@ type AccountRequestNotificationPayload = {
   portalSource: string;
 };
 
+type DeliveryTrackingSmsPayload = {
+  clientName: string | null;
+  phone: string;
+  trackingUrl: string;
+  statusLabel: string;
+};
+
 export async function notifyDirectionOfAccountRequest(
   payload: AccountRequestNotificationPayload
 ) {
@@ -44,4 +51,49 @@ export async function notifyDirectionOfAccountRequest(
       `,
     }),
   });
+}
+
+export async function sendDeliveryTrackingSms(
+  payload: DeliveryTrackingSmsPayload
+) {
+  const accountSid = process.env.TWILIO_ACCOUNT_SID;
+  const authToken = process.env.TWILIO_AUTH_TOKEN;
+  const fromNumber = process.env.TWILIO_FROM_NUMBER;
+
+  if (!accountSid || !authToken || !fromNumber) {
+    return {
+      sent: false,
+      skipped: true,
+      reason: "sms_not_configured",
+    } as const;
+  }
+
+  const body = new URLSearchParams({
+    To: payload.phone,
+    From: fromNumber,
+    Body: `Bonjour ${payload.clientName || ""}, votre livraison est ${payload.statusLabel.toLowerCase()}. Suivi en direct : ${payload.trackingUrl}`.trim(),
+  });
+
+  const response = await fetch(
+    `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Basic ${Buffer.from(`${accountSid}:${authToken}`).toString("base64")}`,
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body,
+    }
+  );
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Twilio SMS failed: ${errorText}`);
+  }
+
+  return {
+    sent: true,
+    skipped: false,
+    reason: null,
+  } as const;
 }

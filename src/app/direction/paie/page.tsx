@@ -312,7 +312,7 @@ export default function DirectionPayrollPage() {
       <div className="page-container">
         <HeaderTagora
           title="Paie"
-          subtitle="Dashboard de paie par compagnie"
+          subtitle="Paie par compagnie"
         />
         <AccessNotice description="Verification des acces et chargement de la vue payroll_company_summary en cours." />
       </div>
@@ -328,9 +328,9 @@ export default function DirectionPayrollPage() {
       <div className="page-container">
         <HeaderTagora
           title="Paie"
-          subtitle="Dashboard de paie par compagnie"
+          subtitle="Paie par compagnie"
         />
-        <AccessNotice description="La permission terrain n est pas active sur ce compte direction. Le dashboard de paie reste masque." />
+        <AccessNotice description="La permission terrain n est pas active sur ce compte direction. Le module paie reste masque." />
       </div>
     );
   }
@@ -339,7 +339,7 @@ export default function DirectionPayrollPage() {
     <div className="page-container">
       <HeaderTagora
         title="Paie"
-        subtitle="Dashboard de paie par compagnie depuis payroll_company_summary"
+        subtitle="Paie par compagnie depuis payroll_company_summary"
       />
 
       {errorMessage ? (

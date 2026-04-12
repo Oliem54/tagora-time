@@ -183,14 +183,14 @@ export default function ImprovementsModulePage() {
                 className="tagora-btn tagora-btn-primary"
                 disabled={saving}
               >
-                {saving ? "Envoi..." : "Envoyer l amelioration"}
+                {saving ? "Creation..." : "Creer"}
               </button>
 
               <Link
                 href={getHomePathForRole(role)}
                 className="tagora-dark-outline-action rounded-xl border px-5 py-3 text-sm font-medium transition"
               >
-                Retour au dashboard
+                Retour
               </Link>
             </div>
           </form>

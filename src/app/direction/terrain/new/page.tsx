@@ -38,7 +38,7 @@ export default function NewDirectionTerrainFolderPage() {
             href="/direction/terrain"
             className="px-5 py-3 rounded-xl border border-gray-300 hover:bg-gray-100 transition text-center"
           >
-            Retour au terrain
+            Retour
           </Link>
         </div>
 
@@ -231,7 +231,7 @@ Je soussigné(e), [nom du client], confirme avoir reçu ou remis les items liés
                 type="submit"
                 className="tagora-dark-action px-6 py-4 rounded-xl font-semibold text-lg transition"
               >
-                Enregistrer le dossier
+                Creer
               </button>
 
               <button
@@ -247,3 +247,4 @@ Je soussigné(e), [nom du client], confirme avoir reçu ou remis les items liés
     </main>
   );
 }
+

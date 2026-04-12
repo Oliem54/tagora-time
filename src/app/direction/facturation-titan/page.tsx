@@ -13,6 +13,10 @@ type FacturationTitanRow = {
   employe_nom: string | null;
   date_travail: string | null;
   duree_heures: number | null;
+  payable_minutes: number | null;
+  temps_presence: string | null;
+  temps_payable: string | null;
+  temps_non_payable: string | null;
   type_travail: string | null;
   statut_paiement_titan: string | null;
   taux_salaire_h: number | null;
@@ -55,6 +59,12 @@ function formatHours(value: number) {
   return `${value.toFixed(2)} h`;
 }
 
+function getPayableHours(row: FacturationTitanRow) {
+  return row.payable_minutes != null && row.payable_minutes > 0
+    ? row.payable_minutes / 60
+    : toNumber(row.duree_heures);
+}
+
 export default function FacturationTitanPage() {
   const { user, loading: accessLoading, hasPermission } = useCurrentAccess();
 
@@ -71,7 +81,7 @@ export default function FacturationTitanPage() {
 
       const { data, error: fetchError } = await supabase
         .from("temps_titan")
-        .select("id, employe_nom, date_travail, duree_heures, type_travail, statut_paiement_titan, taux_salaire_h, marge_h, total_salaire, total_benefice, total_titan")
+        .select("id, employe_nom, date_travail, duree_heures, payable_minutes, temps_presence, temps_payable, temps_non_payable, type_travail, statut_paiement_titan, taux_salaire_h, marge_h, total_salaire, total_benefice, total_titan")
         .order("date_travail", { ascending: false })
         .order("id", { ascending: false });
 
@@ -80,6 +90,11 @@ export default function FacturationTitanPage() {
       setRows((data ?? []).map((row) => ({
         ...row,
         duree_heures: toNumber(row.duree_heures),
+        payable_minutes: toNumber(row.payable_minutes),
+        temps_presence: typeof row.temps_presence === "string" ? row.temps_presence : null,
+        temps_payable: typeof row.temps_payable === "string" ? row.temps_payable : null,
+        temps_non_payable:
+          typeof row.temps_non_payable === "string" ? row.temps_non_payable : null,
         taux_salaire_h: toNumber(row.taux_salaire_h),
         marge_h: toNumber(row.marge_h),
         total_salaire: toNumber(row.total_salaire),
@@ -113,7 +128,10 @@ export default function FacturationTitanPage() {
   }, [dateDebut, dateFin, rows]);
 
   const totals = useMemo(() => {
-    const totalHeuresTitan = filteredRows.reduce((sum, row) => sum + toNumber(row.duree_heures), 0);
+    const totalHeuresTitan = filteredRows.reduce(
+      (sum, row) => sum + getPayableHours(row),
+      0
+    );
     const totalSalaire = filteredRows.reduce((sum, row) => sum + toNumber(row.total_salaire), 0);
     const totalBenefice = filteredRows.reduce((sum, row) => sum + toNumber(row.total_benefice), 0);
     const totalTitan = filteredRows.reduce((sum, row) => sum + toNumber(row.total_titan), 0);
@@ -169,7 +187,7 @@ export default function FacturationTitanPage() {
         </div>
 
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 16, marginTop: 18 }}>
-          <StatCard label="Total heures Titan" value={formatHours(totals.totalHeuresTitan)} />
+          <StatCard label="Total payable" value={formatHours(totals.totalHeuresTitan)} />
           <StatCard label="Total salaire" value={formatMoney(totals.totalSalaire)} />
           <StatCard label="Total benefice" value={formatMoney(totals.totalBenefice)} />
           <StatCard label="Total Titan a facturer" value={formatMoney(totals.totalTitan)} />
@@ -188,7 +206,9 @@ export default function FacturationTitanPage() {
                 <th style={thStyle}>Date</th>
                 <th style={thStyle}>Employe</th>
                 <th style={thStyle}>Type</th>
-                <th style={thStyle}>Duree</th>
+                <th style={thStyle}>Presence</th>
+                <th style={thStyle}>Non paye</th>
+                <th style={thStyle}>Payable</th>
                 <th style={thStyle}>Salaire/h</th>
                 <th style={thStyle}>Marge</th>
                 <th style={thStyle}>Total salaire</th>
@@ -199,7 +219,7 @@ export default function FacturationTitanPage() {
             </thead>
             <tbody>
               {filteredRows.length === 0 ? (
-                <tr><td style={tdStyle} colSpan={11}>Aucune donnee sur la periode.</td></tr>
+                <tr><td style={tdStyle} colSpan={13}>Aucune donnee sur la periode.</td></tr>
               ) : (
                 filteredRows.map((row) => (
                   <tr key={row.id}>
@@ -207,7 +227,9 @@ export default function FacturationTitanPage() {
                     <td style={tdStyle}>{row.date_travail || "-"}</td>
                     <td style={tdStyle}>{row.employe_nom || "-"}</td>
                     <td style={tdStyle}>{row.type_travail || "-"}</td>
-                    <td style={tdStyle}>{row.duree_heures ? formatHours(row.duree_heures) : "-"}</td>
+                    <td style={tdStyle}>{row.temps_presence || "-"}</td>
+                    <td style={tdStyle}>{row.temps_non_payable || "0 min"}</td>
+                    <td style={tdStyle}>{row.temps_payable || formatHours(getPayableHours(row))}</td>
                     <td style={tdStyle}>{formatMoney(toNumber(row.taux_salaire_h))}</td>
                     <td style={tdStyle}>{formatMoney(toNumber(row.marge_h))}</td>
                     <td style={tdStyle}>{formatMoney(toNumber(row.total_salaire))}</td>

@@ -6,15 +6,9 @@ import HeaderTagora from "@/app/components/HeaderTagora";
 import FeedbackMessage from "@/app/components/FeedbackMessage";
 import { accountRequestPermissionOptions } from "@/app/lib/account-request-options";
 import {
-  buildUserCompanyAccess,
   getCompanyLabel,
   type AccountRequestCompany,
 } from "@/app/lib/account-requests.shared";
-import {
-  getRequiredPermissionForPath,
-  getUserPermissions,
-} from "@/app/lib/auth/permissions";
-import { getUserRole } from "@/app/lib/auth/roles";
 import { supabase } from "@/app/lib/supabase/client";
 
 type RequestStatus = "pending" | "invited" | "active" | "refused" | "error";
@@ -72,39 +66,6 @@ type ActionConfig = {
   tone: "primary" | "secondary" | "danger";
 };
 
-type AccessDebugPayload = {
-  apiRoute?: string;
-  apiBlockReason?: string | null;
-  jwtRole?: string | null;
-  tokenRole?: string | null;
-  adminRole?: string | null;
-  userId?: string | null;
-  email?: string | null;
-  hasAuthorizationHeader?: boolean;
-  tokenReadable?: boolean;
-  adminReadable?: boolean;
-  roleMismatch?: boolean;
-  frontGate?: {
-    areaRole?: string | null;
-    requiredPermission?: string | null;
-    blocksBeforeDataRead?: boolean | null;
-  } | null;
-  sqlFunctions?: {
-    current_app_role?: string | null;
-    is_direction_user?: string | null;
-    has_app_permission?: string | null;
-  } | null;
-  dataAccess?: {
-    source?: string | null;
-    bypassesRls?: boolean | null;
-    accountRequestsPoliciesBlockDirectReadsForAuthenticatedUsers?: boolean | null;
-    profileTableUsedForThisPage?: boolean | null;
-    companyOrAccountStatusUsedToAuthorizePage?: boolean | null;
-  } | null;
-  denialReason?: string | null;
-  denialMessage?: string | null;
-};
-
 const fallbackPermissions = [...accountRequestPermissionOptions];
 
 function formatRole(role: RequestRole | null | undefined) {
@@ -127,7 +88,7 @@ function getStatusPresentation(status: RequestStatus) {
     return {
       color: "#166534",
       background: "#dcfce7",
-      label: "active",
+      label: "Actif",
     };
   }
 
@@ -135,7 +96,7 @@ function getStatusPresentation(status: RequestStatus) {
     return {
       color: "#1d4ed8",
       background: "#dbeafe",
-      label: "invited",
+      label: "Invite",
     };
   }
 
@@ -143,7 +104,7 @@ function getStatusPresentation(status: RequestStatus) {
     return {
       color: "#991b1b",
       background: "#fee2e2",
-      label: "refused",
+      label: "Refuse",
     };
   }
 
@@ -151,62 +112,84 @@ function getStatusPresentation(status: RequestStatus) {
     return {
       color: "#b45309",
       background: "#fef3c7",
-      label: "error",
+      label: "Erreur",
     };
   }
 
   return {
     color: "#92400e",
     background: "#fef3c7",
-    label: "pending",
+    label: "En attente",
   };
 }
 
-function getActionsForStatus(status: RequestStatus): ActionConfig[] {
+function getPrimaryActionForStatus(status: RequestStatus): ActionConfig | null {
+  if (status === "invited" || status === "active") {
+    return {
+      action: "update_access",
+      label: "Appliquer les changements",
+      tone: "primary",
+    };
+  }
+
+  return null;
+}
+
+function getSecondaryActionsForStatus(status: RequestStatus): ActionConfig[] {
   if (status === "pending") {
     return [
-      { action: "approve", label: "Approuver", tone: "primary" },
-      { action: "refuse", label: "Refuser", tone: "secondary" },
-      { action: "delete", label: "Supprimer", tone: "danger" },
+      { action: "approve", label: "Approuver", tone: "secondary" },
     ];
   }
 
   if (status === "invited") {
     return [
-      { action: "update_access", label: "Modifier role et permissions", tone: "primary" },
       { action: "resend_invitation", label: "Renvoyer l invitation", tone: "secondary" },
-      { action: "reset_pending", label: "Remettre en pending", tone: "secondary" },
+      { action: "reset_pending", label: "Remettre en attente", tone: "secondary" },
       { action: "delete", label: "Supprimer", tone: "danger" },
     ];
   }
 
   if (status === "active") {
     return [
-      { action: "update_access", label: "Modifier role et permissions", tone: "primary" },
       { action: "disable_access", label: "Desactiver l acces", tone: "secondary" },
-      { action: "delete", label: "Supprimer", tone: "danger" },
     ];
   }
 
   if (status === "refused") {
     return [
-      { action: "reset_pending", label: "Remettre en pending", tone: "primary" },
-      { action: "delete", label: "Supprimer", tone: "danger" },
+      { action: "reset_pending", label: "Remettre en attente", tone: "secondary" },
     ];
   }
 
   return [
-    { action: "retry", label: "Relancer le traitement", tone: "primary" },
-    { action: "reset_pending", label: "Remettre en pending", tone: "secondary" },
-    { action: "delete", label: "Supprimer", tone: "danger" },
+    { action: "retry", label: "Relancer le traitement", tone: "secondary" },
+    { action: "reset_pending", label: "Remettre en attente", tone: "secondary" },
   ];
+}
+
+function getDestructiveActionForStatus(status: RequestStatus): ActionConfig | null {
+  if (status === "pending") {
+    return { action: "refuse", label: "Refuser", tone: "danger" };
+  }
+
+  if (
+    status === "invited" ||
+    status === "active" ||
+    status === "refused" ||
+    status === "error"
+  ) {
+    return { action: "delete", label: "Supprimer", tone: "danger" };
+  }
+
+  return null;
 }
 
 export default function DirectionAccountRequestsClient() {
   const [requests, setRequests] = useState<AccountRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [accessToken, setAccessToken] = useState<string | null>(null);
-  const [sessionReady, setSessionReady] = useState(false);
+  const [isReady, setIsReady] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [assignedRole, setAssignedRole] = useState<RequestRole>("employe");
   const [assignedPermissions, setAssignedPermissions] = useState<string[]>([]);
@@ -219,21 +202,6 @@ export default function DirectionAccountRequestsClient() {
   const [permissionOptions, setPermissionOptions] = useState<
     Array<{ value: string; label: string }>
   >(fallbackPermissions);
-  const [debugInfo, setDebugInfo] = useState<AccessDebugPayload | null>(null);
-  const [clientUserId, setClientUserId] = useState<string | null>(null);
-  const [clientEmail, setClientEmail] = useState<string | null>(null);
-  const [clientRole, setClientRole] = useState<string | null>(null);
-  const [clientPermissions, setClientPermissions] = useState<string[]>([]);
-  const [clientBlockReason, setClientBlockReason] = useState<string | null>(null);
-  const [clientCompanySummary, setClientCompanySummary] = useState<{
-    primaryCompany: string | null;
-    allowedCompanies: string[];
-    companyDirectoryContext: string | null;
-  }>({
-    primaryCompany: null,
-    allowedCompanies: [],
-    companyDirectoryContext: null,
-  });
 
   const sortedRequests = useMemo(
     () =>
@@ -248,6 +216,23 @@ export default function DirectionAccountRequestsClient() {
     () => sortedRequests.find((item) => item.id === selectedId) || null,
     [selectedId, sortedRequests]
   );
+  const primaryAction = useMemo(
+    () =>
+      selectedRequest ? getPrimaryActionForStatus(selectedRequest.status) : null,
+    [selectedRequest]
+  );
+  const secondaryActions = useMemo(
+    () =>
+      selectedRequest ? getSecondaryActionsForStatus(selectedRequest.status) : [],
+    [selectedRequest]
+  );
+  const destructiveAction = useMemo(
+    () =>
+      selectedRequest
+        ? getDestructiveActionForStatus(selectedRequest.status)
+        : null,
+    [selectedRequest]
+  );
 
   const counts = useMemo(
     () => ({
@@ -260,121 +245,71 @@ export default function DirectionAccountRequestsClient() {
     [sortedRequests]
   );
 
-  const fetchRequests = useCallback(async (selectedRequestId?: string | null) => {
-    if (!accessToken) {
-      console.error("Missing access token on client");
-      setClientBlockReason("Missing access token on client");
-      return;
-    }
-
-    setLoading(true);
-
-    try {
-      if (typeof window === "undefined") {
-        throw new Error("Account requests fetch must run on client only");
-      }
-
-      console.log("[ACCOUNT REQUESTS][CLIENT][GET] fetch with token", {
-        route: "/api/account-requests?debug=1",
-        hasAccessToken: true,
-        runtime: "browser",
-      });
-      console.log("CLIENT TOKEN:", accessToken ? "OK" : "MISSING");
-
-      const response = await window.fetch("/api/account-requests?debug=1", {
-        method: "GET",
-        cache: "no-store",
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          "Content-Type": "application/json",
-          "x-account-requests-client": "browser-authenticated",
-          "x-account-requests-page": "direction-demandes-comptes",
-        },
-      });
-
-      const payload = await response.json();
-
-      if (!response.ok) {
-        if (payload.debug) {
-          console.error("[direction-demandes-comptes] access debug", payload.debug);
-          setDebugInfo(payload.debug);
-          setClientBlockReason(
-            payload.debug.denialMessage ||
-              payload.debug.apiBlockReason ||
-              payload.error ||
-              "Acces refuse."
-          );
-        }
-        setMessage(
-          payload.debug?.denialMessage ||
-            payload.debug?.apiBlockReason ||
-            payload.error ||
-            "Erreur chargement demandes."
-        );
-        setMessageType("error");
-        setRequests([]);
+  const fetchRequests = useCallback(
+    async (selectedRequestId?: string | null) => {
+      if (!accessToken) {
         return;
       }
 
-      const nextRequests = Array.isArray(payload.requests) ? payload.requests : [];
-      if (payload.debug) {
-        console.info("[direction-demandes-comptes] access debug", payload.debug);
-        setDebugInfo(payload.debug);
+      setLoading(true);
+
+      try {
+        const response = await fetch("/api/account-requests", {
+          method: "GET",
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            "x-account-requests-client": "browser-authenticated",
+            "Cache-Control": "no-store",
+          },
+        });
+
+        const payload = await response.json();
+
+        if (!response.ok) {
+          setMessage("Impossible de charger les demandes pour le moment.");
+          setMessageType("error");
+          setRequests([]);
+          return;
+        }
+
+        const nextRequests = Array.isArray(payload.requests) ? payload.requests : [];
+        const nextSelectedId =
+          nextRequests.find((item: AccountRequest) => item.id === selectedRequestId)?.id ||
+          nextRequests[0]?.id ||
+          null;
+
+        setRequests(nextRequests);
+        setSelectedId(nextSelectedId);
+        setMessage("");
+        setMessageType(null);
+      } catch {
+        setMessage("Impossible de charger les demandes pour le moment.");
+        setMessageType("error");
+        setRequests([]);
+      } finally {
+        setLoading(false);
       }
-      setRequests(nextRequests);
-
-      const preferredId = selectedRequestId ?? selectedId;
-      const nextSelected =
-        nextRequests.find((item: AccountRequest) => item.id === preferredId)?.id ||
-        nextRequests[0]?.id ||
-        null;
-
-      setSelectedId(nextSelected);
-      setMessage("");
-      setMessageType(null);
-    } catch (error) {
-      const errorMessage =
-        error instanceof Error
-          ? error.message
-          : "Impossible de charger les demandes.";
-
-      console.error(
-        "[direction-demandes-comptes] fetch failed",
-        errorMessage
-      );
-      if (
-        errorMessage === "Account requests fetch must run on client only" ||
-        errorMessage === "Missing access token on client"
-      ) {
-        setClientBlockReason(errorMessage);
-      }
-      setMessage(errorMessage);
-      setMessageType("error");
-      setRequests([]);
-    } finally {
-      setLoading(false);
-    }
-  }, [accessToken, selectedId]);
+    },
+    [accessToken]
+  );
 
   useEffect(() => {
-    const loadSession = async () => {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-
-      setAccessToken(session?.access_token ?? null);
-      setSessionReady(true);
-      console.log("CLIENT TOKEN:", session?.access_token ? "OK" : "MISSING");
+    const init = async () => {
+      const { data } = await supabase.auth.getSession();
+      setAccessToken(data.session?.access_token ?? null);
+      setIsReady(true);
     };
 
-    void loadSession();
+    void init();
   }, []);
 
   useEffect(() => {
-    if (!sessionReady || !accessToken) return;
+    if (!isReady || !accessToken) {
+      return;
+    }
 
     void fetchRequests();
-  }, [sessionReady, accessToken, fetchRequests]);
+  }, [accessToken, fetchRequests, isReady]);
 
   useEffect(() => {
     async function loadPermissions() {
@@ -398,58 +333,9 @@ export default function DirectionAccountRequestsClient() {
   }, []);
 
   useEffect(() => {
-    async function loadDebugSession() {
-      const { data } = await supabase.auth.getUser();
-      const user = data.user;
-
-      const role = getUserRole(user);
-      const companyAccess = buildUserCompanyAccess(user);
-      const requiredPermission = getRequiredPermissionForPath(
-        "/direction/demandes-comptes"
-      );
-
-      setClientUserId(user?.id ?? null);
-      setClientEmail(user?.email ?? null);
-      setClientRole(role);
-      setClientPermissions(getUserPermissions(user));
-      setClientCompanySummary({
-        primaryCompany: companyAccess.primaryCompany,
-        allowedCompanies: companyAccess.allowedCompanies,
-        companyDirectoryContext: companyAccess.companyDirectoryContext,
-      });
-
-      if (!user) {
-        setClientBlockReason("Aucun utilisateur authentifie cote client.");
-        return;
-      }
-
-      if (!role) {
-        setClientBlockReason("Aucun role applicatif detecte dans le JWT.");
-        return;
-      }
-
-      if (role !== "direction") {
-        setClientBlockReason(
-          `Le role client detecte est ${role}, alors que la page exige direction.`
-        );
-        return;
-      }
-
-      if (requiredPermission) {
-        setClientBlockReason(
-          `Une permission ${requiredPermission} serait requise par AuthGate.`
-        );
-        return;
-      }
-
-      setClientBlockReason(null);
+    if (!selectedRequest) {
+      return;
     }
-
-    void loadDebugSession();
-  }, []);
-
-  useEffect(() => {
-    if (!selectedRequest) return;
 
     setAssignedRole(
       selectedRequest.assigned_role ?? selectedRequest.requested_role ?? "employe"
@@ -472,29 +358,15 @@ export default function DirectionAccountRequestsClient() {
   }
 
   async function runAction(action: RequestAction) {
-    if (!selectedRequest) return;
+    if (!selectedRequest || !accessToken) {
+      return;
+    }
 
     setSavingAction(action);
     setMessage("");
     setMessageType(null);
 
     try {
-      if (!accessToken) {
-        throw new Error("Missing access token on client");
-      }
-
-      if (typeof window === "undefined") {
-        throw new Error("Account requests action must run on client only");
-      }
-
-      console.log("[ACCOUNT REQUESTS][CLIENT][ACTION] fetch with token", {
-        route: `/api/account-requests/${selectedRequest.id}`,
-        action,
-        hasAccessToken: true,
-        runtime: "browser",
-      });
-      console.log("CLIENT TOKEN:", accessToken ? "OK" : "MISSING");
-
       const response = await window.fetch(`/api/account-requests/${selectedRequest.id}`, {
         method: action === "delete" ? "DELETE" : "PATCH",
         cache: "no-store",
@@ -520,7 +392,11 @@ export default function DirectionAccountRequestsClient() {
       const payload = await response.json();
 
       if (!response.ok) {
-        setMessage(payload.error || "Erreur traitement demande.");
+        setMessage(
+          typeof payload.error === "string"
+            ? payload.error
+            : "Le traitement de la demande n a pas pu aboutir."
+        );
         setMessageType("error");
         return;
       }
@@ -528,20 +404,8 @@ export default function DirectionAccountRequestsClient() {
       setMessage(getSuccessMessage(action));
       setMessageType("success");
       await fetchRequests(action === "delete" ? null : selectedRequest.id);
-    } catch (error) {
-      const errorMessage =
-        error instanceof Error
-          ? error.message
-          : "Erreur reseau pendant le traitement de la demande.";
-
-      if (
-        errorMessage === "Account requests action must run on client only" ||
-        errorMessage === "Missing access token on client"
-      ) {
-        setClientBlockReason(errorMessage);
-      }
-
-      setMessage(errorMessage);
+    } catch {
+      setMessage("Le traitement de la demande n a pas pu aboutir.");
       setMessageType("error");
     } finally {
       setSavingAction(null);
@@ -549,174 +413,53 @@ export default function DirectionAccountRequestsClient() {
   }
 
   return (
-    <main className="tagora-app-shell">
-      <div className="tagora-app-content" style={{ maxWidth: 1520 }}>
+    <main className="tagora-app-shell account-requests-page">
+      <div className="tagora-app-content" style={{ maxWidth: 1460 }}>
         <HeaderTagora
-          title="Gestion des demandes de comptes"
-          subtitle="Administrez les demandes pending, invited, active, refused et error, puis intervenez directement sur l acces et les invitations."
+          title="Gestion des comptes employe"
+          subtitle="Comptes et acces"
         />
 
-        <div className="tagora-panel-muted" style={{ marginBottom: 24, display: "grid", gap: 8 }}>
-          <div style={{ fontSize: 14, fontWeight: 800, color: "#17376b", letterSpacing: "0.04em", textTransform: "uppercase" }}>
-            Debug acces temporaire
-          </div>
-          <div className="tagora-note">user id : {clientUserId || "-"}</div>
-          <div className="tagora-note">email : {clientEmail || "-"}</div>
-          <div className="tagora-note">role applicatif client : {clientRole || "-"}</div>
-          <div className="tagora-note">
-            permissions detectees :
-            {clientPermissions.length > 0 ? ` ${clientPermissions.join(", ")}` : " aucune"}
-          </div>
-          <div className="tagora-note">
-            permission requise pour cette page :{" "}
-            {getRequiredPermissionForPath("/direction/demandes-comptes") || "aucune"}
-          </div>
-          <div className="tagora-note">
-            compagnie principale detectee : {clientCompanySummary.primaryCompany || "-"}
-          </div>
-          <div className="tagora-note">
-            compagnies autorisees :
-            {clientCompanySummary.allowedCompanies.length > 0
-              ? ` ${clientCompanySummary.allowedCompanies.join(", ")}`
-              : " aucune"}
-          </div>
-          <div className="tagora-note">
-            repertoire compagnie : {clientCompanySummary.companyDirectoryContext || "-"}
-          </div>
-          <div className="tagora-note">
-            raison blocage client :
-            {" "}
-            {clientBlockReason || "aucun blocage front detecte avant lecture des donnees"}
-          </div>
-          <div className="tagora-note">
-            raison blocage API :
-            {" "}
-            {debugInfo?.denialMessage ||
-              debugInfo?.apiBlockReason ||
-              "aucun refus API detecte"}
-          </div>
-          <div className="tagora-note">
-            role JWT :
-            {" "}
-            {debugInfo?.jwtRole || "-"}
-          </div>
-          <div className="tagora-note">
-            role relu via token :
-            {" "}
-            {debugInfo?.tokenRole || "-"}
-          </div>
-          <div className="tagora-note">
-            role relu cote admin :
-            {" "}
-            {debugInfo?.adminRole || "-"}
-          </div>
-          <div className="tagora-note">
-            authorization header :
-            {" "}
-            {debugInfo?.hasAuthorizationHeader ? "present" : "absent"}
-          </div>
-          <div className="tagora-note">
-            token readable :
-            {" "}
-            {debugInfo?.tokenReadable ? "oui" : "non"}
-          </div>
-          <div className="tagora-note">
-            admin readable :
-            {" "}
-            {debugInfo?.adminReadable ? "oui" : "non"}
-          </div>
-          <div className="tagora-note">
-            mismatch roles :
-            {" "}
-            {debugInfo?.roleMismatch ? "oui" : "non"}
-          </div>
-          <div className="tagora-note">
-            policies RLS account_requests :
-            {" "}
-            {debugInfo?.dataAccess?.accountRequestsPoliciesBlockDirectReadsForAuthenticatedUsers
-              ? "lecture directe bloquee pour authenticated"
-              : "non determine"}
-          </div>
-          <div className="tagora-note">
-            lecture de la page :
-            {" "}
-            {debugInfo?.dataAccess?.bypassesRls
-              ? "via client admin, RLS contourne pour cette API"
-              : "non determine"}
-          </div>
-        </div>
-
-        <div className="tagora-stat-grid" style={{ marginBottom: 24 }}>
-          <div className="tagora-stat-card">
-            <div className="tagora-stat-label">Pending</div>
-            <div className="tagora-stat-value">{counts.pending}</div>
-          </div>
-          <div className="tagora-stat-card">
-            <div className="tagora-stat-label">Invited</div>
-            <div className="tagora-stat-value">{counts.invited}</div>
-          </div>
-          <div className="tagora-stat-card">
-            <div className="tagora-stat-label">Active</div>
-            <div className="tagora-stat-value">{counts.active}</div>
-          </div>
-          <div className="tagora-stat-card">
-            <div className="tagora-stat-label">Refused</div>
-            <div className="tagora-stat-value">{counts.refused}</div>
-          </div>
-          <div className="tagora-stat-card">
-            <div className="tagora-stat-label">Error</div>
-            <div className="tagora-stat-value">{counts.error}</div>
-          </div>
+        <div className="tagora-stat-grid account-requests-stats">
+          <StatCard label="En attente" value={counts.pending} tone="pending" />
+          <StatCard label="Invites" value={counts.invited} tone="invited" />
+          <StatCard label="Actifs" value={counts.active} tone="active" />
+          <StatCard label="Refuses" value={counts.refused} tone="refused" />
+          <StatCard label="Erreurs" value={counts.error} tone="error" />
         </div>
 
         <FeedbackMessage message={message} type={messageType} />
 
         <div
           className="tagora-split"
-          style={{ gridTemplateColumns: "minmax(0, 1.45fr) minmax(360px, 0.8fr)" }}
+          style={{ gridTemplateColumns: "minmax(0, 1.58fr) minmax(380px, 1fr)", gap: 36 }}
         >
-          <section className="tagora-panel">
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                gap: 16,
-                flexWrap: "wrap",
-                alignItems: "center",
-                marginBottom: 18,
-              }}
-            >
+          <section className="tagora-panel account-requests-panel">
+            <div className="account-requests-section-head">
               <div>
-                <h2 className="section-title" style={{ marginBottom: 10 }}>
-                  Console des demandes
+                <h2 className="section-title account-requests-section-title">
+                  Liste des demandes
                 </h2>
-                <p className="tagora-note">
-                  Selectionnez une carte pour piloter son cycle de vie complet.
+                <p className="tagora-note account-requests-section-note">
+                  Selectionnez une demande.
                 </p>
               </div>
 
-              <div className="tagora-actions">
-                <button
-                  type="button"
-                  className="tagora-dark-outline-action"
-                  onClick={() => void fetchRequests()}
-                  disabled={loading}
-                >
-                  {loading ? "Chargement..." : "Actualiser"}
-                </button>
-
-                <Link href="/direction/dashboard" className="tagora-dark-outline-action">
-                  Retour dashboard
-                </Link>
-              </div>
+              <Link href="/direction/dashboard" className="tagora-dark-outline-action">
+                Retour
+              </Link>
             </div>
 
             {loading ? (
-              <p className="tagora-note">Chargement des demandes...</p>
+              <div className="tagora-panel-muted account-requests-empty">
+                <p className="tagora-note">Chargement...</p>
+              </div>
             ) : sortedRequests.length === 0 ? (
-              <p className="tagora-note">Aucune demande de compte pour le moment.</p>
+              <div className="tagora-panel-muted account-requests-empty">
+                <p className="tagora-note">Aucune demande.</p>
+              </div>
             ) : (
-              <div style={{ display: "grid", gap: 16 }}>
+              <div className="account-requests-list">
                 {sortedRequests.map((request) => {
                   const status = getStatusPresentation(request.status);
                   const isSelected = selectedId === request.id;
@@ -726,84 +469,75 @@ export default function DirectionAccountRequestsClient() {
                       key={request.id}
                       type="button"
                       onClick={() => setSelectedId(request.id)}
-                      className="tagora-panel-muted"
-                      style={{
-                        textAlign: "left",
-                        cursor: "pointer",
-                        border: isSelected ? "2px solid #1d4ed8" : "1px solid #e2e8f0",
-                        boxShadow: isSelected
-                          ? "0 10px 26px rgba(29, 78, 216, 0.14)"
-                          : undefined,
-                      }}
+                      className={`account-requests-card${isSelected ? " is-selected" : ""}`}
                     >
-                      <div
-                        style={{
-                          display: "flex",
-                          justifyContent: "space-between",
-                          gap: 16,
-                          flexWrap: "wrap",
-                          alignItems: "start",
-                        }}
-                      >
-                        <div>
-                          <h3
-                            style={{ margin: "0 0 8px 0", fontSize: 20, color: "#17376b" }}
-                          >
-                            {request.full_name}
-                          </h3>
-                          <div className="tagora-note">{request.email}</div>
-                          <div className="tagora-note">
-                            {request.phone || "Telephone non fourni"}
-                          </div>
-                          <div className="tagora-note">
-                            {request.company
-                              ? getCompanyLabel(request.company)
-                              : "Compagnie non fournie"}
+                      <div className="account-requests-card-head">
+                        <div className="account-requests-card-identity">
+                          <h3 className="account-requests-card-title">{request.full_name}</h3>
+                          <div className="account-requests-card-contact">
+                            <div className="account-requests-card-contact-item">
+                              <span className="account-requests-card-meta-label">Courriel</span>
+                              <span className="account-requests-card-email">{request.email}</span>
+                            </div>
+                            <div className="account-requests-card-contact-item">
+                              <span className="account-requests-card-meta-label">Telephone</span>
+                              <span className="account-requests-card-secondary">
+                                {request.phone || "Non fourni"}
+                              </span>
+                            </div>
                           </div>
                         </div>
-
-                        <div
+                        <span
+                          className="account-requests-status-badge"
                           style={{
-                            padding: "6px 12px",
-                            borderRadius: 999,
-                            fontSize: 13,
-                            fontWeight: 700,
                             color: status.color,
                             background: status.background,
                           }}
                         >
                           {status.label}
+                        </span>
+                      </div>
+
+                      <div className="account-requests-card-meta">
+                        <div className="account-requests-card-meta-item">
+                          <span className="account-requests-card-meta-label">Compagnie</span>
+                          <span className="account-requests-card-meta-value">
+                            {getCompanyLabel(request.company)}
+                          </span>
+                        </div>
+                        <div className="account-requests-card-meta-item">
+                          <span className="account-requests-card-meta-label">Portail source</span>
+                          <span className="account-requests-card-meta-value">
+                            {formatRole(request.portal_source)}
+                          </span>
+                        </div>
+                        <div className="account-requests-card-meta-item">
+                          <span className="account-requests-card-meta-label">Role demande</span>
+                          <span className="account-requests-card-meta-value">
+                            {formatRole(request.requested_role)}
+                          </span>
+                        </div>
+                        <div className="account-requests-card-meta-item">
+                          <span className="account-requests-card-meta-label">Role attribue</span>
+                          <span className="account-requests-card-meta-value">
+                            {formatRole(request.assigned_role)}
+                          </span>
                         </div>
                       </div>
 
-                      <div style={{ marginTop: 14, display: "grid", gap: 6 }}>
-                        <div className="tagora-note">
-                          Portail source : {formatRole(request.portal_source)}
+                      <div className="account-requests-card-foot">
+                        <div className="account-requests-card-foot-item">
+                          <span className="account-requests-card-meta-label">Date de creation</span>
+                          <span className="account-requests-card-foot-value">
+                            {formatDate(request.created_at)}
+                          </span>
                         </div>
-                        <div className="tagora-note">
-                          Role demande : {formatRole(request.requested_role)}
+                        <div className="account-requests-card-foot-item">
+                          <span className="account-requests-card-meta-label">Message</span>
+                          <span className="account-requests-card-foot-value">
+                            {request.message || "Aucun commentaire"}
+                          </span>
                         </div>
-                        <div className="tagora-note">
-                          Role attribue : {formatRole(request.assigned_role)}
-                        </div>
-                        <div className="tagora-note">
-                          Creee le : {formatDate(request.created_at)}
-                        </div>
-                        {request.reviewed_at ? (
-                          <div className="tagora-note">
-                            Derniere revue : {formatDate(request.reviewed_at)}
-                          </div>
-                        ) : null}
-                        {request.last_error ? (
-                          <div className="tagora-note" style={{ color: "#b45309" }}>
-                            Derniere erreur : {request.last_error}
-                          </div>
-                        ) : null}
-                        {request.existing_account?.exists ? (
-                          <div className="tagora-note" style={{ color: "#1d4ed8" }}>
-                            Compte existant detecte.
-                          </div>
-                        ) : null}
                       </div>
                     </button>
                   );
@@ -812,150 +546,238 @@ export default function DirectionAccountRequestsClient() {
             )}
           </section>
 
-          <aside className="tagora-panel">
-            <h2 className="section-title" style={{ marginBottom: 10 }}>
-              Console admin
-            </h2>
+          <aside className="tagora-panel account-requests-admin">
+            <div className="account-requests-section-head" style={{ marginBottom: 20 }}>
+              <div>
+                <h2 className="section-title account-requests-section-title">
+                  Panneau admin
+                </h2>
+                <p className="tagora-note account-requests-section-note">
+                  Droits et actions.
+                </p>
+              </div>
+            </div>
 
             {!selectedRequest ? (
-              <p className="tagora-note">
-                Selectionnez une demande pour gerer son statut, son invitation et son acces.
-              </p>
+              <div className="tagora-panel-muted account-requests-empty">
+                <p className="tagora-note">
+                  Selection requise.
+                </p>
+              </div>
             ) : (
-              <div className="tagora-form-grid">
-                <div className="tagora-panel-muted" style={{ display: "grid", gap: 8 }}>
-                  <div style={{ fontSize: 20, fontWeight: 800, color: "#17376b" }}>
-                    {selectedRequest.full_name}
+              <div className="tagora-form-grid" style={{ gap: 24 }}>
+                <div className="tagora-panel-muted account-requests-summary">
+                  <div className="account-requests-summary-header">
+                    <div>
+                      <div className="account-requests-summary-title">
+                        {selectedRequest.full_name}
+                      </div>
+                      <div className="tagora-note">{selectedRequest.email}</div>
+                    </div>
+                    <span
+                      className="account-requests-status-badge"
+                      style={{
+                        color: getStatusPresentation(selectedRequest.status).color,
+                        background: getStatusPresentation(selectedRequest.status).background,
+                      }}
+                    >
+                      {getStatusPresentation(selectedRequest.status).label}
+                    </span>
                   </div>
-                  <div className="tagora-note">{selectedRequest.email}</div>
-                  <div className="tagora-note">
-                    Statut actuel : {getStatusPresentation(selectedRequest.status).label}
-                  </div>
-                  <div className="tagora-note">
-                    Portail source : {formatRole(selectedRequest.portal_source)}
-                  </div>
-                  <div className="tagora-note">
-                    Compagnie : {getCompanyLabel(selectedRequest.company)}
-                  </div>
-                  <div className="tagora-note">
-                    Message : {selectedRequest.message || "Aucun commentaire"}
+                  <div className="account-requests-summary-grid">
+                    <SummaryItem
+                      label="Statut actuel"
+                      value={getStatusPresentation(selectedRequest.status).label}
+                    />
+                    <SummaryItem
+                      label="Portail source"
+                      value={formatRole(selectedRequest.portal_source)}
+                    />
+                    <SummaryItem
+                      label="Compagnie"
+                      value={getCompanyLabel(selectedRequest.company)}
+                    />
+                    <SummaryItem
+                      label="Telephone"
+                      value={selectedRequest.phone || "Non fourni"}
+                    />
+                    <SummaryItem
+                      label="Message"
+                      value={selectedRequest.message || "Aucun commentaire"}
+                    />
+                    <SummaryItem
+                      label="Cree le"
+                      value={formatDate(selectedRequest.created_at)}
+                    />
                   </div>
                 </div>
 
-                <div>
-                  <label className="tagora-field-label">Role admin cible</label>
-                  <select
-                    className="tagora-select"
-                    value={assignedRole}
-                    onChange={(e) =>
-                      setAssignedRole(
-                        e.target.value === "direction" ? "direction" : "employe"
-                      )
-                    }
-                  >
-                    <option value="employe">Employe</option>
-                    <option value="direction">Direction</option>
-                  </select>
+                <div className="tagora-panel-muted" style={{ display: "grid", gap: 18, padding: 20 }}>
+                  <div>
+                    <div className="tagora-field-label">Bloc configuration</div>
+                    <p className="tagora-note" style={{ margin: "8px 0 0" }}>
+                      Role, permissions, note.
+                    </p>
+                  </div>
+
+                  <div className="account-requests-form-section">
+                    <label className="tagora-field-label">Role admin cible</label>
+                    <select
+                      className="tagora-select"
+                      value={assignedRole}
+                      onChange={(e) =>
+                        setAssignedRole(
+                          e.target.value === "direction" ? "direction" : "employe"
+                        )
+                      }
+                    >
+                      <option value="employe">Employe</option>
+                      <option value="direction">Direction</option>
+                    </select>
+                  </div>
+
+                  <div className="account-requests-form-section">
+                    <label className="tagora-field-label">Permissions admin cibles</label>
+                    <div className="tagora-panel-muted account-requests-permissions">
+                      {permissionOptions.map((option) => (
+                        <label key={option.value} className="account-requests-permission-option">
+                          <input
+                            type="checkbox"
+                            checked={assignedPermissions.includes(option.value)}
+                            onChange={() => togglePermission(option.value)}
+                          />
+                          <span>{option.label}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="account-requests-form-section">
+                    <label className="tagora-field-label">Note admin</label>
+                    <textarea
+                      className="tagora-textarea"
+                      value={reviewNote}
+                      onChange={(e) => setReviewNote(e.target.value)}
+                        placeholder="Note admin"
+                    />
+                  </div>
                 </div>
 
-                <div>
-                  <label className="tagora-field-label">Permissions admin cibles</label>
-                  <div className="tagora-panel-muted" style={{ display: "grid", gap: 10 }}>
-                    {permissionOptions.map((option) => (
-                      <label
-                        key={option.value}
-                        style={{ display: "flex", alignItems: "center", gap: 10, color: "#334155" }}
-                      >
+                <div className="tagora-panel-muted account-requests-summary">
+                  <div className="account-requests-summary-header">
+                    <div className="account-requests-summary-title">Compte existant</div>
+                  </div>
+                  {selectedRequest.existing_account?.exists ? (
+                    <div className="account-requests-summary-grid account-requests-summary-grid-wide">
+                      <SummaryItem
+                        label="Role actuel"
+                        value={formatRole(selectedRequest.existing_account.role)}
+                      />
+                      <SummaryItem
+                        label="Compagnie actuelle"
+                        value={
+                          selectedRequest.existing_account.company
+                            ? getCompanyLabel(selectedRequest.existing_account.company)
+                            : "Non definie"
+                        }
+                      />
+                      <SummaryItem
+                        label="Courriel confirme"
+                        value={selectedRequest.existing_account.emailConfirmed ? "Oui" : "Non"}
+                      />
+                      <SummaryItem
+                        label="Compagnies autorisees"
+                        value={
+                          selectedRequest.existing_account.allowedCompanies.length > 0
+                            ? selectedRequest.existing_account.allowedCompanies
+                                .map((company) => getCompanyLabel(company))
+                                .join(", ")
+                            : "Aucune"
+                        }
+                      />
+                      <SummaryItem
+                        label="Permissions actuelles"
+                        value={
+                          selectedRequest.existing_account.permissions.length > 0
+                            ? selectedRequest.existing_account.permissions.join(", ")
+                            : "Aucune"
+                        }
+                      />
+                      <SummaryItem
+                        label="Derniere connexion"
+                        value={
+                          selectedRequest.existing_account.lastSignInAt
+                            ? formatDate(selectedRequest.existing_account.lastSignInAt)
+                            : "Aucune"
+                        }
+                      />
+                    </div>
+                  ) : (
+                    <p className="tagora-note">
+                      Aucun compte.
+                    </p>
+                  )}
+
+                  {selectedRequest.existing_account?.exists ? (
+                    <div className="account-requests-overwrite-row">
+                      <div className="tagora-note">
+                        Remplace les acces actuels.
+                      </div>
+                      <label className="account-requests-permission-option">
                         <input
                           type="checkbox"
-                          checked={assignedPermissions.includes(option.value)}
-                          onChange={() => togglePermission(option.value)}
+                          checked={confirmOverwriteExistingAccount}
+                          onChange={() =>
+                            setConfirmOverwriteExistingAccount((current) => !current)
+                          }
                         />
-                        <span>{option.label}</span>
+                        <span>Autoriser le remplacement des acces du compte existant</span>
                       </label>
-                    ))}
-                  </div>
-                </div>
-
-                <div>
-                  <label className="tagora-field-label">Note admin</label>
-                  <textarea
-                    className="tagora-textarea"
-                    value={reviewNote}
-                    onChange={(e) => setReviewNote(e.target.value)}
-                    placeholder="Note interne, justification ou commentaire d intervention."
-                  />
-                </div>
-
-                <div className="tagora-panel-muted" style={{ display: "grid", gap: 8 }}>
-                  <div style={{ fontWeight: 800, color: "#17376b" }}>Compte existant</div>
-                  {selectedRequest.existing_account?.exists ? (
-                    <>
-                      <div className="tagora-note">Compte existant : oui</div>
-                      <div className="tagora-note">
-                        Role actuel : {formatRole(selectedRequest.existing_account.role)}
-                      </div>
-                      <div className="tagora-note">
-                        Compagnie actuelle :{" "}
-                        {selectedRequest.existing_account.company
-                          ? getCompanyLabel(selectedRequest.existing_account.company)
-                          : "Non definie"}
-                      </div>
-                      <div className="tagora-note">
-                        Compagnies autorisees :
-                        {selectedRequest.existing_account.allowedCompanies.length > 0
-                          ? ` ${selectedRequest.existing_account.allowedCompanies
-                              .map((company) => getCompanyLabel(company))
-                              .join(", ")}`
-                          : " aucune"}
-                      </div>
-                      <div className="tagora-note">
-                        Permissions actuelles :
-                        {selectedRequest.existing_account.permissions.length > 0
-                          ? ` ${selectedRequest.existing_account.permissions.join(", ")}`
-                          : " aucune"}
-                      </div>
-                      <div className="tagora-note">
-                        Courriel confirme :
-                        {selectedRequest.existing_account.emailConfirmed ? " oui" : " non"}
-                      </div>
-                      <div className="tagora-note">
-                        Derniere connexion :
-                        {selectedRequest.existing_account.lastSignInAt
-                          ? ` ${formatDate(selectedRequest.existing_account.lastSignInAt)}`
-                          : " aucune"}
-                      </div>
-                      <button
-                        type="button"
-                        className={
-                          confirmOverwriteExistingAccount
-                            ? "tagora-dark-action"
-                            : "tagora-dark-outline-action"
-                        }
-                        onClick={() =>
-                          setConfirmOverwriteExistingAccount((current) => !current)
-                        }
-                      >
-                        {confirmOverwriteExistingAccount
-                          ? "Ecrasement force actif"
-                          : "Forcer l ecrasement"}
-                      </button>
-                    </>
-                  ) : (
-                    <div className="tagora-note">Aucun compte existant detecte pour ce courriel.</div>
-                  )}
+                    </div>
+                  ) : null}
                 </div>
 
                 {selectedRequest.review_lock?.isLocked ? (
-                  <div className="tagora-note" style={{ color: "#92400e" }}>
+                  <div className="account-requests-lock">
                     Traitement verrouille jusqu au {formatDate(selectedRequest.review_lock.expiresAt)}.
                   </div>
                 ) : null}
 
-                <div>
-                  <div className="tagora-field-label">Actions disponibles</div>
-                  <div className="tagora-actions">
-                    {getActionsForStatus(selectedRequest.status).map((item) => {
+                {primaryAction ? (
+                  <div
+                    className="tagora-panel-muted"
+                    style={{ display: "grid", gap: 14, padding: 20, border: "1px solid #c7d2fe" }}
+                  >
+                    <div>
+                      <div className="tagora-field-label">Action principale</div>
+                      <p className="tagora-note" style={{ margin: "8px 0 0" }}>
+                        Enregistre les changements.
+                      </p>
+                    </div>
+                    <div className="account-requests-actions">
+                      <button
+                        type="button"
+                        className="tagora-dark-action"
+                        onClick={() => void runAction(primaryAction.action)}
+                        disabled={Boolean(savingAction)}
+                      >
+                        {savingAction === primaryAction.action
+                          ? "Traitement..."
+                          : primaryAction.label}
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
+
+                <div className="tagora-panel-muted" style={{ display: "grid", gap: 14, padding: 20 }}>
+                  <div>
+                    <div className="tagora-field-label">Actions secondaires</div>
+                    <p className="tagora-note" style={{ margin: "8px 0 0" }}>
+                      Autres actions.
+                    </p>
+                  </div>
+                  <div className="account-requests-actions">
+                    {secondaryActions.map((item) => {
                       const isBusy = savingAction === item.action;
 
                       return (
@@ -972,12 +794,64 @@ export default function DirectionAccountRequestsClient() {
                     })}
                   </div>
                 </div>
+
+                {destructiveAction ? (
+                  <div
+                    className="tagora-panel-muted"
+                    style={{ display: "grid", gap: 14, padding: 20, border: "1px solid #fecaca" }}
+                  >
+                    <div>
+                      <div className="tagora-field-label">Action destructive</div>
+                      <p className="tagora-note" style={{ margin: "8px 0 0" }}>
+                        Action irreversible.
+                      </p>
+                    </div>
+                    <div className="account-requests-actions">
+                      <button
+                        type="button"
+                        className="tagora-btn-danger"
+                        onClick={() => void runAction(destructiveAction.action)}
+                        disabled={Boolean(savingAction)}
+                      >
+                        {savingAction === destructiveAction.action
+                          ? "Traitement..."
+                          : destructiveAction.label}
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
               </div>
             )}
           </aside>
         </div>
       </div>
     </main>
+  );
+}
+
+function SummaryItem({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="account-requests-summary-item">
+      <span className="account-requests-card-meta-label">{label}</span>
+      <span className="account-requests-summary-value">{value}</span>
+    </div>
+  );
+}
+
+function StatCard({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: number;
+  tone: "pending" | "invited" | "active" | "refused" | "error";
+}) {
+  return (
+    <div className={`tagora-stat-card account-requests-stat-card account-requests-stat-${tone}`}>
+      <div className="tagora-stat-label">{label}</div>
+      <div className="tagora-stat-value">{value}</div>
+    </div>
   );
 }
 
@@ -991,7 +865,7 @@ function getSuccessMessage(action: RequestAction) {
   if (action === "approve") return "Demande approuvee avec succes.";
   if (action === "refuse") return "Demande refusee avec succes.";
   if (action === "update_access") return "Role et permissions mis a jour.";
-  if (action === "reset_pending") return "Demande remise en pending.";
+  if (action === "reset_pending") return "Demande remise en attente.";
   if (action === "resend_invitation") return "Invitation renvoyee avec succes.";
   if (action === "disable_access") return "Acces desactive avec succes.";
   if (action === "retry") return "Traitement relance avec succes.";

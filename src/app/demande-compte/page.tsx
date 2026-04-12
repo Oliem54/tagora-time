@@ -110,7 +110,7 @@ function DemandeComptePageContent() {
       }
 
       setFeedbackMessage(
-        "Votre demande a ete enregistree avec le statut pending. La direction doit maintenant l'examiner."
+        "Votre demande a ete enregistree. La direction doit maintenant l examiner."
       );
       setFeedbackType("success");
       setFullName("");

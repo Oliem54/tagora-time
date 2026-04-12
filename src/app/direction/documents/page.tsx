@@ -3,6 +3,7 @@
 import Image from "next/image";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import HeaderTagora from "@/app/components/HeaderTagora";
 import { supabase } from "../../lib/supabase/client";
 
 export default function DirectionDocumentsPage() {
@@ -23,7 +24,7 @@ export default function DirectionDocumentsPage() {
       setLoading(false);
     };
 
-    checkSession();
+    void checkSession();
   }, [router]);
 
   const handleLogout = async () => {
@@ -32,12 +33,26 @@ export default function DirectionDocumentsPage() {
   };
 
   if (loading) {
-    return <div className="page-container">Chargement...</div>;
+    return (
+      <div className="page-container">
+        <HeaderTagora title="Documents direction" subtitle="Gestion des documents" />
+      </div>
+    );
   }
 
   return (
     <div className="page-container">
-      <div className="page-header">
+      <HeaderTagora
+        title="Documents direction"
+        subtitle="Gestion des documents"
+        actions={
+          <button className="tagora-btn-danger" onClick={handleLogout}>
+            Se deconnecter
+          </button>
+        }
+      />
+
+      <div className="page-header" style={{ display: "none" }}>
         <div
           style={{
             display: "flex",
@@ -124,7 +139,7 @@ export default function DirectionDocumentsPage() {
               className="tagora-btn tagora-btn-primary"
               onClick={() => router.push("/direction/dashboard")}
             >
-              Retour au dashboard
+              Retour
             </button>
 
             <button
@@ -136,7 +151,7 @@ export default function DirectionDocumentsPage() {
           </div>
         </div>
 
-        <div className="card">
+        <div className="card" style={{ display: "none" }}>
           <div
             style={{
               fontSize: 24,

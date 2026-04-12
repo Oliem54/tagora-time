@@ -1,12 +1,18 @@
 "use client";
 
-import AccessNotice from "@/app/components/AccessNotice";
-import { useCurrentAccess } from "@/app/hooks/useCurrentAccess";
-import { getCompanyLabel } from "@/app/lib/account-requests.shared";
-import HeaderTagora from "../../components/HeaderTagora";
+import Image from "next/image";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { ArrowUpRight, Clock3, FileStack, Lightbulb, ShieldCheck, Truck, Waypoints } from "lucide-react";
+import { useCurrentAccess } from "@/app/hooks/useCurrentAccess";
 import { supabase } from "../../lib/supabase/client";
+import AuthenticatedPageHeader from "@/app/components/ui/AuthenticatedPageHeader";
+import SectionCard from "@/app/components/ui/SectionCard";
+import AppCard from "@/app/components/ui/AppCard";
+import InfoRow from "@/app/components/ui/InfoRow";
+import ModuleTile from "@/app/components/ui/ModuleTile";
+import PrimaryButton from "@/app/components/ui/PrimaryButton";
+import SecondaryButton from "@/app/components/ui/SecondaryButton";
 
 type NoteRow = {
   id: number;
@@ -69,13 +75,11 @@ function getStatutStyle(statut: string) {
 
 export default function EmployeDashboardPage() {
   const router = useRouter();
-  const { user, loading: accessLoading, hasPermission, companyAccess } =
-    useCurrentAccess();
+  const { user, loading: accessLoading, hasPermission } = useCurrentAccess();
   const userId = user?.id ?? null;
   const canUseDossiers = hasPermission("dossiers");
   const canUseLivraisons = hasPermission("livraisons");
 
-  const [email, setEmail] = useState("");
   const [dossiers, setDossiers] = useState<DossierCard[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -89,9 +93,6 @@ export default function EmployeDashboardPage() {
         router.push("/employe/login");
         return;
       }
-
-      setEmail(user?.email || "");
-
       if (!canUseDossiers) {
         setDossiers([]);
         setLoading(false);
@@ -192,8 +193,8 @@ export default function EmployeDashboardPage() {
       setLoading(false);
     };
 
-    loadData();
-  }, [accessLoading, canUseDossiers, router, user?.email, userId]);
+    void loadData();
+  }, [accessLoading, canUseDossiers, router, userId]);
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
@@ -235,306 +236,284 @@ export default function EmployeDashboardPage() {
 
   if (loading || accessLoading) {
     return (
-      <div className="page-container">
-        <HeaderTagora title="Dashboard employe" subtitle="Chargement de votre espace" />
-        <AccessNotice description="Verification des acces et synchronisation des dossiers en cours." />
-      </div>
+      <main className="tagora-app-shell">
+        <div className="tagora-app-content">
+          <AuthenticatedPageHeader
+            title="Tableau de bord employe"
+            subtitle="Chargement"
+          />
+          <SectionCard title="Chargement" subtitle="Acces en cours." />
+        </div>
+      </main>
     );
   }
 
   return (
-    <div className="page-container">
-      <HeaderTagora
-        title="Dashboard employé"
-        subtitle="Vue d’ensemble des dossiers terrain"
-      />
-
-      <div className="tagora-panel" style={{ marginTop: 24, marginBottom: 18 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", gap: 14, flexWrap: "wrap", alignItems: "center" }}>
-          <div>
-            <h2 className="section-title" style={{ marginBottom: 8 }}>Horodateur central</h2>
-            <p className="tagora-note">
-              Pointez rapidement votre quart, vos pauses et vos sorties terrain depuis un seul module.
-            </p>
-          </div>
-          <button className="tagora-dark-action" onClick={() => router.push("/employe/horodateur")}>
-            Ouvrir l horodateur
-          </button>
-        </div>
-      </div>
-
-      <div style={{ marginBottom: 18, fontSize: 18 }}>
-        Connecté comme : {email}
-      </div>
-
-      <div className="tagora-panel" style={{ marginBottom: 18 }}>
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-            gap: 16,
-          }}
-        >
-          <div className="tagora-panel-muted">
-            <div className="tagora-label">Compagnie principale</div>
-            <div style={{ marginTop: 8, fontSize: 20, fontWeight: 800, color: "#17376b" }}>
-              {getCompanyLabel(companyAccess.primaryCompany ?? companyAccess.company)}
-            </div>
-          </div>
-          <div className="tagora-panel-muted">
-            <div className="tagora-label">Compagnies autorisées</div>
-            <div style={{ marginTop: 8, fontSize: 15, color: "#334155" }}>
-              {companyAccess.allowedCompanies.length > 0
-                ? companyAccess.allowedCompanies
-                    .map((company) => getCompanyLabel(company))
-                    .join(", ")
-                : "Aucune compagnie autorisée"}
-            </div>
-          </div>
-          <div className="tagora-panel-muted">
-            <div className="tagora-label">Contexte paie par défaut</div>
-            <div style={{ marginTop: 8, fontSize: 15, color: "#334155" }}>
-              {companyAccess.companyDirectoryContext || "Non configuré"}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div
-        style={{
-          display: "flex",
-          gap: 14,
-          flexWrap: "wrap",
-          marginBottom: 24,
-        }}
-      >
-        {canUseDossiers ? (
-          <button
-            onClick={() => router.push("/employe/dossiers/new")}
-            className="tagora-dark-action"
-          >
-            Ajouter un dossier
-          </button>
-        ) : null}
-
-        <button onClick={() => router.push("/employe/terrain")} className="tagora-navy-action">
-          Terrain employé
-        </button>
-
-        {canUseLivraisons ? (
-          <button onClick={() => router.push("/employe/livraisons")} className="tagora-navy-action">
-            Livraisons
-          </button>
-        ) : null}
-
-        <button onClick={() => router.push("/ameliorations")} className="tagora-navy-action">
-          Ameliorations
-        </button>
-
-        <button onClick={handleLogout} className="tagora-dark-outline-action">
-          Se déconnecter
-        </button>
-      </div>
-
-      <div
-        style={{
-          fontSize: 22,
-          fontWeight: 800,
-          marginBottom: 14,
-        }}
-      >
-        Mes dossiers
-      </div>
-
-      {!canUseDossiers ? (
-        <AccessNotice description="La permission dossiers n est pas active sur votre compte. Les actions et donnees de dossier sont donc masquees sur ce dashboard." />
-      ) : dossiers.length === 0 ? (
-        <div
-          style={{
-            background: "white",
-            borderRadius: 20,
-            padding: 40,
-            border: "1px solid #e2e8f0",
-            textAlign: "center",
-            boxShadow: "0 10px 30px rgba(15,23,42,0.05)",
-          }}
-        >
-          <div style={{ fontSize: 22, fontWeight: 700, marginBottom: 10 }}>
-            Aucun dossier pour le moment
-          </div>
-
-          <div style={{ color: "#64748b", marginBottom: 20 }}>
-            Commence par créer ton premier dossier terrain
-          </div>
-
-          <button onClick={() => router.push("/employe/dossiers/new")} className="tagora-dark-action">
-            Creer un dossier
-          </button>
-        </div>
-      ) : (
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(420px, 1fr))",
-            gap: 18,
-          }}
-        >
-          {dossiers.map((dossier) => (
+    <main className="tagora-app-shell">
+      <div className="tagora-app-content ui-stack-lg">
+        <AuthenticatedPageHeader
+          title="Tableau de bord employe"
+          subtitle="Acces rapide."
+          actions={
             <div
-              key={dossier.id}
               style={{
-                background: "white",
-                borderRadius: 24,
-                padding: 24,
-                minHeight: 420,
-                border: "1px solid #e5e7eb",
-                boxShadow: "0 20px 40px rgba(15, 23, 42, 0.08)",
-                transition: "all 0.2s ease",
-                cursor: "pointer",
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.transform = "translateY(-4px)";
-                e.currentTarget.style.boxShadow =
-                  "0 30px 60px rgba(15, 23, 42, 0.12)";
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.transform = "translateY(0px)";
-                e.currentTarget.style.boxShadow =
-                  "0 20px 40px rgba(15, 23, 42, 0.08)";
+                display: "flex",
+                gap: "var(--ui-space-3)",
+                flexWrap: "wrap",
+                alignItems: "center",
               }}
             >
-              <div
-                style={{
-                  fontSize: 28,
-                  fontWeight: 800,
-                  color: "#17376b",
-                  marginBottom: 8,
-                }}
-              >
-                {dossier.nom}
-              </div>
-
-              <div
-                style={{
-                  ...getStatutStyle(dossier.statut),
-                  display: "inline-block",
-                  padding: "6px 12px",
-                  borderRadius: 10,
-                  fontSize: 13,
-                  fontWeight: 700,
-                  marginBottom: 14,
-                }}
-              >
-                {dossier.statut}
-              </div>
-
-              <div
-                style={{
-                  fontSize: 18,
-                  color: "#64748b",
-                  marginBottom: 6,
-                }}
-              >
-                Client : {dossier.client}
-              </div>
-
-              <div
-                style={{
-                  fontSize: 18,
-                  color: "#475569",
-                  marginBottom: 18,
-                }}
-              >
-                {dossier.description}
-              </div>
-
-              <div
-                style={{
-                  background: "#fffbe8",
-                  border: "1px solid #f1e3a0",
-                  borderRadius: 16,
-                  padding: 18,
-                  marginBottom: 18,
-                }}
-              >
-                <div
-                  style={{
-                    fontSize: 22,
-                    fontWeight: 800,
-                    marginBottom: 10,
-                    color: "#334155",
-                  }}
-                >
-                  Résumé du dossier
-                </div>
-
-                <div style={{ fontSize: 17, color: "#475569", lineHeight: 1.6 }}>
-                  <div>Notes : {dossier.notesCount}</div>
-                  <div>Fichiers joints : {dossier.fichiersCount}</div>
-                  <div>Photos : {dossier.photosCount}</div>
-                  <div>Vidéos : {dossier.videosCount}</div>
-                </div>
-              </div>
-
-              {dossier.previewUrl ? (
-                <div
-                  style={{
-                    width: 110,
-                    height: 110,
-                    border: "1px solid #e5e7eb",
-                    borderRadius: 14,
-                    overflow: "hidden",
-                    background: "#fff",
-                    marginBottom: 18,
-                  }}
-                >
-                  <img
-                    src={dossier.previewUrl}
-                    alt="Aperçu dossier"
-                    style={{
-                      width: "100%",
-                      height: "100%",
-                      objectFit: "cover",
-                      display: "block",
-                    }}
-                  />
-                </div>
-              ) : null}
-
-              <div style={{ display: "flex", gap: 12, marginBottom: 12 }}>
-                <button onClick={() => router.push(`/employe/dossiers/${dossier.id}`)} className="tagora-dark-action">
-                  Ouvrir le dossier
-                </button>
-
-                <button
-                  onClick={() => handleDelete(dossier.id)}
-                  className="tagora-btn-danger"
-                >
-                  Supprimer
-                </button>
-              </div>
-
-              <select
-                value={dossier.statut}
-                onChange={(e) => handleChangeStatut(dossier.id, e.target.value)}
-                style={{
-                  padding: "10px 12px",
-                  borderRadius: 10,
-                  border: "1px solid #cbd5e1",
-                  background: "white",
-                  fontSize: 15,
-                  fontWeight: 600,
-                }}
-              >
-                <option value="Nouveau">Nouveau</option>
-                <option value="En cours">En cours</option>
-                <option value="Terminé">Terminé</option>
-              </select>
+              <SecondaryButton onClick={() => router.push("/employe/profil")}>
+                Profil
+              </SecondaryButton>
+              <SecondaryButton onClick={handleLogout}>Se deconnecter</SecondaryButton>
             </div>
-          ))}
-        </div>
-      )}
-    </div>
+          }
+        />
+
+        <SectionCard title="Acces" subtitle="Modules.">
+          <div className="ui-grid-auto">
+            <ModuleTile
+              title="Horodateur"
+              description="Pointage."
+              icon={<Clock3 size={24} strokeWidth={2.1} />}
+              accent="linear-gradient(135deg, rgba(251,146,60,0.18) 0%, rgba(15,41,72,0.08) 100%)"
+              action={
+                <PrimaryButton onClick={() => router.push("/employe/horodateur")} style={{ width: "100%", justifyContent: "space-between" }}>
+                  <span>Acceder</span>
+                  <ArrowUpRight size={16} />
+                </PrimaryButton>
+              }
+            />
+            <ModuleTile
+              title="Terrain"
+              description="Sorties."
+              icon={<Waypoints size={24} strokeWidth={2.1} />}
+              accent="linear-gradient(135deg, rgba(16,185,129,0.18) 0%, rgba(15,41,72,0.08) 100%)"
+              action={
+                <SecondaryButton onClick={() => router.push("/employe/terrain")} style={{ width: "100%", justifyContent: "space-between" }}>
+                  <span>Acceder</span>
+                  <ArrowUpRight size={16} />
+                </SecondaryButton>
+              }
+            />
+            {canUseLivraisons ? (
+              <ModuleTile
+                title="Livraisons"
+                description="Suivi."
+                icon={<Truck size={24} strokeWidth={2.1} />}
+                accent="linear-gradient(135deg, rgba(59,130,246,0.16) 0%, rgba(15,41,72,0.08) 100%)"
+                action={
+                  <SecondaryButton onClick={() => router.push("/employe/livraisons")} style={{ width: "100%", justifyContent: "space-between" }}>
+                    <span>Acceder</span>
+                    <ArrowUpRight size={16} />
+                  </SecondaryButton>
+                }
+              />
+            ) : null}
+            {canUseDossiers ? (
+              <ModuleTile
+                title="Nouveau dossier"
+                description="Creation."
+                icon={<FileStack size={24} strokeWidth={2.1} />}
+                accent="linear-gradient(135deg, rgba(99,102,241,0.18) 0%, rgba(15,41,72,0.08) 100%)"
+                action={
+                  <PrimaryButton onClick={() => router.push("/employe/dossiers/new")} style={{ width: "100%", justifyContent: "space-between" }}>
+                    <span>Creer</span>
+                    <ArrowUpRight size={16} />
+                  </PrimaryButton>
+                }
+              />
+            ) : null}
+            <ModuleTile
+              title="Profil"
+              description="Securite."
+              icon={<ShieldCheck size={24} strokeWidth={2.1} />}
+              accent="linear-gradient(135deg, rgba(14,116,144,0.18) 0%, rgba(15,41,72,0.08) 100%)"
+              action={
+                <SecondaryButton onClick={() => router.push("/employe/profil")} style={{ width: "100%", justifyContent: "space-between" }}>
+                  <span>Gerer</span>
+                  <ArrowUpRight size={16} />
+                </SecondaryButton>
+              }
+            />
+            <ModuleTile
+              title="Ameliorations"
+              description="Retours."
+              icon={<Lightbulb size={24} strokeWidth={2.1} />}
+              accent="linear-gradient(135deg, rgba(236,72,153,0.16) 0%, rgba(15,41,72,0.08) 100%)"
+              action={
+                <SecondaryButton onClick={() => router.push("/ameliorations")} style={{ width: "100%", justifyContent: "space-between" }}>
+                  <span>Acceder</span>
+                  <ArrowUpRight size={16} />
+                </SecondaryButton>
+              }
+            />
+          </div>
+        </SectionCard>
+
+        <SectionCard title="Mes dossiers" subtitle="Dossiers terrain.">
+          {!canUseDossiers ? (
+            <AppCard tone="muted">
+              <p className="ui-text-muted" style={{ margin: 0 }}>
+                Module masque.
+              </p>
+            </AppCard>
+          ) : dossiers.length === 0 ? (
+            <AppCard tone="muted" className="ui-stack-md" style={{ textAlign: "center", padding: "40px 24px" }}>
+              <div
+                style={{
+                  fontSize: 24,
+                  fontWeight: 800,
+                  letterSpacing: "-0.02em",
+                  color: "var(--ui-color-text)",
+                }}
+              >
+                Aucun dossier pour le moment
+              </div>
+              <p className="ui-text-muted" style={{ margin: 0 }}>
+                Creez un dossier.
+              </p>
+              <div style={{ display: "flex", justifyContent: "center" }}>
+                <PrimaryButton onClick={() => router.push("/employe/dossiers/new")}>
+                  Creer
+                </PrimaryButton>
+              </div>
+            </AppCard>
+          ) : (
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fit, minmax(360px, 1fr))",
+                gap: "var(--ui-space-4)",
+              }}
+            >
+              {dossiers.map((dossier) => (
+                <AppCard
+                  key={dossier.id}
+                  className="ui-stack-md"
+                  style={{
+                    minHeight: 420,
+                    transition: "transform 160ms ease, box-shadow 160ms ease",
+                  }}
+                  onMouseEnter={(event) => {
+                    event.currentTarget.style.transform = "translateY(-3px)";
+                    event.currentTarget.style.boxShadow = "var(--ui-shadow-lg)";
+                  }}
+                  onMouseLeave={(event) => {
+                    event.currentTarget.style.transform = "translateY(0)";
+                    event.currentTarget.style.boxShadow = "var(--ui-shadow-sm)";
+                  }}
+                >
+                  <div className="ui-stack-sm">
+                    <div
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        gap: 12,
+                        alignItems: "flex-start",
+                        flexWrap: "wrap",
+                      }}
+                    >
+                      <div className="ui-stack-xs">
+                        <span className="ui-eyebrow">Dossier</span>
+                        <h3
+                          style={{
+                            margin: 0,
+                            fontSize: 28,
+                            lineHeight: 1.05,
+                            letterSpacing: "-0.03em",
+                            color: "var(--ui-color-primary)",
+                          }}
+                        >
+                          {dossier.nom}
+                        </h3>
+                      </div>
+                      <span
+                        style={{
+                          ...getStatutStyle(dossier.statut),
+                          display: "inline-flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          padding: "6px 12px",
+                          borderRadius: 999,
+                          fontSize: 12,
+                          fontWeight: 800,
+                          letterSpacing: "0.05em",
+                          textTransform: "uppercase",
+                        }}
+                      >
+                        {dossier.statut}
+                      </span>
+                    </div>
+                    <InfoRow label="Client" value={dossier.client} />
+                    <InfoRow label="Description" value={dossier.description} />
+                  </div>
+
+                  <AppCard tone="muted" className="ui-stack-sm">
+                    <span className="ui-eyebrow">Resume du dossier</span>
+                    <div className="ui-grid-2">
+                      <InfoRow label="Notes" value={String(dossier.notesCount)} compact />
+                      <InfoRow label="Fichiers joints" value={String(dossier.fichiersCount)} compact />
+                      <InfoRow label="Photos" value={String(dossier.photosCount)} compact />
+                      <InfoRow label="Videos" value={String(dossier.videosCount)} compact />
+                    </div>
+                  </AppCard>
+
+                  {dossier.previewUrl ? (
+                    <div
+                      style={{
+                        position: "relative",
+                        width: 120,
+                        height: 120,
+                        border: "1px solid var(--ui-color-border)",
+                        borderRadius: "var(--ui-radius-md)",
+                        overflow: "hidden",
+                        background: "#fff",
+                      }}
+                    >
+                      <Image
+                        src={dossier.previewUrl}
+                        alt="Apercu dossier"
+                        fill
+                        unoptimized
+                        sizes="120px"
+                        style={{ objectFit: "cover", display: "block" }}
+                      />
+                    </div>
+                  ) : null}
+
+                  <div
+                    style={{
+                      display: "flex",
+                      gap: "var(--ui-space-3)",
+                      flexWrap: "wrap",
+                    }}
+                  >
+                    <PrimaryButton onClick={() => router.push(`/employe/dossiers/${dossier.id}`)}>
+                      Acceder
+                    </PrimaryButton>
+                    <button onClick={() => handleDelete(dossier.id)} className="tagora-btn-danger">
+                      Supprimer
+                    </button>
+                  </div>
+
+                  <select
+                    value={dossier.statut}
+                    onChange={(e) => handleChangeStatut(dossier.id, e.target.value)}
+                    className="tagora-select"
+                    style={{ maxWidth: 220 }}
+                  >
+                    <option value="Nouveau">Nouveau</option>
+                    <option value="En cours">En cours</option>
+                    <option value="Terminé">Terminé</option>
+                  </select>
+                </AppCard>
+              ))}
+            </div>
+          )}
+        </SectionCard>
+      </div>
+    </main>
   );
 }
-

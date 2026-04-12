@@ -11,8 +11,10 @@ import {
   AppRole,
   getHomePathForRole,
   getLoginPathForRole,
+  getPasswordChangePathForRole,
   getUserRole,
 } from "@/app/lib/auth/roles";
+import { hasPasswordChangeRequired } from "@/app/lib/auth/passwords";
 
 type AuthGateProps = {
   areaRole: AppRole;
@@ -72,6 +74,15 @@ export default function AuthGate({
 
       if (isPublicPath) {
         router.replace(getHomePathForRole(role));
+        return;
+      }
+
+      if (
+        areaRole === "employe" &&
+        hasPasswordChangeRequired(user) &&
+        pathname !== getPasswordChangePathForRole(role)
+      ) {
+        router.replace(getPasswordChangePathForRole(role));
         return;
       }
 

@@ -1,11 +1,15 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import HeaderTagora from "../../components/HeaderTagora";
 import AccessNotice from "../../components/AccessNotice";
 import { supabase } from "../../lib/supabase/client";
 import { useCurrentAccess } from "../../hooks/useCurrentAccess";
+import {
+  buildBreakEntries,
+  computeWorkTimeSummary,
+} from "../../lib/work-time";
 import {
   getCompanyLabel,
   type AccountRequestCompany,
@@ -24,6 +28,20 @@ type SortieTerrain = {
   heure_depart: string | null;
   heure_retour: string | null;
   temps_total: string | null;
+  morning_break_minutes: number | null;
+  morning_break_paid: boolean | null;
+  lunch_minutes: number | null;
+  lunch_paid: boolean | null;
+  afternoon_break_minutes: number | null;
+  afternoon_break_paid: boolean | null;
+  paid_break_minutes: number | null;
+  unpaid_break_minutes: number | null;
+  payable_minutes: number | null;
+  facturable_minutes: number | null;
+  temps_payable: string | null;
+  temps_non_payable: string | null;
+  temps_facturable: string | null;
+  refacturer_a_titan?: boolean | null;
   notes: string | null;
   statut: string | null;
 };
@@ -66,6 +84,12 @@ export default function TerrainPage() {
   const [vehicule, setVehicule] = useState("");
   const [kmDepart, setKmDepart] = useState("");
   const [kmArrivee, setKmArrivee] = useState("");
+  const [pauseMatinMinutes, setPauseMatinMinutes] = useState("0");
+  const [pauseMatinPaid, setPauseMatinPaid] = useState(true);
+  const [dinerMinutes, setDinerMinutes] = useState("0");
+  const [dinerPaid, setDinerPaid] = useState(false);
+  const [pauseApresMidiMinutes, setPauseApresMidiMinutes] = useState("0");
+  const [pauseApresMidiPaid, setPauseApresMidiPaid] = useState(true);
   const [notes, setNotes] = useState("");
 
   const [saving, setSaving] = useState(false);
@@ -77,6 +101,46 @@ export default function TerrainPage() {
   const [secondaryNotice, setSecondaryNotice] = useState("");
   const resolvedCompanyContext =
     companyContext || companyAccess.primaryCompany || "";
+  const activeBreaks = useMemo(
+    () =>
+      buildBreakEntries({
+        morningMinutes: pauseMatinMinutes,
+        morningPaid: pauseMatinPaid,
+        lunchMinutes: dinerMinutes,
+        lunchPaid: dinerPaid,
+        afternoonMinutes: pauseApresMidiMinutes,
+        afternoonPaid: pauseApresMidiPaid,
+      }),
+    [
+      dinerMinutes,
+      dinerPaid,
+      pauseApresMidiMinutes,
+      pauseApresMidiPaid,
+      pauseMatinMinutes,
+      pauseMatinPaid,
+    ]
+  );
+  const activeSummaryPreview = useMemo(
+    () =>
+      sortieActive
+        ? computeWorkTimeSummary({
+            start: sortieActive.heure_depart,
+            end: new Date().toISOString(),
+            breaks: activeBreaks,
+            billable: sortieActive.refacturer_a_titan ?? false,
+          })
+        : null,
+    [activeBreaks, sortieActive]
+  );
+
+  function resetBreakFields() {
+    setPauseMatinMinutes("0");
+    setPauseMatinPaid(true);
+    setDinerMinutes("0");
+    setDinerPaid(false);
+    setPauseApresMidiMinutes("0");
+    setPauseApresMidiPaid(true);
+  }
 
   const getNomDossier = (id: number | null) => {
     if (!id) return "-";
@@ -93,7 +157,7 @@ export default function TerrainPage() {
 
     if (error) {
       setFeedback(
-        "Les sorties terrain ne sont pas accessibles pour le moment. Verifie vos permissions terrain."
+        "Sorties indisponibles."
       );
       setSortieActive(null);
       setHistorique([]);
@@ -115,7 +179,7 @@ export default function TerrainPage() {
     if (error) {
       setDossiers([]);
       setSecondaryNotice(
-        "Les dossiers lies ne sont pas disponibles sur ce compte. Vous pouvez tout de meme gerer vos sorties terrain sans rattacher de dossier."
+        "Dossiers indisponibles."
       );
       return;
     }
@@ -151,6 +215,20 @@ export default function TerrainPage() {
     void init();
   }, [accessLoading, canUseTerrain, router, userId]);
 
+  useEffect(() => {
+    if (!sortieActive) {
+      return;
+    }
+
+    setPauseMatinMinutes(String(sortieActive.morning_break_minutes ?? 0));
+    setPauseMatinPaid(sortieActive.morning_break_paid ?? true);
+    setDinerMinutes(String(sortieActive.lunch_minutes ?? 0));
+    setDinerPaid(sortieActive.lunch_paid ?? false);
+    setPauseApresMidiMinutes(String(sortieActive.afternoon_break_minutes ?? 0));
+    setPauseApresMidiPaid(sortieActive.afternoon_break_paid ?? true);
+    setNotes(sortieActive.notes ?? "");
+  }, [sortieActive]);
+
   const handleChoixDossier = (value: string) => {
     setDossierId(value);
 
@@ -172,28 +250,28 @@ export default function TerrainPage() {
     }
 
     if (!resolvedCompanyContext) {
-      setFeedback("Entre une compagnie avant de demarrer la sortie.");
+      setFeedback("Compagnie requise.");
       return;
     }
 
     if (!client.trim()) {
-      setFeedback("Entre un client avant de demarrer la sortie.");
+      setFeedback("Client requis.");
       return;
     }
 
     if (!vehicule.trim()) {
-      setFeedback("Entre un vehicule avant de demarrer la sortie.");
+      setFeedback("Vehicule requis.");
       return;
     }
 
     if (!kmDepart.trim()) {
-      setFeedback("Entre le kilometre de depart.");
+      setFeedback("KM depart requis.");
       return;
     }
 
     const kmDepartNumber = Number(kmDepart);
     if (Number.isNaN(kmDepartNumber)) {
-      setFeedback("Le kilometre de depart doit etre numerique.");
+      setFeedback("KM depart invalide.");
       return;
     }
 
@@ -212,6 +290,19 @@ export default function TerrainPage() {
         dossier_id: dossierIdNumber,
         vehicule,
         km_depart: kmDepartNumber,
+        morning_break_minutes: Number(pauseMatinMinutes || 0),
+        morning_break_paid: pauseMatinPaid,
+        lunch_minutes: Number(dinerMinutes || 0),
+        lunch_paid: dinerPaid,
+        afternoon_break_minutes: Number(pauseApresMidiMinutes || 0),
+        afternoon_break_paid: pauseApresMidiPaid,
+        paid_break_minutes: 0,
+        unpaid_break_minutes: 0,
+        payable_minutes: 0,
+        facturable_minutes: 0,
+        temps_payable: null,
+        temps_non_payable: null,
+        temps_facturable: null,
         notes: notes.trim() || null,
         heure_depart: new Date().toISOString(),
         statut: "en_cours",
@@ -223,7 +314,7 @@ export default function TerrainPage() {
 
     if (error) {
       setFeedback(
-        "Impossible de demarrer la sortie. Verifie l acces terrain ou les champs requis."
+        "Demarrage impossible."
       );
       return;
     }
@@ -234,6 +325,7 @@ export default function TerrainPage() {
     setVehicule("");
     setKmDepart("");
     setKmArrivee("");
+    resetBreakFields();
     setNotes("");
     await chargerSorties(user.id);
   };
@@ -245,18 +337,18 @@ export default function TerrainPage() {
     }
 
     if (!sortieActive) {
-      setFeedback("Aucune sortie active a terminer.");
+      setFeedback("Aucune sortie active.");
       return;
     }
 
     if (!kmArrivee.trim()) {
-      setFeedback("Entre le kilometre de retour.");
+      setFeedback("KM retour requis.");
       return;
     }
 
     const kmArriveeNumber = Number(kmArrivee);
     if (Number.isNaN(kmArriveeNumber)) {
-      setFeedback("Le kilometre de retour doit etre numerique.");
+      setFeedback("KM retour invalide.");
       return;
     }
 
@@ -265,6 +357,12 @@ export default function TerrainPage() {
       sortieActive.heure_depart || heureRetour,
       heureRetour
     );
+    const summary = computeWorkTimeSummary({
+      start: sortieActive.heure_depart,
+      end: heureRetour,
+      breaks: activeBreaks,
+      billable: sortieActive.refacturer_a_titan ?? false,
+    });
 
     setSaving(true);
     setFeedback("");
@@ -275,9 +373,23 @@ export default function TerrainPage() {
         km_arrivee: kmArriveeNumber,
         heure_retour: heureRetour,
         temps_total: tempsTotal,
+        morning_break_minutes: Number(pauseMatinMinutes || 0),
+        morning_break_paid: pauseMatinPaid,
+        lunch_minutes: Number(dinerMinutes || 0),
+        lunch_paid: dinerPaid,
+        afternoon_break_minutes: Number(pauseApresMidiMinutes || 0),
+        afternoon_break_paid: pauseApresMidiPaid,
+        presence_minutes: summary.presenceMinutes,
+        paid_break_minutes: summary.paidBreakMinutes,
+        unpaid_break_minutes: summary.unpaidBreakMinutes,
+        payable_minutes: summary.payableMinutes,
+        facturable_minutes: summary.facturableMinutes,
+        temps_payable: summary.payableText,
+        temps_non_payable: summary.nonPayableText,
+        temps_facturable: summary.facturableText,
         statut: "terminee",
         notes: notes.trim() ? notes : sortieActive.notes,
-        company_context: sortieActive.company_context ?? resolvedCompanyContext || null,
+        company_context: sortieActive.company_context ?? (resolvedCompanyContext || null),
       })
       .eq("id", sortieActive.id);
 
@@ -285,12 +397,13 @@ export default function TerrainPage() {
 
     if (error) {
       setFeedback(
-        "Impossible de terminer la sortie. Verifie que la sortie est toujours accessible."
+        "Cloture impossible."
       );
       return;
     }
 
     setKmArrivee("");
+    resetBreakFields();
     setNotes("");
     await chargerSorties(user.id);
   };
@@ -300,9 +413,9 @@ export default function TerrainPage() {
       <div className="page-container">
         <HeaderTagora
           title="Terrain employe"
-          subtitle="Sorties, livraisons et interventions"
+          subtitle="Sorties et interventions"
         />
-        <AccessNotice description="Verification des acces terrain et chargement des donnees en cours." />
+        <AccessNotice description="Chargement en cours." />
       </div>
     );
   }
@@ -312,9 +425,9 @@ export default function TerrainPage() {
       <div className="page-container">
         <HeaderTagora
           title="Terrain employe"
-          subtitle="Sorties, livraisons et interventions"
+          subtitle="Sorties et interventions"
         />
-        <AccessNotice description="La permission terrain n est pas active sur votre compte. Cette page reste masquee tant que cet acces n a pas ete accorde." />
+        <AccessNotice description="Acces requis." />
       </div>
     );
   }
@@ -323,7 +436,7 @@ export default function TerrainPage() {
     <div className="page-container">
       <HeaderTagora
         title="Terrain employe"
-        subtitle="Sorties, livraisons et interventions"
+        subtitle="Sorties et interventions"
       />
 
       {feedback ? <AccessNotice title="Action bloquee" description={feedback} /> : null}
@@ -414,14 +527,93 @@ export default function TerrainPage() {
             </label>
 
             <label className="tagora-field" style={{ gridColumn: "1 / -1" }}>
-              <span className="tagora-label">Notes depart</span>
+              <span className="tagora-label">Notes</span>
               <textarea
                 value={notes}
                 onChange={(event) => setNotes(event.target.value)}
-                placeholder="Details de la sortie, consignes, client, contraintes."
+                placeholder="Notes"
                 className="tagora-textarea"
               />
             </label>
+
+            <div className="tagora-panel-muted" style={{ gridColumn: "1 / -1" }}>
+              <div className="tagora-label" style={{ marginBottom: 12 }}>
+                Pauses et diner
+              </div>
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+                  gap: 12,
+                }}
+              >
+                <label className="tagora-field">
+                  <span className="tagora-label">Pause matin</span>
+                  <input
+                    value={pauseMatinMinutes}
+                    onChange={(event) => setPauseMatinMinutes(event.target.value)}
+                    type="number"
+                    min="0"
+                    className="tagora-input"
+                  />
+                </label>
+                <label className="tagora-field">
+                  <span className="tagora-label">Pause matin</span>
+                  <select
+                    value={pauseMatinPaid ? "paid" : "unpaid"}
+                    onChange={(event) => setPauseMatinPaid(event.target.value === "paid")}
+                    className="tagora-input"
+                  >
+                    <option value="paid">Payee</option>
+                    <option value="unpaid">Non payee</option>
+                  </select>
+                </label>
+                <label className="tagora-field">
+                  <span className="tagora-label">Diner</span>
+                  <input
+                    value={dinerMinutes}
+                    onChange={(event) => setDinerMinutes(event.target.value)}
+                    type="number"
+                    min="0"
+                    className="tagora-input"
+                  />
+                </label>
+                <label className="tagora-field">
+                  <span className="tagora-label">Diner</span>
+                  <select
+                    value={dinerPaid ? "paid" : "unpaid"}
+                    onChange={(event) => setDinerPaid(event.target.value === "paid")}
+                    className="tagora-input"
+                  >
+                    <option value="paid">Paye</option>
+                    <option value="unpaid">Non paye</option>
+                  </select>
+                </label>
+                <label className="tagora-field">
+                  <span className="tagora-label">Pause apres-midi</span>
+                  <input
+                    value={pauseApresMidiMinutes}
+                    onChange={(event) => setPauseApresMidiMinutes(event.target.value)}
+                    type="number"
+                    min="0"
+                    className="tagora-input"
+                  />
+                </label>
+                <label className="tagora-field">
+                  <span className="tagora-label">Pause apres-midi</span>
+                  <select
+                    value={pauseApresMidiPaid ? "paid" : "unpaid"}
+                    onChange={(event) =>
+                      setPauseApresMidiPaid(event.target.value === "paid")
+                    }
+                    className="tagora-input"
+                  >
+                    <option value="paid">Payee</option>
+                    <option value="unpaid">Non payee</option>
+                  </select>
+                </label>
+              </div>
+            </div>
           </div>
 
           <button
@@ -430,7 +622,7 @@ export default function TerrainPage() {
             className="tagora-dark-action"
             style={{ marginTop: 18 }}
           >
-            {saving ? "Enregistrement..." : "Demarrer la sortie"}
+            {saving ? "Demarrage..." : "Demarrer"}
           </button>
         </div>
 
@@ -441,7 +633,7 @@ export default function TerrainPage() {
 
           {!sortieActive ? (
             <p className="tagora-note">
-              Aucune sortie en cours pour le moment.
+              Aucune sortie active.
             </p>
           ) : (
             <>
@@ -484,16 +676,116 @@ export default function TerrainPage() {
                   />
                 </label>
 
+                <div className="tagora-panel-muted" style={{ gridColumn: "1 / -1" }}>
+                  <div className="tagora-label" style={{ marginBottom: 12 }}>
+                    Pauses et diner
+                  </div>
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+                      gap: 12,
+                    }}
+                  >
+                    <label className="tagora-field">
+                      <span className="tagora-label">Pause matin</span>
+                      <input
+                        value={pauseMatinMinutes}
+                        onChange={(event) => setPauseMatinMinutes(event.target.value)}
+                        type="number"
+                        min="0"
+                        className="tagora-input"
+                      />
+                    </label>
+                    <label className="tagora-field">
+                      <span className="tagora-label">Pause matin</span>
+                      <select
+                        value={pauseMatinPaid ? "paid" : "unpaid"}
+                        onChange={(event) =>
+                          setPauseMatinPaid(event.target.value === "paid")
+                        }
+                        className="tagora-input"
+                      >
+                        <option value="paid">Payee</option>
+                        <option value="unpaid">Non payee</option>
+                      </select>
+                    </label>
+                    <label className="tagora-field">
+                      <span className="tagora-label">Diner</span>
+                      <input
+                        value={dinerMinutes}
+                        onChange={(event) => setDinerMinutes(event.target.value)}
+                        type="number"
+                        min="0"
+                        className="tagora-input"
+                      />
+                    </label>
+                    <label className="tagora-field">
+                      <span className="tagora-label">Diner</span>
+                      <select
+                        value={dinerPaid ? "paid" : "unpaid"}
+                        onChange={(event) => setDinerPaid(event.target.value === "paid")}
+                        className="tagora-input"
+                      >
+                        <option value="paid">Paye</option>
+                        <option value="unpaid">Non paye</option>
+                      </select>
+                    </label>
+                    <label className="tagora-field">
+                      <span className="tagora-label">Pause apres-midi</span>
+                      <input
+                        value={pauseApresMidiMinutes}
+                        onChange={(event) => setPauseApresMidiMinutes(event.target.value)}
+                        type="number"
+                        min="0"
+                        className="tagora-input"
+                      />
+                    </label>
+                    <label className="tagora-field">
+                      <span className="tagora-label">Pause apres-midi</span>
+                      <select
+                        value={pauseApresMidiPaid ? "paid" : "unpaid"}
+                        onChange={(event) =>
+                          setPauseApresMidiPaid(event.target.value === "paid")
+                        }
+                        className="tagora-input"
+                      >
+                        <option value="paid">Payee</option>
+                        <option value="unpaid">Non payee</option>
+                      </select>
+                    </label>
+                  </div>
+                </div>
+
                 <label className="tagora-field" style={{ gridColumn: "1 / -1" }}>
-                  <span className="tagora-label">Notes de fin</span>
+                  <span className="tagora-label">Notes</span>
                   <textarea
                     value={notes}
                     onChange={(event) => setNotes(event.target.value)}
-                    placeholder="Completer les details de fin de sortie."
+                    placeholder="Notes"
                     className="tagora-textarea"
                   />
                 </label>
               </div>
+
+              {activeSummaryPreview ? (
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+                    gap: 12,
+                    marginTop: 18,
+                  }}
+                >
+                  <SummaryTile label="Presence totale" value={activeSummaryPreview.presenceText} />
+                  <SummaryTile label="Pauses payees" value={activeSummaryPreview.paidBreakText} />
+                  <SummaryTile
+                    label="Pauses non payees"
+                    value={activeSummaryPreview.unpaidBreakText}
+                  />
+                  <SummaryTile label="Temps payable" value={activeSummaryPreview.payableText} />
+                </div>
+              ) : null}
 
               <button
                 onClick={handleTerminer}
@@ -501,7 +793,7 @@ export default function TerrainPage() {
                 className="tagora-dark-action"
                 style={{ marginTop: 18 }}
               >
-                {saving ? "Enregistrement..." : "Terminer la sortie"}
+                {saving ? "Cloture..." : "Terminer"}
               </button>
             </>
           )}
@@ -515,7 +807,7 @@ export default function TerrainPage() {
 
         {historique.length === 0 ? (
           <p className="tagora-note">
-            Aucune sortie terminee pour le moment.
+            Aucun historique.
           </p>
         ) : (
           <div style={{ display: "grid", gap: 14 }}>
@@ -564,6 +856,26 @@ export default function TerrainPage() {
                       <strong>Temps total :</strong> {sortie.temps_total || "-"}
                     </div>
                     <div>
+                      <strong>Pauses payees :</strong>{" "}
+                      {sortie.paid_break_minutes != null
+                        ? `${sortie.paid_break_minutes} min`
+                        : "-"}
+                    </div>
+                    <div>
+                      <strong>Pauses non payees :</strong>{" "}
+                      {sortie.temps_non_payable ||
+                        (sortie.unpaid_break_minutes != null
+                          ? `${sortie.unpaid_break_minutes} min`
+                          : "-")}
+                    </div>
+                    <div>
+                      <strong>Temps payable :</strong> {sortie.temps_payable || "-"}
+                    </div>
+                    <div>
+                      <strong>Temps facturable :</strong>{" "}
+                      {sortie.temps_facturable || "-"}
+                    </div>
+                    <div>
                       <strong>KM depart :</strong> {sortie.km_depart ?? "-"}
                     </div>
                     <div>
@@ -589,9 +901,18 @@ export default function TerrainPage() {
           onClick={() => router.push("/employe/dashboard")}
           className="tagora-dark-outline-action"
         >
-          Retour au dashboard
+          Retour
         </button>
       </div>
+    </div>
+  );
+}
+
+function SummaryTile({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="tagora-panel-muted" style={{ margin: 0 }}>
+      <div className="tagora-label">{label}</div>
+      <div style={{ marginTop: 8, fontWeight: 700, color: "#0f2948" }}>{value}</div>
     </div>
   );
 }

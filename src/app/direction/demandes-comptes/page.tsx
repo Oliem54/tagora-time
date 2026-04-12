@@ -1,5 +1,5 @@
-import DirectionAccountRequestsClient from "./DirectionAccountRequestsClient";
+import DirectionEmployeeAccountsClient from "./DirectionEmployeeAccountsClient";
 
 export default function Page() {
-  return <DirectionAccountRequestsClient />;
+  return <DirectionEmployeeAccountsClient />;
 }

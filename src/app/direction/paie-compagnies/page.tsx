@@ -17,6 +17,7 @@ type PayrollRow = {
   employe_nom: string | null;
   date_travail: string | null;
   duree_heures: number | null;
+  payable_minutes: number | null;
   total_salaire: number | null;
   total_benefice: number | null;
   total_titan: number | null;
@@ -107,7 +108,7 @@ export default function DirectionPayrollByCompanyPage() {
     const { data, error } = await supabase
       .from("temps_titan")
       .select(
-        "id, employe_id, employe_nom, date_travail, duree_heures, total_salaire, total_benefice, total_titan, company_context"
+        "id, employe_id, employe_nom, date_travail, duree_heures, payable_minutes, total_salaire, total_benefice, total_titan, company_context"
       )
       .order("date_travail", { ascending: false })
       .order("employe_nom", { ascending: true });
@@ -129,6 +130,7 @@ export default function DirectionPayrollByCompanyPage() {
         employe_nom: typeof row.employe_nom === "string" ? row.employe_nom : null,
         date_travail: typeof row.date_travail === "string" ? row.date_travail : null,
         duree_heures: toNumber(row.duree_heures),
+        payable_minutes: toNumber(row.payable_minutes),
         total_salaire: toNumber(row.total_salaire),
         total_benefice: toNumber(row.total_benefice),
         total_titan: toNumber(row.total_titan),
@@ -164,6 +166,12 @@ export default function DirectionPayrollByCompanyPage() {
     });
   }, [companyFilter, dateFrom, dateTo, rows]);
 
+  function getPayableHours(row: PayrollRow) {
+    return row.payable_minutes != null && row.payable_minutes > 0
+      ? row.payable_minutes / 60
+      : toNumber(row.duree_heures);
+  }
+
   const employeeAggregates = useMemo<EmployeeAggregate[]>(() => {
     const buckets = new Map<string, EmployeeAggregate>();
 
@@ -174,7 +182,7 @@ export default function DirectionPayrollByCompanyPage() {
       const existing = buckets.get(key);
 
       if (existing) {
-        existing.totalHours += toNumber(row.duree_heures);
+        existing.totalHours += getPayableHours(row);
         existing.totalSalary += toNumber(row.total_salaire);
         existing.totalMargin += toNumber(row.total_benefice);
         existing.totalBillable += toNumber(row.total_titan);
@@ -198,7 +206,7 @@ export default function DirectionPayrollByCompanyPage() {
         employeId: String(row.employe_id ?? ""),
         employeNom: row.employe_nom ?? "Employe non defini",
         companyContext: row.company_context,
-        totalHours: toNumber(row.duree_heures),
+        totalHours: getPayableHours(row),
         totalSalary: toNumber(row.total_salaire),
         totalMargin: toNumber(row.total_benefice),
         totalBillable: toNumber(row.total_titan),
@@ -320,7 +328,7 @@ export default function DirectionPayrollByCompanyPage() {
           row.company_context ? getCompanyLabel(row.company_context) : "",
           row.employe_nom ?? "",
           String(row.employe_id ?? ""),
-          toNumber(row.duree_heures).toFixed(2),
+          getPayableHours(row).toFixed(2),
           toNumber(row.total_salaire).toFixed(2),
           toNumber(row.total_benefice).toFixed(2),
           toNumber(row.total_titan).toFixed(2),

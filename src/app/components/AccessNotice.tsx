@@ -1,3 +1,5 @@
+import SectionCard from "@/app/components/ui/SectionCard";
+
 type AccessNoticeProps = {
   title?: string;
   description: string;
@@ -8,11 +10,6 @@ export default function AccessNotice({
   description,
 }: AccessNoticeProps) {
   return (
-    <div className="tagora-panel">
-      <h2 className="section-title" style={{ marginBottom: 10 }}>
-        {title}
-      </h2>
-      <p className="tagora-note">{description}</p>
-    </div>
+    <SectionCard title={title} subtitle={description} tone="muted" />
   );
 }

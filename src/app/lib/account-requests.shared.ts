@@ -55,6 +55,7 @@ export type AccountRequestAuditEntry = {
 export type ExistingAccountSnapshot = {
   exists: boolean;
   userId: string | null;
+  chauffeurId: number | null;
   role: AppRole | null;
   permissions: AppPermission[];
   company: AccountRequestCompany | null;
@@ -333,6 +334,9 @@ export function buildExistingAccountSnapshot(
   return {
     exists: Boolean(user),
     userId: user?.id ?? null,
+    chauffeurId: Number(
+      user?.app_metadata?.chauffeur_id ?? user?.user_metadata?.chauffeur_id ?? NaN
+    ) || null,
     role: getUserRole(user),
     permissions: getUserPermissions(user),
     company: companyAccess.company,

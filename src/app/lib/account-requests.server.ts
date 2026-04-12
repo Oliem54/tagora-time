@@ -146,6 +146,7 @@ export async function resolveDirectionRequestUser(req: NextRequest) {
 
   const publicSupabase = createPublicServerSupabaseClient();
   const { data, error } = await publicSupabase.auth.getUser(token);
+
   const tokenUser = data.user;
   const tokenReadable = !error && Boolean(tokenUser);
   const tokenRole = extractRoleFromUser(tokenUser);
@@ -323,3 +324,4 @@ export async function consumeDurableAccountRequestRateLimit(
 
   return { ok: true };
 }
+

@@ -43,6 +43,18 @@ type LivraisonOption = {
 };
 
 type PunchState = "hors_quart" | "en_quart" | "en_pause" | "en_sortie" | "termine";
+type BreakConfig = {
+  expected_breaks_count: number | null;
+  break_1_label: string | null;
+  break_1_minutes: number | null;
+  break_1_paid: boolean | null;
+  break_2_label: string | null;
+  break_2_minutes: number | null;
+  break_2_paid: boolean | null;
+  break_3_label: string | null;
+  break_3_minutes: number | null;
+  break_3_paid: boolean | null;
+};
 
 function formatDateTime(value: string | null | undefined) {
   if (!value) return "-";
@@ -169,6 +181,7 @@ export default function EmployeHorodateurPage() {
   const [feedback, setFeedback] = useState("");
   const [dossiers, setDossiers] = useState<DossierOption[]>([]);
   const [livraisons, setLivraisons] = useState<LivraisonOption[]>([]);
+  const [breakConfig, setBreakConfig] = useState<BreakConfig | null>(null);
 
   const [selectedDossierId, setSelectedDossierId] = useState("");
   const [selectedLivraisonId, setSelectedLivraisonId] = useState("");
@@ -180,6 +193,45 @@ export default function EmployeHorodateurPage() {
   const state = useMemo(() => computeState(events), [events]);
   const lastEvent = useMemo(() => (events.length > 0 ? events[events.length - 1] : null), [events]);
   const workedMinutes = useMemo(() => computeWorkedMinutes(events), [events]);
+  const configuredBreaks = useMemo(
+    () =>
+      breakConfig
+        ? [
+            {
+              label: breakConfig.break_1_label || "Pause 1",
+              minutes: breakConfig.break_1_minutes ?? 0,
+              paid: breakConfig.break_1_paid ?? true,
+            },
+            {
+              label: breakConfig.break_2_label || "Pause 2",
+              minutes: breakConfig.break_2_minutes ?? 0,
+              paid: breakConfig.break_2_paid ?? true,
+            },
+            {
+              label: breakConfig.break_3_label || "Pause 3",
+              minutes: breakConfig.break_3_minutes ?? 0,
+              paid: breakConfig.break_3_paid ?? true,
+            },
+          ].filter((item) => item.minutes > 0)
+        : [],
+    [breakConfig]
+  );
+  const totalConfiguredBreakMinutes = useMemo(
+    () => configuredBreaks.reduce((sum, item) => sum + item.minutes, 0),
+    [configuredBreaks]
+  );
+  const totalConfiguredUnpaidBreakMinutes = useMemo(
+    () =>
+      configuredBreaks.reduce(
+        (sum, item) => sum + (!item.paid ? item.minutes : 0),
+        0
+      ),
+    [configuredBreaks]
+  );
+  const pauseCountToday = useMemo(
+    () => events.filter((event) => event.event_type === "pause_debut").length,
+    [events]
+  );
   const anomalies = useMemo(() => {
     const next: string[] = [];
 
@@ -195,8 +247,16 @@ export default function EmployeHorodateurPage() {
       next.push("Sortie en cours: retour sortie attendu.");
     }
 
+    if (
+      breakConfig?.expected_breaks_count != null &&
+      breakConfig.expected_breaks_count > 0 &&
+      pauseCountToday > breakConfig.expected_breaks_count
+    ) {
+      next.push("Nombre de pauses autorise depasse.");
+    }
+
     return next;
-  }, [state]);
+  }, [breakConfig?.expected_breaks_count, pauseCountToday, state]);
 
   async function loadEvents(userId: string) {
     const { data, error } = await supabase
@@ -246,8 +306,28 @@ export default function EmployeHorodateurPage() {
         setDossiers((dossiersData ?? []) as DossierOption[]);
         setLivraisons((livraisonsData ?? []) as LivraisonOption[]);
       };
+      const loadBreakConfig = async () => {
+        const chauffeurId = Number(
+          user.app_metadata?.chauffeur_id ?? user.user_metadata?.chauffeur_id ?? NaN
+        );
 
-      await Promise.all([loadEvents(user.id), loadContext()]);
+        if (!Number.isFinite(chauffeurId)) {
+          setBreakConfig(null);
+          return;
+        }
+
+        const { data } = await supabase
+          .from("chauffeurs")
+          .select(
+            "expected_breaks_count, break_1_label, break_1_minutes, break_1_paid, break_2_label, break_2_minutes, break_2_paid, break_3_label, break_3_minutes, break_3_paid"
+          )
+          .eq("id", chauffeurId)
+          .maybeSingle<BreakConfig>();
+
+        setBreakConfig(data ?? null);
+      };
+
+      await Promise.all([loadEvents(user.id), loadContext(), loadBreakConfig()]);
       setLoading(false);
     }
 
@@ -326,6 +406,15 @@ export default function EmployeHorodateurPage() {
 
     setSaving(true);
     setFeedback("");
+
+    if (
+      action === "pause_debut" &&
+      breakConfig?.expected_breaks_count != null &&
+      breakConfig.expected_breaks_count > 0 &&
+      pauseCountToday >= breakConfig.expected_breaks_count
+    ) {
+      await logAnomaly(user.id, "Nombre de pauses autorise depasse.");
+    }
 
     if (action === "sortie_depart") {
       const dossierId = selectedDossierId ? Number(selectedDossierId) : null;
@@ -463,15 +552,15 @@ export default function EmployeHorodateurPage() {
   if (accessLoading || loading) {
     return (
       <main className="page-container">
-        <HeaderTagora title="Horodateur" subtitle="Pointage du quart, pauses et sorties" />
-        <AccessNotice description="Chargement de votre etat de pointage et des evenements du jour." />
+        <HeaderTagora title="Horodateur" subtitle="Pointage" />
+        <AccessNotice description="Chargement en cours." />
       </main>
     );
   }
 
   return (
     <main className="page-container">
-      <HeaderTagora title="Horodateur" subtitle="Pointage du quart, pauses et sorties" />
+      <HeaderTagora title="Horodateur" subtitle="Pointage" />
 
       {feedback ? <AccessNotice title="Attention" description={feedback} /> : null}
 
@@ -498,14 +587,53 @@ export default function EmployeHorodateurPage() {
                 : "Choisir une compagnie"}
             </div>
           </div>
+          <div className="tagora-panel-muted">
+            <div className="tagora-label">Pauses autorisees</div>
+            <div style={{ marginTop: 8, fontSize: 22, fontWeight: 800, color: "#0f2948" }}>
+              {breakConfig?.expected_breaks_count ?? 0}
+            </div>
+          </div>
+          <div className="tagora-panel-muted">
+            <div className="tagora-label">Pauses non payees prevues</div>
+            <div style={{ marginTop: 8, fontSize: 22, fontWeight: 800, color: "#0f2948" }}>
+              {totalConfiguredUnpaidBreakMinutes} min
+            </div>
+          </div>
         </div>
       </section>
 
       <section className="tagora-panel" style={{ marginTop: 24 }}>
-        <h2 className="section-title" style={{ marginBottom: 10 }}>Actions rapides</h2>
-        <p className="tagora-note" style={{ marginBottom: 16 }}>
-          Les actions s adaptent automatiquement a votre etat courant pour eviter les erreurs de sequence.
-        </p>
+        <h2 className="section-title" style={{ marginBottom: 10 }}>Pauses autorisees</h2>
+        {configuredBreaks.length === 0 ? (
+          <p className="tagora-note">Aucune pause configuree.</p>
+        ) : (
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 16 }}>
+            {configuredBreaks.map((item) => (
+              <div key={`${item.label}-${item.minutes}-${item.paid ? "paid" : "unpaid"}`} className="tagora-panel-muted">
+                <div className="tagora-label">{item.label}</div>
+                <div style={{ marginTop: 8, fontSize: 18, fontWeight: 700, color: "#0f2948" }}>
+                  {item.minutes} min
+                </div>
+                <div className="tagora-note" style={{ marginTop: 6 }}>
+                  {item.paid ? "Payee" : "Non payee"}
+                </div>
+              </div>
+            ))}
+            <div className="tagora-panel-muted">
+              <div className="tagora-label">Total theorique</div>
+              <div style={{ marginTop: 8, fontSize: 18, fontWeight: 700, color: "#0f2948" }}>
+                {totalConfiguredBreakMinutes} min
+              </div>
+              <div className="tagora-note" style={{ marginTop: 6 }}>
+                Non paye: {totalConfiguredUnpaidBreakMinutes} min
+              </div>
+            </div>
+          </div>
+        )}
+      </section>
+
+      <section className="tagora-panel" style={{ marginTop: 24 }}>
+        <h2 className="section-title" style={{ marginBottom: 10 }}>Actions</h2>
 
         <div className="tagora-panel-muted" style={{ marginBottom: 16 }}>
           <label className="tagora-field" style={{ marginBottom: 0 }}>
@@ -529,7 +657,7 @@ export default function EmployeHorodateurPage() {
 
         {state === "hors_quart" && (
           <button className="tagora-dark-action" onClick={() => void handleAction("quart_debut")} disabled={saving}>
-            {saving ? "Enregistrement..." : "Debut du quart"}
+            {saving ? "Debut du quart..." : "Debut du quart"}
           </button>
         )}
 
@@ -562,12 +690,12 @@ export default function EmployeHorodateurPage() {
         )}
 
         {state === "termine" && (
-          <AccessNotice title="Quart termine" description="Le quart est clos pour aujourd hui. Un nouveau quart pourra etre demarre au prochain cycle." />
+          <AccessNotice title="Quart termine" description="Aucun pointage possible." />
         )}
 
         {state === "en_quart" && canUseTerrain ? (
           <div className="tagora-panel-muted" style={{ marginTop: 16 }}>
-            <h3 className="section-title" style={{ fontSize: 18, marginBottom: 10 }}>Contexte sortie (optionnel)</h3>
+            <h3 className="section-title" style={{ fontSize: 18, marginBottom: 10 }}>Contexte sortie</h3>
             <div className="tagora-form-grid">
               <label className="tagora-field">
                 <span className="tagora-label">Livraison liee</span>
@@ -594,7 +722,7 @@ export default function EmployeHorodateurPage() {
               </label>
 
               <label className="tagora-field" style={{ gridColumn: "1 / -1" }}>
-                <span className="tagora-label">Notes sortie</span>
+                  <span className="tagora-label">Notes</span>
                 <textarea className="tagora-textarea" value={sortieNotes} onChange={(e) => setSortieNotes(e.target.value)} />
               </label>
             </div>
@@ -603,7 +731,7 @@ export default function EmployeHorodateurPage() {
 
         {state === "en_quart" && !canUseTerrain ? (
           <p className="tagora-note" style={{ marginTop: 16 }}>
-            Les sorties terrain sont masquees sur ce compte. Le pointage quart et pause reste disponible.
+            Sorties masquees.
           </p>
         ) : null}
       </section>
@@ -611,7 +739,7 @@ export default function EmployeHorodateurPage() {
       <section className="tagora-panel" style={{ marginTop: 24 }}>
         <h2 className="section-title" style={{ marginBottom: 10 }}>Anomalies V1</h2>
         {anomalies.length === 0 ? (
-          <p className="tagora-note">Aucune anomalie detectee pour le moment.</p>
+          <p className="tagora-note">Aucune anomalie.</p>
         ) : (
           <ul style={{ margin: 0, paddingLeft: 18 }}>
             {anomalies.map((item) => (
@@ -624,7 +752,7 @@ export default function EmployeHorodateurPage() {
       <section className="tagora-panel" style={{ marginTop: 24 }}>
         <h2 className="section-title" style={{ marginBottom: 10 }}>Historique du jour</h2>
         {events.length === 0 ? (
-          <p className="tagora-note">Aucun evenement aujourd hui.</p>
+          <p className="tagora-note">Aucun evenement.</p>
         ) : (
           <div style={{ overflowX: "auto" }}>
             <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 780 }}>
@@ -657,7 +785,7 @@ export default function EmployeHorodateurPage() {
       </section>
 
       <div className="actions-row" style={{ marginTop: 24 }}>
-        <button className="tagora-dark-outline-action" onClick={() => router.push("/employe/dashboard")}>Retour au dashboard</button>
+        <button className="tagora-dark-outline-action" onClick={() => router.push("/employe/dashboard")}>Retour</button>
       </div>
     </main>
   );

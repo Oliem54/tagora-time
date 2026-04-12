@@ -9,14 +9,20 @@ import {
   getCompanyDirectoryContext,
   getReviewLockMetadata,
   hasUserActivatedAccess,
+  normalizeCompany,
   normalizeEmail,
   normalizePermissions,
   type AccountRequestRow,
+  type AccountRequestCompany,
 } from "@/app/lib/account-requests.shared";
 import {
   getAccountRequestsRequestDebug,
   getStrictDirectionRequestUser,
 } from "@/app/lib/account-requests.server";
+import {
+  buildRequiredPasswordMetadata,
+  hasPasswordChangeRequired,
+} from "@/app/lib/auth/passwords";
 import { getUserPermissions } from "@/app/lib/auth/permissions";
 import { getUserRole, type AppRole } from "@/app/lib/auth/roles";
 import { createAdminSupabaseClient } from "@/app/lib/supabase/admin";
@@ -25,6 +31,7 @@ type AccountRequestAction =
   | "approve"
   | "refuse"
   | "update_access"
+  | "save_employee_profile"
   | "reset_pending"
   | "resend_invitation"
   | "disable_access"
@@ -35,6 +42,7 @@ function parseAction(value: unknown): AccountRequestAction | null {
     value === "approve" ||
     value === "refuse" ||
     value === "update_access" ||
+    value === "save_employee_profile" ||
     value === "reset_pending" ||
     value === "resend_invitation" ||
     value === "disable_access" ||
@@ -48,6 +56,153 @@ function parseAction(value: unknown): AccountRequestAction | null {
 
 function getRequestedRole(value: unknown): AppRole | null {
   return value === "direction" || value === "employe" ? value : null;
+}
+
+type EmployeeProfileInput = {
+  id?: unknown;
+  nom?: unknown;
+  courriel?: unknown;
+  telephone?: unknown;
+  actif?: unknown;
+  notes?: unknown;
+  primary_company?: unknown;
+  taux_base_titan?: unknown;
+  social_benefits_percent?: unknown;
+  titan_billable?: unknown;
+  schedule_start?: unknown;
+  schedule_end?: unknown;
+  scheduled_work_days?: unknown;
+  planned_daily_hours?: unknown;
+  planned_weekly_hours?: unknown;
+  pause_minutes?: unknown;
+  expected_breaks_count?: unknown;
+  break_1_label?: unknown;
+  break_1_minutes?: unknown;
+  break_1_paid?: unknown;
+  break_2_label?: unknown;
+  break_2_minutes?: unknown;
+  break_2_paid?: unknown;
+  break_3_label?: unknown;
+  break_3_minutes?: unknown;
+  break_3_paid?: unknown;
+  break_am_enabled?: unknown;
+  break_am_time?: unknown;
+  break_am_minutes?: unknown;
+  break_am_paid?: unknown;
+  lunch_enabled?: unknown;
+  lunch_time?: unknown;
+  lunch_minutes?: unknown;
+  lunch_paid?: unknown;
+  break_pm_enabled?: unknown;
+  break_pm_time?: unknown;
+  break_pm_minutes?: unknown;
+  break_pm_paid?: unknown;
+  sms_alert_depart_terrain?: unknown;
+  sms_alert_arrivee_terrain?: unknown;
+  sms_alert_sortie?: unknown;
+  sms_alert_retour?: unknown;
+  sms_alert_pause_debut?: unknown;
+  sms_alert_pause_fin?: unknown;
+  sms_alert_dinner_debut?: unknown;
+  sms_alert_dinner_fin?: unknown;
+  sms_alert_quart_debut?: unknown;
+  sms_alert_quart_fin?: unknown;
+};
+
+type ChauffeurRow = {
+  id: number;
+  auth_user_id: string | null;
+  nom: string | null;
+  courriel: string | null;
+  telephone: string | null;
+  actif: boolean | null;
+  notes: string | null;
+  primary_company: AccountRequestCompany | null;
+  can_work_for_oliem_solutions: boolean | null;
+  can_work_for_titan_produits_industriels: boolean | null;
+  taux_base_titan: number | null;
+  social_benefits_percent: number | null;
+  titan_billable: boolean | null;
+  schedule_start: string | null;
+  schedule_end: string | null;
+  scheduled_work_days: string[] | null;
+  planned_daily_hours: number | null;
+  planned_weekly_hours: number | null;
+  pause_minutes: number | null;
+  expected_breaks_count: number | null;
+  break_1_label: string | null;
+  break_1_minutes: number | null;
+  break_1_paid: boolean | null;
+  break_2_label: string | null;
+  break_2_minutes: number | null;
+  break_2_paid: boolean | null;
+  break_3_label: string | null;
+  break_3_minutes: number | null;
+  break_3_paid: boolean | null;
+  break_am_enabled: boolean | null;
+  break_am_time: string | null;
+  break_am_minutes: number | null;
+  break_am_paid: boolean | null;
+  lunch_enabled: boolean | null;
+  lunch_time: string | null;
+  lunch_minutes: number | null;
+  lunch_paid: boolean | null;
+  break_pm_enabled: boolean | null;
+  break_pm_time: string | null;
+  break_pm_minutes: number | null;
+  break_pm_paid: boolean | null;
+  sms_alert_depart_terrain: boolean | null;
+  sms_alert_arrivee_terrain: boolean | null;
+  sms_alert_sortie: boolean | null;
+  sms_alert_retour: boolean | null;
+  sms_alert_pause_debut: boolean | null;
+  sms_alert_pause_fin: boolean | null;
+  sms_alert_dinner_debut: boolean | null;
+  sms_alert_dinner_fin: boolean | null;
+  sms_alert_quart_debut: boolean | null;
+  sms_alert_quart_fin: boolean | null;
+};
+
+const WORK_DAY_VALUES = [
+  "lundi",
+  "mardi",
+  "mercredi",
+  "jeudi",
+  "vendredi",
+  "samedi",
+  "dimanche",
+] as const;
+
+function parseNullableString(value: unknown) {
+  const normalized = String(value ?? "").trim();
+  return normalized || null;
+}
+
+function parseNullableNumber(value: unknown) {
+  const numericValue = Number(value);
+  return Number.isFinite(numericValue) ? numericValue : null;
+}
+
+function parseNullableTime(value: unknown) {
+  const normalized = String(value ?? "").trim();
+  return /^\d{2}:\d{2}(:\d{2})?$/.test(normalized) ? normalized : null;
+}
+
+function parseWorkDays(value: unknown) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return Array.from(
+    new Set(
+      value
+        .map((item) => String(item ?? "").trim().toLowerCase())
+        .filter(
+          (item): item is (typeof WORK_DAY_VALUES)[number] =>
+            WORK_DAY_VALUES.includes(item as (typeof WORK_DAY_VALUES)[number])
+        )
+    )
+  );
 }
 
 async function findAuthUserByEmail(email: string) {
@@ -112,6 +267,331 @@ async function updateRequestRow(id: string, values: Record<string, unknown>) {
   return data;
 }
 
+async function loadLinkedEmployeeProfile(options: {
+  profileId?: number | null;
+  authUserId?: string | null;
+  email: string;
+}) {
+  const supabase = createAdminSupabaseClient();
+
+  if (options.profileId) {
+    const { data } = await supabase
+      .from("chauffeurs")
+      .select("*")
+      .eq("id", options.profileId)
+      .maybeSingle<ChauffeurRow>();
+
+    if (data) {
+      return data;
+    }
+  }
+
+  if (options.authUserId) {
+    const { data } = await supabase
+      .from("chauffeurs")
+      .select("*")
+      .eq("auth_user_id", options.authUserId)
+      .maybeSingle<ChauffeurRow>();
+
+    if (data) {
+      return data;
+    }
+  }
+
+  const normalizedEmail = normalizeEmail(options.email);
+  const { data } = await supabase
+    .from("chauffeurs")
+    .select("*")
+    .eq("courriel", normalizedEmail)
+    .maybeSingle<ChauffeurRow>();
+
+  return data ?? null;
+}
+
+async function upsertEmployeeProfile(options: {
+  input: EmployeeProfileInput | null;
+  requestRow: AccountRequestRow;
+  authUserId?: string | null;
+}) {
+  const supabase = createAdminSupabaseClient();
+  const normalizedInput = options.input ?? {};
+  const linkedProfile = await loadLinkedEmployeeProfile({
+    profileId: parseNullableNumber(normalizedInput.id),
+    authUserId: options.authUserId ?? null,
+    email: String(normalizedInput.courriel ?? options.requestRow.email),
+  });
+
+  const primaryCompany =
+    normalizeCompany(normalizedInput.primary_company) ?? options.requestRow.company;
+  const socialBenefitsPercent =
+    parseNullableNumber(normalizedInput.social_benefits_percent) ?? 15;
+  const breakAmEnabled =
+    normalizedInput.break_am_enabled === true ||
+    (normalizedInput.break_am_enabled !== false &&
+      (parseNullableNumber(normalizedInput.break_am_minutes) ??
+        linkedProfile?.break_am_minutes ??
+        linkedProfile?.break_1_minutes ??
+        0) > 0);
+  const lunchEnabled =
+    normalizedInput.lunch_enabled === true ||
+    (normalizedInput.lunch_enabled !== false &&
+      (parseNullableNumber(normalizedInput.lunch_minutes) ??
+        linkedProfile?.lunch_minutes ??
+        linkedProfile?.break_2_minutes ??
+        0) > 0);
+  const breakPmEnabled =
+    normalizedInput.break_pm_enabled === true ||
+    (normalizedInput.break_pm_enabled !== false &&
+      (parseNullableNumber(normalizedInput.break_pm_minutes) ??
+        linkedProfile?.break_pm_minutes ??
+        linkedProfile?.break_3_minutes ??
+        0) > 0);
+  const expectedBreaksCount =
+    parseNullableNumber(normalizedInput.expected_breaks_count) ??
+    [breakAmEnabled, lunchEnabled, breakPmEnabled].filter(Boolean).length;
+  const titanBillable = normalizedInput.titan_billable === true;
+  const payload = {
+    auth_user_id: options.authUserId ?? linkedProfile?.auth_user_id ?? null,
+    nom:
+      parseNullableString(normalizedInput.nom) ??
+      linkedProfile?.nom ??
+      options.requestRow.full_name,
+    courriel:
+      normalizeEmail(
+        parseNullableString(normalizedInput.courriel) ?? options.requestRow.email
+      ) || normalizeEmail(options.requestRow.email),
+    telephone:
+      parseNullableString(normalizedInput.telephone) ??
+      linkedProfile?.telephone ??
+      options.requestRow.phone,
+    actif:
+      typeof normalizedInput.actif === "boolean"
+        ? normalizedInput.actif
+        : linkedProfile?.actif ?? true,
+    notes:
+      parseNullableString(normalizedInput.notes) ?? linkedProfile?.notes ?? null,
+    primary_company: primaryCompany,
+    taux_base_titan:
+      parseNullableNumber(normalizedInput.taux_base_titan) ??
+      linkedProfile?.taux_base_titan ??
+      null,
+    social_benefits_percent: socialBenefitsPercent,
+    titan_billable:
+      typeof normalizedInput.titan_billable === "boolean"
+        ? normalizedInput.titan_billable
+        : linkedProfile?.titan_billable ?? false,
+    schedule_start:
+      parseNullableTime(normalizedInput.schedule_start) ??
+      linkedProfile?.schedule_start ??
+      null,
+    schedule_end:
+      parseNullableTime(normalizedInput.schedule_end) ??
+      linkedProfile?.schedule_end ??
+      null,
+    scheduled_work_days:
+      parseWorkDays(normalizedInput.scheduled_work_days).length > 0
+        ? parseWorkDays(normalizedInput.scheduled_work_days)
+        : linkedProfile?.scheduled_work_days ?? [],
+    planned_daily_hours:
+      parseNullableNumber(normalizedInput.planned_daily_hours) ??
+      linkedProfile?.planned_daily_hours ??
+      null,
+    planned_weekly_hours:
+      parseNullableNumber(normalizedInput.planned_weekly_hours) ??
+      linkedProfile?.planned_weekly_hours ??
+      null,
+    pause_minutes:
+      parseNullableNumber(normalizedInput.pause_minutes) ??
+      linkedProfile?.pause_minutes ??
+      15,
+    expected_breaks_count: expectedBreaksCount,
+    break_1_label: "Pause AM",
+    break_1_minutes:
+      parseNullableNumber(normalizedInput.break_am_minutes) ??
+      parseNullableNumber(normalizedInput.break_1_minutes) ??
+      linkedProfile?.break_am_minutes ??
+      linkedProfile?.break_1_minutes ??
+      null,
+    break_1_paid:
+      typeof normalizedInput.break_am_paid === "boolean"
+        ? normalizedInput.break_am_paid
+        : typeof normalizedInput.break_1_paid === "boolean"
+          ? normalizedInput.break_1_paid
+          : linkedProfile?.break_am_paid ?? linkedProfile?.break_1_paid ?? true,
+    break_2_label: "Diner",
+    break_2_minutes:
+      parseNullableNumber(normalizedInput.lunch_minutes) ??
+      parseNullableNumber(normalizedInput.break_2_minutes) ??
+      linkedProfile?.lunch_minutes ??
+      linkedProfile?.break_2_minutes ??
+      null,
+    break_2_paid:
+      typeof normalizedInput.lunch_paid === "boolean"
+        ? normalizedInput.lunch_paid
+        : typeof normalizedInput.break_2_paid === "boolean"
+          ? normalizedInput.break_2_paid
+          : linkedProfile?.lunch_paid ?? linkedProfile?.break_2_paid ?? false,
+    break_3_label: "Pause PM",
+    break_3_minutes:
+      parseNullableNumber(normalizedInput.break_pm_minutes) ??
+      parseNullableNumber(normalizedInput.break_3_minutes) ??
+      linkedProfile?.break_pm_minutes ??
+      linkedProfile?.break_3_minutes ??
+      null,
+    break_3_paid:
+      typeof normalizedInput.break_pm_paid === "boolean"
+        ? normalizedInput.break_pm_paid
+        : typeof normalizedInput.break_3_paid === "boolean"
+          ? normalizedInput.break_3_paid
+          : linkedProfile?.break_pm_paid ?? linkedProfile?.break_3_paid ?? true,
+    break_am_enabled: breakAmEnabled,
+    break_am_time:
+      parseNullableTime(normalizedInput.break_am_time) ??
+      linkedProfile?.break_am_time ??
+      null,
+    break_am_minutes:
+      parseNullableNumber(normalizedInput.break_am_minutes) ??
+      linkedProfile?.break_am_minutes ??
+      linkedProfile?.break_1_minutes ??
+      null,
+    break_am_paid:
+      typeof normalizedInput.break_am_paid === "boolean"
+        ? normalizedInput.break_am_paid
+        : linkedProfile?.break_am_paid ?? linkedProfile?.break_1_paid ?? true,
+    lunch_enabled: lunchEnabled,
+    lunch_time:
+      parseNullableTime(normalizedInput.lunch_time) ??
+      linkedProfile?.lunch_time ??
+      null,
+    lunch_minutes:
+      parseNullableNumber(normalizedInput.lunch_minutes) ??
+      linkedProfile?.lunch_minutes ??
+      linkedProfile?.break_2_minutes ??
+      null,
+    lunch_paid:
+      typeof normalizedInput.lunch_paid === "boolean"
+        ? normalizedInput.lunch_paid
+        : linkedProfile?.lunch_paid ?? linkedProfile?.break_2_paid ?? false,
+    break_pm_enabled: breakPmEnabled,
+    break_pm_time:
+      parseNullableTime(normalizedInput.break_pm_time) ??
+      linkedProfile?.break_pm_time ??
+      null,
+    break_pm_minutes:
+      parseNullableNumber(normalizedInput.break_pm_minutes) ??
+      linkedProfile?.break_pm_minutes ??
+      linkedProfile?.break_3_minutes ??
+      null,
+    break_pm_paid:
+      typeof normalizedInput.break_pm_paid === "boolean"
+        ? normalizedInput.break_pm_paid
+        : linkedProfile?.break_pm_paid ?? linkedProfile?.break_3_paid ?? true,
+    sms_alert_depart_terrain:
+      typeof normalizedInput.sms_alert_depart_terrain === "boolean"
+        ? normalizedInput.sms_alert_depart_terrain
+        : linkedProfile?.sms_alert_depart_terrain ?? true,
+    sms_alert_arrivee_terrain:
+      typeof normalizedInput.sms_alert_arrivee_terrain === "boolean"
+        ? normalizedInput.sms_alert_arrivee_terrain
+        : linkedProfile?.sms_alert_arrivee_terrain ?? true,
+    sms_alert_sortie:
+      typeof normalizedInput.sms_alert_sortie === "boolean"
+        ? normalizedInput.sms_alert_sortie
+        : linkedProfile?.sms_alert_sortie ?? true,
+    sms_alert_retour:
+      typeof normalizedInput.sms_alert_retour === "boolean"
+        ? normalizedInput.sms_alert_retour
+        : linkedProfile?.sms_alert_retour ?? true,
+    sms_alert_pause_debut:
+      typeof normalizedInput.sms_alert_pause_debut === "boolean"
+        ? normalizedInput.sms_alert_pause_debut
+        : linkedProfile?.sms_alert_pause_debut ?? true,
+    sms_alert_pause_fin:
+      typeof normalizedInput.sms_alert_pause_fin === "boolean"
+        ? normalizedInput.sms_alert_pause_fin
+        : linkedProfile?.sms_alert_pause_fin ?? true,
+    sms_alert_dinner_debut:
+      typeof normalizedInput.sms_alert_dinner_debut === "boolean"
+        ? normalizedInput.sms_alert_dinner_debut
+        : linkedProfile?.sms_alert_dinner_debut ?? true,
+    sms_alert_dinner_fin:
+      typeof normalizedInput.sms_alert_dinner_fin === "boolean"
+        ? normalizedInput.sms_alert_dinner_fin
+        : linkedProfile?.sms_alert_dinner_fin ?? true,
+    sms_alert_quart_debut:
+      typeof normalizedInput.sms_alert_quart_debut === "boolean"
+        ? normalizedInput.sms_alert_quart_debut
+        : linkedProfile?.sms_alert_quart_debut ?? true,
+    sms_alert_quart_fin:
+      typeof normalizedInput.sms_alert_quart_fin === "boolean"
+        ? normalizedInput.sms_alert_quart_fin
+        : linkedProfile?.sms_alert_quart_fin ?? true,
+    can_work_for_oliem_solutions:
+      linkedProfile?.can_work_for_oliem_solutions ??
+      primaryCompany === "oliem_solutions",
+    can_work_for_titan_produits_industriels:
+      typeof normalizedInput.titan_billable === "boolean"
+        ? normalizedInput.titan_billable
+        : linkedProfile?.can_work_for_titan_produits_industriels ??
+          primaryCompany === "titan_produits_industriels",
+  };
+
+  if (linkedProfile?.id) {
+    const { data, error } = await supabase
+      .from("chauffeurs")
+      .update(payload)
+      .eq("id", linkedProfile.id)
+      .select("*")
+      .single<ChauffeurRow>();
+
+    if (error) {
+      throw error;
+    }
+
+    return data;
+  }
+
+  const { data, error } = await supabase
+    .from("chauffeurs")
+    .insert([payload])
+    .select("*")
+    .single<ChauffeurRow>();
+
+  if (error) {
+    throw error;
+  }
+
+  return data;
+}
+
+async function syncUserChauffeurMetadata(options: {
+  userId: string;
+  chauffeurId: number;
+}) {
+  const supabase = createAdminSupabaseClient();
+  await supabase
+    .from("chauffeurs")
+    .update({ auth_user_id: options.userId })
+    .eq("id", options.chauffeurId);
+
+  const { data, error } = await supabase.auth.admin.getUserById(options.userId);
+
+  if (error || !data.user) {
+    return;
+  }
+
+  await supabase.auth.admin.updateUserById(options.userId, {
+    app_metadata: {
+      ...data.user.app_metadata,
+      chauffeur_id: options.chauffeurId,
+    },
+    user_metadata: {
+      ...data.user.user_metadata,
+      chauffeur_id: options.chauffeurId,
+    },
+  });
+}
+
 function buildDesiredAccess(
   body: Record<string, unknown>,
   requestRow: AccountRequestRow
@@ -141,7 +621,8 @@ function buildDesiredAccess(
 function buildInvitationPayload(
   requestRow: AccountRequestRow,
   assignedRole: AppRole,
-  assignedPermissions: string[]
+  assignedPermissions: string[],
+  chauffeurId?: number | null
 ) {
   const companyAccessFlags = buildCompanyAccessFlags(requestRow.company, [
     requestRow.company,
@@ -158,9 +639,11 @@ function buildInvitationPayload(
       data: {
         role: assignedRole,
         permissions: assignedPermissions,
+        chauffeur_id: chauffeurId ?? null,
         full_name: requestRow.full_name,
         company: requestRow.company,
         ...companyAccessFlags,
+        ...buildRequiredPasswordMetadata(),
         requested_from: requestRow.portal_source,
       },
       redirectTo,
@@ -173,6 +656,8 @@ function buildManagedUserMetadata(options: {
   assignedRole: AppRole;
   assignedPermissions: string[];
   actorUserId: string;
+  requirePasswordChange?: boolean;
+  chauffeurId?: number | null;
   existingMetadata?: Record<string, unknown> | null;
 }) {
   const existingAllowedCompanies = Array.isArray(
@@ -185,8 +670,10 @@ function buildManagedUserMetadata(options: {
     ...options.existingMetadata,
     role: options.assignedRole,
     permissions: options.assignedPermissions,
+    chauffeur_id: options.chauffeurId ?? options.existingMetadata?.chauffeur_id ?? null,
     company: options.requestRow.company,
     ...buildCompanyAccessFlags(options.requestRow.company, existingAllowedCompanies),
+    ...(options.requirePasswordChange ? buildRequiredPasswordMetadata() : {}),
     access_disabled: false,
     approved_from_request: true,
     approved_at: new Date().toISOString(),
@@ -200,6 +687,7 @@ async function upsertAccountAccess(options: {
   assignedRole: AppRole;
   assignedPermissions: string[];
   confirmOverwriteExistingAccount: boolean;
+  chauffeurId?: number | null;
 }) {
   const supabase = createAdminSupabaseClient();
   const normalizedEmail = normalizeEmail(options.requestRow.email);
@@ -229,6 +717,10 @@ async function upsertAccountAccess(options: {
           assignedRole: options.assignedRole,
           assignedPermissions: options.assignedPermissions,
           actorUserId: options.actorUserId,
+          chauffeurId: options.chauffeurId,
+          requirePasswordChange:
+            !hasUserActivatedAccess(existingUser) ||
+            hasPasswordChangeRequired(existingUser),
           existingMetadata: existingUser.app_metadata,
         }),
         user_metadata: buildManagedUserMetadata({
@@ -236,6 +728,10 @@ async function upsertAccountAccess(options: {
           assignedRole: options.assignedRole,
           assignedPermissions: options.assignedPermissions,
           actorUserId: options.actorUserId,
+          chauffeurId: options.chauffeurId,
+          requirePasswordChange:
+            !hasUserActivatedAccess(existingUser) ||
+            hasPasswordChangeRequired(existingUser),
           existingMetadata: existingUser.user_metadata,
         }),
       }
@@ -252,7 +748,8 @@ async function upsertAccountAccess(options: {
     const invitation = buildInvitationPayload(
       options.requestRow,
       options.assignedRole,
-      options.assignedPermissions
+      options.assignedPermissions,
+      options.chauffeurId
     );
 
     const { data, error } = await supabase.auth.admin.inviteUserByEmail(
@@ -350,18 +847,6 @@ export async function PATCH(
   try {
     const requestDebug = getAccountRequestsRequestDebug(req);
 
-    console.log(
-      "[account-requests][PATCH][received]",
-      JSON.stringify({
-        inferredSource: requestDebug.inferredSource,
-        hasClientMarker: requestDebug.hasClientMarker,
-        hasAuthorizationHeader: requestDebug.hasAuthorizationHeader,
-        secFetchMode: requestDebug.secFetchMode,
-        secFetchDest: requestDebug.secFetchDest,
-        referer: requestDebug.referer,
-      })
-    );
-
     if (!requestDebug.hasClientMarker) {
       return NextResponse.json(
         {
@@ -381,6 +866,7 @@ export async function PATCH(
     const { id } = await params;
     const body = (await req.json()) as Record<string, unknown>;
     const action = parseAction(body.action);
+    const employeeProfileInput = (body.employeeProfile ?? null) as EmployeeProfileInput | null;
 
     if (!action) {
       return NextResponse.json({ error: "Action invalide." }, { status: 400 });
@@ -456,12 +942,18 @@ export async function PATCH(
         return NextResponse.json({ success: true, status: "refused" });
       }
 
+      const employeeProfile = await upsertEmployeeProfile({
+        input: employeeProfileInput,
+        requestRow,
+      });
+
       const approvalResult = await upsertAccountAccess({
         requestRow,
         actorUserId: user.id,
         assignedRole,
         assignedPermissions,
         confirmOverwriteExistingAccount,
+        chauffeurId: employeeProfile.id,
       });
 
       if (!approvalResult.ok) {
@@ -481,6 +973,13 @@ export async function PATCH(
           },
           { status: 409 }
         );
+      }
+
+      if (approvalResult.invitedUserId && employeeProfile.id) {
+        await syncUserChauffeurMetadata({
+          userId: approvalResult.invitedUserId,
+          chauffeurId: employeeProfile.id,
+        });
       }
 
       const eventName =
@@ -558,6 +1057,46 @@ export async function PATCH(
     } = buildDesiredAccess(body, requestRow);
     const reviewedAt = new Date().toISOString();
 
+    if (action === "save_employee_profile") {
+      const authUser = await findAuthUserByEmail(normalizeEmail(requestRow.email));
+      const employeeProfile = await upsertEmployeeProfile({
+        input: employeeProfileInput,
+        requestRow,
+        authUserId: authUser?.id ?? null,
+      });
+
+      if (authUser?.id && employeeProfile.id) {
+        await syncUserChauffeurMetadata({
+          userId: authUser.id,
+          chauffeurId: employeeProfile.id,
+        });
+      }
+
+      const updated = await updateRequestRow(id, {
+        assigned_role: assignedRole,
+        assigned_permissions: assignedPermissions,
+        review_note: reviewNote,
+        reviewed_by: user.id,
+        reviewed_at: reviewedAt,
+        last_error: null,
+        audit_log: createDirectionAudit(
+          requestRow,
+          user,
+          "request_updated",
+          {
+            previousStatus: requestRow.status,
+            assignedRole,
+            assignedPermissions,
+            reason: reviewNote,
+            employeeProfileId: employeeProfile.id,
+            employeeProfileSaved: true,
+          }
+        ),
+      });
+
+      return NextResponse.json({ success: true, status: updated.status });
+    }
+
     if (action === "reset_pending") {
       const updated = await updateRequestRow(id, {
         status: "pending",
@@ -587,12 +1126,18 @@ export async function PATCH(
         );
       }
 
+      const employeeProfile = await upsertEmployeeProfile({
+        input: employeeProfileInput,
+        requestRow,
+      });
+
       const result = await upsertAccountAccess({
         requestRow,
         actorUserId: user.id,
         assignedRole,
         assignedPermissions,
         confirmOverwriteExistingAccount,
+        chauffeurId: employeeProfile.id,
       });
 
       if (!result.ok) {
@@ -603,6 +1148,13 @@ export async function PATCH(
           },
           { status: 409 }
         );
+      }
+
+      if (result.invitedUserId && employeeProfile.id) {
+        await syncUserChauffeurMetadata({
+          userId: result.invitedUserId,
+          chauffeurId: employeeProfile.id,
+        });
       }
 
       const updated = await updateRequestRow(id, {
@@ -622,6 +1174,7 @@ export async function PATCH(
           assignedPermissions,
           reason: reviewNote,
           hadExistingAccount: Boolean(result.existingUser),
+          employeeProfileId: employeeProfile.id,
           company: requestRow.company,
           companyDirectoryContext: getCompanyDirectoryContext(requestRow.company),
         }),
@@ -638,10 +1191,16 @@ export async function PATCH(
         );
       }
 
+      const employeeProfile = await upsertEmployeeProfile({
+        input: employeeProfileInput,
+        requestRow,
+      });
+
       const invitation = buildInvitationPayload(
         requestRow,
         assignedRole,
-        assignedPermissions
+        assignedPermissions,
+        employeeProfile.id
       );
       const { data, error } = await createAdminSupabaseClient().auth.admin.inviteUserByEmail(
         invitation.email,
@@ -650,6 +1209,13 @@ export async function PATCH(
 
       if (error) {
         return NextResponse.json({ error: error.message }, { status: 500 });
+      }
+
+      if (data.user?.id && employeeProfile.id) {
+        await syncUserChauffeurMetadata({
+          userId: data.user.id,
+          chauffeurId: employeeProfile.id,
+        });
       }
 
       const updated = await updateRequestRow(id, {
@@ -665,6 +1231,7 @@ export async function PATCH(
           assignedPermissions,
           reason: reviewNote,
           invitedUserId: data.user?.id ?? requestRow.invited_user_id ?? null,
+          employeeProfileId: employeeProfile.id,
           company: requestRow.company,
           companyDirectoryContext: getCompanyDirectoryContext(requestRow.company),
         }),
@@ -742,12 +1309,18 @@ export async function PATCH(
         );
       }
 
+      const employeeProfile = await upsertEmployeeProfile({
+        input: employeeProfileInput,
+        requestRow,
+      });
+
       const result = await upsertAccountAccess({
         requestRow,
         actorUserId: user.id,
         assignedRole,
         assignedPermissions,
         confirmOverwriteExistingAccount,
+        chauffeurId: employeeProfile.id,
       });
 
       if (!result.ok) {
@@ -758,6 +1331,13 @@ export async function PATCH(
           },
           { status: 409 }
         );
+      }
+
+      if (result.invitedUserId && employeeProfile.id) {
+        await syncUserChauffeurMetadata({
+          userId: result.invitedUserId,
+          chauffeurId: employeeProfile.id,
+        });
       }
 
       const updated = await updateRequestRow(id, {
@@ -784,6 +1364,7 @@ export async function PATCH(
             hadExistingAccount: Boolean(result.existingUser),
             invitationResult: result.invitationResult,
             retriedFromError: true,
+            employeeProfileId: employeeProfile.id,
             company: requestRow.company,
             companyDirectoryContext: getCompanyDirectoryContext(requestRow.company),
           }
@@ -816,18 +1397,6 @@ export async function DELETE(
 ) {
   try {
     const requestDebug = getAccountRequestsRequestDebug(req);
-
-    console.log(
-      "[account-requests][DELETE][received]",
-      JSON.stringify({
-        inferredSource: requestDebug.inferredSource,
-        hasClientMarker: requestDebug.hasClientMarker,
-        hasAuthorizationHeader: requestDebug.hasAuthorizationHeader,
-        secFetchMode: requestDebug.secFetchMode,
-        secFetchDest: requestDebug.secFetchDest,
-        referer: requestDebug.referer,
-      })
-    );
 
     if (!requestDebug.hasClientMarker) {
       return NextResponse.json(

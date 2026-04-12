@@ -72,7 +72,7 @@ export default function NewTerrainFolderPage() {
                 href="/employe/documents"
                 className="tagora-dark-outline-action rounded-xl border px-5 py-3 text-sm font-medium transition"
               >
-                Retour aux documents
+                Retour
               </Link>
             </div>
 
@@ -174,11 +174,11 @@ export default function NewTerrainFolderPage() {
 
               <div className="tagora-actions">
                 <button type="submit" className="tagora-dark-action rounded-xl px-6 py-4 text-base font-semibold transition">
-                  Enregistrer le dossier
+                  Creer
                 </button>
 
                 <button type="button" className="tagora-dark-outline-action rounded-xl border px-6 py-4 text-base font-semibold transition">
-                  Envoyer a la direction
+                  Acceder
                 </button>
               </div>
             </form>

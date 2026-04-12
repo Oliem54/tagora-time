@@ -14,6 +14,59 @@ import {
 } from "@/app/lib/account-requests.shared";
 
 type Row = Record<string, string | number | null | undefined>;
+type LivraisonFormState = {
+  dossier_id: string;
+  client: string;
+  adresse: string;
+  date_livraison: string;
+  heure_prevue: string;
+  chauffeur_id: string;
+  vehicule_id: string;
+  remorque_id: string;
+  statut: string;
+  company_context: string;
+  notes: string;
+};
+
+function getLivraisonCompanyValue(item: Row | undefined) {
+  if (!item) return "";
+
+  const companyContext = item.company_context;
+  if (typeof companyContext === "string" && companyContext.trim()) {
+    return companyContext;
+  }
+
+  const company = item.company;
+  if (typeof company === "string" && company.trim()) {
+    return company;
+  }
+
+  const compagnie = item.compagnie;
+  if (typeof compagnie === "string" && compagnie.trim()) {
+    return compagnie;
+  }
+
+  return "";
+}
+
+function createLivraisonForm(
+  overrides?: Partial<LivraisonFormState>
+): LivraisonFormState {
+  return {
+    dossier_id: "",
+    client: "",
+    adresse: "",
+    date_livraison: "",
+    heure_prevue: "",
+    chauffeur_id: "",
+    vehicule_id: "",
+    remorque_id: "",
+    statut: "",
+    company_context: "",
+    notes: "",
+    ...overrides,
+  };
+}
 
 export default function Page() {
   const { user, loading: accessLoading, hasPermission } = useCurrentAccess();
@@ -41,27 +94,11 @@ export default function Page() {
     statut: "",
   });
 
-  const [form, setForm] = useState({
-    dossier_id: "",
-    adresse: "",
-    date_livraison: "",
-    heure_prevue: "",
-    chauffeur_id: "",
-    vehicule_id: "",
-    remorque_id: "",
-    statut: "",
-    company_context: "",
-  });
+  const [form, setForm] = useState<LivraisonFormState>(createLivraisonForm());
 
-  const [newForm, setNewForm] = useState({
-    chauffeur_id: "",
-    vehicule_id: "",
-    remorque_id: "",
-    dossier_id: "",
-    date_livraison: "",
-    statut: "planifiee",
-    company_context: "",
-  });
+  const [newForm, setNewForm] = useState<LivraisonFormState>(
+    createLivraisonForm({ statut: "planifiee" })
+  );
 
   function setFeedbackMessage(msg: string, type: "success" | "error") {
     setMessage(msg);
@@ -133,7 +170,7 @@ export default function Page() {
 
     setLinkedDataNotice(
       notices.length > 0
-        ? `Certaines donnees liees sont limitees sur ce compte : ${notices.join(", ")}. Les livraisons restent visibles, mais certaines listes ou etiquettes peuvent etre reduites.`
+        ? `Listes limitees : ${notices.join(", ")}.`
         : ""
     );
 
@@ -153,29 +190,11 @@ export default function Page() {
 
   function resetForm() {
     setEditingId(null);
-    setForm({
-      dossier_id: "",
-      adresse: "",
-      date_livraison: "",
-      heure_prevue: "",
-      chauffeur_id: "",
-      vehicule_id: "",
-      remorque_id: "",
-      statut: "",
-      company_context: "",
-    });
+    setForm(createLivraisonForm());
   }
 
   function resetCreateForm() {
-    setNewForm({
-      chauffeur_id: "",
-      vehicule_id: "",
-      remorque_id: "",
-      dossier_id: "",
-      date_livraison: "",
-      statut: "planifiee",
-      company_context: "",
-    });
+    setNewForm(createLivraisonForm({ statut: "planifiee" }));
     setShowCreateForm(false);
   }
 
@@ -206,6 +225,26 @@ export default function Page() {
 
   function getDossierById(id: unknown) {
     return dossiers.find((item) => String(item.id) === String(id));
+  }
+
+  function getStringField(item: Row | undefined, field: string) {
+    if (!item) return "";
+    const value = item[field];
+    return typeof value === "string" ? value : "";
+  }
+
+  function getDossierClient(dossier: Row | undefined) {
+    return String(dossier?.client || dossier?.nom_client || "").trim();
+  }
+
+  function getLivraisonClient(item: Row, dossier?: Row) {
+    const directClient = String(item.client || item.nom_client || "").trim();
+    if (directClient) {
+      return directClient;
+    }
+
+    const dossierClient = getDossierClient(dossier);
+    return dossierClient || "";
   }
 
   function getChauffeurById(id: unknown) {
@@ -289,6 +328,28 @@ export default function Page() {
     setCalendarDate(new Date(calendarDate.getFullYear(), calendarDate.getMonth() + 1, 1));
   }
 
+  const canEditLivraisonNotes = livraisons.some((item) =>
+    Object.prototype.hasOwnProperty.call(item, "notes")
+  );
+
+  function buildPayload(source: LivraisonFormState) {
+    const dossier = source.dossier_id ? getDossierById(source.dossier_id) : undefined;
+    const clientValue = source.client.trim() || getDossierClient(dossier) || null;
+
+    return {
+      dossier_id: source.dossier_id ? Number(source.dossier_id) : null,
+      client: clientValue,
+      adresse: source.adresse.trim() || null,
+      date_livraison: source.date_livraison || null,
+      heure_prevue: source.heure_prevue || null,
+      chauffeur_id: source.chauffeur_id ? Number(source.chauffeur_id) : null,
+      vehicule_id: source.vehicule_id ? Number(source.vehicule_id) : null,
+      remorque_id: source.remorque_id ? Number(source.remorque_id) : null,
+      statut: source.statut || null,
+      ...(canEditLivraisonNotes ? { notes: source.notes.trim() || null } : {}),
+    };
+  }
+
   const livraisonsFiltrees = livraisons.filter((item) => {
     const okChauffeur = !filtre.chauffeur_id || String(item.chauffeur_id) === String(filtre.chauffeur_id);
     const okVehicule = !filtre.vehicule_id || String(item.vehicule_id) === String(filtre.vehicule_id);
@@ -302,23 +363,7 @@ export default function Page() {
     setSaving(true);
     clearMessage();
 
-    const payload = {
-      dossier_id: form.dossier_id ? Number(form.dossier_id) : null,
-      adresse: form.adresse || null,
-      date_livraison: form.date_livraison || null,
-      heure_prevue: form.heure_prevue || null,
-      chauffeur_id: form.chauffeur_id ? Number(form.chauffeur_id) : null,
-      vehicule_id: form.vehicule_id ? Number(form.vehicule_id) : null,
-      remorque_id: form.remorque_id ? Number(form.remorque_id) : null,
-      statut: form.statut || null,
-      company_context: form.company_context || null,
-    };
-
-    if (!payload.company_context) {
-      setFeedbackMessage("La compagnie est obligatoire pour chaque livraison.", "error");
-      setSaving(false);
-      return;
-    }
+    const payload = buildPayload(form);
 
     const res = editingId
       ? await supabase.from("livraisons_planifiees").update(payload).eq("id", editingId)
@@ -330,7 +375,7 @@ export default function Page() {
       return;
     }
 
-    setFeedbackMessage(editingId ? "Livraison modifiee." : "Livraison ajoutee.", "success");
+    setFeedbackMessage("Livraison mise a jour.", "success");
     resetForm();
     await fetchData();
     setSaving(false);
@@ -341,21 +386,7 @@ export default function Page() {
     setSaving(true);
     clearMessage();
 
-    const payload = {
-      chauffeur_id: newForm.chauffeur_id ? Number(newForm.chauffeur_id) : null,
-      vehicule_id: newForm.vehicule_id ? Number(newForm.vehicule_id) : null,
-      remorque_id: newForm.remorque_id ? Number(newForm.remorque_id) : null,
-      dossier_id: newForm.dossier_id ? Number(newForm.dossier_id) : null,
-      date_livraison: newForm.date_livraison || null,
-      statut: newForm.statut || null,
-      company_context: newForm.company_context || null,
-    };
-
-    if (!payload.company_context) {
-      setFeedbackMessage("La compagnie est obligatoire pour chaque livraison.", "error");
-      setSaving(false);
-      return;
-    }
+    const payload = buildPayload(newForm);
 
     const res = await supabase.from("livraisons_planifiees").insert([payload]);
 
@@ -373,18 +404,22 @@ export default function Page() {
 
   function handleEdit(item: Row) {
     setShowCreateForm(false);
+    clearMessage();
+    const dossier = getDossierById(item.dossier_id);
     setEditingId(Number(item.id));
-    setForm({
+    setForm(createLivraisonForm({
       dossier_id: item.dossier_id ? String(item.dossier_id) : "",
-      adresse: typeof item.adresse === "string" ? item.adresse : "",
-      date_livraison: typeof item.date_livraison === "string" ? item.date_livraison : "",
-      heure_prevue: typeof item.heure_prevue === "string" ? item.heure_prevue : "",
+      client: getLivraisonClient(item, dossier),
+      adresse: getStringField(item, "adresse"),
+      date_livraison: getStringField(item, "date_livraison"),
+      heure_prevue: getStringField(item, "heure_prevue"),
       chauffeur_id: item.chauffeur_id ? String(item.chauffeur_id) : "",
       vehicule_id: item.vehicule_id ? String(item.vehicule_id) : "",
       remorque_id: item.remorque_id ? String(item.remorque_id) : "",
-      statut: typeof item.statut === "string" ? item.statut : "",
-      company_context: typeof item.company_context === "string" ? item.company_context : "",
-    });
+      statut: getStringField(item, "statut"),
+      company_context: getLivraisonCompanyValue(item),
+      notes: getStringField(item, "notes"),
+    }));
 
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
@@ -425,8 +460,8 @@ export default function Page() {
   if (accessLoading || (!blocked && loading)) {
     return (
       <main className="page-container">
-        <HeaderTagora title="Direction livraisons" subtitle="Planification et suivi des livraisons" />
-        <AccessNotice description="Verification des acces livraisons et chargement des donnees en cours." />
+        <HeaderTagora title="Livraisons" subtitle="Chargement" />
+        <AccessNotice description="Chargement en cours." />
       </main>
     );
   }
@@ -438,29 +473,48 @@ export default function Page() {
   if (blocked) {
     return (
       <main className="page-container">
-        <HeaderTagora title="Direction livraisons" subtitle="Planification et suivi des livraisons" />
-        <AccessNotice description="La permission livraisons n est pas active sur ce compte direction. Le module reste masque tant que cet acces n est pas ouvert." />
+        <HeaderTagora title="Livraisons" subtitle="Acces requis" />
+        <AccessNotice description="Acces requis." />
       </main>
     );
   }
 
   return (
     <main className="page-container">
-      <HeaderTagora title="Direction livraisons" subtitle="Planifie, filtre et gere les livraisons" />
+      <HeaderTagora title="Livraisons" subtitle="Planification" />
 
-      <div className="tagora-panel" style={{ marginTop: 24 }}>
-        <FeedbackMessage message={message} type={messageType} />
-        {linkedDataNotice ? (
-          <div style={{ marginTop: 12 }}>
-            <AccessNotice title="Acces partiel" description={linkedDataNotice} />
-          </div>
-        ) : null}
-      </div>
+      <FeedbackMessage message={message} type={messageType} />
+      {linkedDataNotice ? (
+        <div style={{ marginTop: 16 }}>
+          <AccessNotice title="Acces partiel" description="Certaines listes sont limitees." />
+        </div>
+      ) : null}
 
       {showCreateForm ? (
         <div className="tagora-panel" style={{ marginTop: 24 }}>
           <h2 className="section-title" style={{ marginBottom: 18 }}>Nouvelle livraison</h2>
           <form onSubmit={handleCreateSubmit} className="tagora-form-grid">
+            <label className="tagora-field">
+              <span className="tagora-label">Client</span>
+              <input
+                type="text"
+                value={newForm.client}
+                onChange={(e) => setNewForm({ ...newForm, client: e.target.value })}
+                className="tagora-input"
+                placeholder="Nom du client"
+                required
+              />
+            </label>
+            <label className="tagora-field">
+              <span className="tagora-label">Adresse</span>
+              <input
+                type="text"
+                value={newForm.adresse}
+                onChange={(e) => setNewForm({ ...newForm, adresse: e.target.value })}
+                className="tagora-input"
+                placeholder="Adresse de livraison"
+              />
+            </label>
             <label className="tagora-field">
               <span className="tagora-label">Chauffeur</span>
               <select value={newForm.chauffeur_id} onChange={(e) => setNewForm({ ...newForm, chauffeur_id: e.target.value })} className="tagora-input" required>
@@ -501,6 +555,10 @@ export default function Page() {
               <input type="date" value={newForm.date_livraison} onChange={(e) => setNewForm({ ...newForm, date_livraison: e.target.value })} className="tagora-input" required />
             </label>
             <label className="tagora-field">
+              <span className="tagora-label">Heure</span>
+              <input type="time" value={newForm.heure_prevue} onChange={(e) => setNewForm({ ...newForm, heure_prevue: e.target.value })} className="tagora-input" />
+            </label>
+            <label className="tagora-field">
               <span className="tagora-label">Statut</span>
               <select value={newForm.statut} onChange={(e) => setNewForm({ ...newForm, statut: e.target.value })} className="tagora-input" required>
                 <option value="planifiee">Planifiee</option>
@@ -509,48 +567,67 @@ export default function Page() {
                 <option value="probleme">Probleme</option>
               </select>
             </label>
+            {canEditLivraisonNotes ? (
+              <label className="tagora-field" style={{ gridColumn: "1 / -1" }}>
+                <span className="tagora-label">Notes</span>
+                <textarea
+                  value={newForm.notes}
+                  onChange={(e) => setNewForm({ ...newForm, notes: e.target.value })}
+                  className="tagora-textarea"
+                  placeholder="Notes"
+                />
+              </label>
+            ) : null}
             <div className="actions-row" style={{ gridColumn: "1 / -1" }}>
-              <button type="submit" className="tagora-dark-action" disabled={saving}>{saving ? "Creation..." : "Enregistrer"}</button>
+              <button type="submit" className="tagora-dark-action" disabled={saving}>{saving ? "Creation..." : "Creer"}</button>
               <button type="button" className="tagora-dark-outline-action" onClick={resetCreateForm}>Annuler</button>
             </div>
           </form>
         </div>
       ) : null}
 
-      <div style={{ display: "grid", gridTemplateColumns: "minmax(320px, 1fr) minmax(0, 2fr)", gap: 24, alignItems: "start", marginTop: 24 }}>
-        <section className="tagora-panel">
-          {!showCreateForm && !editingId ? (
-            <button onClick={() => setShowCreateForm(true)} className="tagora-dark-action">
-              Nouvelle livraison
-            </button>
-          ) : null}
-
-          {editingId ? (
-            <>
-              <h2 className="section-title" style={{ marginTop: 18, marginBottom: 18 }}>Modifier une livraison</h2>
-              <form onSubmit={handleSubmit} className="tagora-form-grid">
-                <label className="tagora-field"><span className="tagora-label">Dossier</span><select value={form.dossier_id} onChange={(e) => setForm({ ...form, dossier_id: e.target.value })} className="tagora-input"><option value="">Choisir un dossier</option>{dossiers.map((dossier) => <option key={String(dossier.id)} value={String(dossier.id)}>{String(getDossierLabel(dossier))}</option>)}</select></label>
-                <label className="tagora-field"><span className="tagora-label">Adresse</span><input type="text" value={form.adresse} onChange={(e) => setForm({ ...form, adresse: e.target.value })} className="tagora-input" placeholder="Adresse de livraison" /></label>
-                <label className="tagora-field"><span className="tagora-label">Date</span><input type="date" value={form.date_livraison} onChange={(e) => setForm({ ...form, date_livraison: e.target.value })} className="tagora-input" /></label>
-                <label className="tagora-field"><span className="tagora-label">Heure prevue</span><input type="time" value={form.heure_prevue} onChange={(e) => setForm({ ...form, heure_prevue: e.target.value })} className="tagora-input" /></label>
-                <label className="tagora-field"><span className="tagora-label">Chauffeur</span><select value={form.chauffeur_id} onChange={(e) => setForm({ ...form, chauffeur_id: e.target.value })} className="tagora-input"><option value="">Choisir un chauffeur</option>{chauffeurs.map((item) => <option key={String(item.id)} value={String(item.id)}>{String(getPersonLabel(item))}</option>)}</select></label>
-                <label className="tagora-field"><span className="tagora-label">Vehicule</span><select value={form.vehicule_id} onChange={(e) => setForm({ ...form, vehicule_id: e.target.value })} className="tagora-input"><option value="">Choisir un vehicule</option>{vehicules.map((item) => <option key={String(item.id)} value={String(item.id)}>{String(getVehiculeLabel(item))}</option>)}</select></label>
-                <label className="tagora-field"><span className="tagora-label">Remorque</span><select value={form.remorque_id} onChange={(e) => setForm({ ...form, remorque_id: e.target.value })} className="tagora-input"><option value="">Choisir une remorque</option>{remorques.map((item) => <option key={String(item.id)} value={String(item.id)}>{String(getRemorqueLabel(item))}</option>)}</select></label>
-                <label className="tagora-field"><span className="tagora-label">Compagnie</span><select value={form.company_context} onChange={(e) => setForm({ ...form, company_context: e.target.value as AccountRequestCompany | "" })} className="tagora-input"><option value="">Choisir une compagnie</option>{ACCOUNT_REQUEST_COMPANIES.map((company) => <option key={company.value} value={company.value}>{company.label}</option>)}</select></label>
-                <label className="tagora-field"><span className="tagora-label">Statut</span><select value={form.statut} onChange={(e) => setForm({ ...form, statut: e.target.value })} className="tagora-input"><option value="planifiee">Planifiee</option><option value="en_cours">En cours</option><option value="livree">Livree</option><option value="probleme">Probleme</option></select></label>
-                <div className="actions-row" style={{ gridColumn: "1 / -1" }}>
-                  <button type="submit" className="tagora-dark-action" disabled={saving}>{saving ? "Sauvegarde..." : "Enregistrer les changements"}</button>
-                  <button type="button" className="tagora-dark-outline-action" onClick={resetForm}>Annuler</button>
-                </div>
-              </form>
-            </>
-          ) : null}
+      {editingId ? (
+        <section className="tagora-panel" style={{ marginTop: 24 }}>
+          <h2 className="section-title" style={{ marginBottom: 18 }}>Modifier la livraison</h2>
+          <form onSubmit={handleSubmit} className="tagora-form-grid">
+            <label className="tagora-field"><span className="tagora-label">Client</span><input type="text" value={form.client} onChange={(e) => setForm({ ...form, client: e.target.value })} className="tagora-input" placeholder="Nom du client" required /></label>
+            <label className="tagora-field"><span className="tagora-label">Adresse</span><input type="text" value={form.adresse} onChange={(e) => setForm({ ...form, adresse: e.target.value })} className="tagora-input" placeholder="Adresse de livraison" /></label>
+            <label className="tagora-field"><span className="tagora-label">Dossier</span><select value={form.dossier_id} onChange={(e) => setForm({ ...form, dossier_id: e.target.value })} className="tagora-input"><option value="">Choisir un dossier</option>{dossiers.map((dossier) => <option key={String(dossier.id)} value={String(dossier.id)}>{String(getDossierLabel(dossier))}</option>)}</select></label>
+            <label className="tagora-field"><span className="tagora-label">Date</span><input type="date" value={form.date_livraison} onChange={(e) => setForm({ ...form, date_livraison: e.target.value })} className="tagora-input" /></label>
+            <label className="tagora-field"><span className="tagora-label">Heure</span><input type="time" value={form.heure_prevue} onChange={(e) => setForm({ ...form, heure_prevue: e.target.value })} className="tagora-input" /></label>
+            <label className="tagora-field"><span className="tagora-label">Compagnie</span><select value={form.company_context} onChange={(e) => setForm({ ...form, company_context: e.target.value as AccountRequestCompany | "" })} className="tagora-input"><option value="">Choisir une compagnie</option>{ACCOUNT_REQUEST_COMPANIES.map((company) => <option key={company.value} value={company.value}>{company.label}</option>)}</select></label>
+            <label className="tagora-field"><span className="tagora-label">Chauffeur</span><select value={form.chauffeur_id} onChange={(e) => setForm({ ...form, chauffeur_id: e.target.value })} className="tagora-input"><option value="">Choisir un chauffeur</option>{chauffeurs.map((item) => <option key={String(item.id)} value={String(item.id)}>{String(getPersonLabel(item))}</option>)}</select></label>
+            <label className="tagora-field"><span className="tagora-label">Vehicule</span><select value={form.vehicule_id} onChange={(e) => setForm({ ...form, vehicule_id: e.target.value })} className="tagora-input"><option value="">Choisir un vehicule</option>{vehicules.map((item) => <option key={String(item.id)} value={String(item.id)}>{String(getVehiculeLabel(item))}</option>)}</select></label>
+            <label className="tagora-field"><span className="tagora-label">Remorque</span><select value={form.remorque_id} onChange={(e) => setForm({ ...form, remorque_id: e.target.value })} className="tagora-input"><option value="">Choisir une remorque</option>{remorques.map((item) => <option key={String(item.id)} value={String(item.id)}>{String(getRemorqueLabel(item))}</option>)}</select></label>
+            <label className="tagora-field"><span className="tagora-label">Statut</span><select value={form.statut} onChange={(e) => setForm({ ...form, statut: e.target.value })} className="tagora-input"><option value="planifiee">Planifiee</option><option value="en_cours">En cours</option><option value="livree">Livree</option><option value="probleme">Probleme</option></select></label>
+            {canEditLivraisonNotes ? (
+              <label className="tagora-field" style={{ gridColumn: "1 / -1" }}>
+                <span className="tagora-label">Notes</span>
+                <textarea value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} className="tagora-textarea" placeholder="Notes" />
+              </label>
+            ) : null}
+            <div className="actions-row" style={{ gridColumn: "1 / -1" }}>
+              <button type="submit" className="tagora-dark-action" disabled={saving}>{saving ? "Enregistrement..." : "Enregistrer"}</button>
+              <button type="button" className="tagora-dark-outline-action" onClick={resetForm}>Annuler</button>
+            </div>
+          </form>
         </section>
+      ) : null}
 
-        <section className="tagora-panel">
+      <section className="tagora-panel" style={{ marginTop: 24 }}>
           <div style={{ display: "flex", justifyContent: "space-between", gap: 16, flexWrap: "wrap", alignItems: "center", marginBottom: 18 }}>
             <h2 className="section-title" style={{ marginBottom: 0 }}>Livraisons planifiees</h2>
             <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <button
+                onClick={() => {
+                  resetForm();
+                  clearMessage();
+                  setShowCreateForm(true);
+                }}
+                className="tagora-dark-action"
+              >
+                Creer
+              </button>
               <button
                 onClick={() => setViewMode("liste")}
                 style={{
@@ -604,6 +681,7 @@ export default function Page() {
                       <tr>
                         <th style={thStyle}>ID</th>
                         <th style={thStyle}>Dossier</th>
+                        <th style={thStyle}>Client</th>
                         <th style={thStyle}>Adresse</th>
                         <th style={thStyle}>Date</th>
                         <th style={thStyle}>Heure</th>
@@ -621,15 +699,17 @@ export default function Page() {
                         const chauffeur = getChauffeurById(item.chauffeur_id);
                         const vehicule = getVehiculeById(item.vehicule_id);
                         const remorque = getRemorqueById(item.remorque_id);
+                        const clientLabel = getLivraisonClient(item, dossier);
 
                         return (
                           <tr key={item.id}>
                             <td style={tdStyle}>{item.id}</td>
                             <td style={tdStyle}>{dossier ? getDossierLabel(dossier) : item.dossier_id || "-"}</td>
+                            <td style={tdStyle}>{clientLabel || "-"}</td>
                             <td style={tdStyle}>{item.adresse || "-"}</td>
                             <td style={tdStyle}>{item.date_livraison || "-"}</td>
                             <td style={tdStyle}>{item.heure_prevue || "-"}</td>
-                            <td style={tdStyle}>{typeof item.company_context === "string" ? getCompanyLabel(item.company_context as AccountRequestCompany) : "-"}</td>
+                            <td style={tdStyle}>{getLivraisonCompanyValue(item) ? getCompanyLabel(getLivraisonCompanyValue(item) as AccountRequestCompany) : "-"}</td>
                             <td style={tdStyle}>{chauffeur ? getPersonLabel(chauffeur) : item.chauffeur_id || "-"}</td>
                             <td style={tdStyle}>{vehicule ? getVehiculeLabel(vehicule) : item.vehicule_id || "-"}</td>
                             <td style={tdStyle}>{remorque ? getRemorqueLabel(remorque) : item.remorque_id || "-"}</td>
@@ -646,8 +726,8 @@ export default function Page() {
                             </td>
                             <td style={tdStyle}>
                               <div className="actions-row">
-                                <button onClick={() => handleEdit(item)} className="tagora-dark-outline-action">Modifier</button>
-                                <Link href={`/direction/sorties-terrain?livraison_id=${item.id}`} className="tagora-dark-outline-action">Sortie terrain</Link>
+                                <button onClick={() => handleEdit(item)} className="tagora-dark-outline-action">Gerer</button>
+                                <Link href={`/direction/sorties-terrain?livraison_id=${item.id}`} className="tagora-dark-outline-action">Voir</Link>
                                 <button onClick={() => void handleDelete(Number(item.id))} className="tagora-dark-action">Supprimer</button>
                               </div>
                             </td>
@@ -719,7 +799,7 @@ export default function Page() {
                             onMouseEnter={(e) => (e.currentTarget.style.opacity = "0.8")}
                             onMouseLeave={(e) => (e.currentTarget.style.opacity = "1")}
                           >
-                            #{item.id} {item.heure_prevue ? `@ ${item.heure_prevue}` : ""}
+                            {getLivraisonClient(item, getDossierById(item.dossier_id)) || `#${item.id}`} {item.heure_prevue ? `@ ${item.heure_prevue}` : ""}
                           </button>
                         ))}
                         {datumsForDay.length > 3 && (
@@ -732,8 +812,7 @@ export default function Page() {
               </div>
             </>
           )}
-        </section>
-      </div>
+      </section>
     </main>
   );
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import AccessNotice from "@/app/components/AccessNotice";
 import HeaderTagora from "@/app/components/HeaderTagora";
 import { useCurrentAccess } from "@/app/hooks/useCurrentAccess";
@@ -143,20 +143,12 @@ export default function EmployeDocumentsPage() {
     void loadDocuments();
   }, [accessLoading, canUseDocuments, userId]);
 
-  const stats = useMemo(() => {
-    return {
-      total: rows.length,
-      completed: rows.filter((row) => row.statut === "Termine").length,
-      pending: rows.filter((row) => row.statut !== "Termine").length,
-    };
-  }, [rows]);
-
   if (accessLoading) {
     return (
       <main className="tagora-app-shell">
         <div className="tagora-app-content" style={{ maxWidth: 1400 }}>
-          <HeaderTagora title="Mes documents terrain" subtitle="Chargement des acces et des documents" />
-          <AccessNotice description="Verification de la session et des permissions documents en cours." />
+          <HeaderTagora title="Documents" subtitle="Chargement" />
+          <AccessNotice description="Acces en cours." />
         </div>
       </main>
     );
@@ -166,47 +158,19 @@ export default function EmployeDocumentsPage() {
     <main className="tagora-app-shell">
       <div className="tagora-app-content" style={{ maxWidth: 1400 }}>
         <HeaderTagora
-          title="Mes documents terrain"
-          subtitle="Centralisez vos preuves photo, confirmations et dossiers terrain dans un espace unifie."
+          title="Documents"
+          subtitle="Liste."
         />
 
         {!hasPermission("documents") && !accessLoading ? (
-          <AccessNotice description="La permission documents est necessaire pour afficher ce module et ses contenus associes." />
+          <AccessNotice description="Permission requise." />
         ) : (
           <>
-            <div className="tagora-stat-grid" style={{ marginBottom: 24 }}>
-              <div className="tagora-stat-card">
-                <div className="tagora-stat-label">Total dossiers</div>
-                <div className="tagora-stat-value">{stats.total}</div>
-                <p className="tagora-note" style={{ marginTop: 10 }}>
-                  Documents relies a vos dossiers terrain
-                </p>
-              </div>
-
-              <div className="tagora-stat-card">
-                <div className="tagora-stat-label">Termines</div>
-                <div className="tagora-stat-value">{stats.completed}</div>
-                <p className="tagora-note" style={{ marginTop: 10 }}>
-                  Dossiers completes ou deja transmis
-                </p>
-              </div>
-
-              <div className="tagora-stat-card">
-                <div className="tagora-stat-label">En suivi</div>
-                <div className="tagora-stat-value">{stats.pending}</div>
-                <p className="tagora-note" style={{ marginTop: 10 }}>
-                  Dossiers a completer ou encore actifs
-                </p>
-              </div>
-            </div>
-
-            <div className="tagora-panel" style={{ marginBottom: 24 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", gap: 16, flexWrap: "wrap", alignItems: "center" }}>
+            <div className="tagora-panel">
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 16, flexWrap: "wrap", alignItems: "center", marginBottom: 18 }}>
                 <div>
-                  <h2 className="section-title" style={{ marginBottom: 8 }}>Actions rapides</h2>
-                  <p className="tagora-note">
-                    Creez un nouveau dossier terrain ou ajoutez des medias a un dossier existant sans quitter le module documents.
-                  </p>
+                  <h2 className="section-title" style={{ marginBottom: 8 }}>Documents</h2>
+                  <p className="tagora-note">{rows.length} element{rows.length > 1 ? "s" : ""}</p>
                 </div>
 
                 <div className="tagora-actions">
@@ -214,36 +178,23 @@ export default function EmployeDocumentsPage() {
                     href="/employe/documents/new"
                     className="tagora-dark-action rounded-xl px-6 py-3 text-center text-base font-semibold transition"
                   >
-                    Ajouter un dossier terrain
+                    Creer
                   </Link>
 
                   <Link
                     href="/employe/dashboard"
                     className="tagora-dark-outline-action rounded-xl border px-6 py-3 text-center text-base font-semibold transition"
                   >
-                    Retour au dashboard
+                    Retour
                   </Link>
-                </div>
-              </div>
-            </div>
-
-            <div className="tagora-panel">
-              <div style={{ display: "flex", justifyContent: "space-between", gap: 16, flexWrap: "wrap", alignItems: "center", marginBottom: 18 }}>
-                <div>
-                  <h2 className="section-title" style={{ marginBottom: 8 }}>Liste recente des documents</h2>
-                  <p className="tagora-note">Vue densemble des dossiers terrain reels accessibles avec vos permissions.</p>
-                </div>
-
-                <div className="tagora-panel-muted" style={{ padding: "12px 16px" }}>
-                  <span className="tagora-note">Les lignes ci-dessous sont lues depuis Supabase avec RLS active.</span>
                 </div>
               </div>
 
               {loading ? (
-                <p className="tagora-note">Chargement des documents...</p>
+                <p className="tagora-note">Chargement...</p>
               ) : rows.length === 0 ? (
                 <div className="tagora-panel-muted">
-                  <p className="tagora-note">Aucun document ou dossier terrain visible pour le moment.</p>
+                  <p className="tagora-note">Aucun document.</p>
                 </div>
               ) : (
                 <div style={{ overflowX: "auto" }}>
