@@ -8,6 +8,11 @@ import { useCurrentAccess } from "@/app/hooks/useCurrentAccess";
 import { getCompanyLabel, type AccountRequestCompany } from "@/app/lib/account-requests.shared";
 import {
   buildHorodateurLoadError,
+  computeHorodateurState,
+  computeWorkedMinutes,
+  getHorodateurActorLabel,
+  getHorodateurEventLabel,
+  getHorodateurStateLabel,
   HorodateurEventType,
 } from "@/app/lib/horodateur";
 import { supabase } from "@/app/lib/supabase/client";
@@ -26,6 +31,10 @@ type HorodateurEvent = {
   notes: string | null;
   company_context: AccountRequestCompany | null;
   metadata: Record<string, unknown>;
+  entered_by_admin: boolean;
+  entered_by_user_id: string | null;
+  admin_note: string | null;
+  created_at: string;
 };
 
 type DossierOption = {
@@ -42,7 +51,7 @@ type LivraisonOption = {
   dossier_id: number | null;
 };
 
-type PunchState = "hors_quart" | "en_quart" | "en_pause" | "en_sortie" | "termine";
+type PunchState = "hors_quart" | "en_quart" | "en_pause" | "en_diner" | "en_sortie" | "termine";
 type BreakConfig = {
   expected_breaks_count: number | null;
   break_1_label: string | null;
@@ -54,6 +63,10 @@ type BreakConfig = {
   break_3_label: string | null;
   break_3_minutes: number | null;
   break_3_paid: boolean | null;
+  lunch_enabled: boolean | null;
+  lunch_time: string | null;
+  lunch_minutes: number | null;
+  lunch_paid: boolean | null;
 };
 
 function formatDateTime(value: string | null | undefined) {
@@ -69,104 +82,10 @@ function startOfTodayIso() {
   return `${year}-${month}-${day}T00:00:00`;
 }
 
-function diffMinutes(aIso: string, bIso: string) {
-  const a = new Date(aIso).getTime();
-  const b = new Date(bIso).getTime();
-  return Math.max(0, Math.floor((b - a) / 60000));
-}
-
 function formatMinutes(totalMinutes: number) {
   const h = Math.floor(totalMinutes / 60);
   const m = totalMinutes % 60;
   return `${h}h ${String(m).padStart(2, "0")}m`;
-}
-
-function getEventLabel(type: EventType) {
-  if (type === "quart_debut") return "Debut du quart";
-  if (type === "pause_debut") return "Debut pause";
-  if (type === "pause_fin") return "Fin pause";
-  if (type === "sortie_depart") return "Depart sortie";
-  if (type === "sortie_retour") return "Retour sortie";
-  if (type === "quart_fin") return "Fin du quart";
-  return "Anomalie";
-}
-
-function computeState(events: HorodateurEvent[]) {
-  let state: PunchState = "hors_quart";
-
-  for (const event of events) {
-    if (event.event_type === "quart_debut") {
-      state = "en_quart";
-      continue;
-    }
-
-    if (event.event_type === "pause_debut" && state === "en_quart") {
-      state = "en_pause";
-      continue;
-    }
-
-    if (event.event_type === "pause_fin" && state === "en_pause") {
-      state = "en_quart";
-      continue;
-    }
-
-    if (event.event_type === "sortie_depart" && state === "en_quart") {
-      state = "en_sortie";
-      continue;
-    }
-
-    if (event.event_type === "sortie_retour" && state === "en_sortie") {
-      state = "en_quart";
-      continue;
-    }
-
-    if (event.event_type === "quart_fin") {
-      state = "termine";
-    }
-  }
-
-  return state;
-}
-
-function computeWorkedMinutes(events: HorodateurEvent[]) {
-  const nowIso = new Date().toISOString();
-  let startedAt: string | null = null;
-  let pauseStartedAt: string | null = null;
-  let total = 0;
-
-  for (const event of events) {
-    if (event.event_type === "quart_debut" && !startedAt) {
-      startedAt = event.occurred_at;
-      continue;
-    }
-
-    if (event.event_type === "pause_debut" && startedAt && !pauseStartedAt) {
-      total += diffMinutes(startedAt, event.occurred_at);
-      startedAt = null;
-      pauseStartedAt = event.occurred_at;
-      continue;
-    }
-
-    if (event.event_type === "pause_fin" && pauseStartedAt) {
-      pauseStartedAt = null;
-      startedAt = event.occurred_at;
-      continue;
-    }
-
-    if (event.event_type === "quart_fin") {
-      if (startedAt) {
-        total += diffMinutes(startedAt, event.occurred_at);
-      }
-      startedAt = null;
-      pauseStartedAt = null;
-    }
-  }
-
-  if (startedAt) {
-    total += diffMinutes(startedAt, nowIso);
-  }
-
-  return total;
 }
 
 export default function EmployeHorodateurPage() {
@@ -190,9 +109,21 @@ export default function EmployeHorodateurPage() {
   const resolvedCompanyContext =
     companyContext || companyAccess.primaryCompany || "";
 
-  const state = useMemo(() => computeState(events), [events]);
+  const state = useMemo(() => computeHorodateurState(events) as PunchState, [events]);
   const lastEvent = useMemo(() => (events.length > 0 ? events[events.length - 1] : null), [events]);
   const workedMinutes = useMemo(() => computeWorkedMinutes(events), [events]);
+  const lunchConfig = useMemo(
+    () => ({
+      enabled:
+        breakConfig?.lunch_enabled ??
+        Boolean((breakConfig?.break_2_minutes ?? 0) > 0),
+      minutes:
+        breakConfig?.lunch_minutes ?? breakConfig?.break_2_minutes ?? 0,
+      paid:
+        breakConfig?.lunch_paid ?? breakConfig?.break_2_paid ?? false,
+    }),
+    [breakConfig]
+  );
   const configuredBreaks = useMemo(
     () =>
       breakConfig
@@ -201,11 +132,6 @@ export default function EmployeHorodateurPage() {
               label: breakConfig.break_1_label || "Pause 1",
               minutes: breakConfig.break_1_minutes ?? 0,
               paid: breakConfig.break_1_paid ?? true,
-            },
-            {
-              label: breakConfig.break_2_label || "Pause 2",
-              minutes: breakConfig.break_2_minutes ?? 0,
-              paid: breakConfig.break_2_paid ?? true,
             },
             {
               label: breakConfig.break_3_label || "Pause 3",
@@ -217,16 +143,16 @@ export default function EmployeHorodateurPage() {
     [breakConfig]
   );
   const totalConfiguredBreakMinutes = useMemo(
-    () => configuredBreaks.reduce((sum, item) => sum + item.minutes, 0),
-    [configuredBreaks]
+    () => configuredBreaks.reduce((sum, item) => sum + item.minutes, 0) + lunchConfig.minutes,
+    [configuredBreaks, lunchConfig.minutes]
   );
   const totalConfiguredUnpaidBreakMinutes = useMemo(
     () =>
       configuredBreaks.reduce(
         (sum, item) => sum + (!item.paid ? item.minutes : 0),
         0
-      ),
-    [configuredBreaks]
+      ) + (!lunchConfig.paid ? lunchConfig.minutes : 0),
+    [configuredBreaks, lunchConfig.minutes, lunchConfig.paid]
   );
   const pauseCountToday = useMemo(
     () => events.filter((event) => event.event_type === "pause_debut").length,
@@ -243,6 +169,10 @@ export default function EmployeHorodateurPage() {
       next.push("Pause en cours: fin de pause attendue.");
     }
 
+    if (state === "en_diner") {
+      next.push("Diner en cours: fin de diner attendue.");
+    }
+
     if (state === "en_sortie") {
       next.push("Sortie en cours: retour sortie attendu.");
     }
@@ -256,12 +186,12 @@ export default function EmployeHorodateurPage() {
     }
 
     return next;
-  }, [breakConfig?.expected_breaks_count, pauseCountToday, state]);
+  }, [breakConfig, pauseCountToday, state]);
 
   async function loadEvents(userId: string) {
     const { data, error } = await supabase
       .from("horodateur_events")
-      .select("id, user_id, event_type, occurred_at, source_module, livraison_id, dossier_id, sortie_id, notes, company_context, metadata")
+      .select("id, user_id, event_type, occurred_at, source_module, livraison_id, dossier_id, sortie_id, notes, company_context, metadata, entered_by_admin, entered_by_user_id, admin_note, created_at")
       .eq("user_id", userId)
       .gte("occurred_at", startOfTodayIso())
       .order("occurred_at", { ascending: true });
@@ -319,7 +249,7 @@ export default function EmployeHorodateurPage() {
         const { data } = await supabase
           .from("chauffeurs")
           .select(
-            "expected_breaks_count, break_1_label, break_1_minutes, break_1_paid, break_2_label, break_2_minutes, break_2_paid, break_3_label, break_3_minutes, break_3_paid"
+            "expected_breaks_count, break_1_label, break_1_minutes, break_1_paid, break_2_label, break_2_minutes, break_2_paid, break_3_label, break_3_minutes, break_3_paid, lunch_enabled, lunch_time, lunch_minutes, lunch_paid"
           )
           .eq("id", chauffeurId)
           .maybeSingle<BreakConfig>();
@@ -361,6 +291,9 @@ export default function EmployeHorodateurPage() {
           options?.companyContext ??
           (resolvedCompanyContext ? resolvedCompanyContext : null),
         metadata: options?.metadata ?? {},
+        entered_by_admin: false,
+        entered_by_user_id: null,
+        admin_note: null,
       },
     ]);
 
@@ -390,10 +323,12 @@ export default function EmployeHorodateurPage() {
       (state === "en_quart" &&
         [
           "pause_debut",
+          "dinner_debut",
           ...(canUseTerrain ? ["sortie_depart"] : []),
           "quart_fin",
         ].includes(action)) ||
       (state === "en_pause" && action === "pause_fin") ||
+      (state === "en_diner" && action === "dinner_fin") ||
       (state === "en_sortie" && action === "sortie_retour");
 
     if (!allowed) {
@@ -539,15 +474,7 @@ export default function EmployeHorodateurPage() {
   }
 
   const statusLabel =
-    state === "hors_quart"
-      ? "Hors quart"
-      : state === "en_quart"
-        ? "En quart"
-        : state === "en_pause"
-          ? "En pause"
-          : state === "en_sortie"
-            ? "En sortie"
-            : "Quart termine";
+    getHorodateurStateLabel(state);
 
   if (accessLoading || loading) {
     return (
@@ -572,7 +499,7 @@ export default function EmployeHorodateurPage() {
           </div>
           <div className="tagora-panel-muted">
             <div className="tagora-label">Derniere action</div>
-            <div style={{ marginTop: 8, fontSize: 16, fontWeight: 700 }}>{lastEvent ? getEventLabel(lastEvent.event_type) : "Aucune"}</div>
+            <div style={{ marginTop: 8, fontSize: 16, fontWeight: 700 }}>{lastEvent ? getHorodateurEventLabel(lastEvent.event_type) : "Aucune"}</div>
             <div className="tagora-note" style={{ marginTop: 4 }}>{formatDateTime(lastEvent?.occurred_at)}</div>
           </div>
           <div className="tagora-panel-muted">
@@ -619,6 +546,17 @@ export default function EmployeHorodateurPage() {
                 </div>
               </div>
             ))}
+            {lunchConfig.enabled ? (
+              <div className="tagora-panel-muted">
+                <div className="tagora-label">Diner</div>
+                <div style={{ marginTop: 8, fontSize: 18, fontWeight: 700, color: "#0f2948" }}>
+                  {lunchConfig.minutes} min
+                </div>
+                <div className="tagora-note" style={{ marginTop: 6 }}>
+                  {lunchConfig.paid ? "Paye" : "Non paye"}
+                </div>
+              </div>
+            ) : null}
             <div className="tagora-panel-muted">
               <div className="tagora-label">Total theorique</div>
               <div style={{ marginTop: 8, fontSize: 18, fontWeight: 700, color: "#0f2948" }}>
@@ -666,6 +604,11 @@ export default function EmployeHorodateurPage() {
             <button className="tagora-dark-action" onClick={() => void handleAction("pause_debut")} disabled={saving}>
               Debut pause
             </button>
+            {lunchConfig.enabled ? (
+              <button className="tagora-dark-outline-action" onClick={() => void handleAction("dinner_debut")} disabled={saving}>
+                Debut diner
+              </button>
+            ) : null}
             {canUseTerrain ? (
               <button className="tagora-navy-action" onClick={() => void handleAction("sortie_depart")} disabled={saving}>
                 Depart sortie
@@ -680,6 +623,12 @@ export default function EmployeHorodateurPage() {
         {state === "en_pause" && (
           <button className="tagora-dark-action" onClick={() => void handleAction("pause_fin")} disabled={saving}>
             Fin pause
+          </button>
+        )}
+
+        {state === "en_diner" && (
+          <button className="tagora-dark-action" onClick={() => void handleAction("dinner_fin")} disabled={saving}>
+            Fin diner
           </button>
         )}
 
@@ -759,6 +708,7 @@ export default function EmployeHorodateurPage() {
               <thead>
                 <tr style={{ background: "#f8fafc" }}>
                   <th style={thStyle}>Heure</th>
+                  <th style={thStyle}>Saisie</th>
                   <th style={thStyle}>Evenement</th>
                   <th style={thStyle}>Contexte</th>
                   <th style={thStyle}>Note</th>
@@ -768,14 +718,30 @@ export default function EmployeHorodateurPage() {
                 {[...events].reverse().map((event) => (
                   <tr key={event.id}>
                     <td style={tdStyle}>{formatDateTime(event.occurred_at)}</td>
-                    <td style={tdStyle}>{getEventLabel(event.event_type)}</td>
+                    <td style={tdStyle}>
+                      <span
+                        style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          borderRadius: 999,
+                          padding: "4px 10px",
+                          fontSize: 12,
+                          fontWeight: 700,
+                          background: event.entered_by_admin ? "#e0f2fe" : "#eef2ff",
+                          color: event.entered_by_admin ? "#0c4a6e" : "#3730a3",
+                        }}
+                      >
+                        {getHorodateurActorLabel(event.entered_by_admin)}
+                      </span>
+                    </td>
+                    <td style={tdStyle}>{getHorodateurEventLabel(event.event_type)}</td>
                     <td style={tdStyle}>
                       {event.company_context ? `${getCompanyLabel(event.company_context)} / ` : ""}
                       {event.livraison_id ? `Livraison #${event.livraison_id}` : "-"}
                       {event.dossier_id ? ` / Dossier #${event.dossier_id}` : ""}
                       {event.sortie_id ? ` / Sortie #${event.sortie_id}` : ""}
                     </td>
-                    <td style={tdStyle}>{event.notes || "-"}</td>
+                    <td style={tdStyle}>{event.admin_note || event.notes || "-"}</td>
                   </tr>
                 ))}
               </tbody>

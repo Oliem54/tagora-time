@@ -11,6 +11,13 @@ import {
   type AccountRequestCompany,
 } from "@/app/lib/account-requests.shared";
 import {
+  buildTitanBillingRows,
+  getTitanSettings,
+  type TitanBillingRow,
+  type TitanSortieRow,
+  type TitanTempsRow,
+} from "@/app/lib/titan-billing";
+import {
   buildBreakEntries,
   computeWorkTimeSummary,
 } from "@/app/lib/work-time";
@@ -20,6 +27,10 @@ type PaymentStatus = "paye" | "non_paye" | "";
 type Employe = {
   id: string | number;
   nom: string;
+  titan_enabled: boolean | null;
+  titan_mode_timeclock: boolean | null;
+  titan_mode_sorties: boolean | null;
+  titan_hourly_rate: number | null;
   taux_base_titan: number | null;
   social_benefits_percent: number | null;
   primary_company?: AccountRequestCompany | null;
@@ -54,41 +65,6 @@ type TempsTitanDbRow = {
   total_salaire: number | null;
   total_benefice: number | null;
   total_titan: number | null;
-  company_context: AccountRequestCompany | null;
-};
-
-type SortieTitanRow = {
-  id: string | number;
-  chauffeur_id: string | number | null;
-  livraison_id: string | number | null;
-  date_sortie: string | null;
-  temps_total: string | null;
-  payable_minutes: number | null;
-  temps_payable: string | null;
-  temps_non_payable: string | null;
-  facturable_minutes: number | null;
-  refacturer_a_titan: boolean | null;
-  company_context: AccountRequestCompany | null;
-};
-
-type UnifiedRow = {
-  source: "manuel" | "sortie";
-  sourceId: string;
-  id: string | number;
-  employe_nom: string;
-  date_travail: string;
-  duree_totale: string;
-  duree_heures: number;
-  presence_text: string;
-  payable_text: string;
-  non_payable_text: string;
-  type_travail: string;
-  livraison: string;
-  refacturee_a_titan: boolean;
-  statut_paiement_titan: PaymentStatus;
-  total_titan: number;
-  total_salaire: number;
-  total_benefice: number;
   company_context: AccountRequestCompany | null;
 };
 
@@ -131,7 +107,7 @@ function initialForm(): FormState {
     afternoon_break_paid: "paid",
     type_travail: "entrepot",
     notes: "",
-    company_context: "",
+    company_context: "titan_produits_industriels",
   };
 }
 
@@ -156,23 +132,6 @@ function diffHours(start: string, end: string) {
   return diff > 0 ? diff / 60 : 0;
 }
 
-function hoursToText(hours: number) {
-  const totalMinutes = Math.round(hours * 60);
-  const h = Math.floor(totalMinutes / 60);
-  const m = totalMinutes % 60;
-  return `${h}h ${String(m).padStart(2, "0")}m`;
-}
-
-function parseHoursFromText(value: string | null | undefined) {
-  if (!value) return 0;
-  const hourMinuteMatch = value.match(/(\d+)\s*h\s*(\d+)\s*m/i);
-  if (hourMinuteMatch) {
-    return Number(hourMinuteMatch[1]) + Number(hourMinuteMatch[2]) / 60;
-  }
-  const numeric = Number(String(value).replace(",", "."));
-  return Number.isFinite(numeric) ? numeric : 0;
-}
-
 function normalizePaymentStatus(value: unknown): PaymentStatus {
   if (value === "paye") return "paye";
   if (value === "non_paye") return "non_paye";
@@ -184,7 +143,7 @@ export default function TempsTitanPage() {
 
   const [employes, setEmployes] = useState<Employe[]>([]);
   const [tempsTitan, setTempsTitan] = useState<TempsTitanDbRow[]>([]);
-  const [sortiesTitan, setSortiesTitan] = useState<SortieTitanRow[]>([]);
+  const [sortiesTitan, setSortiesTitan] = useState<TitanSortieRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
@@ -223,9 +182,25 @@ export default function TempsTitanPage() {
     setSuccessMessage("");
 
     const results = await Promise.allSettled([
-      supabase.from("chauffeurs").select("id, nom, taux_base_titan, social_benefits_percent, primary_company").order("id", { ascending: true }),
-      supabase.from("temps_titan").select("*").order("date_travail", { ascending: false }).order("id", { ascending: false }),
-      supabase.from("sorties_terrain").select("id, chauffeur_id, livraison_id, date_sortie, temps_total, payable_minutes, temps_payable, temps_non_payable, facturable_minutes, refacturer_a_titan, company_context").eq("refacturer_a_titan", true).order("date_sortie", { ascending: false }),
+      supabase
+        .from("chauffeurs")
+        .select(
+          "id, nom, titan_enabled, titan_mode_timeclock, titan_mode_sorties, titan_hourly_rate, taux_base_titan, social_benefits_percent, primary_company"
+        )
+        .order("id", { ascending: true }),
+      supabase
+        .from("temps_titan")
+        .select("*")
+        .eq("company_context", "titan_produits_industriels")
+        .order("date_travail", { ascending: false })
+        .order("id", { ascending: false }),
+      supabase
+        .from("sorties_terrain")
+        .select(
+          "id, chauffeur_id, livraison_id, date_sortie, temps_total, payable_minutes, temps_payable, temps_non_payable, facturable_minutes, company_context"
+        )
+        .eq("company_context", "titan_produits_industriels")
+        .order("date_sortie", { ascending: false }),
     ]);
 
     const notices: string[] = [];
@@ -240,6 +215,16 @@ export default function TempsTitanPage() {
       setEmployes((employesRes.data ?? []).map((row) => ({
         id: row.id,
         nom: row.nom ?? "",
+        titan_enabled:
+          (row as Record<string, unknown>).titan_enabled === true,
+        titan_mode_timeclock:
+          (row as Record<string, unknown>).titan_mode_timeclock !== false,
+        titan_mode_sorties:
+          (row as Record<string, unknown>).titan_mode_sorties !== false,
+        titan_hourly_rate:
+          (row as Record<string, unknown>).titan_hourly_rate != null
+            ? Number((row as Record<string, unknown>).titan_hourly_rate)
+            : null,
         taux_base_titan: row.taux_base_titan != null ? Number(row.taux_base_titan) : null,
         social_benefits_percent:
           (row as Record<string, unknown>).social_benefits_percent != null
@@ -292,7 +277,7 @@ export default function TempsTitanPage() {
       notices.push("sorties terrain Titan");
       setSortiesTitan([]);
     } else {
-      setSortiesTitan((sortiesRes.data ?? []) as SortieTitanRow[]);
+      setSortiesTitan((sortiesRes.data ?? []) as TitanSortieRow[]);
     }
 
     setLinkedDataNotice(notices.length > 0 ? `Certaines donnees complementaires sont limitees sur ce compte : ${notices.join(", ")}.` : "");
@@ -320,99 +305,27 @@ export default function TempsTitanPage() {
       }),
     [form.heure_debut, form.heure_fin, titanBreaks]
   );
-  const tauxBaseTitan = employeSelection?.taux_base_titan ?? 0;
-  const socialBenefitsPercent = employeSelection?.social_benefits_percent ?? 15;
+  const titanSettings = useMemo(
+    () => getTitanSettings(employeSelection ?? null),
+    [employeSelection]
+  );
+  const tauxBaseTitan = titanSettings.hourlyRate;
+  const socialBenefitsPercent = titanSettings.benefitsPercent;
   const margeTitan = tauxBaseTitan * (socialBenefitsPercent / 100);
   const tauxTotalTitan = tauxBaseTitan + margeTitan;
   const totalSalaireCalcule = titanSummary.payableHours * tauxBaseTitan;
   const totalBeneficeCalcule = titanSummary.facturableHours * margeTitan;
   const totalTitanCalcule = titanSummary.facturableHours * tauxTotalTitan;
 
-  const unifiedRows = useMemo<UnifiedRow[]>(() => {
-    const employeMap = new Map(employes.map((item) => [String(item.id), item]));
-
-    const manualRows = tempsTitan.map((row) => ({
-      source: "manuel" as const,
-      sourceId: `manuel-${row.id}`,
-      id: row.id,
-      employe_nom: row.employe_nom ?? "-",
-      date_travail: row.date_travail ?? "",
-      duree_totale:
-        row.temps_payable ??
-        (typeof row.duree_totale === "string"
-          ? row.duree_totale
-          : hoursToText(toNumber(row.duree_heures))),
-      duree_heures:
-        row.payable_minutes != null && row.payable_minutes > 0
-          ? row.payable_minutes / 60
-          : toNumber(row.duree_heures),
-      presence_text:
-        row.temps_presence ??
-        (row.presence_minutes != null && row.presence_minutes > 0
-          ? hoursToText(row.presence_minutes / 60)
-          : row.temps_payable ??
-            (typeof row.duree_totale === "string"
-              ? row.duree_totale
-              : hoursToText(toNumber(row.duree_heures)))),
-      payable_text:
-        row.temps_payable ??
-        (row.payable_minutes != null && row.payable_minutes > 0
-          ? hoursToText(row.payable_minutes / 60)
-          : typeof row.duree_totale === "string"
-            ? row.duree_totale
-            : hoursToText(toNumber(row.duree_heures))),
-      non_payable_text:
-        row.temps_non_payable ??
-        (row.unpaid_break_minutes != null && row.unpaid_break_minutes > 0
-          ? hoursToText(row.unpaid_break_minutes / 60)
-          : "0 min"),
-      type_travail: row.type_travail ?? "",
-      livraison: row.livraison ?? "-",
-      refacturee_a_titan: !!row.refacturee_a_titan,
-      statut_paiement_titan: normalizePaymentStatus(row.statut_paiement_titan),
-      total_titan: toNumber(row.total_titan),
-      total_salaire: toNumber(row.total_salaire),
-      total_benefice: toNumber(row.total_benefice),
-      company_context: row.company_context ?? null,
-    }));
-
-    const sortieRows = sortiesTitan.map((row) => {
-      const employe = row.chauffeur_id ? employeMap.get(String(row.chauffeur_id)) : undefined;
-      const base = toNumber(employe?.taux_base_titan);
-      const benefitsPercent = employe?.social_benefits_percent ?? 15;
-      const marge = base * (benefitsPercent / 100);
-      const dureeHeures =
-        row.payable_minutes != null && row.payable_minutes > 0
-          ? row.payable_minutes / 60
-          : parseHoursFromText(row.temps_total);
-      return {
-        source: "sortie" as const,
-        sourceId: `sortie-${row.id}`,
-        id: typeof row.id === "number" || typeof row.id === "string" ? row.id : 0,
-        employe_nom: employe?.nom ?? "-",
-        date_travail: row.date_sortie ?? "",
-        duree_totale: row.temps_payable ?? row.temps_total ?? hoursToText(dureeHeures),
-        duree_heures: dureeHeures,
-        presence_text: row.temps_total ?? row.temps_payable ?? hoursToText(dureeHeures),
-        payable_text: row.temps_payable ?? row.temps_total ?? hoursToText(dureeHeures),
-        non_payable_text:
-          row.temps_non_payable ??
-          (row.payable_minutes != null && parseHoursFromText(row.temps_total) > dureeHeures
-            ? hoursToText(parseHoursFromText(row.temps_total) - dureeHeures)
-            : "0 min"),
-        type_travail: "livraison",
-        livraison: row.livraison_id ? `Livraison #${row.livraison_id}` : "-",
-        refacturee_a_titan: true,
-        statut_paiement_titan: "" as PaymentStatus,
-        total_titan: dureeHeures * (base + marge),
-        total_salaire: dureeHeures * base,
-        total_benefice: dureeHeures * marge,
-        company_context: row.company_context ?? employe?.primary_company ?? null,
-      };
-    });
-
-    return [...manualRows, ...sortieRows].sort((a, b) => b.date_travail.localeCompare(a.date_travail));
-  }, [employes, sortiesTitan, tempsTitan]);
+  const unifiedRows = useMemo<TitanBillingRow[]>(
+    () =>
+      buildTitanBillingRows({
+        employes,
+        tempsTitan: tempsTitan as TitanTempsRow[],
+        sortiesTitan,
+      }),
+    [employes, sortiesTitan, tempsTitan]
+  );
 
   const filteredRows = useMemo(() => {
     return unifiedRows.filter(
@@ -425,7 +338,7 @@ export default function TempsTitanPage() {
 
   const totals = useMemo(() => {
     return {
-      totalHeuresTitan: filteredRows.reduce((sum, row) => sum + row.duree_heures, 0),
+      totalHeuresTitan: filteredRows.reduce((sum, row) => sum + row.titan_hours, 0),
       totalSalaire: filteredRows.reduce((sum, row) => sum + row.total_salaire, 0),
       totalBenefice: filteredRows.reduce((sum, row) => sum + row.total_benefice, 0),
       totalTitan: filteredRows.reduce((sum, row) => sum + row.total_titan, 0),
@@ -442,8 +355,18 @@ export default function TempsTitanPage() {
       return;
     }
 
-    if (!employeSelection || employeSelection.taux_base_titan == null) {
-      setErrorMessage("Le taux de base Titan manque sur la fiche chauffeur selectionnee.");
+    if (!employeSelection || !titanSettings.enabled) {
+      setErrorMessage("Titan doit etre active sur la fiche employe selectionnee.");
+      return;
+    }
+
+    if (!titanSettings.modeTimeclock) {
+      setErrorMessage("Le mode Horodateur Titan n est pas actif sur cette fiche employe.");
+      return;
+    }
+
+    if (tauxBaseTitan <= 0) {
+      setErrorMessage("Le taux horaire Titan manque sur la fiche chauffeur selectionnee.");
       return;
     }
 
@@ -457,8 +380,8 @@ export default function TempsTitanPage() {
       return;
     }
 
-    if (!resolvedCompanyContext) {
-      setErrorMessage("Choisir une compagnie avant d ajouter l entree Titan.");
+    if (resolvedCompanyContext !== "titan_produits_industriels") {
+      setErrorMessage("Une entree Horodateur Titan doit etre rattachee a Titan Produits Industriels.");
       return;
     }
 
@@ -515,7 +438,7 @@ export default function TempsTitanPage() {
   if (accessLoading || (!blocked && loading)) {
     return (
       <div className="page-container">
-        <HeaderTagora title="Temps Titan" subtitle="Suivi du temps, des couts et de la refacturation Titan" />
+        <HeaderTagora title="Temps Titan" subtitle="Heures Titan calculees depuis l horodateur Titan et les sorties terrain Titan." />
         <AccessNotice description="Verification des acces terrain et chargement des donnees Titan en cours." />
       </div>
     );
@@ -528,7 +451,7 @@ export default function TempsTitanPage() {
   if (blocked) {
     return (
       <div className="page-container">
-        <HeaderTagora title="Temps Titan" subtitle="Suivi du temps, des couts et de la refacturation Titan" />
+        <HeaderTagora title="Temps Titan" subtitle="Heures Titan calculees depuis l horodateur Titan et les sorties terrain Titan." />
         <AccessNotice description="La permission terrain n est pas active sur ce compte direction. Le module Temps Titan reste masque." />
       </div>
     );
@@ -536,7 +459,7 @@ export default function TempsTitanPage() {
 
   return (
     <div className="page-container">
-      <HeaderTagora title="Temps Titan" subtitle="Suivi du temps, des couts et de la refacturation Titan" />
+      <HeaderTagora title="Temps Titan" subtitle="Heures Titan calculees depuis l horodateur Titan et les sorties terrain Titan." />
 
       {errorMessage ? <AccessNotice title="Chargement limite" description={errorMessage} /> : null}
       {successMessage ? <div style={{ marginTop: errorMessage ? 18 : 0 }}><AccessNotice title="Operation validee" description={successMessage} /></div> : null}
@@ -544,7 +467,7 @@ export default function TempsTitanPage() {
 
       <div className="tagora-panel" style={{ marginTop: 24 }}>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 16 }}>
-          <StatCard label="Total heures Titan" value={formatHours(totals.totalHeuresTitan)} />
+          <StatCard label="Heures Titan calculees" value={formatHours(totals.totalHeuresTitan)} />
           <StatCard label="Total salaire" value={formatMoney(totals.totalSalaire)} />
           <StatCard label="Total benefice" value={formatMoney(totals.totalBenefice)} />
           <StatCard label="Total Titan" value={formatMoney(totals.totalTitan)} />
@@ -553,14 +476,14 @@ export default function TempsTitanPage() {
 
       <div style={{ display: "grid", gridTemplateColumns: "minmax(340px, 1fr) minmax(0, 1.7fr)", gap: 24, alignItems: "start", marginTop: 24 }}>
         <section className="tagora-panel">
-          <h2 className="section-title" style={{ marginBottom: 18 }}>Ajouter une entree Titan</h2>
+          <h2 className="section-title" style={{ marginBottom: 18 }}>Ajouter une entree Horodateur Titan</h2>
           <form onSubmit={handleSubmit} className="tagora-form-grid">
-            <label className="tagora-field"><span className="tagora-label">Employe</span><select value={form.employe_id} onChange={(e) => setForm((prev) => ({ ...prev, employe_id: e.target.value }))} className="tagora-input"><option value="">Choisir un employe</option>{employes.map((item) => <option key={String(item.id)} value={String(item.id)}>{item.nom}</option>)}</select></label>
+            <label className="tagora-field"><span className="tagora-label">Employe</span><select value={form.employe_id} onChange={(e) => setForm((prev) => ({ ...prev, employe_id: e.target.value, company_context: "titan_produits_industriels" }))} className="tagora-input"><option value="">Choisir un employe</option>{employes.filter((item) => getTitanSettings(item).enabled).map((item) => <option key={String(item.id)} value={String(item.id)}>{item.nom}</option>)}</select></label>
             <label className="tagora-field"><span className="tagora-label">Date</span><input type="date" value={form.date_travail} onChange={(e) => setForm((prev) => ({ ...prev, date_travail: e.target.value }))} className="tagora-input" /></label>
             <label className="tagora-field"><span className="tagora-label">Heure debut</span><input type="time" value={form.heure_debut} onChange={(e) => setForm((prev) => ({ ...prev, heure_debut: e.target.value }))} className="tagora-input" /></label>
             <label className="tagora-field"><span className="tagora-label">Heure fin</span><input type="time" value={form.heure_fin} onChange={(e) => setForm((prev) => ({ ...prev, heure_fin: e.target.value }))} className="tagora-input" /></label>
             <label className="tagora-field"><span className="tagora-label">Type de travail</span><select value={form.type_travail} onChange={(e) => setForm((prev) => ({ ...prev, type_travail: e.target.value }))} className="tagora-input"><option value="entrepot">Entrepot</option><option value="manutention">Manutention</option><option value="chargement">Chargement</option><option value="dechargement">Dechargement</option><option value="assemblage">Assemblage</option><option value="autre">Autre</option></select></label>
-            <label className="tagora-field"><span className="tagora-label">Compagnie</span><select value={resolvedCompanyContext} onChange={(e) => setForm((prev) => ({ ...prev, company_context: e.target.value as AccountRequestCompany | "" }))} className="tagora-input"><option value="">Choisir la compagnie</option>{ACCOUNT_REQUEST_COMPANIES.map((company) => <option key={company.value} value={company.value}>{company.label}</option>)}</select></label>
+            <label className="tagora-field"><span className="tagora-label">Compagnie</span><input value={getCompanyLabel("titan_produits_industriels")} className="tagora-input" readOnly /></label>
             <div className="tagora-panel-muted" style={{ gridColumn: "1 / -1" }}>
               <div className="tagora-label" style={{ marginBottom: 12 }}>Pauses et diner</div>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12 }}>
@@ -588,8 +511,8 @@ export default function TempsTitanPage() {
         <section className="tagora-panel">
           <div style={{ display: "flex", justifyContent: "space-between", gap: 16, flexWrap: "wrap", alignItems: "center", marginBottom: 18 }}>
             <div>
-              <h2 className="section-title" style={{ marginBottom: 8 }}>Liste du temps Titan</h2>
-              <p className="tagora-note">Entrees manuelles et lignes issues des sorties terrain refacturables.</p>
+              <h2 className="section-title" style={{ marginBottom: 8 }}>Liste des heures Titan</h2>
+              <p className="tagora-note">Calcul base uniquement sur l horodateur Titan et les sorties terrain Titan actives par employe.</p>
             </div>
             <div className="actions-row">
               <select value={companyFilter} onChange={(e) => setCompanyFilter(e.target.value as AccountRequestCompany | "")} className="tagora-input">
@@ -613,7 +536,7 @@ export default function TempsTitanPage() {
                   <th style={thStyle}>Type</th>
                   <th style={thStyle}>Presence</th>
                   <th style={thStyle}>Non paye</th>
-                  <th style={thStyle}>Payable</th>
+                  <th style={thStyle}>Heures Titan</th>
                   <th style={thStyle}>Livraison</th>
                   <th style={thStyle}>Salaire</th>
                   <th style={thStyle}>Benefice</th>
@@ -626,15 +549,15 @@ export default function TempsTitanPage() {
                 ) : (
                   filteredRows.map((row) => (
                     <tr key={row.sourceId}>
-                      <td style={tdStyle}>{row.source === "manuel" ? "Manuel" : "Sortie"}</td>
-                      <td style={tdStyle}>{row.sourceId}</td>
+                      <td style={tdStyle}>{row.source === "timeclock" ? "Horodateur" : "Sortie"}</td>
+                      <td style={tdStyle}>{row.source_id}</td>
                       <td style={tdStyle}>{row.date_travail || "-"}</td>
                       <td style={tdStyle}>{row.company_context ? getCompanyLabel(row.company_context) : "-"}</td>
                       <td style={tdStyle}>{row.employe_nom}</td>
                       <td style={tdStyle}>{row.type_travail || "-"}</td>
                       <td style={tdStyle}>{row.presence_text}</td>
                       <td style={tdStyle}>{row.non_payable_text}</td>
-                      <td style={tdStyle}>{row.payable_text}</td>
+                      <td style={tdStyle}>{formatHours(row.titan_hours)}</td>
                       <td style={tdStyle}>{row.livraison || "-"}</td>
                       <td style={tdStyle}>{formatMoney(row.total_salaire)}</td>
                       <td style={tdStyle}>{formatMoney(row.total_benefice)}</td>

@@ -67,6 +67,10 @@ type EmployeeProfileInput = {
   notes?: unknown;
   primary_company?: unknown;
   taux_base_titan?: unknown;
+  titan_enabled?: unknown;
+  titan_mode_timeclock?: unknown;
+  titan_mode_sorties?: unknown;
+  titan_hourly_rate?: unknown;
   social_benefits_percent?: unknown;
   titan_billable?: unknown;
   schedule_start?: unknown;
@@ -121,6 +125,10 @@ type ChauffeurRow = {
   can_work_for_oliem_solutions: boolean | null;
   can_work_for_titan_produits_industriels: boolean | null;
   taux_base_titan: number | null;
+  titan_enabled: boolean | null;
+  titan_mode_timeclock: boolean | null;
+  titan_mode_sorties: boolean | null;
+  titan_hourly_rate: number | null;
   social_benefits_percent: number | null;
   titan_billable: boolean | null;
   schedule_start: string | null;
@@ -325,6 +333,26 @@ async function upsertEmployeeProfile(options: {
     normalizeCompany(normalizedInput.primary_company) ?? options.requestRow.company;
   const socialBenefitsPercent =
     parseNullableNumber(normalizedInput.social_benefits_percent) ?? 15;
+  const titanEnabled =
+    typeof normalizedInput.titan_enabled === "boolean"
+      ? normalizedInput.titan_enabled
+      : linkedProfile?.titan_enabled ??
+        linkedProfile?.titan_billable ??
+        false;
+  const titanModeTimeclock =
+    typeof normalizedInput.titan_mode_timeclock === "boolean"
+      ? normalizedInput.titan_mode_timeclock
+      : linkedProfile?.titan_mode_timeclock ?? titanEnabled;
+  const titanModeSorties =
+    typeof normalizedInput.titan_mode_sorties === "boolean"
+      ? normalizedInput.titan_mode_sorties
+      : linkedProfile?.titan_mode_sorties ?? titanEnabled;
+  const titanHourlyRate =
+    parseNullableNumber(normalizedInput.titan_hourly_rate) ??
+    parseNullableNumber(normalizedInput.taux_base_titan) ??
+    linkedProfile?.titan_hourly_rate ??
+    linkedProfile?.taux_base_titan ??
+    null;
   const breakAmEnabled =
     normalizedInput.break_am_enabled === true ||
     (normalizedInput.break_am_enabled !== false &&
@@ -349,7 +377,6 @@ async function upsertEmployeeProfile(options: {
   const expectedBreaksCount =
     parseNullableNumber(normalizedInput.expected_breaks_count) ??
     [breakAmEnabled, lunchEnabled, breakPmEnabled].filter(Boolean).length;
-  const titanBillable = normalizedInput.titan_billable === true;
   const payload = {
     auth_user_id: options.authUserId ?? linkedProfile?.auth_user_id ?? null,
     nom:
@@ -371,15 +398,13 @@ async function upsertEmployeeProfile(options: {
     notes:
       parseNullableString(normalizedInput.notes) ?? linkedProfile?.notes ?? null,
     primary_company: primaryCompany,
-    taux_base_titan:
-      parseNullableNumber(normalizedInput.taux_base_titan) ??
-      linkedProfile?.taux_base_titan ??
-      null,
+    taux_base_titan: titanHourlyRate,
+    titan_enabled: titanEnabled,
+    titan_mode_timeclock: titanModeTimeclock,
+    titan_mode_sorties: titanModeSorties,
+    titan_hourly_rate: titanHourlyRate,
     social_benefits_percent: socialBenefitsPercent,
-    titan_billable:
-      typeof normalizedInput.titan_billable === "boolean"
-        ? normalizedInput.titan_billable
-        : linkedProfile?.titan_billable ?? false,
+    titan_billable: titanEnabled,
     schedule_start:
       parseNullableTime(normalizedInput.schedule_start) ??
       linkedProfile?.schedule_start ??
@@ -529,39 +554,104 @@ async function upsertEmployeeProfile(options: {
     can_work_for_oliem_solutions:
       linkedProfile?.can_work_for_oliem_solutions ??
       primaryCompany === "oliem_solutions",
-    can_work_for_titan_produits_industriels:
-      typeof normalizedInput.titan_billable === "boolean"
-        ? normalizedInput.titan_billable
-        : linkedProfile?.can_work_for_titan_produits_industriels ??
-          primaryCompany === "titan_produits_industriels",
+    can_work_for_titan_produits_industriels: titanEnabled,
   };
 
-  if (linkedProfile?.id) {
-    const { data, error } = await supabase
-      .from("chauffeurs")
-      .update(payload)
-      .eq("id", linkedProfile.id)
-      .select("*")
-      .single<ChauffeurRow>();
+  console.info("[account-requests][chauffeurs] upsert payload", {
+    requestId: options.requestRow.id,
+    linkedProfileId: linkedProfile?.id ?? null,
+    authUserId: options.authUserId ?? linkedProfile?.auth_user_id ?? null,
+    payload,
+  });
 
-    if (error) {
-      throw error;
+  const persistPayload = async (
+    currentPayload: Record<string, unknown>,
+    existingProfileId: number | null
+  ) => {
+    if (existingProfileId) {
+      return await supabase
+        .from("chauffeurs")
+        .update(currentPayload)
+        .eq("id", existingProfileId)
+        .select("*")
+        .single<ChauffeurRow>();
     }
 
-    return data;
+    return await supabase
+      .from("chauffeurs")
+      .insert([currentPayload])
+      .select("*")
+      .single<ChauffeurRow>();
+  };
+
+  let currentPayload: Record<string, unknown> = { ...payload };
+  let currentProfileId = linkedProfile?.id ?? null;
+  let lastError: unknown = null;
+
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const { data, error } = await persistPayload(currentPayload, currentProfileId);
+
+    if (!error) {
+      return data;
+    }
+
+    lastError = error;
+
+    console.error("[account-requests][chauffeurs] upsert failed", {
+      requestId: options.requestRow.id,
+      linkedProfileId: currentProfileId,
+      attempt: attempt + 1,
+      payload: currentPayload,
+      error: {
+        message: isSupabaseLikeError(error) ? error.message : String(error),
+        code: isSupabaseLikeError(error) ? error.code ?? null : null,
+        details: isSupabaseLikeError(error) ? error.details ?? null : null,
+        hint: isSupabaseLikeError(error) ? error.hint ?? null : null,
+      },
+    });
+
+    if (isMissingColumnError(error)) {
+      const missingColumn = getMissingColumnName(error);
+      if (missingColumn && missingColumn in currentPayload) {
+        const rest = { ...currentPayload };
+        delete rest[missingColumn];
+        currentPayload = rest;
+        console.warn("[account-requests][chauffeurs] retrying without missing column", {
+          requestId: options.requestRow.id,
+          missingColumn,
+        });
+        continue;
+      }
+    }
+
+    if (!currentProfileId && isUniqueViolationError(error)) {
+      const conflictTarget = getUniqueViolationTarget(error);
+      if (conflictTarget === "auth_user_id" || conflictTarget === "courriel") {
+        const conflictingProfile = await loadLinkedEmployeeProfile({
+          profileId: null,
+          authUserId:
+            conflictTarget === "auth_user_id"
+              ? String(currentPayload.auth_user_id ?? options.authUserId ?? "")
+              : null,
+          email: String(currentPayload.courriel ?? options.requestRow.email),
+        });
+
+        if (conflictingProfile?.id) {
+          currentProfileId = conflictingProfile.id;
+          console.warn("[account-requests][chauffeurs] retrying as update after unique conflict", {
+            requestId: options.requestRow.id,
+            conflictTarget,
+            conflictingProfileId: conflictingProfile.id,
+          });
+          continue;
+        }
+      }
+    }
+
+    throw new Error(formatSupabaseError(error));
   }
 
-  const { data, error } = await supabase
-    .from("chauffeurs")
-    .insert([payload])
-    .select("*")
-    .single<ChauffeurRow>();
-
-  if (error) {
-    throw error;
-  }
-
-  return data;
+  throw new Error(formatSupabaseError(lastError));
 }
 
 async function syncUserChauffeurMetadata(options: {
@@ -694,8 +784,12 @@ async function upsertAccountAccess(options: {
   const existingUser = await findAuthUserByEmail(normalizedEmail);
   const existingRole = getUserRole(existingUser);
   const existingPermissions = getUserPermissions(existingUser);
+  const existingAccessIsMeaningful = Boolean(
+    existingUser &&
+      (existingRole || existingPermissions.length > 0 || hasUserActivatedAccess(existingUser))
+  );
 
-  if (existingUser && !options.confirmOverwriteExistingAccount) {
+  if (existingUser && existingAccessIsMeaningful && !options.confirmOverwriteExistingAccount) {
     return {
       ok: false as const,
       error:
@@ -840,6 +934,77 @@ function createDirectionAudit(
   );
 }
 
+function isSupabaseLikeError(
+  error: unknown
+): error is { code?: string; message?: string; details?: string; hint?: string } {
+  return typeof error === "object" && error !== null && "message" in error;
+}
+
+function formatSupabaseError(error: unknown) {
+  if (!isSupabaseLikeError(error)) {
+    return "Erreur creation ou mise a jour chauffeur.";
+  }
+
+  const message = String(error.message ?? "Erreur creation ou mise a jour chauffeur.");
+  const code = error.code ? `code=${error.code}` : null;
+  const details = error.details ? `details=${error.details}` : null;
+  const hint = error.hint ? `hint=${error.hint}` : null;
+
+  return [message, code, details, hint].filter(Boolean).join(" | ");
+}
+
+function isMissingColumnError(error: unknown) {
+  return isSupabaseLikeError(error) && error.code === "42703";
+}
+
+function getMissingColumnName(error: unknown) {
+  if (!isSupabaseLikeError(error)) return null;
+  const combined = [error.message, error.details, error.hint]
+    .filter((value): value is string => typeof value === "string")
+    .join(" ");
+  const match = combined.match(
+    /column\s+"?([a-zA-Z0-9_]+)"?\s+(?:of relation\s+"?chauffeurs"?\s+)?does not exist/i
+  );
+  return match?.[1] ?? null;
+}
+
+function isUniqueViolationError(error: unknown) {
+  return isSupabaseLikeError(error) && error.code === "23505";
+}
+
+function getUniqueViolationTarget(error: unknown) {
+  if (!isSupabaseLikeError(error)) return null;
+  const combined = [error.message, error.details]
+    .filter((value): value is string => typeof value === "string")
+    .join(" ");
+
+  if (/auth_user_id/i.test(combined)) return "auth_user_id";
+  if (/courriel|email/i.test(combined)) return "courriel";
+  return null;
+}
+
+function errorJson(
+  status: number,
+  error: string,
+  extra?: Record<string, unknown>
+) {
+  return NextResponse.json(
+    {
+      success: false,
+      error,
+      ...(extra ?? {}),
+    },
+    { status }
+  );
+}
+
+function successJson(extra?: Record<string, unknown>) {
+  return NextResponse.json({
+    success: true,
+    ...(extra ?? {}),
+  });
+}
+
 export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -848,19 +1013,27 @@ export async function PATCH(
     const requestDebug = getAccountRequestsRequestDebug(req);
 
     if (!requestDebug.hasClientMarker) {
-      return NextResponse.json(
-        {
-          error:
-            "Appel refuse: la route /api/account-requests/[id] n accepte que les appels marques depuis le navigateur authentifie.",
-        },
-        { status: 400 }
+      console.warn("[account-requests][PATCH] missing client marker", {
+        path: req.nextUrl.pathname,
+        method: req.method,
+        ...requestDebug,
+      });
+      return errorJson(
+        400,
+        "Appel refuse: la route /api/account-requests/[id] n accepte que les appels marques depuis le navigateur authentifie."
       );
     }
 
     const { user, role } = await getStrictDirectionRequestUser(req);
 
     if (!user || role !== "direction") {
-      return NextResponse.json({ error: "Acces refuse." }, { status: 403 });
+      console.warn("[account-requests][PATCH] authorization failed", {
+        path: req.nextUrl.pathname,
+        method: req.method,
+        role,
+        hasUser: Boolean(user),
+      });
+      return errorJson(403, "Acces refuse.");
     }
 
     const { id } = await params;
@@ -868,22 +1041,55 @@ export async function PATCH(
     const action = parseAction(body.action);
     const employeeProfileInput = (body.employeeProfile ?? null) as EmployeeProfileInput | null;
 
+    console.info("[account-requests][PATCH] incoming", {
+      id,
+      action: body.action,
+      parsedAction: action,
+      assignedRole: body.assignedRole,
+      assignedPermissions: body.assignedPermissions,
+      confirmOverwriteExistingAccount: body.confirmOverwriteExistingAccount === true,
+      employeeProfileId:
+        employeeProfileInput && "id" in employeeProfileInput
+          ? employeeProfileInput.id
+          : null,
+      employeeProfileEmail:
+        employeeProfileInput && "courriel" in employeeProfileInput
+          ? employeeProfileInput.courriel
+          : null,
+      actorUserId: user.id,
+    });
+
     if (!action) {
-      return NextResponse.json({ error: "Action invalide." }, { status: 400 });
+      console.warn("[account-requests][PATCH] invalid action", {
+        id,
+        rawAction: body.action,
+      });
+      return errorJson(400, "Action invalide.");
     }
 
     if (action === "approve" || action === "refuse") {
       const locked = await acquirePendingReviewLock(id);
 
+      console.info("[account-requests][PATCH] lock result", {
+        id,
+        action,
+        hasRequestRow: Boolean(locked.requestRow),
+        hasReviewLockToken: Boolean(locked.reviewLockToken),
+        lock: locked.lock,
+      });
+
       if (!locked.requestRow || !locked.reviewLockToken || !locked.reviewedAt) {
-        return NextResponse.json(
-          {
-            error: locked.lock?.isLocked
-              ? "Cette demande est deja en cours de traitement par un autre membre de la direction."
-              : "La demande est introuvable, deja traitee ou indisponible.",
-            lock: locked.lock,
-          },
-          { status: 409 }
+        console.warn("[account-requests][PATCH] unable to acquire pending lock", {
+          id,
+          action,
+          lock: locked.lock,
+        });
+        return errorJson(
+          409,
+          locked.lock?.isLocked
+            ? "Cette demande est deja en cours de traitement par un autre membre de la direction."
+            : "La demande est introuvable, deja traitee ou indisponible.",
+          { lock: locked.lock, requestId: id, step: "acquire_pending_lock" }
         );
       }
 
@@ -936,24 +1142,103 @@ export async function PATCH(
           .eq("review_lock_token", locked.reviewLockToken);
 
         if (error) {
-          return NextResponse.json({ error: error.message }, { status: 500 });
+          return errorJson(500, error.message, {
+            requestId: id,
+            step: "refuse_request_update",
+          });
         }
 
-        return NextResponse.json({ success: true, status: "refused" });
+        return successJson({ status: "refused" });
       }
 
-      const employeeProfile = await upsertEmployeeProfile({
-        input: employeeProfileInput,
-        requestRow,
+      let employeeProfile;
+      try {
+        employeeProfile = await upsertEmployeeProfile({
+          input: employeeProfileInput,
+          requestRow,
+        });
+      } catch (profileError) {
+        console.error("[account-requests][PATCH] employee profile upsert failed", {
+          id,
+          action,
+          message:
+            profileError instanceof Error
+              ? profileError.message
+              : "Erreur creation ou mise a jour chauffeur.",
+        });
+        return errorJson(
+          500,
+          profileError instanceof Error
+            ? profileError.message
+            : "Erreur creation ou mise a jour chauffeur.",
+          {
+            requestId: id,
+            step: "approve_upsert_employee_profile",
+          }
+        );
+      }
+
+      console.info("[account-requests][PATCH] employee profile upserted", {
+        id,
+        action,
+        employeeProfileId: employeeProfile.id,
+        employeeProfileEmail: employeeProfile.courriel,
+        authUserId: employeeProfile.auth_user_id,
       });
 
-      const approvalResult = await upsertAccountAccess({
-        requestRow,
-        actorUserId: user.id,
-        assignedRole,
-        assignedPermissions,
-        confirmOverwriteExistingAccount,
-        chauffeurId: employeeProfile.id,
+      let approvalResult;
+      try {
+        approvalResult = await upsertAccountAccess({
+          requestRow,
+          actorUserId: user.id,
+          assignedRole,
+          assignedPermissions,
+          confirmOverwriteExistingAccount,
+          chauffeurId: employeeProfile.id,
+        });
+      } catch (approvalError) {
+        console.error("[account-requests][PATCH] upsert account access failed", {
+          id,
+          action,
+          message:
+            approvalError instanceof Error
+              ? approvalError.message
+              : "Erreur creation ou liaison auth.users.",
+        });
+        await createAdminSupabaseClient()
+          .from("account_requests")
+          .update({
+            review_lock_token: null,
+            review_started_at: null,
+            last_error:
+              approvalError instanceof Error
+                ? approvalError.message
+                : "Erreur creation ou liaison auth.users.",
+          })
+          .eq("id", id)
+          .eq("review_lock_token", locked.reviewLockToken);
+        return errorJson(
+          500,
+          approvalError instanceof Error
+            ? approvalError.message
+            : "Erreur creation ou liaison auth.users.",
+          {
+            requestId: id,
+            step: "approve_upsert_account_access",
+          }
+        );
+      }
+
+      console.info("[account-requests][PATCH] approval result", {
+        id,
+        action,
+        ok: approvalResult.ok,
+        finalStatus: approvalResult.ok ? approvalResult.finalStatus : null,
+        invitedUserId: approvalResult.ok ? approvalResult.invitedUserId : null,
+        existingUserId: approvalResult.ok
+          ? approvalResult.existingUser?.id ?? null
+          : approvalResult.existingAccount?.userId ?? null,
+        error: approvalResult.ok ? null : approvalResult.error,
       });
 
       if (!approvalResult.ok) {
@@ -966,18 +1251,52 @@ export async function PATCH(
           .eq("id", id)
           .eq("review_lock_token", locked.reviewLockToken);
 
-        return NextResponse.json(
-          {
-            error: approvalResult.error,
-            existingAccount: approvalResult.existingAccount,
-          },
-          { status: 409 }
-        );
+        console.warn("[account-requests][PATCH] approval blocked", {
+          id,
+          action,
+          error: approvalResult.error,
+          existingAccount: approvalResult.existingAccount,
+        });
+        return errorJson(409, approvalResult.error, {
+          requestId: id,
+          step: "upsert_account_access",
+          existingAccount: approvalResult.existingAccount,
+        });
       }
 
       if (approvalResult.invitedUserId && employeeProfile.id) {
-        await syncUserChauffeurMetadata({
-          userId: approvalResult.invitedUserId,
+        try {
+          await syncUserChauffeurMetadata({
+            userId: approvalResult.invitedUserId,
+            chauffeurId: employeeProfile.id,
+          });
+        } catch (syncError) {
+          console.error("[account-requests][PATCH] chauffeur metadata sync failed", {
+            id,
+            action,
+            invitedUserId: approvalResult.invitedUserId,
+            chauffeurId: employeeProfile.id,
+            message:
+              syncError instanceof Error
+                ? syncError.message
+                : "Erreur liaison auth user / chauffeur.",
+          });
+          return errorJson(
+            500,
+            syncError instanceof Error
+              ? syncError.message
+              : "Erreur liaison auth user / chauffeur.",
+            {
+              requestId: id,
+              step: "approve_sync_chauffeur_metadata",
+            }
+          );
+        }
+
+        console.info("[account-requests][PATCH] chauffeur metadata synced", {
+          id,
+          action,
+          invitedUserId: approvalResult.invitedUserId,
           chauffeurId: employeeProfile.id,
         });
       }
@@ -1031,22 +1350,32 @@ export async function PATCH(
         .eq("review_lock_token", locked.reviewLockToken);
 
       if (error) {
-        return NextResponse.json({ error: error.message }, { status: 500 });
+        console.error("[account-requests][PATCH] final request update failed", {
+          id,
+          action,
+          message: error.message,
+        });
+        return errorJson(500, error.message, {
+          requestId: id,
+          step: "approve_request_update",
+        });
       }
 
-      return NextResponse.json({
-        success: true,
+      console.info("[account-requests][PATCH] success", {
+        id,
+        action,
         status: approvalResult.finalStatus,
       });
+      return successJson({ status: approvalResult.finalStatus });
     }
 
     const requestRow = await loadRequestRow(id);
 
     if (!requestRow) {
-      return NextResponse.json(
-        { error: "Demande introuvable." },
-        { status: 404 }
-      );
+      return errorJson(404, "Demande introuvable.", {
+        requestId: id,
+        step: "load_request_row",
+      });
     }
 
     const {
@@ -1059,17 +1388,44 @@ export async function PATCH(
 
     if (action === "save_employee_profile") {
       const authUser = await findAuthUserByEmail(normalizeEmail(requestRow.email));
-      const employeeProfile = await upsertEmployeeProfile({
-        input: employeeProfileInput,
-        requestRow,
-        authUserId: authUser?.id ?? null,
-      });
+      let employeeProfile;
+      try {
+        employeeProfile = await upsertEmployeeProfile({
+          input: employeeProfileInput,
+          requestRow,
+          authUserId: authUser?.id ?? null,
+        });
+      } catch (profileError) {
+        return errorJson(
+          500,
+          profileError instanceof Error
+            ? profileError.message
+            : "Erreur creation ou mise a jour chauffeur.",
+          {
+            requestId: id,
+            step: "save_profile_upsert_employee_profile",
+          }
+        );
+      }
 
       if (authUser?.id && employeeProfile.id) {
-        await syncUserChauffeurMetadata({
-          userId: authUser.id,
-          chauffeurId: employeeProfile.id,
-        });
+        try {
+          await syncUserChauffeurMetadata({
+            userId: authUser.id,
+            chauffeurId: employeeProfile.id,
+          });
+        } catch (syncError) {
+          return errorJson(
+            500,
+            syncError instanceof Error
+              ? syncError.message
+              : "Erreur liaison auth user / chauffeur.",
+            {
+              requestId: id,
+              step: "save_profile_sync_chauffeur_metadata",
+            }
+          );
+        }
       }
 
       const updated = await updateRequestRow(id, {
@@ -1094,7 +1450,11 @@ export async function PATCH(
         ),
       });
 
-      return NextResponse.json({ success: true, status: updated.status });
+      return successJson({
+        status: updated.status,
+        requestId: id,
+        step: "save_employee_profile",
+      });
     }
 
     if (action === "reset_pending") {
@@ -1115,46 +1475,94 @@ export async function PATCH(
         }),
       });
 
-      return NextResponse.json({ success: true, status: updated.status });
+      return successJson({
+        status: updated.status,
+        requestId: id,
+        step: "reset_pending",
+      });
     }
 
     if (action === "update_access") {
       if (requestRow.status !== "invited" && requestRow.status !== "active") {
-        return NextResponse.json(
-          { error: "Cette action est reservee aux demandes invited ou active." },
-          { status: 409 }
+        return errorJson(
+          409,
+          "Cette action est reservee aux demandes invited ou active.",
+          {
+            requestId: id,
+            step: "validate_update_access_status",
+            currentStatus: requestRow.status,
+          }
         );
       }
 
-      const employeeProfile = await upsertEmployeeProfile({
-        input: employeeProfileInput,
-        requestRow,
-      });
+      let employeeProfile;
+      try {
+        employeeProfile = await upsertEmployeeProfile({
+          input: employeeProfileInput,
+          requestRow,
+        });
+      } catch (profileError) {
+        return errorJson(
+          500,
+          profileError instanceof Error
+            ? profileError.message
+            : "Erreur creation ou mise a jour chauffeur.",
+          {
+            requestId: id,
+            step: "update_access_upsert_employee_profile",
+          }
+        );
+      }
 
-      const result = await upsertAccountAccess({
-        requestRow,
-        actorUserId: user.id,
-        assignedRole,
-        assignedPermissions,
-        confirmOverwriteExistingAccount,
-        chauffeurId: employeeProfile.id,
-      });
+      let result;
+      try {
+        result = await upsertAccountAccess({
+          requestRow,
+          actorUserId: user.id,
+          assignedRole,
+          assignedPermissions,
+          confirmOverwriteExistingAccount,
+          chauffeurId: employeeProfile.id,
+        });
+      } catch (accessError) {
+        return errorJson(
+          500,
+          accessError instanceof Error
+            ? accessError.message
+            : "Erreur creation ou liaison auth.users.",
+          {
+            requestId: id,
+            step: "update_access_upsert_account",
+          }
+        );
+      }
 
       if (!result.ok) {
-        return NextResponse.json(
-          {
-            error: result.error,
-            existingAccount: result.existingAccount,
-          },
-          { status: 409 }
-        );
+        return errorJson(409, result.error, {
+          requestId: id,
+          step: "update_access_upsert_account",
+          existingAccount: result.existingAccount,
+        });
       }
 
       if (result.invitedUserId && employeeProfile.id) {
-        await syncUserChauffeurMetadata({
-          userId: result.invitedUserId,
-          chauffeurId: employeeProfile.id,
-        });
+        try {
+          await syncUserChauffeurMetadata({
+            userId: result.invitedUserId,
+            chauffeurId: employeeProfile.id,
+          });
+        } catch (syncError) {
+          return errorJson(
+            500,
+            syncError instanceof Error
+              ? syncError.message
+              : "Erreur liaison auth user / chauffeur.",
+            {
+              requestId: id,
+              step: "update_access_sync_chauffeur_metadata",
+            }
+          );
+        }
       }
 
       const updated = await updateRequestRow(id, {
@@ -1180,21 +1588,44 @@ export async function PATCH(
         }),
       });
 
-      return NextResponse.json({ success: true, status: updated.status });
+      return successJson({
+        status: updated.status,
+        requestId: id,
+        step: "update_access",
+      });
     }
 
     if (action === "resend_invitation") {
       if (requestRow.status !== "invited") {
-        return NextResponse.json(
-          { error: "Seules les demandes invited peuvent recevoir une nouvelle invitation." },
-          { status: 409 }
+        return errorJson(
+          409,
+          "Seules les demandes invited peuvent recevoir une nouvelle invitation.",
+          {
+            requestId: id,
+            step: "validate_resend_invitation_status",
+            currentStatus: requestRow.status,
+          }
         );
       }
 
-      const employeeProfile = await upsertEmployeeProfile({
-        input: employeeProfileInput,
-        requestRow,
-      });
+      let employeeProfile;
+      try {
+        employeeProfile = await upsertEmployeeProfile({
+          input: employeeProfileInput,
+          requestRow,
+        });
+      } catch (profileError) {
+        return errorJson(
+          500,
+          profileError instanceof Error
+            ? profileError.message
+            : "Erreur creation ou mise a jour chauffeur.",
+          {
+            requestId: id,
+            step: "resend_invitation_upsert_employee_profile",
+          }
+        );
+      }
 
       const invitation = buildInvitationPayload(
         requestRow,
@@ -1208,14 +1639,30 @@ export async function PATCH(
       );
 
       if (error) {
-        return NextResponse.json({ error: error.message }, { status: 500 });
+        return errorJson(500, error.message, {
+          requestId: id,
+          step: "resend_invitation_auth_invite",
+        });
       }
 
       if (data.user?.id && employeeProfile.id) {
-        await syncUserChauffeurMetadata({
-          userId: data.user.id,
-          chauffeurId: employeeProfile.id,
-        });
+        try {
+          await syncUserChauffeurMetadata({
+            userId: data.user.id,
+            chauffeurId: employeeProfile.id,
+          });
+        } catch (syncError) {
+          return errorJson(
+            500,
+            syncError instanceof Error
+              ? syncError.message
+              : "Erreur liaison auth user / chauffeur.",
+            {
+              requestId: id,
+              step: "resend_invitation_sync_chauffeur_metadata",
+            }
+          );
+        }
       }
 
       const updated = await updateRequestRow(id, {
@@ -1237,23 +1684,36 @@ export async function PATCH(
         }),
       });
 
-      return NextResponse.json({ success: true, status: updated.status });
+      return successJson({
+        status: updated.status,
+        requestId: id,
+        step: "resend_invitation",
+      });
     }
 
     if (action === "disable_access") {
       if (requestRow.status !== "active") {
-        return NextResponse.json(
-          { error: "Seules les demandes actives peuvent etre desactivees." },
-          { status: 409 }
+        return errorJson(
+          409,
+          "Seules les demandes actives peuvent etre desactivees.",
+          {
+            requestId: id,
+            step: "validate_disable_access_status",
+            currentStatus: requestRow.status,
+          }
         );
       }
 
       const existingUser = await findAuthUserByEmail(normalizeEmail(requestRow.email));
 
       if (!existingUser) {
-        return NextResponse.json(
-          { error: "Aucun compte associe n a ete trouve pour cette demande." },
-          { status: 404 }
+        return errorJson(
+          404,
+          "Aucun compte associe n a ete trouve pour cette demande.",
+          {
+            requestId: id,
+            step: "disable_access_find_existing_user",
+          }
         );
       }
 
@@ -1280,7 +1740,11 @@ export async function PATCH(
       );
 
       if (error) {
-        return NextResponse.json({ error: error.message }, { status: 500 });
+        return errorJson(500, error.message, {
+          requestId: id,
+          step: "disable_access_update_auth_user",
+          authUserId: existingUser.id,
+        });
       }
 
       const updated = await updateRequestRow(id, {
@@ -1298,46 +1762,94 @@ export async function PATCH(
         }),
       });
 
-      return NextResponse.json({ success: true, status: updated.status });
+      return successJson({
+        status: updated.status,
+        requestId: id,
+        step: "disable_access",
+      });
     }
 
     if (action === "retry") {
       if (requestRow.status !== "error") {
-        return NextResponse.json(
-          { error: "Seules les demandes en erreur peuvent etre relancees." },
-          { status: 409 }
+        return errorJson(
+          409,
+          "Seules les demandes en erreur peuvent etre relancees.",
+          {
+            requestId: id,
+            step: "validate_retry_status",
+            currentStatus: requestRow.status,
+          }
         );
       }
 
-      const employeeProfile = await upsertEmployeeProfile({
-        input: employeeProfileInput,
-        requestRow,
-      });
+      let employeeProfile;
+      try {
+        employeeProfile = await upsertEmployeeProfile({
+          input: employeeProfileInput,
+          requestRow,
+        });
+      } catch (profileError) {
+        return errorJson(
+          500,
+          profileError instanceof Error
+            ? profileError.message
+            : "Erreur creation ou mise a jour chauffeur.",
+          {
+            requestId: id,
+            step: "retry_upsert_employee_profile",
+          }
+        );
+      }
 
-      const result = await upsertAccountAccess({
-        requestRow,
-        actorUserId: user.id,
-        assignedRole,
-        assignedPermissions,
-        confirmOverwriteExistingAccount,
-        chauffeurId: employeeProfile.id,
-      });
+      let result;
+      try {
+        result = await upsertAccountAccess({
+          requestRow,
+          actorUserId: user.id,
+          assignedRole,
+          assignedPermissions,
+          confirmOverwriteExistingAccount,
+          chauffeurId: employeeProfile.id,
+        });
+      } catch (accessError) {
+        return errorJson(
+          500,
+          accessError instanceof Error
+            ? accessError.message
+            : "Erreur creation ou liaison auth.users.",
+          {
+            requestId: id,
+            step: "retry_upsert_account",
+          }
+        );
+      }
 
       if (!result.ok) {
-        return NextResponse.json(
-          {
-            error: result.error,
-            existingAccount: result.existingAccount,
-          },
-          { status: 409 }
-        );
+        return errorJson(409, result.error, {
+          requestId: id,
+          step: "retry_upsert_account",
+          existingAccount: result.existingAccount,
+        });
       }
 
       if (result.invitedUserId && employeeProfile.id) {
-        await syncUserChauffeurMetadata({
-          userId: result.invitedUserId,
-          chauffeurId: employeeProfile.id,
-        });
+        try {
+          await syncUserChauffeurMetadata({
+            userId: result.invitedUserId,
+            chauffeurId: employeeProfile.id,
+          });
+        } catch (syncError) {
+          return errorJson(
+            500,
+            syncError instanceof Error
+              ? syncError.message
+              : "Erreur liaison auth user / chauffeur.",
+            {
+              requestId: id,
+              step: "retry_sync_chauffeur_metadata",
+            }
+          );
+        }
       }
 
       const updated = await updateRequestRow(id, {
@@ -1371,22 +1883,29 @@ export async function PATCH(
         ),
       });
 
-      return NextResponse.json({ success: true, status: updated.status });
+      return successJson({
+        status: updated.status,
+        requestId: id,
+        step: "retry",
+      });
     }
 
-    return NextResponse.json(
-      { error: "Action non prise en charge." },
-      { status: 400 }
-    );
+    return errorJson(400, "Action non prise en charge.", {
+      requestId: id,
+      step: "unsupported_action",
+      action,
+    });
   } catch (error) {
-    return NextResponse.json(
+    console.error("[account-requests][PATCH] unhandled error", {
+      message: error instanceof Error ? error.message : "Erreur traitement demande.",
+      stack: error instanceof Error ? error.stack : null,
+    });
+    return errorJson(
+      500,
+      error instanceof Error ? error.message : "Erreur traitement demande.",
       {
-        error:
-          error instanceof Error
-            ? error.message
-            : "Erreur traitement demande.",
-      },
-      { status: 500 }
+        step: "patch_unhandled_error",
+      }
     );
   }
 }
@@ -1397,31 +1916,42 @@ export async function DELETE(
 ) {
   try {
     const requestDebug = getAccountRequestsRequestDebug(req);
+    console.info("[account-requests][DELETE] incoming request", {
+      path: req.nextUrl.pathname,
+      method: req.method,
+      ...requestDebug,
+    });
 
     if (!requestDebug.hasClientMarker) {
-      return NextResponse.json(
+      return errorJson(
+        400,
+        "Appel refuse: la route /api/account-requests/[id] n accepte que les appels marques depuis le navigateur authentifie.",
         {
-          error:
-            "Appel refuse: la route /api/account-requests/[id] n accepte que les appels marques depuis le navigateur authentifie.",
-        },
-        { status: 400 }
+          step: "validate_client_marker_delete",
+        }
       );
     }
 
     const { user, role } = await getStrictDirectionRequestUser(req);
 
     if (!user || role !== "direction") {
-      return NextResponse.json({ error: "Acces refuse." }, { status: 403 });
+      return errorJson(403, "Acces refuse.", {
+        step: "authorize_delete",
+      });
     }
 
     const { id } = await params;
+    console.info("[account-requests][DELETE] resolved request id", {
+      requestId: id,
+      actorUserId: user.id,
+    });
     const requestRow = await loadRequestRow(id);
 
     if (!requestRow) {
-      return NextResponse.json(
-        { error: "Demande introuvable." },
-        { status: 404 }
-      );
+      return errorJson(404, "Demande introuvable.", {
+        requestId: id,
+        step: "load_request_row_delete",
+      });
     }
 
     const { error } = await createAdminSupabaseClient()
@@ -1430,11 +1960,20 @@ export async function DELETE(
       .eq("id", id);
 
     if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
+      console.error("[account-requests][DELETE] delete failed", {
+        requestId: id,
+        error: error.message,
+      });
+      return errorJson(500, error.message, {
+        requestId: id,
+        step: "delete_account_request",
+      });
     }
 
-    return NextResponse.json({
+    return successJson({
       success: true,
+      requestId: id,
+      step: "delete_account_request",
       deletedRequest: {
         id: requestRow.id,
         email: requestRow.email,
@@ -1442,14 +1981,16 @@ export async function DELETE(
       },
     });
   } catch (error) {
-    return NextResponse.json(
+    console.error("[account-requests][DELETE] unhandled error", {
+      message: error instanceof Error ? error.message : "Erreur suppression demande.",
+      stack: error instanceof Error ? error.stack : null,
+    });
+    return errorJson(
+      500,
+      error instanceof Error ? error.message : "Erreur suppression demande.",
       {
-        error:
-          error instanceof Error
-            ? error.message
-            : "Erreur suppression demande.",
-      },
-      { status: 500 }
+        step: "delete_unhandled_error",
+      }
     );
   }
 }

@@ -1342,6 +1342,77 @@ select {
   gap: var(--ui-space-4);
 }
 
+.home-landing-shell {
+  max-width: 1080px;
+}
+
+.home-landing-header {
+  min-height: 176px;
+  padding: 22px 28px;
+  gap: 24px;
+}
+
+.home-landing-header .ui-page-header-logo {
+  width: 188px;
+}
+
+.home-landing-header .ui-page-header-logo-shell {
+  padding: 8px 10px;
+}
+
+.home-landing-header .ui-page-header-subtitle {
+  max-width: 520px;
+}
+
+.home-landing-cards {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px;
+  align-items: stretch;
+}
+
+.home-landing-tile {
+  min-height: 0;
+  padding: 24px;
+  gap: 18px;
+}
+
+.home-landing-tile .ui-module-tile-body {
+  gap: 12px;
+}
+
+.home-landing-tile .ui-module-tile-head .ui-stack-sm {
+  gap: 10px;
+}
+
+.home-landing-tile .ui-module-tile-icon {
+  width: 52px;
+  height: 52px;
+  border-radius: 16px;
+}
+
+.home-landing-tile .ui-module-tile-title {
+  font-size: 20px;
+}
+
+.home-landing-tile .ui-module-tile-description {
+  line-height: 1.45;
+}
+
+.home-landing-tile .ui-module-tile-action {
+  margin-top: 8px;
+}
+
+.home-landing-actions {
+  display: flex;
+  justify-content: center;
+  padding-top: 4px;
+}
+
+.home-landing-request-action {
+  min-width: 220px;
+}
+
 .ui-section-split {
   display: grid;
   grid-template-columns: minmax(320px, 0.92fr) minmax(0, 1.55fr);
@@ -1619,12 +1690,27 @@ select {
   .tagora-split,
   .tagora-form-grid-2,
   .ui-auth-grid,
-  .ui-section-split {
+  .ui-section-split,
+  .home-landing-cards {
     grid-template-columns: 1fr;
   }
 
   .ui-auth-shell {
     padding: 20px 16px 40px;
+  }
+
+  .home-landing-header {
+    min-height: auto;
+    padding: var(--ui-space-5);
+    gap: var(--ui-space-5);
+  }
+
+  .home-landing-header .ui-page-header-logo {
+    width: min(100%, 188px);
+  }
+
+  .home-landing-tile {
+    padding: 22px;
   }
 
   .account-requests-stats,

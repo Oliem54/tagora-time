@@ -13,6 +13,7 @@ import {
   TimerReset,
   Truck,
   UsersRound,
+  MapPin,
   Waypoints,
   type LucideIcon,
 } from "lucide-react";
@@ -86,6 +87,16 @@ const MODULES: ModuleDefinition[] = [
     icon: Waypoints,
     accent:
       "linear-gradient(135deg, rgba(16,185,129,0.18) 0%, rgba(15,41,72,0.08) 100%)",
+  },
+  {
+    href: "/direction/terrain/evenements-gps-base",
+    label: "Evenements GPS-base",
+    description: "Validation des entrees et sorties.",
+    permission: "terrain",
+    group: "operations",
+    icon: MapPin,
+    accent:
+      "linear-gradient(135deg, rgba(14,165,233,0.18) 0%, rgba(15,41,72,0.08) 100%)",
   },
   {
     href: "/direction/sorties-terrain",

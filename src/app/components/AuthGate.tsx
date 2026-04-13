@@ -4,6 +4,10 @@ import { ReactNode, useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { supabase } from "@/app/lib/supabase/client";
 import {
+  clearLocalSupabaseSession,
+  getSafeSupabaseUser,
+} from "@/app/lib/supabase/session";
+import {
   getRequiredPermissionForPath,
   hasUserPermission,
 } from "@/app/lib/auth/permissions";
@@ -42,13 +46,16 @@ export default function AuthGate({
 
     async function evaluateAccess() {
       setMissingPermission(null);
-      const { data } = await supabase.auth.getUser();
-      const user = data.user;
+      const { data: user, invalidRefreshToken } = await getSafeSupabaseUser();
       const role = getUserRole(user);
 
       if (cancelled) return;
 
       if (!user) {
+        if (invalidRefreshToken) {
+          await clearLocalSupabaseSession();
+        }
+
         if (isPublicPath) {
           setStatus("allowed");
           return;

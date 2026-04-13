@@ -23,6 +23,11 @@ import {
   getCompanyLabel,
   type AccountRequestCompany,
 } from "@/app/lib/account-requests.shared";
+import {
+  findGpsBaseMatches,
+  findOfficialGpsBaseMatch,
+  getGpsBaseStateLabel,
+} from "@/app/lib/gps-base-detection";
 import { supabase } from "@/app/lib/supabase/client";
 
 type GpsBaseType = "siege" | "entrepot" | "chantier" | "client" | "autre";
@@ -72,6 +77,12 @@ const DEFAULT_FORM: FormState = {
   type_base: "siege",
 };
 
+const DEFAULT_TEST_FORM = {
+  latitude: "",
+  longitude: "",
+  company_context: "oliem_solutions" as AccountRequestCompany,
+};
+
 function getMapUrl(latitude: number | null, longitude: number | null) {
   if (
     typeof latitude !== "number" ||
@@ -119,6 +130,7 @@ export default function GpsBasesAdminClient() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [message, setMessage] = useState("");
   const [messageType, setMessageType] = useState<"success" | "error" | null>(null);
+  const [testForm, setTestForm] = useState(DEFAULT_TEST_FORM);
 
   const loadBases = useCallback(async () => {
     setLoading(true);
@@ -147,7 +159,13 @@ export default function GpsBasesAdminClient() {
   }, []);
 
   useEffect(() => {
-    void loadBases();
+    const timeout = window.setTimeout(() => {
+      void loadBases();
+    }, 0);
+
+    return () => {
+      window.clearTimeout(timeout);
+    };
   }, [loadBases]);
 
   const previewLatitude = useMemo(() => normalizeNumber(form.latitude), [form.latitude]);
@@ -155,6 +173,31 @@ export default function GpsBasesAdminClient() {
   const previewMapUrl = useMemo(
     () => getMapUrl(previewLatitude, previewLongitude),
     [previewLatitude, previewLongitude]
+  );
+  const testLatitude = useMemo(() => normalizeNumber(testForm.latitude), [testForm.latitude]);
+  const testLongitude = useMemo(() => normalizeNumber(testForm.longitude), [testForm.longitude]);
+  const testMapUrl = useMemo(
+    () => getMapUrl(testLatitude, testLongitude),
+    [testLatitude, testLongitude]
+  );
+  const testPosition = useMemo(
+    () =>
+      testLatitude == null || testLongitude == null
+        ? null
+        : {
+            latitude: testLatitude,
+            longitude: testLongitude,
+            company_context: testForm.company_context,
+          },
+    [testLatitude, testLongitude, testForm.company_context]
+  );
+  const testMatch = useMemo(
+    () => (testPosition ? findOfficialGpsBaseMatch(testPosition, bases) : null),
+    [testPosition, bases]
+  );
+  const testMatches = useMemo(
+    () => (testPosition ? findGpsBaseMatches(testPosition, bases) : []),
+    [testPosition, bases]
   );
 
   function setFeedback(nextMessage: string, nextType: "success" | "error") {
@@ -611,6 +654,156 @@ export default function GpsBasesAdminClient() {
                   </p>
                 </AppCard>
               )}
+            </SectionCard>
+
+            <SectionCard title="Mode test" subtitle="Verifier si une position tombe dans une base.">
+              <div className="ui-stack-md">
+                <div className="ui-grid-3" style={{ gridTemplateColumns: "repeat(3, minmax(0, 1fr))" }}>
+                  <FormField label="Latitude" required>
+                    <input
+                      className="tagora-input"
+                      type="number"
+                      inputMode="decimal"
+                      step="0.000001"
+                      value={testForm.latitude}
+                      onChange={(event) =>
+                        setTestForm((current) => ({
+                          ...current,
+                          latitude: event.target.value,
+                        }))
+                      }
+                      placeholder="45.501690"
+                    />
+                  </FormField>
+
+                  <FormField label="Longitude" required>
+                    <input
+                      className="tagora-input"
+                      type="number"
+                      inputMode="decimal"
+                      step="0.000001"
+                      value={testForm.longitude}
+                      onChange={(event) =>
+                        setTestForm((current) => ({
+                          ...current,
+                          longitude: event.target.value,
+                        }))
+                      }
+                      placeholder="-73.567253"
+                    />
+                  </FormField>
+
+                  <FormField label="Compagnie" required>
+                    <select
+                      className="tagora-input"
+                      value={testForm.company_context}
+                      onChange={(event) =>
+                        setTestForm((current) => ({
+                          ...current,
+                          company_context: event.target.value as AccountRequestCompany,
+                        }))
+                      }
+                    >
+                      {ACCOUNT_REQUEST_COMPANIES.map((company) => (
+                        <option key={company.value} value={company.value}>
+                          {company.label}
+                        </option>
+                      ))}
+                    </select>
+                  </FormField>
+                </div>
+
+                {!testPosition ? (
+                  <AppCard tone="muted">
+                    <p className="ui-text-muted" style={{ margin: 0 }}>
+                      Entrez une latitude et une longitude pour lancer le test.
+                    </p>
+                  </AppCard>
+                ) : (
+                  <AppCard
+                    tone="muted"
+                    style={{
+                      borderColor: testMatch ? "rgba(34, 197, 94, 0.3)" : "rgba(148, 163, 184, 0.28)",
+                      background: testMatch
+                        ? "linear-gradient(180deg, rgba(240, 253, 244, 0.96) 0%, rgba(255,255,255,0.98) 100%)"
+                        : "linear-gradient(180deg, rgba(248,250,252,0.96) 0%, rgba(255,255,255,0.98) 100%)",
+                    }}
+                  >
+                    <div className="ui-stack-sm">
+                      <div style={{ fontSize: 18, fontWeight: 700, color: "var(--ui-color-primary)" }}>
+                        {getGpsBaseStateLabel(testMatch ? "dans_base" : "hors_base")}
+                      </div>
+                      <div className="ui-text-muted">
+                        {testMatch
+                          ? `${testMatch.base.nom} detectee a ${testMatch.distance_m} m pour un rayon de ${testMatch.radius_m} m.`
+                          : "Aucune base ne couvre cette position pour la compagnie selectionnee."}
+                      </div>
+                      <div className="ui-grid-auto">
+                        <div>
+                          <div className="ui-text-muted">Base officielle</div>
+                          <div>{testMatch ? testMatch.base.nom : "-"}</div>
+                        </div>
+                        <div>
+                          <div className="ui-text-muted">Type</div>
+                          <div>{testMatch ? getTypeLabel(testMatch.base.type_base) : "-"}</div>
+                        </div>
+                        <div>
+                          <div className="ui-text-muted">Bases candidates</div>
+                          <div>{testMatches.length}</div>
+                        </div>
+                      </div>
+                    </div>
+                  </AppCard>
+                )}
+
+                {testMatches.length > 0 ? (
+                  <div className="ui-stack-sm">
+                    {testMatches.map((match) => (
+                      <AppCard key={match.base.id} tone="muted">
+                        <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+                          <strong style={{ color: "var(--ui-color-primary)" }}>{match.base.nom}</strong>
+                          <StatusBadge label={getTypeLabel(match.base.type_base)} tone={getTypeTone(match.base.type_base)} />
+                        </div>
+                        <div className="ui-text-muted">
+                          Distance {match.distance_m} m sur un rayon de {match.radius_m} m.
+                        </div>
+                      </AppCard>
+                    ))}
+                  </div>
+                ) : null}
+
+                <SectionCard title="Carte test" subtitle="Verification visuelle.">
+                  {testMapUrl ? (
+                    <iframe
+                      src={testMapUrl}
+                      title="Carte test base GPS"
+                      loading="lazy"
+                      referrerPolicy="no-referrer-when-downgrade"
+                      style={{
+                        width: "100%",
+                        minHeight: 260,
+                        border: 0,
+                        borderRadius: 18,
+                        background: "#e2e8f0",
+                      }}
+                    />
+                  ) : (
+                    <AppCard
+                      tone="muted"
+                      style={{
+                        minHeight: 180,
+                        display: "grid",
+                        placeItems: "center",
+                        textAlign: "center",
+                      }}
+                    >
+                      <p className="ui-text-muted" style={{ margin: 0 }}>
+                        La carte apparaitra ici quand les coordonnees de test seront completes.
+                      </p>
+                    </AppCard>
+                  )}
+                </SectionCard>
+              </div>
             </SectionCard>
           </div>
         </div>

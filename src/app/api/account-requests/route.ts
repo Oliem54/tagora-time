@@ -11,6 +11,11 @@ import {
   type AccountRequestCompany,
 } from "@/app/lib/account-requests.shared";
 import {
+  buildTitanHoursByEmployee,
+  type TitanSortieRow,
+  type TitanTempsRow,
+} from "@/app/lib/titan-billing";
+import {
   consumeDurableAccountRequestRateLimit,
   getAccountRequestsRequestDebug,
   getRequestIp,
@@ -58,6 +63,10 @@ type ChauffeurProfileRow = {
   notes?: string | null;
   primary_company?: AccountRequestCompany | null;
   taux_base_titan?: number | null;
+  titan_enabled?: boolean | null;
+  titan_mode_timeclock?: boolean | null;
+  titan_mode_sorties?: boolean | null;
+  titan_hourly_rate?: number | null;
   social_benefits_percent?: number | null;
   titan_billable?: boolean | null;
   schedule_start?: string | null;
@@ -108,14 +117,27 @@ function buildEmployeeProfileSnapshot(
     phone: string | null;
     company: AccountRequestCompany | null;
   },
-  authUserId: string | null
+  authUserId: string | null,
+  titanHoursCalculated: number
 ) {
   const benefitsPercent =
     profile?.social_benefits_percent != null
       ? Number(profile.social_benefits_percent)
       : 15;
   const hourlyRate =
-    profile?.taux_base_titan != null ? Number(profile.taux_base_titan) : null;
+    profile?.titan_hourly_rate != null
+      ? Number(profile.titan_hourly_rate)
+      : profile?.taux_base_titan != null
+        ? Number(profile.taux_base_titan)
+        : null;
+  const titanEnabled =
+    profile?.titan_enabled ??
+    profile?.titan_billable ??
+    false;
+  const titanModeTimeclock =
+    profile?.titan_mode_timeclock ?? titanEnabled;
+  const titanModeSorties =
+    profile?.titan_mode_sorties ?? titanEnabled;
   const expectedBreaksCount =
     profile?.expected_breaks_count != null
       ? Number(profile.expected_breaks_count)
@@ -180,9 +202,13 @@ function buildEmployeeProfileSnapshot(
     actif: profile?.actif ?? true,
     notes: profile?.notes ?? null,
     primary_company: profile?.primary_company ?? request.company ?? null,
+    titan_enabled: titanEnabled,
+    titan_mode_timeclock: titanModeTimeclock,
+    titan_mode_sorties: titanModeSorties,
+    titan_hourly_rate: hourlyRate,
     taux_base_titan: hourlyRate,
     social_benefits_percent: benefitsPercent,
-    titan_billable: profile?.titan_billable ?? false,
+    titan_billable: titanEnabled,
     schedule_start: profile?.schedule_start ?? null,
     schedule_end: profile?.schedule_end ?? null,
     scheduled_work_days: Array.isArray(profile?.scheduled_work_days)
@@ -234,9 +260,16 @@ function buildEmployeeProfileSnapshot(
     sms_alert_quart_fin: profile?.sms_alert_quart_fin ?? true,
     total_break_minutes: totalBreakMinutes,
     total_unpaid_break_minutes: totalUnpaidBreakMinutes,
+    titan_hours_calculated: Number(titanHoursCalculated.toFixed(2)),
     billable_hourly_cost:
       hourlyRate != null
-        ? Number((hourlyRate * (1 + benefitsPercent / 100)).toFixed(2))
+        ? Number(
+            (
+              titanHoursCalculated *
+              hourlyRate *
+              (1 + benefitsPercent / 100)
+            ).toFixed(2)
+          )
         : null,
   };
 }
@@ -413,9 +446,28 @@ export async function GET(req: NextRequest) {
     const { data: chauffeurProfiles } = await supabase
       .from("chauffeurs")
       .select(
-        "id, auth_user_id, nom, courriel, telephone, actif, notes, primary_company, taux_base_titan, social_benefits_percent, titan_billable, schedule_start, schedule_end, scheduled_work_days, planned_daily_hours, planned_weekly_hours, pause_minutes, expected_breaks_count, break_1_label, break_1_minutes, break_1_paid, break_2_label, break_2_minutes, break_2_paid, break_3_label, break_3_minutes, break_3_paid, break_am_enabled, break_am_time, break_am_minutes, break_am_paid, lunch_enabled, lunch_time, lunch_minutes, lunch_paid, break_pm_enabled, break_pm_time, break_pm_minutes, break_pm_paid, sms_alert_depart_terrain, sms_alert_arrivee_terrain, sms_alert_sortie, sms_alert_retour, sms_alert_pause_debut, sms_alert_pause_fin, sms_alert_dinner_debut, sms_alert_dinner_fin, sms_alert_quart_debut, sms_alert_quart_fin"
+        "id, auth_user_id, nom, courriel, telephone, actif, notes, primary_company, taux_base_titan, titan_enabled, titan_mode_timeclock, titan_mode_sorties, titan_hourly_rate, social_benefits_percent, titan_billable, schedule_start, schedule_end, scheduled_work_days, planned_daily_hours, planned_weekly_hours, pause_minutes, expected_breaks_count, break_1_label, break_1_minutes, break_1_paid, break_2_label, break_2_minutes, break_2_paid, break_3_label, break_3_minutes, break_3_paid, break_am_enabled, break_am_time, break_am_minutes, break_am_paid, lunch_enabled, lunch_time, lunch_minutes, lunch_paid, break_pm_enabled, break_pm_time, break_pm_minutes, break_pm_paid, sms_alert_depart_terrain, sms_alert_arrivee_terrain, sms_alert_sortie, sms_alert_retour, sms_alert_pause_debut, sms_alert_pause_fin, sms_alert_dinner_debut, sms_alert_dinner_fin, sms_alert_quart_debut, sms_alert_quart_fin"
       )
       .order("id", { ascending: true });
+    const [{ data: titanTimeRows }, { data: titanSortieRows }] = await Promise.all([
+      supabase
+        .from("temps_titan")
+        .select(
+          "id, employe_id, employe_nom, date_travail, duree_heures, payable_minutes, facturable_minutes, temps_presence, temps_payable, temps_non_payable, type_travail, livraison, statut_paiement_titan, company_context"
+        )
+        .eq("company_context", "titan_produits_industriels"),
+      supabase
+        .from("sorties_terrain")
+        .select(
+          "id, chauffeur_id, livraison_id, date_sortie, temps_total, payable_minutes, facturable_minutes, temps_payable, temps_non_payable, company_context"
+        )
+        .eq("company_context", "titan_produits_industriels"),
+    ]);
+    const titanHoursByEmployee = buildTitanHoursByEmployee({
+      employes: (chauffeurProfiles ?? []) as ChauffeurProfileRow[],
+      tempsTitan: (titanTimeRows ?? []) as TitanTempsRow[],
+      sortiesTitan: (titanSortieRows ?? []) as TitanSortieRow[],
+    });
 
     const userByEmail = new Map(
       authUsers
@@ -465,7 +517,10 @@ export async function GET(req: NextRequest) {
             phone: request.phone,
             company: request.company,
           },
-          existingAccount?.id ?? null
+          existingAccount?.id ?? null,
+          matchedProfile?.id != null
+            ? titanHoursByEmployee.get(String(matchedProfile.id)) ?? 0
+            : 0
         ),
         review_lock: getReviewLockMetadata(request.review_started_at),
       };

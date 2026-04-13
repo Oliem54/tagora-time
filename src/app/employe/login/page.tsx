@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ArrowUpRight, BadgeCheck, Clock3, FileStack, Waypoints } from "lucide-react";
 import FeedbackMessage from "@/app/components/FeedbackMessage";
@@ -19,6 +19,10 @@ import {
 } from "@/app/lib/auth/roles";
 import { hasPasswordChangeRequired } from "@/app/lib/auth/passwords";
 import { supabase } from "../../lib/supabase/client";
+import {
+  getSafeSupabaseSession,
+  getSafeSupabaseUser,
+} from "@/app/lib/supabase/session";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -35,13 +39,6 @@ export default function LoginPage() {
     searchParams.get("reset") === "ok" ? "success" : null
   );
 
-  useEffect(() => {
-    if (searchParams.get("reset") === "ok") {
-      setMessage("Mot de passe reinitialise.");
-      setMessageType("success");
-    }
-  }, [searchParams]);
-
   const handleLogin = async () => {
     setMessage("");
     setMessageType(null);
@@ -57,9 +54,7 @@ export default function LoginPage() {
       return;
     }
 
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
+    const { data: session } = await getSafeSupabaseSession();
 
     if (session?.access_token) {
       try {
@@ -74,8 +69,8 @@ export default function LoginPage() {
       }
     }
 
-    const { data: userData } = await supabase.auth.getUser();
-    const role = getUserRole(userData.user);
+    const { data: user } = await getSafeSupabaseUser();
+    const role = getUserRole(user);
 
     if (!role) {
       await supabase.auth.signOut();
@@ -94,7 +89,7 @@ export default function LoginPage() {
     setMessage("Connexion reussie.");
     setMessageType("success");
     router.replace(
-      hasPasswordChangeRequired(userData.user)
+      hasPasswordChangeRequired(user)
         ? getPasswordChangePathForRole(role)
         : getHomePathForRole(role)
     );

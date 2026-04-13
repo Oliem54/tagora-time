@@ -5,26 +5,15 @@ import HeaderTagora from "@/app/components/HeaderTagora";
 import AccessNotice from "@/app/components/AccessNotice";
 import { supabase } from "@/app/lib/supabase/client";
 import { useCurrentAccess } from "@/app/hooks/useCurrentAccess";
+import {
+  buildTitanBillingRows,
+  type TitanBillingChauffeur,
+  type TitanBillingRow,
+  type TitanSortieRow,
+  type TitanTempsRow,
+} from "@/app/lib/titan-billing";
 
 type PaymentStatus = "paye" | "non_paye" | "";
-
-type FacturationTitanRow = {
-  id: string | number;
-  employe_nom: string | null;
-  date_travail: string | null;
-  duree_heures: number | null;
-  payable_minutes: number | null;
-  temps_presence: string | null;
-  temps_payable: string | null;
-  temps_non_payable: string | null;
-  type_travail: string | null;
-  statut_paiement_titan: string | null;
-  taux_salaire_h: number | null;
-  marge_h: number | null;
-  total_salaire: number | null;
-  total_benefice: number | null;
-  total_titan: number | null;
-};
 
 function toNumber(value: unknown) {
   const parsed = Number(value ?? 0);
@@ -59,18 +48,12 @@ function formatHours(value: number) {
   return `${value.toFixed(2)} h`;
 }
 
-function getPayableHours(row: FacturationTitanRow) {
-  return row.payable_minutes != null && row.payable_minutes > 0
-    ? row.payable_minutes / 60
-    : toNumber(row.duree_heures);
-}
-
 export default function FacturationTitanPage() {
   const { user, loading: accessLoading, hasPermission } = useCurrentAccess();
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [rows, setRows] = useState<FacturationTitanRow[]>([]);
+  const [rows, setRows] = useState<TitanBillingRow[]>([]);
   const [dateDebut, setDateDebut] = useState(firstDayOfMonthIso());
   const [dateFin, setDateFin] = useState(todayIso());
 
@@ -79,29 +62,40 @@ export default function FacturationTitanPage() {
       setLoading(true);
       setError("");
 
-      const { data, error: fetchError } = await supabase
-        .from("temps_titan")
-        .select("id, employe_nom, date_travail, duree_heures, payable_minutes, temps_presence, temps_payable, temps_non_payable, type_travail, statut_paiement_titan, taux_salaire_h, marge_h, total_salaire, total_benefice, total_titan")
-        .order("date_travail", { ascending: false })
-        .order("id", { ascending: false });
+      const [chauffeursRes, tempsRes, sortiesRes] = await Promise.all([
+        supabase
+          .from("chauffeurs")
+          .select(
+            "id, nom, titan_enabled, titan_mode_timeclock, titan_mode_sorties, titan_hourly_rate, taux_base_titan, social_benefits_percent, primary_company"
+          ),
+        supabase
+          .from("temps_titan")
+          .select(
+            "id, employe_id, employe_nom, date_travail, duree_heures, payable_minutes, facturable_minutes, temps_presence, temps_payable, temps_non_payable, type_travail, livraison, statut_paiement_titan, company_context"
+          )
+          .eq("company_context", "titan_produits_industriels"),
+        supabase
+          .from("sorties_terrain")
+          .select(
+            "id, chauffeur_id, livraison_id, date_sortie, temps_total, payable_minutes, facturable_minutes, temps_payable, temps_non_payable, company_context"
+          )
+          .eq("company_context", "titan_produits_industriels"),
+      ]);
 
-      if (fetchError) throw fetchError;
+      if (chauffeursRes.error) throw chauffeursRes.error;
+      if (tempsRes.error) throw tempsRes.error;
+      if (sortiesRes.error) throw sortiesRes.error;
 
-      setRows((data ?? []).map((row) => ({
-        ...row,
-        duree_heures: toNumber(row.duree_heures),
-        payable_minutes: toNumber(row.payable_minutes),
-        temps_presence: typeof row.temps_presence === "string" ? row.temps_presence : null,
-        temps_payable: typeof row.temps_payable === "string" ? row.temps_payable : null,
-        temps_non_payable:
-          typeof row.temps_non_payable === "string" ? row.temps_non_payable : null,
-        taux_salaire_h: toNumber(row.taux_salaire_h),
-        marge_h: toNumber(row.marge_h),
-        total_salaire: toNumber(row.total_salaire),
-        total_benefice: toNumber(row.total_benefice),
-        total_titan: toNumber(row.total_titan),
-        statut_paiement_titan: normalizePaymentStatus(row.statut_paiement_titan),
-      })));
+      setRows(
+        buildTitanBillingRows({
+          employes: (chauffeursRes.data ?? []) as TitanBillingChauffeur[],
+          tempsTitan: (tempsRes.data ?? []) as TitanTempsRow[],
+          sortiesTitan: (sortiesRes.data ?? []) as TitanSortieRow[],
+        }).map((row) => ({
+          ...row,
+          statut_paiement_titan: normalizePaymentStatus(row.statut_paiement_titan),
+        }))
+      );
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Erreur de chargement.");
     } finally {
@@ -129,7 +123,7 @@ export default function FacturationTitanPage() {
 
   const totals = useMemo(() => {
     const totalHeuresTitan = filteredRows.reduce(
-      (sum, row) => sum + getPayableHours(row),
+      (sum, row) => sum + row.titan_hours,
       0
     );
     const totalSalaire = filteredRows.reduce((sum, row) => sum + toNumber(row.total_salaire), 0);
@@ -144,7 +138,7 @@ export default function FacturationTitanPage() {
   if (accessLoading || loading) {
     return (
       <div className="page-container">
-        <HeaderTagora title="Facturation Titan" subtitle="Synthese des elements a facturer a Titan" />
+        <HeaderTagora title="Facturation Titan" subtitle="Synthese basee uniquement sur les heures Titan calculees." />
         <AccessNotice description="Verification des acces terrain et chargement des donnees Titan en cours." />
       </div>
     );
@@ -157,7 +151,7 @@ export default function FacturationTitanPage() {
   if (!hasTerrainPerm) {
     return (
       <div className="page-container">
-        <HeaderTagora title="Facturation Titan" subtitle="Synthese des elements a facturer a Titan" />
+        <HeaderTagora title="Facturation Titan" subtitle="Synthese basee uniquement sur les heures Titan calculees." />
         <AccessNotice description="La permission terrain n est pas active sur ce compte direction. La synthese Titan reste donc masquee." />
       </div>
     );
@@ -165,7 +159,7 @@ export default function FacturationTitanPage() {
 
   return (
     <div className="page-container">
-      <HeaderTagora title="Facturation Titan" subtitle="Synthese des elements a facturer a Titan" />
+      <HeaderTagora title="Facturation Titan" subtitle="Synthese basee uniquement sur les heures Titan calculees." />
 
       {error ? (
         <div style={{ marginTop: 24 }}>
@@ -177,7 +171,7 @@ export default function FacturationTitanPage() {
         <div style={{ display: "flex", justifyContent: "space-between", gap: 16, flexWrap: "wrap", alignItems: "center" }}>
           <div>
             <h2 className="section-title" style={{ marginBottom: 8 }}>Synthese facturation Titan</h2>
-            <p className="tagora-note">Vue consolidee des elements a facturer sur la periode.</p>
+            <p className="tagora-note">Vue consolidee des heures Titan issues du temps Titan et des sorties terrain Titan.</p>
           </div>
           <div className="actions-row">
             <input type="date" value={dateDebut} onChange={(e) => setDateDebut(e.target.value)} className="tagora-input" />
@@ -187,7 +181,7 @@ export default function FacturationTitanPage() {
         </div>
 
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 16, marginTop: 18 }}>
-          <StatCard label="Total payable" value={formatHours(totals.totalHeuresTitan)} />
+          <StatCard label="Heures Titan calculees" value={formatHours(totals.totalHeuresTitan)} />
           <StatCard label="Total salaire" value={formatMoney(totals.totalSalaire)} />
           <StatCard label="Total benefice" value={formatMoney(totals.totalBenefice)} />
           <StatCard label="Total Titan a facturer" value={formatMoney(totals.totalTitan)} />
@@ -202,15 +196,16 @@ export default function FacturationTitanPage() {
           <table style={tableStyle}>
             <thead>
               <tr>
+                <th style={thStyle}>Source</th>
                 <th style={thStyle}>ID</th>
                 <th style={thStyle}>Date</th>
                 <th style={thStyle}>Employe</th>
                 <th style={thStyle}>Type</th>
                 <th style={thStyle}>Presence</th>
                 <th style={thStyle}>Non paye</th>
-                <th style={thStyle}>Payable</th>
-                <th style={thStyle}>Salaire/h</th>
-                <th style={thStyle}>Marge</th>
+                <th style={thStyle}>Heures Titan</th>
+                <th style={thStyle}>Taux/h</th>
+                <th style={thStyle}>Avantages %</th>
                 <th style={thStyle}>Total salaire</th>
                 <th style={thStyle}>Total benefice</th>
                 <th style={thStyle}>Total Titan</th>
@@ -219,19 +214,20 @@ export default function FacturationTitanPage() {
             </thead>
             <tbody>
               {filteredRows.length === 0 ? (
-                <tr><td style={tdStyle} colSpan={13}>Aucune donnee sur la periode.</td></tr>
+                <tr><td style={tdStyle} colSpan={14}>Aucune donnee sur la periode.</td></tr>
               ) : (
                 filteredRows.map((row) => (
-                  <tr key={row.id}>
+                  <tr key={row.source_id}>
+                    <td style={tdStyle}>{row.source === "timeclock" ? "Horodateur" : "Sortie"}</td>
                     <td style={tdStyle}>{row.id}</td>
                     <td style={tdStyle}>{row.date_travail || "-"}</td>
                     <td style={tdStyle}>{row.employe_nom || "-"}</td>
                     <td style={tdStyle}>{row.type_travail || "-"}</td>
-                    <td style={tdStyle}>{row.temps_presence || "-"}</td>
-                    <td style={tdStyle}>{row.temps_non_payable || "0 min"}</td>
-                    <td style={tdStyle}>{row.temps_payable || formatHours(getPayableHours(row))}</td>
-                    <td style={tdStyle}>{formatMoney(toNumber(row.taux_salaire_h))}</td>
-                    <td style={tdStyle}>{formatMoney(toNumber(row.marge_h))}</td>
+                    <td style={tdStyle}>{row.presence_text || "-"}</td>
+                    <td style={tdStyle}>{row.non_payable_text || "0 min"}</td>
+                    <td style={tdStyle}>{formatHours(row.titan_hours)}</td>
+                    <td style={tdStyle}>{formatMoney(toNumber(row.taux_horaire))}</td>
+                    <td style={tdStyle}>{`${toNumber(row.social_benefits_percent).toFixed(2)} %`}</td>
                     <td style={tdStyle}>{formatMoney(toNumber(row.total_salaire))}</td>
                     <td style={tdStyle}>{formatMoney(toNumber(row.total_benefice))}</td>
                     <td style={tdStyle}>{formatMoney(toNumber(row.total_titan))}</td>

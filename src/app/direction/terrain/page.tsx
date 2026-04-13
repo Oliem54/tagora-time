@@ -17,6 +17,7 @@ import {
 import {
   formatDurationMinutes,
   formatTerrainDateTime,
+  getTerrainStatusStyle,
   getTerrainStatusLabel,
   isSameIsoDay,
   minutesBetween,
@@ -25,6 +26,15 @@ import {
   toFiniteNumber,
   type TerrainGpsStatus,
 } from "@/app/lib/terrain-gps";
+import {
+  buildLatestGpsBaseStatus,
+  getGpsBaseEventLabel,
+  getGpsBaseStateLabel,
+  normalizeGpsBase,
+  type GpsBaseLike,
+  type GpsBasePreparedEvent,
+} from "@/app/lib/gps-base-detection";
+import { isGpsBaseEventType } from "@/app/lib/gps-base-events";
 import AuthenticatedPageHeader from "@/app/components/ui/AuthenticatedPageHeader";
 import SectionCard from "@/app/components/ui/SectionCard";
 import StatCard from "@/app/components/ui/StatCard";
@@ -64,6 +74,30 @@ type PositionSummary = {
   positions: GpsPosition[];
   stopMinutes: number;
   vehicleLabel: string | null;
+  gpsBaseState: "dans_base" | "hors_base";
+  currentBaseName: string | null;
+  currentBaseDistanceM: number | null;
+  latestBaseEvent: GpsBasePreparedEvent | null;
+  gpsBaseTimeline: ReturnType<typeof buildLatestGpsBaseStatus>["timeline"];
+};
+
+type GpsBaseEventRow = {
+  id: string;
+  user_id: string | null;
+  chauffeur_id: string | number | null;
+  company_context: AccountRequestCompany | null;
+  gps_position_id: string | null;
+  base_id: string | null;
+  event_type: string | null;
+  event_label: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  distance_m: number | null;
+  rayon_metres: number | null;
+  occurred_at: string | null;
+  created_at: string | null;
+  metadata: Record<string, unknown> | null;
+  base_name: string | null;
 };
 
 function todayIso() {
@@ -154,6 +188,8 @@ export default function DirectionTerrainPage() {
   const [sorties, setSorties] = useState<Map<number, Record<string, unknown>>>(new Map());
   const [livraisons, setLivraisons] = useState<Map<number, Record<string, unknown>>>(new Map());
   const [pointages, setPointages] = useState<Map<string, Record<string, unknown>>>(new Map());
+  const [gpsBases, setGpsBases] = useState<GpsBaseLike[]>([]);
+  const [gpsBaseEvents, setGpsBaseEvents] = useState<GpsBaseEventRow[]>([]);
   const [employeeFilter, setEmployeeFilter] = useState("");
   const [companyFilter, setCompanyFilter] = useState<AccountRequestCompany | "">("");
   const [dateFilter, setDateFilter] = useState(todayIso());
@@ -170,13 +206,15 @@ export default function DirectionTerrainPage() {
     }
     setErrorMessage("");
     setDataSourceNotice("");
-    const [gpsRes, chauffeursRes, sortiesRes, livraisonsRes, pointagesRes] =
+    const [gpsRes, chauffeursRes, sortiesRes, livraisonsRes, pointagesRes, gpsBasesRes, gpsBaseEventsRes] =
       await Promise.allSettled([
         supabase.from("direction_terrain_positions").select("id, source_kind, source_label, user_id, chauffeur_id, company_context, latitude, longitude, speed_kmh, gps_status, activity_label, recorded_at, sortie_id, livraison_id, horodateur_event_id, intervention_label, metadata").order("recorded_at", { ascending: false }).limit(2500),
         supabase.from("chauffeurs").select("id, nom").order("id", { ascending: true }),
         supabase.from("sorties_terrain").select("id, date_sortie, temps_total, company_context").order("date_sortie", { ascending: false }).limit(400),
         supabase.from("livraisons_planifiees").select("id, date_livraison, statut").order("date_livraison", { ascending: false }).limit(400),
         supabase.from("horodateur_events").select("id, event_type, occurred_at, company_context").order("occurred_at", { ascending: false }).limit(600),
+        supabase.from("gps_bases").select("id, nom, latitude, longitude, rayon_m, company_context, type_base").order("nom", { ascending: true }),
+        supabase.from("gps_base_events").select("id, user_id, chauffeur_id, company_context, gps_position_id, base_id, event_type, event_label, latitude, longitude, distance_m, rayon_metres, occurred_at, created_at, metadata, gps_bases(nom)").order("occurred_at", { ascending: false }).limit(400),
       ]);
 
     if (gpsRes.status !== "fulfilled" || gpsRes.value.error) {
@@ -207,6 +245,43 @@ export default function DirectionTerrainPage() {
     setSorties(sortiesRes.status !== "fulfilled" || sortiesRes.value.error ? new Map() : new Map((sortiesRes.value.data ?? []).map((row) => [Number((row as Record<string, unknown>).id), row as Record<string, unknown>])));
     setLivraisons(livraisonsRes.status !== "fulfilled" || livraisonsRes.value.error ? new Map() : new Map((livraisonsRes.value.data ?? []).map((row) => [Number((row as Record<string, unknown>).id), row as Record<string, unknown>])));
     setPointages(pointagesRes.status !== "fulfilled" || pointagesRes.value.error ? new Map() : new Map((pointagesRes.value.data ?? []).map((row) => [String((row as Record<string, unknown>).id), row as Record<string, unknown>])));
+    setGpsBases(gpsBasesRes.status !== "fulfilled" || gpsBasesRes.value.error ? [] : (gpsBasesRes.value.data ?? []).map((row) => normalizeGpsBase(row as Record<string, unknown>)).filter((row) => row != null));
+    setGpsBaseEvents(
+      gpsBaseEventsRes.status !== "fulfilled" || gpsBaseEventsRes.value.error
+        ? []
+        : (gpsBaseEventsRes.value.data ?? []).map((row) => {
+            const record = row as Record<string, unknown>;
+            const baseRelation = record.gps_bases as { nom?: unknown } | Array<{ nom?: unknown }> | null;
+            const firstBase =
+              Array.isArray(baseRelation) ? baseRelation[0] : baseRelation;
+
+            return {
+              id: String(record.id ?? ""),
+              user_id: typeof record.user_id === "string" ? record.user_id : null,
+              chauffeur_id:
+                typeof record.chauffeur_id === "string" || typeof record.chauffeur_id === "number"
+                  ? record.chauffeur_id
+                  : null,
+              company_context: normalizeCompanyValue(record.company_context),
+              gps_position_id:
+                typeof record.gps_position_id === "string" ? record.gps_position_id : null,
+              base_id: typeof record.base_id === "string" ? record.base_id : null,
+              event_type: typeof record.event_type === "string" ? record.event_type : null,
+              event_label: typeof record.event_label === "string" ? record.event_label : null,
+              latitude: record.latitude == null ? null : toFiniteNumber(record.latitude),
+              longitude: record.longitude == null ? null : toFiniteNumber(record.longitude),
+              distance_m: record.distance_m == null ? null : toFiniteNumber(record.distance_m),
+              rayon_metres: record.rayon_metres == null ? null : toFiniteNumber(record.rayon_metres),
+              occurred_at: typeof record.occurred_at === "string" ? record.occurred_at : null,
+              created_at: typeof record.created_at === "string" ? record.created_at : null,
+              metadata:
+                record.metadata && typeof record.metadata === "object"
+                  ? (record.metadata as Record<string, unknown>)
+                  : null,
+              base_name: typeof firstBase?.nom === "string" ? firstBase.nom : null,
+            } satisfies GpsBaseEventRow;
+          }),
+    );
     setLastRefreshAt(new Date().toISOString());
     setLoading(false);
     setRefreshing(false);
@@ -239,6 +314,7 @@ export default function DirectionTerrainPage() {
       const latest = ordered[0] ?? null;
       const status = latest ? normalizeTerrainGpsStatus(latest) : "inactif";
       const lastMove = ordered.find((item) => normalizeTerrainGpsStatus(item) === "deplacement" || toFiniteNumber(item.speed_kmh) >= 5)?.recorded_at ?? latest?.recorded_at ?? null;
+      const gpsBaseStatus = buildLatestGpsBaseStatus(positions, gpsBases);
       return {
         key,
         label: latest ? buildLabel(latest, chauffeurs) : key,
@@ -248,9 +324,14 @@ export default function DirectionTerrainPage() {
         positions: [...positions].sort((a, b) => (a.recorded_at ?? "").localeCompare(b.recorded_at ?? "")),
         stopMinutes: latest?.recorded_at ? minutesBetween(lastMove, latest.recorded_at) : 0,
         vehicleLabel: latest ? buildVehicleLabel(latest) : null,
+        gpsBaseState: gpsBaseStatus.state,
+        currentBaseName: gpsBaseStatus.current_base?.base.nom ?? null,
+        currentBaseDistanceM: gpsBaseStatus.current_base?.distance_m ?? null,
+        latestBaseEvent: gpsBaseStatus.latest_event,
+        gpsBaseTimeline: gpsBaseStatus.timeline,
       } satisfies PositionSummary;
     }).filter((item) => (!employeeFilter || item.key === employeeFilter) && (!companyFilter || item.company === companyFilter) && (!statusFilter || item.status === statusFilter)).sort((a, b) => (b.latest?.recorded_at ?? "").localeCompare(a.latest?.recorded_at ?? ""));
-  }, [gpsPositions, dateFilter, chauffeurs, employeeFilter, companyFilter, statusFilter]);
+  }, [gpsPositions, dateFilter, chauffeurs, employeeFilter, companyFilter, statusFilter, gpsBases]);
 
   const effectiveSelectedEmployee =
     selectedEmployee && summaries.some((item) => item.key === selectedEmployee)
@@ -259,6 +340,23 @@ export default function DirectionTerrainPage() {
 
   const selected =
     summaries.find((item) => item.key === effectiveSelectedEmployee) ?? null;
+  const selectedGpsBaseEvents = useMemo(() => {
+    if (!selected) return [];
+
+    return gpsBaseEvents
+      .filter((event) => {
+        if (selected.latest?.user_id && event.user_id === selected.latest.user_id) {
+          return true;
+        }
+
+        return (
+          selected.latest?.chauffeur_id != null &&
+          event.chauffeur_id != null &&
+          String(event.chauffeur_id) === String(selected.latest.chauffeur_id)
+        );
+      })
+      .slice(0, 8);
+  }, [gpsBaseEvents, selected]);
   const indicators = {
     active: summaries.filter((item) => item.status === "actif" || item.status === "deplacement").length,
     moving: summaries.filter((item) => item.status === "deplacement").length,
@@ -369,6 +467,9 @@ export default function DirectionTerrainPage() {
                         <div style={{ fontSize: 20, fontWeight: 800, color: "var(--ui-color-primary)" }}>{item.label}</div>
                         <div className="ui-text-muted">{item.company ? getCompanyLabel(item.company) : "Sans compagnie"}</div>
                         <div className="ui-text-muted">Vehicule: {item.vehicleLabel || "-"}</div>
+                        <div className="ui-text-muted">
+                          Base GPS: {item.currentBaseName ? `${item.currentBaseName} (${item.currentBaseDistanceM} m)` : getGpsBaseStateLabel(item.gpsBaseState)}
+                        </div>
                       </div>
                       <StatusBadge label={getTerrainStatusLabel(item.status)} tone={getStatusTone(item.status)} />
                     </div>
@@ -405,6 +506,9 @@ export default function DirectionTerrainPage() {
                     <InfoRow label="Vehicule" value={selected.vehicleLabel || "Non renseigne"} />
                     <InfoRow label="Latitude / Longitude" value={formatCoordinates(selected.latest)} />
                     <InfoRow label="Temps d arret" value={formatDurationMinutes(selected.stopMinutes)} />
+                    <InfoRow label="Etat base GPS" value={getGpsBaseStateLabel(selected.gpsBaseState)} />
+                    <InfoRow label="Base courante" value={selected.currentBaseName ? `${selected.currentBaseName}${selected.currentBaseDistanceM != null ? ` (${selected.currentBaseDistanceM} m)` : ""}` : "-"} />
+                    <InfoRow label="Dernier evenement base" value={selected.latestBaseEvent ? `${selected.latestBaseEvent.label} - ${selected.latestBaseEvent.base_name}` : "-"} />
                   </div>
 
                   <div className="ui-stack-sm">
@@ -413,6 +517,7 @@ export default function DirectionTerrainPage() {
                       const sortie = position.sortie_id ? sorties.get(position.sortie_id) : null;
                       const livraison = position.livraison_id ? livraisons.get(position.livraison_id) : null;
                       const pointage = position.horodateur_event_id ? pointages.get(position.horodateur_event_id) : null;
+                      const gpsBaseEntry = selected.gpsBaseTimeline.find((entry) => entry.position.id === position.id) ?? null;
                       return (
                         <AppCard key={position.id} className="ui-stack-sm" tone="muted">
                           <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
@@ -427,10 +532,58 @@ export default function DirectionTerrainPage() {
                           </div>
                           <div className="ui-text-muted">Sortie: {sortie ? `#${String(sortie.id)}` : position.sortie_id ? `#${position.sortie_id}` : "-"}</div>
                           <div className="ui-text-muted">Pointage: {pointage ? `${String(pointage.event_type ?? "-")}` : position.horodateur_event_id || "-"}</div>
+                          <div className="ui-text-muted">
+                            Base GPS: {gpsBaseEntry?.current_base ? `${gpsBaseEntry.current_base.base.nom} (${gpsBaseEntry.current_base.distance_m} m)` : getGpsBaseStateLabel(gpsBaseEntry?.state ?? "hors_base")}
+                          </div>
+                          {gpsBaseEntry?.events.length ? (
+                            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                              {gpsBaseEntry.events.map((event) => (
+                                <span
+                                  key={`${position.id}-${event.name}-${event.base_id}`}
+                                  style={{
+                                    ...getTerrainStatusStyle(event.name === "gps_base_exited" ? "arret" : "arrive"),
+                                    borderRadius: 999,
+                                    padding: "4px 10px",
+                                    fontSize: 12,
+                                    fontWeight: 700,
+                                  }}
+                                >
+                                  {event.label}: {event.base_name}
+                                </span>
+                              ))}
+                            </div>
+                          ) : null}
                         </AppCard>
                       );
                     })}
                   </div>
+
+                  <SectionCard title="Historique GPS-base" subtitle="Evenements recents persistants.">
+                    {selectedGpsBaseEvents.length === 0 ? (
+                      <AppCard tone="muted">
+                        <p className="ui-text-muted" style={{ margin: 0 }}>Aucun evenement GPS-base recent.</p>
+                      </AppCard>
+                    ) : (
+                      <div className="ui-stack-sm">
+                        {selectedGpsBaseEvents.map((event) => (
+                          <AppCard key={event.id} tone="muted" className="ui-stack-xs">
+                            <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+                              <strong style={{ color: "var(--ui-color-primary)" }}>
+                                {event.event_label || (isGpsBaseEventType(event.event_type) ? getGpsBaseEventLabel(event.event_type) : event.event_type || "Evenement GPS-base")}
+                              </strong>
+                              <span className="ui-text-muted">{formatTerrainDateTime(event.occurred_at)}</span>
+                            </div>
+                            <div className="ui-text-muted">
+                              Base: {event.base_name || event.metadata?.base_name || event.base_id || "-"}
+                            </div>
+                            <div className="ui-text-muted">
+                              Distance: {event.distance_m != null ? `${Math.round(event.distance_m)} m` : "-"} | Rayon: {event.rayon_metres != null ? `${Math.round(event.rayon_metres)} m` : "-"}
+                            </div>
+                          </AppCard>
+                        ))}
+                      </div>
+                    )}
+                  </SectionCard>
                 </div>
               )}
             </SectionCard>
@@ -442,6 +595,7 @@ export default function DirectionTerrainPage() {
             <AppCard tone="muted"><Link href="/direction/sorties-terrain"><div className="ui-stack-xs"><strong>Sorties terrain</strong><span className="ui-text-muted">Voir</span></div></Link></AppCard>
             <AppCard tone="muted"><Link href="/direction/livraisons"><div className="ui-stack-xs"><strong>Livraisons</strong><span className="ui-text-muted">Voir</span></div></Link></AppCard>
             <AppCard tone="muted"><Link href="/direction/horodateur"><div className="ui-stack-xs"><strong>Horodateur</strong><span className="ui-text-muted">Voir</span></div></Link></AppCard>
+            <AppCard tone="muted"><Link href="/direction/terrain/evenements-gps-base"><div className="ui-stack-xs"><strong>Evenements GPS-base</strong><span className="ui-text-muted">Valider l historique persiste</span></div></Link></AppCard>
             <AppCard tone="muted"><Link href="/direction/temps-titan"><div className="ui-stack-xs"><strong>Temps Titan</strong><span className="ui-text-muted">Voir</span></div></Link></AppCard>
           </div>
         </SectionCard>

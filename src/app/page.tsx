@@ -12,14 +12,16 @@ export const metadata: Metadata = {
 export default function Home() {
   return (
     <main className="tagora-app-shell">
-      <div className="tagora-app-content ui-stack-lg" style={{ maxWidth: 1080 }}>
+      <div className="tagora-app-content ui-stack-lg home-landing-shell">
         <PageHeader
+          className="home-landing-header"
           title="Tagora"
           subtitle="Accedez a votre espace."
         />
 
-        <div className="ui-link-grid">
+        <div className="home-landing-cards">
           <ModuleTile
+            className="home-landing-tile"
             eyebrow="Employe"
             title="Connexion employe"
             description="Terrain et operations."
@@ -33,6 +35,7 @@ export default function Home() {
             }
           />
           <ModuleTile
+            className="home-landing-tile"
             eyebrow="Direction"
             title="Connexion direction"
             description="Gestion."
@@ -47,8 +50,11 @@ export default function Home() {
           />
         </div>
 
-        <div style={{ display: "flex", justifyContent: "center" }}>
-          <Link href="/demande-compte" className="tagora-dark-outline-action">
+        <div className="home-landing-actions">
+          <Link
+            href="/demande-compte"
+            className="tagora-dark-outline-action home-landing-request-action"
+          >
             Demander un acces
           </Link>
         </div>

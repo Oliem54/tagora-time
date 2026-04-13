@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ArrowUpRight, BriefcaseBusiness, ShieldCheck, UsersRound, Waypoints } from "lucide-react";
 import FeedbackMessage from "@/app/components/FeedbackMessage";
@@ -14,6 +14,10 @@ import SecondaryButton from "@/app/components/ui/SecondaryButton";
 import SectionCard from "@/app/components/ui/SectionCard";
 import { getHomePathForRole, getUserRole } from "@/app/lib/auth/roles";
 import { supabase } from "../../lib/supabase/client";
+import {
+  getSafeSupabaseSession,
+  getSafeSupabaseUser,
+} from "@/app/lib/supabase/session";
 
 export default function DirectionLoginPage() {
   const router = useRouter();
@@ -27,13 +31,6 @@ export default function DirectionLoginPage() {
   const [messageType, setMessageType] = useState<"success" | "error" | null>(
     searchParams.get("reset") === "ok" ? "success" : null
   );
-
-  useEffect(() => {
-    if (searchParams.get("reset") === "ok") {
-      setMessage("Mot de passe reinitialise.");
-      setMessageType("success");
-    }
-  }, [searchParams]);
 
   const handleLogin = async () => {
     setMessage("");
@@ -50,9 +47,7 @@ export default function DirectionLoginPage() {
       return;
     }
 
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
+    const { data: session } = await getSafeSupabaseSession();
 
     if (session?.access_token) {
       try {
@@ -67,8 +62,8 @@ export default function DirectionLoginPage() {
       }
     }
 
-    const { data: userData } = await supabase.auth.getUser();
-    const role = getUserRole(userData.user);
+    const { data: user } = await getSafeSupabaseUser();
+    const role = getUserRole(user);
 
     if (!role) {
       await supabase.auth.signOut();

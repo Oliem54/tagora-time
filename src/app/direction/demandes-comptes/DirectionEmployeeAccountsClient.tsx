@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import TitanBillingSection from "@/app/components/admin/TitanBillingSection";
 import HeaderTagora from "@/app/components/HeaderTagora";
 import FeedbackMessage from "@/app/components/FeedbackMessage";
 import { accountRequestPermissionOptions } from "@/app/lib/account-request-options";
@@ -29,9 +30,13 @@ type EmployeeProfile = {
   actif: boolean | null;
   notes: string | null;
   primary_company: AccountRequestCompany | null;
+  titan_enabled: boolean;
+  titan_mode_timeclock: boolean;
+  titan_mode_sorties: boolean;
+  titan_hourly_rate: number | null;
   taux_base_titan: number | null;
   social_benefits_percent: number | null;
-  titan_billable: boolean;
+  titan_hours_calculated: number | null;
   schedule_start: string | null;
   schedule_end: string | null;
   scheduled_work_days: string[];
@@ -75,6 +80,34 @@ type EmployeeProfile = {
   billable_hourly_cost: number | null;
 };
 
+class AdminActionError extends Error {
+  action: RequestAction;
+  requestId: string;
+  url: string;
+  method: string;
+  status: number | null;
+  responseBody: unknown;
+
+  constructor(options: {
+    message: string;
+    action: RequestAction;
+    requestId: string;
+    url: string;
+    method: string;
+    status: number | null;
+    responseBody: unknown;
+  }) {
+    super(options.message);
+    this.name = "AdminActionError";
+    this.action = options.action;
+    this.requestId = options.requestId;
+    this.url = options.url;
+    this.method = options.method;
+    this.status = options.status;
+    this.responseBody = options.responseBody;
+  }
+}
+
 type AccountRequest = {
   id: string;
   full_name: string;
@@ -108,9 +141,12 @@ type FormState = {
   actif: boolean;
   notes: string;
   primary_company: AccountRequestCompany;
-  taux_base_titan: string;
+  titan_enabled: boolean;
+  titan_mode_timeclock: boolean;
+  titan_mode_sorties: boolean;
+  titan_hourly_rate: string;
   social_benefits_percent: string;
-  titan_billable: boolean;
+  titan_hours_calculated: string;
   schedule_start: string;
   schedule_end: string;
   scheduled_work_days: string[];
@@ -183,10 +219,6 @@ function formatPermissions(values: string[] | null | undefined) {
     : "Aucune";
 }
 
-function formatMoney(value: number | null | undefined) {
-  return value == null ? "-" : new Intl.NumberFormat("fr-CA", { style: "currency", currency: "CAD" }).format(value);
-}
-
 function statusPresentation(status: RequestStatus) {
   if (status === "active") return { color: "#166534", background: "#dcfce7", label: "Actif" };
   if (status === "invited") return { color: "#1d4ed8", background: "#dbeafe", label: "Invite" };
@@ -223,9 +255,20 @@ function buildForm(request: AccountRequest | null): FormState {
     actif: profile?.actif ?? true,
     notes: profile?.notes ?? "",
     primary_company: profile?.primary_company ?? request?.company ?? "oliem_solutions",
-    taux_base_titan: profile?.taux_base_titan != null ? String(profile.taux_base_titan) : "",
+    titan_enabled: profile?.titan_enabled ?? false,
+    titan_mode_timeclock: profile?.titan_mode_timeclock ?? true,
+    titan_mode_sorties: profile?.titan_mode_sorties ?? true,
+    titan_hourly_rate:
+      profile?.titan_hourly_rate != null
+        ? String(profile.titan_hourly_rate)
+        : profile?.taux_base_titan != null
+          ? String(profile.taux_base_titan)
+          : "",
     social_benefits_percent: profile?.social_benefits_percent != null ? String(profile.social_benefits_percent) : "15",
-    titan_billable: profile?.titan_billable ?? false,
+    titan_hours_calculated:
+      profile?.titan_hours_calculated != null
+        ? profile.titan_hours_calculated.toFixed(2)
+        : "0.00",
     schedule_start: profile?.schedule_start ?? "",
     schedule_end: profile?.schedule_end ?? "",
     scheduled_work_days: profile?.scheduled_work_days ?? [],
@@ -318,11 +361,6 @@ export default function DirectionEmployeeAccountsClient() {
     refused: sortedRequests.filter((item) => item.status === "refused").length,
     error: sortedRequests.filter((item) => item.status === "error").length,
   }), [sortedRequests]);
-  const computedCost = useMemo(() => {
-    const rate = Number(form.taux_base_titan);
-    const benefits = Number(form.social_benefits_percent || "15");
-    return Number.isFinite(rate) ? Number((rate * (1 + (Number.isFinite(benefits) ? benefits : 15) / 100)).toFixed(2)) : null;
-  }, [form.social_benefits_percent, form.taux_base_titan]);
   const breakSummary = useMemo(() => {
     const items = [
       { enabled: form.break_am_enabled, minutes: Number(form.break_am_minutes), paid: form.break_am_paid },
@@ -423,44 +461,149 @@ export default function DirectionEmployeeAccountsClient() {
     setMessage("");
     setMessageType(null);
     try {
-      const response = await fetch(`/api/account-requests/${selectedRequest.id}`, {
-        method: action === "delete" ? "DELETE" : "PATCH",
+      const url = `/api/account-requests/${selectedRequest.id}`;
+      const method = action === "delete" ? "DELETE" : "PATCH";
+      const requestPayload =
+        action === "delete"
+          ? null
+          : {
+              action,
+              assignedRole,
+              assignedPermissions,
+              reviewNote,
+              confirmOverwriteExistingAccount,
+              employeeProfile: {
+                ...form,
+                titan_hourly_rate: form.titan_hourly_rate,
+                taux_base_titan: form.titan_hourly_rate,
+                titan_billable: form.titan_enabled,
+                expected_breaks_count: String(breakSummary.count),
+                break_1_label: "Pause AM",
+                break_1_minutes: form.break_am_minutes,
+                break_1_paid: form.break_am_paid,
+                break_2_label: "Diner",
+                break_2_minutes: form.lunch_minutes,
+                break_2_paid: form.lunch_paid,
+                break_3_label: "Pause PM",
+                break_3_minutes: form.break_pm_minutes,
+                break_3_paid: form.break_pm_paid,
+              },
+            };
+
+      console.info("[direction-demandes-comptes] runAction", {
+        action,
+        url,
+        method,
+        selectedRequestId: selectedRequest.id,
+        selectedRequestStatus: selectedRequest.status,
+        assignedRole,
+        assignedPermissions,
+        confirmOverwriteExistingAccount,
+        employeeProfileId: form.id,
+        employeeProfileEmail: form.courriel,
+      });
+      console.debug("[direction-demandes-comptes] payload", requestPayload);
+
+      const response = await fetch(url, {
+        method,
         headers: {
           Authorization: `Bearer ${accessToken}`,
           "Content-Type": "application/json",
           "x-account-requests-client": "browser-authenticated",
           "x-account-requests-page": "direction-demandes-comptes",
         },
-        ...(action === "delete" ? {} : {
-          body: JSON.stringify({
-            action,
-            assignedRole,
-            assignedPermissions,
-            reviewNote,
-            confirmOverwriteExistingAccount,
-            employeeProfile: {
-              ...form,
-              expected_breaks_count: String(breakSummary.count),
-              break_1_label: "Pause AM",
-              break_1_minutes: form.break_am_minutes,
-              break_1_paid: form.break_am_paid,
-              break_2_label: "Diner",
-              break_2_minutes: form.lunch_minutes,
-              break_2_paid: form.lunch_paid,
-              break_3_label: "Pause PM",
-              break_3_minutes: form.break_pm_minutes,
-              break_3_paid: form.break_pm_paid,
-            },
-          }),
-        }),
+        ...(requestPayload ? { body: JSON.stringify(requestPayload) } : {}),
       });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(typeof payload.error === "string" ? payload.error : "Le traitement a echoue.");
-      setMessage(successLabel(action));
+      const rawBody = await response.text();
+      let payload: Record<string, unknown> | null = null;
+
+      try {
+        payload = rawBody ? (JSON.parse(rawBody) as Record<string, unknown>) : null;
+      } catch {
+        payload = null;
+      }
+
+      console.info("[direction-demandes-comptes] response", {
+        action,
+        url,
+        method,
+        selectedRequestId: selectedRequest.id,
+        status: response.status,
+        ok: response.ok,
+        body: payload ?? rawBody,
+      });
+
+      if (!response.ok) {
+        const errorDetails = [
+          payload && typeof payload.error === "string"
+            ? payload.error
+            : rawBody || "Le traitement a echoue.",
+          payload &&
+          typeof payload.existingAccount === "object" &&
+          payload.existingAccount != null &&
+          "userId" in payload.existingAccount &&
+          typeof payload.existingAccount.userId === "string"
+            ? `Compte existant: ${payload.existingAccount.userId}`
+            : null,
+          payload &&
+          typeof payload.lock === "object" &&
+          payload.lock != null &&
+          "isLocked" in payload.lock &&
+          payload.lock.isLocked === true
+            ? "La demande est verrouillee par un autre traitement."
+            : null,
+          response.status ? `HTTP ${response.status}` : null,
+        ]
+          .filter(Boolean)
+          .join(" | ");
+
+        throw new AdminActionError({
+          message: errorDetails,
+          action,
+          requestId: selectedRequest.id,
+          url,
+          method,
+          status: response.status,
+          responseBody: payload ?? rawBody,
+        });
+      }
+
+      const nextStatus =
+        payload && typeof payload.status === "string" ? payload.status : null;
+      setMessage(
+        nextStatus
+          ? `${successLabel(action)} Nouveau statut: ${nextStatus}.`
+          : successLabel(action)
+      );
       setMessageType("success");
       await fetchRequests(action === "delete" ? null : selectedRequest.id);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Le traitement a echoue.");
+      const detailedError =
+        error instanceof AdminActionError
+          ? error
+          : new AdminActionError({
+              message:
+                error instanceof Error
+                  ? error.message
+                  : "Le traitement a echoue.",
+              action,
+              requestId: selectedRequest.id,
+              url: `/api/account-requests/${selectedRequest.id}`,
+              method: action === "delete" ? "DELETE" : "PATCH",
+              status: null,
+              responseBody: null,
+            });
+      console.error("[direction-demandes-comptes] runAction failed", {
+        action: detailedError.action,
+        selectedRequestId: detailedError.requestId,
+        url: detailedError.url,
+        method: detailedError.method,
+        status: detailedError.status,
+        responseBody: detailedError.responseBody,
+        error: detailedError.message,
+        stack: error instanceof Error ? error.stack : null,
+      });
+      setMessage(detailedError.message);
       setMessageType("error");
     } finally {
       setSavingAction(null);
@@ -502,7 +645,7 @@ export default function DirectionEmployeeAccountsClient() {
                     <div className="account-requests-card-meta-item"><span className="account-requests-card-meta-label">Compagnie</span><span className="account-requests-card-meta-value">{getCompanyLabel(profile?.primary_company ?? request.company)}</span></div>
                     <div className="account-requests-card-meta-item"><span className="account-requests-card-meta-label">Role</span><span className="account-requests-card-meta-value">{formatRole(request.assigned_role ?? request.requested_role)}</span></div>
                     <div className="account-requests-card-meta-item"><span className="account-requests-card-meta-label">Emploi</span><span className="account-requests-card-meta-value">{profile?.actif === false ? "Inactif" : "Actif"}</span></div>
-                    <div className="account-requests-card-meta-item"><span className="account-requests-card-meta-label">Titan</span><span className="account-requests-card-meta-value">{profile?.titan_billable ? "Oui" : "Non"}</span></div>
+                    <div className="account-requests-card-meta-item"><span className="account-requests-card-meta-label">Titan</span><span className="account-requests-card-meta-value">{profile?.titan_enabled ? "Active" : "Desactive"}</span></div>
                   </div>
                 </button>
               );
@@ -671,15 +814,20 @@ export default function DirectionEmployeeAccountsClient() {
                 </div>
               </section>
 
-              <section className="tagora-panel ui-stack-md">
-                <div className="ui-stack-xs"><h2 className="section-title" style={{ marginBottom: 0 }}>Refacturation Titan</h2><p className="tagora-note" style={{ margin: 0 }}>Cout employe calcule.</p></div>
-                <div className="tagora-form-grid">
-                  <label className="tagora-field"><span className="tagora-label">Taux horaire</span><input className="tagora-input" type="number" min="0" step="0.01" value={form.taux_base_titan} onChange={(e) => setForm((c) => ({ ...c, taux_base_titan: e.target.value }))} /></label>
-                  <label className="tagora-field"><span className="tagora-label">Avantages sociaux %</span><input className="tagora-input" type="number" min="0" step="0.01" value={form.social_benefits_percent} onChange={(e) => setForm((c) => ({ ...c, social_benefits_percent: e.target.value }))} /></label>
-                  <div className="tagora-panel-muted" style={{ padding: 18 }}><div className="tagora-label">Cout refacturable</div><div style={{ marginTop: 8, fontWeight: 700, fontSize: 20 }}>{formatMoney(computedCost)}</div></div>
-                  <label className="account-requests-permission-option"><input type="checkbox" checked={form.titan_billable} onChange={(e) => setForm((c) => ({ ...c, titan_billable: e.target.checked }))} /><span>Refacturable a Titan</span></label>
-                </div>
-              </section>
+              <TitanBillingSection
+                title="Titan"
+                enabled={form.titan_enabled}
+                modeTimeclock={form.titan_mode_timeclock}
+                modeSorties={form.titan_mode_sorties}
+                hourlyRate={form.titan_hourly_rate}
+                benefitsPercent={form.social_benefits_percent}
+                titanHoursText={`${Number(form.titan_hours_calculated || "0").toFixed(2)} h`}
+                onEnabledChange={(value) => setForm((current) => ({ ...current, titan_enabled: value }))}
+                onModeTimeclockChange={(value) => setForm((current) => ({ ...current, titan_mode_timeclock: value }))}
+                onModeSortiesChange={(value) => setForm((current) => ({ ...current, titan_mode_sorties: value }))}
+                onHourlyRateChange={(value) => setForm((current) => ({ ...current, titan_hourly_rate: value }))}
+                onBenefitsPercentChange={(value) => setForm((current) => ({ ...current, social_benefits_percent: value }))}
+              />
 
               <section className="tagora-panel ui-stack-md">
                 <div className="ui-stack-xs"><h2 className="section-title" style={{ marginBottom: 0 }}>Actions admin</h2><p className="tagora-note" style={{ margin: 0 }}>Acces et invitation.</p></div>

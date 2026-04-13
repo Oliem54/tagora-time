@@ -3,6 +3,10 @@
 import { useEffect, useState } from "react";
 import type { User } from "@supabase/supabase-js";
 import { supabase } from "@/app/lib/supabase/client";
+import {
+  getSafeSupabaseSession,
+  getSafeSupabaseUser,
+} from "@/app/lib/supabase/session";
 import { AppRole, getUserRole } from "@/app/lib/auth/roles";
 import {
   AppPermission,
@@ -34,9 +38,11 @@ export function useCurrentAccess() {
     let cancelled = false;
 
     async function syncAccountActivation() {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
+      const { data: session, invalidRefreshToken } = await getSafeSupabaseSession();
+
+      if (invalidRefreshToken) {
+        return;
+      }
 
       const token = session?.access_token;
 
@@ -59,8 +65,7 @@ export function useCurrentAccess() {
     async function loadAccess() {
       await syncAccountActivation();
 
-      const { data } = await supabase.auth.getUser();
-      const user = data.user;
+      const { data: user } = await getSafeSupabaseUser();
 
       if (cancelled) return;
 

@@ -3,12 +3,19 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import HeaderTagora from "@/app/components/HeaderTagora";
+import TitanBillingSection from "@/app/components/admin/TitanBillingSection";
 import FeedbackMessage from "@/app/components/FeedbackMessage";
 import {
   ACCOUNT_REQUEST_COMPANIES,
   getCompanyLabel,
   type AccountRequestCompany,
 } from "@/app/lib/account-requests.shared";
+import {
+  buildTitanHoursByEmployee,
+  getTitanSettings,
+  type TitanSortieRow,
+  type TitanTempsRow,
+} from "@/app/lib/titan-billing";
 import { supabase } from "@/app/lib/supabase/client";
 
 type Employe = {
@@ -25,6 +32,11 @@ type Employe = {
   photo_permis_recto_url?: string | null;
   photo_permis_verso_url?: string | null;
   taux_base_titan?: number | null;
+  titan_enabled?: boolean | null;
+  titan_mode_timeclock?: boolean | null;
+  titan_mode_sorties?: boolean | null;
+  titan_hourly_rate?: number | null;
+  social_benefits_percent?: number | null;
   primary_company?: AccountRequestCompany | null;
   can_work_for_oliem_solutions?: boolean | null;
   can_work_for_titan_produits_industriels?: boolean | null;
@@ -50,7 +62,11 @@ const emptyForm = {
   notes: "",
   photo_permis_recto_url: "",
   photo_permis_verso_url: "",
-  taux_base_titan: "",
+  titan_enabled: false,
+  titan_mode_timeclock: true,
+  titan_mode_sorties: true,
+  titan_hourly_rate: "",
+  social_benefits_percent: "15",
   primary_company: "oliem_solutions" as AccountRequestCompany,
   can_work_for_oliem_solutions: true,
   can_work_for_titan_produits_industriels: false,
@@ -64,6 +80,9 @@ export default function Page() {
   const [saving, setSaving] = useState(false);
   const [uploadingRecto, setUploadingRecto] = useState(false);
   const [uploadingVerso, setUploadingVerso] = useState(false);
+  const [titanHoursByEmployee, setTitanHoursByEmployee] = useState<Map<string, number>>(
+    new Map()
+  );
   const [message, setMessage] = useState("");
   const [messageType, setMessageType] = useState<"success" | "error" | null>(null);
 
@@ -81,19 +100,38 @@ export default function Page() {
     setLoading(true);
     clearMessage();
 
-    const res = await supabase
-      .from("chauffeurs")
-      .select("*")
-      .order("id", { ascending: true });
+    const [chauffeursRes, tempsTitanRes, sortiesTitanRes] = await Promise.all([
+      supabase.from("chauffeurs").select("*").order("id", { ascending: true }),
+      supabase
+        .from("temps_titan")
+        .select(
+          "id, employe_id, employe_nom, date_travail, duree_heures, payable_minutes, facturable_minutes, temps_presence, temps_payable, temps_non_payable, type_travail, livraison, statut_paiement_titan, company_context"
+        ),
+      supabase
+        .from("sorties_terrain")
+        .select(
+          "id, chauffeur_id, livraison_id, date_sortie, temps_total, payable_minutes, facturable_minutes, temps_payable, temps_non_payable, company_context"
+        )
+        .eq("company_context", "titan_produits_industriels"),
+    ]);
 
-    if (res.error) {
-      setFeedbackMessage(`Erreur chargement: ${res.error.message}`, "error");
+    if (chauffeursRes.error) {
+      setFeedbackMessage(`Erreur chargement: ${chauffeursRes.error.message}`, "error");
       setEmployes([]);
+      setTitanHoursByEmployee(new Map());
       setLoading(false);
       return;
     }
 
-    setEmployes((res.data as Employe[]) || []);
+    const nextEmployes = (chauffeursRes.data as Employe[]) || [];
+    setEmployes(nextEmployes);
+    setTitanHoursByEmployee(
+      buildTitanHoursByEmployee({
+        employes: nextEmployes,
+        tempsTitan: ((tempsTitanRes.data ?? []) as TitanTempsRow[]) || [],
+        sortiesTitan: ((sortiesTitanRes.data ?? []) as TitanSortieRow[]) || [],
+      })
+    );
     setLoading(false);
   }, []);
 
@@ -191,12 +229,19 @@ export default function Page() {
       notes: form.notes.trim() || null,
       photo_permis_recto_url: form.photo_permis_recto_url || null,
       photo_permis_verso_url: form.photo_permis_verso_url || null,
-      taux_base_titan: form.taux_base_titan ? Number(form.taux_base_titan) : null,
+      titan_enabled: Boolean(form.titan_enabled),
+      titan_mode_timeclock: Boolean(form.titan_mode_timeclock),
+      titan_mode_sorties: Boolean(form.titan_mode_sorties),
+      titan_hourly_rate: form.titan_hourly_rate ? Number(form.titan_hourly_rate) : null,
+      taux_base_titan: form.titan_hourly_rate ? Number(form.titan_hourly_rate) : null,
+      social_benefits_percent: form.social_benefits_percent
+        ? Number(form.social_benefits_percent)
+        : 15,
       primary_company: form.primary_company || null,
       can_work_for_oliem_solutions: Boolean(form.can_work_for_oliem_solutions),
       can_work_for_titan_produits_industriels: Boolean(
         form.can_work_for_titan_produits_industriels
-      ),
+      ) || Boolean(form.titan_enabled),
     };
 
     let res;
@@ -233,7 +278,19 @@ export default function Page() {
       notes: item.notes || "",
       photo_permis_recto_url: item.photo_permis_recto_url || "",
       photo_permis_verso_url: item.photo_permis_verso_url || "",
-      taux_base_titan: item.taux_base_titan ? String(item.taux_base_titan) : "",
+      titan_enabled: item.titan_enabled ?? false,
+      titan_mode_timeclock: item.titan_mode_timeclock ?? true,
+      titan_mode_sorties: item.titan_mode_sorties ?? true,
+      titan_hourly_rate:
+        item.titan_hourly_rate != null
+          ? String(item.titan_hourly_rate)
+          : item.taux_base_titan != null
+            ? String(item.taux_base_titan)
+            : "",
+      social_benefits_percent:
+        item.social_benefits_percent != null
+          ? String(item.social_benefits_percent)
+          : "15",
       primary_company: item.primary_company || "oliem_solutions",
       can_work_for_oliem_solutions: item.can_work_for_oliem_solutions ?? true,
       can_work_for_titan_produits_industriels:
@@ -424,18 +481,34 @@ export default function Page() {
                   </select>
                 </div>
 
-                <div>
-                  <label style={labelStyle}>Taux de base Titan ($/h)</label>
-                  <input
-                    type="number"
-                    value={form.taux_base_titan}
-                    onChange={(e) =>
-                      setForm({ ...form, taux_base_titan: e.target.value })
+                <div style={{ gridColumn: "1 / -1" }}>
+                  <TitanBillingSection
+                    title="Titan"
+                    enabled={Boolean(form.titan_enabled)}
+                    modeTimeclock={Boolean(form.titan_mode_timeclock)}
+                    modeSorties={Boolean(form.titan_mode_sorties)}
+                    hourlyRate={form.titan_hourly_rate}
+                    benefitsPercent={form.social_benefits_percent}
+                    titanHoursText={
+                      editingId
+                        ? `${(titanHoursByEmployee.get(String(editingId)) ?? 0).toFixed(2)} h`
+                        : "0.00 h"
                     }
-                    style={inputStyle}
-                    placeholder="Ex.: 25.50"
-                    step="0.01"
-                    min="0"
+                    onEnabledChange={(value) =>
+                      setForm({ ...form, titan_enabled: value })
+                    }
+                    onModeTimeclockChange={(value) =>
+                      setForm({ ...form, titan_mode_timeclock: value })
+                    }
+                    onModeSortiesChange={(value) =>
+                      setForm({ ...form, titan_mode_sorties: value })
+                    }
+                    onHourlyRateChange={(value) =>
+                      setForm({ ...form, titan_hourly_rate: value })
+                    }
+                    onBenefitsPercentChange={(value) =>
+                      setForm({ ...form, social_benefits_percent: value })
+                    }
                   />
                 </div>
 
@@ -604,7 +677,7 @@ export default function Page() {
                       <th style={thStyle}>Expiration</th>
                       <th style={thStyle}>Compagnie principale</th>
                       <th style={thStyle}>Compagnies permises</th>
-                      <th style={thStyle}>Taux Titan</th>
+                      <th style={thStyle}>Titan</th>
                       <th style={thStyle}>Actif</th>
                       <th style={thStyle}>Photos</th>
                       <th style={thStyle}>Actions</th>
@@ -636,7 +709,23 @@ export default function Page() {
                             .filter(Boolean)
                             .join(", ") || "-"}
                         </td>
-                        <td style={tdStyle}>{item.taux_base_titan ? `${item.taux_base_titan.toFixed(2)} $/h` : "-"}</td>
+                        <td style={tdStyle}>
+                          {(() => {
+                            const settings = getTitanSettings(item);
+                            const titanHours =
+                              titanHoursByEmployee.get(String(item.id)) ?? 0;
+                            if (!settings.enabled) return "Desactive";
+                            const modes = [
+                              settings.modeTimeclock ? "Horodateur" : null,
+                              settings.modeSorties ? "Sorties" : null,
+                            ]
+                              .filter(Boolean)
+                              .join(", ");
+                            return `${settings.hourlyRate.toFixed(2)} $/h | ${titanHours.toFixed(
+                              2
+                            )} h | ${modes || "Aucun mode"}`;
+                          })()}
+                        </td>
                         <td style={tdStyle}>{item.actif ? "Oui" : "Non"}</td>
                         <td style={tdStyle}>
                           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
