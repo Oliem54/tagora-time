@@ -47,17 +47,32 @@ export default function ImprovementsModulePage() {
     setSaving(true);
 
     try {
-      const { error } = await supabase.from("app_improvements").insert([
-        {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      if (!session?.access_token) {
+        throw new Error("Votre session a expire. Reconnectez-vous pour envoyer une amelioration.");
+      }
+
+      const response = await fetch("/api/ameliorations", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
           module,
+          priority,
           title,
           description,
-          priority,
-        },
-      ]);
+        }),
+      });
 
-      if (error) {
-        throw error;
+      const payload = (await response.json()) as { error?: string };
+
+      if (!response.ok) {
+        throw new Error(payload.error || "Erreur lors de l envoi de l amelioration.");
       }
 
       setMessage("Amelioration envoyee avec succes.");
@@ -81,12 +96,12 @@ export default function ImprovementsModulePage() {
   if (loading || !user || !role) {
     return (
       <main className="tagora-app-shell">
-        <div className="tagora-app-content" style={{ maxWidth: 980 }}>
+        <div className="tagora-app-content" style={{ maxWidth: 760 }}>
           <HeaderTagora
             title="Ameliorations"
-            subtitle="Chargement du module interne de recommandations"
+            subtitle="Chargement"
           />
-          <AccessNotice description="Verification de votre session et preparation du formulaire." />
+          <AccessNotice description="Chargement en cours." />
         </div>
       </main>
     );
@@ -94,45 +109,36 @@ export default function ImprovementsModulePage() {
 
   return (
     <main className="tagora-app-shell">
-      <div className="tagora-app-content" style={{ maxWidth: 980 }}>
+      <div className="tagora-app-content" style={{ maxWidth: 760 }}>
         <HeaderTagora
           title="Ameliorations"
-          subtitle="Centralisez les idees, correctifs et recommandations avant les prochaines mises a jour."
+          subtitle="Nouveau point"
         />
 
-        <div className="tagora-panel" style={{ maxWidth: 680, margin: "0 auto" }}>
-          <h2 className="section-title" style={{ marginBottom: 10 }}>
-            Soumettre une recommandation
-          </h2>
-
-          <p className="tagora-note" style={{ marginBottom: 24 }}>
-            Le formulaire est pense pour un usage interne rapide. Chaque envoi est enregistre
-            avec le statut nouveau afin de preparer un futur suivi plus detaille.
-          </p>
-
+        <div className="tagora-panel" style={{ maxWidth: 560, margin: "0 auto" }}>
           <FeedbackMessage message={message} type={messageType} />
 
           <form className="tagora-form-grid" onSubmit={handleSubmit}>
-            <div className="tagora-form-grid-2">
-              <div>
-                <label className="tagora-field-label">Module concerne</label>
+            <div className="tagora-form-grid-2" style={{ gap: 16 }}>
+              <label>
+                <span className="tagora-field-label">Module</span>
                 <select
                   className="tagora-select"
                   value={module}
                   onChange={(event) => setModule(event.target.value)}
                   required
                 >
-                  <option value="">Choisir un module</option>
+                  <option value="">Choisir</option>
                   {IMPROVEMENT_MODULE_OPTIONS.map((option) => (
                     <option key={option} value={option}>
                       {option}
                     </option>
                   ))}
                 </select>
-              </div>
+              </label>
 
-              <div>
-                <label className="tagora-field-label">Priorite</label>
+              <label>
+                <span className="tagora-field-label">Priorite</span>
                 <select
                   className="tagora-select"
                   value={priority}
@@ -146,36 +152,30 @@ export default function ImprovementsModulePage() {
                     </option>
                   ))}
                 </select>
-              </div>
+              </label>
             </div>
 
-            <div>
-              <label className="tagora-field-label">Titre</label>
+            <label>
+              <span className="tagora-field-label">Titre</span>
               <input
                 className="tagora-input"
                 value={title}
                 onChange={(event) => setTitle(event.target.value)}
-                placeholder="Resume court de l idee ou du correctif"
+                placeholder="Titre"
                 required
               />
-            </div>
+            </label>
 
-            <div>
-              <label className="tagora-field-label">Description</label>
+            <label>
+              <span className="tagora-field-label">Description</span>
               <textarea
                 className="tagora-textarea"
                 value={description}
                 onChange={(event) => setDescription(event.target.value)}
-                placeholder="Expliquez le contexte, le besoin et le resultat attendu."
+                placeholder="Description"
                 required
               />
-            </div>
-
-            <div className="tagora-panel-muted">
-              <p className="tagora-note" style={{ margin: 0 }}>
-                Statut applique automatiquement : <strong>nouveau</strong>.
-              </p>
-            </div>
+            </label>
 
             <div className="tagora-actions" style={{ marginTop: 8 }}>
               <button
@@ -183,7 +183,7 @@ export default function ImprovementsModulePage() {
                 className="tagora-btn tagora-btn-primary"
                 disabled={saving}
               >
-                {saving ? "Creation..." : "Creer"}
+                {saving ? "Envoi..." : "Envoyer"}
               </button>
 
               <Link

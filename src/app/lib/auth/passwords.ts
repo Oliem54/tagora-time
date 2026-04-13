@@ -61,7 +61,7 @@ export function validatePasswordChangeInput(options: {
   }
 
   if (newPassword !== confirmPassword) {
-    return "La confirmation ne correspond pas.";
+    return "Les mots de passe ne correspondent pas.";
   }
 
   if (requireCurrentPassword && currentPassword === newPassword) {

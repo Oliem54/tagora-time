@@ -18,6 +18,7 @@ type PasswordUpdateSectionProps = {
   submitLabel: string;
   successMessage: string;
   requireCurrentPassword?: boolean;
+  showPolicyHint?: boolean;
   onSuccess?: () => Promise<void> | void;
 };
 
@@ -27,6 +28,7 @@ export default function PasswordUpdateSection({
   submitLabel,
   successMessage,
   requireCurrentPassword = true,
+  showPolicyHint = true,
   onSuccess,
 }: PasswordUpdateSectionProps) {
   const [currentPassword, setCurrentPassword] = useState("");
@@ -190,9 +192,11 @@ export default function PasswordUpdateSection({
             />
           </FormField>
 
-          <p className="ui-text-muted" style={{ margin: 0 }}>
-            {getPasswordPolicyMessage()}
-          </p>
+          {showPolicyHint ? (
+            <p className="ui-text-muted" style={{ margin: 0 }}>
+              {getPasswordPolicyMessage()}
+            </p>
+          ) : null}
 
           <div className="tagora-actions">
             <PrimaryButton type="submit" disabled={saving}>

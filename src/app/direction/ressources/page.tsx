@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowUpRight, Truck, UsersRound, Wrench } from "lucide-react";
+import { ArrowUpRight, MapPin, Truck, UsersRound, Wrench } from "lucide-react";
 import ModuleTile from "@/app/components/ui/ModuleTile";
 import AuthenticatedPageHeader from "@/app/components/ui/AuthenticatedPageHeader";
 
@@ -44,6 +44,18 @@ export default function Page() {
             accent="linear-gradient(135deg, rgba(251,146,60,0.18) 0%, rgba(15,41,72,0.08) 100%)"
             action={
               <Link href="/direction/ressources/remorques" className="tagora-dark-outline-action" style={{ width: "100%", justifyContent: "space-between" }}>
+                <span>Acceder</span>
+                <ArrowUpRight size={16} />
+              </Link>
+            }
+          />
+          <ModuleTile
+            title="Bases GPS"
+            description="Georeperes."
+            icon={<MapPin size={24} strokeWidth={2.1} />}
+            accent="linear-gradient(135deg, rgba(14,165,233,0.18) 0%, rgba(15,41,72,0.08) 100%)"
+            action={
+              <Link href="/direction/ressources/bases-gps" className="tagora-dark-outline-action" style={{ width: "100%", justifyContent: "space-between" }}>
                 <span>Acceder</span>
                 <ArrowUpRight size={16} />
               </Link>
