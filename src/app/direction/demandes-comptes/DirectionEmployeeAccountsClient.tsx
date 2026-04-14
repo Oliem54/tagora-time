@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import HeaderTagora from "@/app/components/HeaderTagora";
 import FeedbackMessage from "@/app/components/FeedbackMessage";
 import { accountRequestPermissionOptions } from "@/app/lib/account-request-options";
@@ -295,6 +296,8 @@ function successLabel(action: RequestAction) {
 }
 
 export default function DirectionEmployeeAccountsClient() {
+  const router = useRouter();
+  const redirectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [requests, setRequests] = useState<AccountRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [accessToken, setAccessToken] = useState<string | null>(null);
@@ -306,6 +309,7 @@ export default function DirectionEmployeeAccountsClient() {
   const [form, setForm] = useState<FormState>(buildForm(null));
   const [message, setMessage] = useState("");
   const [messageType, setMessageType] = useState<"success" | "error" | null>(null);
+  const [toastMessage, setToastMessage] = useState("");
   const [savingAction, setSavingAction] = useState<RequestAction | null>(null);
   const [permissionOptions, setPermissionOptions] = useState<Array<{ value: string; label: string }>>([...accountRequestPermissionOptions]);
 
@@ -406,6 +410,14 @@ export default function DirectionEmployeeAccountsClient() {
     setConfirmOverwriteExistingAccount(false);
   }, [selectedRequest]);
 
+  useEffect(() => {
+    return () => {
+      if (redirectTimeoutRef.current) {
+        clearTimeout(redirectTimeoutRef.current);
+      }
+    };
+  }, []);
+
   function togglePermission(permission: string) {
     setAssignedPermissions((current) => current.includes(permission) ? current.filter((item) => item !== permission) : [...current, permission]);
   }
@@ -456,8 +468,21 @@ export default function DirectionEmployeeAccountsClient() {
       });
       const payload = await response.json();
       if (!response.ok) throw new Error(typeof payload.error === "string" ? payload.error : "Le traitement a echoue.");
-      setMessage(successLabel(action));
+      const successMessage =
+        action === "approve"
+          ? "Employe active avec succes"
+          : successLabel(action);
+      setMessage(successMessage);
       setMessageType("success");
+      if (action === "approve") {
+        setToastMessage("Employe active avec succes");
+        if (redirectTimeoutRef.current) {
+          clearTimeout(redirectTimeoutRef.current);
+        }
+        redirectTimeoutRef.current = setTimeout(() => {
+          router.push("/direction/ressources/employes");
+        }, 1200);
+      }
       await fetchRequests(action === "delete" ? null : selectedRequest.id);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Le traitement a echoue.");
@@ -469,6 +494,26 @@ export default function DirectionEmployeeAccountsClient() {
 
   return (
     <main className="tagora-app-shell account-requests-page">
+      {toastMessage ? (
+        <div
+          aria-live="polite"
+          style={{
+            position: "fixed",
+            top: 20,
+            right: 20,
+            zIndex: 60,
+            padding: "14px 18px",
+            borderRadius: 16,
+            background: "rgba(15, 23, 42, 0.96)",
+            color: "#ffffff",
+            boxShadow: "0 20px 45px rgba(15, 23, 42, 0.24)",
+            fontSize: 14,
+            fontWeight: 700,
+          }}
+        >
+          {toastMessage}
+        </div>
+      ) : null}
       <div className="tagora-app-content" style={{ maxWidth: 1520 }}>
         <HeaderTagora title="Gestion des comptes employe" subtitle="Comptes, emploi et refacturation" />
         <div className="tagora-stat-grid account-requests-stats">

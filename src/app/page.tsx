@@ -1,58 +1,12 @@
 import type { Metadata } from "next";
-import Link from "next/link";
-import { ArrowUpRight, Building2, UserRound } from "lucide-react";
-import ModuleTile from "@/app/components/ui/ModuleTile";
-import PageHeader from "@/app/components/ui/PageHeader";
+import MarketingHomePage from "./(marketing)/MarketingHomePage";
 
 export const metadata: Metadata = {
   title: "Accueil",
-  description: "Portails d acces Tagora.",
+  description:
+    "TAGORA relie la gestion des opérations terrain et les étiquettes électroniques dans une plateforme structurée et premium.",
 };
 
-export default function Home() {
-  return (
-    <main className="tagora-app-shell">
-      <div className="tagora-app-content ui-stack-lg" style={{ maxWidth: 1080 }}>
-        <PageHeader
-          title="Tagora"
-          subtitle="Accedez a votre espace."
-        />
-
-        <div className="ui-link-grid">
-          <ModuleTile
-            eyebrow="Employe"
-            title="Connexion employe"
-            description="Terrain et operations."
-            icon={<UserRound size={24} strokeWidth={2.1} />}
-            accent="linear-gradient(135deg, rgba(59,130,246,0.16) 0%, rgba(15,41,72,0.08) 100%)"
-            action={
-              <Link href="/employe" className="tagora-dark-action" style={{ width: "100%", justifyContent: "space-between" }}>
-                <span>Entrer</span>
-                <ArrowUpRight size={16} />
-              </Link>
-            }
-          />
-          <ModuleTile
-            eyebrow="Direction"
-            title="Connexion direction"
-            description="Gestion."
-            icon={<Building2 size={24} strokeWidth={2.1} />}
-            accent="linear-gradient(135deg, rgba(16,185,129,0.18) 0%, rgba(15,41,72,0.08) 100%)"
-            action={
-              <Link href="/direction" className="tagora-dark-outline-action" style={{ width: "100%", justifyContent: "space-between" }}>
-                <span>Entrer</span>
-                <ArrowUpRight size={16} />
-              </Link>
-            }
-          />
-        </div>
-
-        <div style={{ display: "flex", justifyContent: "center" }}>
-          <Link href="/demande-compte" className="tagora-dark-outline-action">
-            Demander un acces
-          </Link>
-        </div>
-      </div>
-    </main>
-  );
+export default function Page() {
+  return <MarketingHomePage />;
 }

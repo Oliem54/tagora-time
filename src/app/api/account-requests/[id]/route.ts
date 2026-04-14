@@ -681,6 +681,451 @@ function buildManagedUserMetadata(options: {
   };
 }
 
+function getErrorMessage(error: unknown) {
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  if (typeof error === "string") {
+    return error;
+  }
+
+  if (
+    error &&
+    typeof error === "object" &&
+    "message" in error &&
+    typeof error.message === "string"
+  ) {
+    return error.message;
+  }
+
+  return "Erreur traitement demande.";
+}
+
+function getErrorCode(error: unknown) {
+  if (
+    error &&
+    typeof error === "object" &&
+    "code" in error &&
+    typeof error.code === "string"
+  ) {
+    return error.code;
+  }
+
+  return null;
+}
+
+function getErrorHint(error: unknown) {
+  if (
+    error &&
+    typeof error === "object" &&
+    "hint" in error &&
+    typeof error.hint === "string"
+  ) {
+    return error.hint;
+  }
+
+  return null;
+}
+
+function getErrorDetails(error: unknown) {
+  if (
+    error &&
+    typeof error === "object" &&
+    "details" in error &&
+    typeof error.details === "string"
+  ) {
+    return error.details;
+  }
+
+  return null;
+}
+
+function isDuplicateEmailError(error: unknown) {
+  const message = getErrorMessage(error).toLowerCase();
+  const code = getErrorCode(error);
+
+  return (
+    code === "23505" ||
+    message.includes("already registered") ||
+    message.includes("already exists") ||
+    message.includes("email_exists") ||
+    message.includes("duplicate key") ||
+    message.includes("duplicate")
+  );
+}
+
+function isMissingColumnError(error: unknown) {
+  const message = getErrorMessage(error).toLowerCase();
+  const details = (getErrorDetails(error) ?? "").toLowerCase();
+  const code = getErrorCode(error);
+
+  return (
+    code === "42703" ||
+    code === "PGRST204" ||
+    message.includes("column") ||
+    details.includes("column")
+  );
+}
+
+function getApprovalErrorResponse(error: unknown) {
+  const message = getErrorMessage(error);
+  const code = getErrorCode(error);
+  const details = getErrorDetails(error);
+  const hint = getErrorHint(error);
+
+  if (isMissingColumnError(error)) {
+    return {
+      status: 500,
+      error:
+        "Une colonne requise est manquante ou invalide dans la base pour finaliser l approbation.",
+      details: details ?? message,
+      code,
+      hint,
+    };
+  }
+
+  if (isDuplicateEmailError(error)) {
+    return {
+      status: 409,
+      error: "Un compte existe deja pour ce courriel.",
+      details: details ?? message,
+      code,
+      hint,
+    };
+  }
+
+  return {
+    status: 500,
+    error: message || "Erreur traitement demande.",
+    details,
+    code,
+    hint,
+  };
+}
+
+function logApprovalStep(
+  step: string,
+  details: Record<string, unknown> = {}
+) {
+  console.info("[account-requests][approve]", step, details);
+}
+
+async function ensureManagedAuthUser(options: {
+  requestRow: AccountRequestRow;
+  actorUserId: string;
+  assignedRole: AppRole;
+  assignedPermissions: string[];
+  chauffeurId?: number | null;
+}) {
+  const supabase = createAdminSupabaseClient();
+  const normalizedEmail = normalizeEmail(options.requestRow.email);
+
+  logApprovalStep("lookup_auth_user", {
+    requestId: options.requestRow.id,
+    email: normalizedEmail,
+  });
+
+  let authUser = await findAuthUserByEmail(normalizedEmail);
+  let created = false;
+
+  if (!authUser) {
+    logApprovalStep("create_user_start", {
+      requestId: options.requestRow.id,
+      email: normalizedEmail,
+    });
+
+    const provisionalMetadata = buildManagedUserMetadata({
+      requestRow: options.requestRow,
+      assignedRole: options.assignedRole,
+      assignedPermissions: options.assignedPermissions,
+      actorUserId: options.actorUserId,
+      chauffeurId: options.chauffeurId,
+      requirePasswordChange: true,
+      existingMetadata: null,
+    });
+
+    const { data, error } = await supabase.auth.admin.createUser({
+      email: normalizedEmail,
+      password: `${crypto.randomUUID()}Aa1!`,
+      email_confirm: true,
+      app_metadata: provisionalMetadata,
+      user_metadata: {
+        ...provisionalMetadata,
+        full_name: options.requestRow.full_name,
+        phone: options.requestRow.phone ?? null,
+      },
+    });
+
+    if (error) {
+      if (isDuplicateEmailError(error)) {
+        logApprovalStep("create_user_duplicate_email", {
+          requestId: options.requestRow.id,
+          email: normalizedEmail,
+          error: getErrorMessage(error),
+        });
+
+        authUser = await findAuthUserByEmail(normalizedEmail);
+      } else {
+        throw error;
+      }
+    } else {
+      authUser = data.user ?? null;
+      created = true;
+    }
+  }
+
+  if (!authUser) {
+    throw new Error(
+      "Impossible de recuperer ou creer le compte utilisateur dans Auth."
+    );
+  }
+
+  const requirePasswordChange =
+    !hasUserActivatedAccess(authUser) || hasPasswordChangeRequired(authUser);
+
+  logApprovalStep("sync_auth_user", {
+    requestId: options.requestRow.id,
+    userId: authUser.id,
+    existingUser: !created,
+    requirePasswordChange,
+  });
+
+  const appMetadata = buildManagedUserMetadata({
+    requestRow: options.requestRow,
+    assignedRole: options.assignedRole,
+    assignedPermissions: options.assignedPermissions,
+    actorUserId: options.actorUserId,
+    chauffeurId: options.chauffeurId,
+    requirePasswordChange,
+    existingMetadata: authUser.app_metadata,
+  });
+  const userMetadata = {
+    ...buildManagedUserMetadata({
+      requestRow: options.requestRow,
+      assignedRole: options.assignedRole,
+      assignedPermissions: options.assignedPermissions,
+      actorUserId: options.actorUserId,
+      chauffeurId: options.chauffeurId,
+      requirePasswordChange,
+      existingMetadata: authUser.user_metadata,
+    }),
+    full_name:
+      authUser.user_metadata?.full_name ?? options.requestRow.full_name,
+    phone: authUser.user_metadata?.phone ?? options.requestRow.phone ?? null,
+  };
+
+  const { error: updateError } = await supabase.auth.admin.updateUserById(
+    authUser.id,
+    {
+      app_metadata: appMetadata,
+      user_metadata: userMetadata,
+    }
+  );
+
+  if (updateError) {
+    throw updateError;
+  }
+
+  const { data: refreshedUserData, error: refreshedUserError } =
+    await supabase.auth.admin.getUserById(authUser.id);
+
+  if (refreshedUserError || !refreshedUserData.user) {
+    return {
+      user: authUser,
+      created,
+    };
+  }
+
+  return {
+    user: refreshedUserData.user,
+    created,
+  };
+}
+
+async function finalizeApprovedRequest(options: {
+  requestRow: AccountRequestRow;
+  reviewLockToken: string;
+  reviewedAt: string;
+  actorUser: User;
+  assignedRole: AppRole;
+  assignedPermissions: string[];
+  reviewNote: string | null;
+  invitedUserId: string;
+  existingUser: boolean;
+  employeeProfileId: number | null;
+}) {
+  const supabase = createAdminSupabaseClient();
+  const basePayload = {
+    status: "active",
+    assigned_role: options.assignedRole,
+    assigned_permissions: options.assignedPermissions,
+    review_note: options.reviewNote,
+    reviewed_by: options.actorUser.id,
+    reviewed_at: options.reviewedAt,
+    invited_user_id: options.invitedUserId,
+    review_lock_token: null,
+    review_started_at: null,
+    last_error: null,
+    audit_log: createDirectionAudit(
+      options.requestRow,
+      options.actorUser,
+      "request_activated",
+      {
+        previousStatus: options.requestRow.status,
+        previousAssignedRole: options.requestRow.assigned_role ?? null,
+        previousAssignedPermissions:
+          options.requestRow.assigned_permissions ?? [],
+        assignedRole: options.assignedRole,
+        assignedPermissions: options.assignedPermissions,
+        invitedUserId: options.invitedUserId,
+        hadExistingAccount: options.existingUser,
+        employeeProfileId: options.employeeProfileId,
+        company: options.requestRow.company,
+        companyDirectoryContext: getCompanyDirectoryContext(
+          options.requestRow.company
+        ),
+      }
+    ),
+  };
+
+  logApprovalStep("update_request_start", {
+    requestId: options.requestRow.id,
+    userId: options.invitedUserId,
+    status: "active",
+  });
+
+  const payloadWithApprovedFields = {
+    ...basePayload,
+    approved_at: options.reviewedAt,
+    approved_by: options.actorUser.id,
+  };
+
+  let result = await supabase
+    .from("account_requests")
+    .update(payloadWithApprovedFields)
+    .eq("id", options.requestRow.id)
+    .eq("review_lock_token", options.reviewLockToken)
+    .select("*")
+    .single<AccountRequestRow>();
+
+  if (result.error && isMissingColumnError(result.error)) {
+    logApprovalStep("update_request_retry_without_approved_columns", {
+      requestId: options.requestRow.id,
+      error: getErrorMessage(result.error),
+    });
+
+    result = await supabase
+      .from("account_requests")
+      .update(basePayload)
+      .eq("id", options.requestRow.id)
+      .eq("review_lock_token", options.reviewLockToken)
+      .select("*")
+      .single<AccountRequestRow>();
+  }
+
+  if (result.error) {
+    throw result.error;
+  }
+
+  return result.data;
+}
+
+async function releaseApprovalLock(options: {
+  requestId: string;
+  reviewLockToken: string;
+  errorMessage?: string | null;
+}) {
+  const supabase = createAdminSupabaseClient();
+
+  await supabase
+    .from("account_requests")
+    .update({
+      review_lock_token: null,
+      review_started_at: null,
+      ...(options.errorMessage ? { last_error: options.errorMessage } : {}),
+    })
+    .eq("id", options.requestId)
+    .eq("review_lock_token", options.reviewLockToken);
+}
+
+async function markApprovalFailure(options: {
+  requestRow: AccountRequestRow;
+  reviewLockToken: string;
+  reviewedAt: string;
+  actorUser: User;
+  assignedRole: AppRole;
+  assignedPermissions: string[];
+  reviewNote: string | null;
+  step: string;
+  error: unknown;
+}) {
+  const supabase = createAdminSupabaseClient();
+  const approvalError = getApprovalErrorResponse(options.error);
+  const lastError = [approvalError.error, approvalError.details]
+    .filter(Boolean)
+    .join(" | ");
+
+  console.error("[account-requests][approve] failure", {
+    requestId: options.requestRow.id,
+    step: options.step,
+    code: approvalError.code,
+    error: approvalError.error,
+    details: approvalError.details,
+    hint: approvalError.hint,
+  });
+
+  const { error: updateError } = await supabase
+    .from("account_requests")
+    .update({
+      status: "error",
+      assigned_role: options.assignedRole,
+      assigned_permissions: options.assignedPermissions,
+      review_note: options.reviewNote,
+      reviewed_by: options.actorUser.id,
+      reviewed_at: options.reviewedAt,
+      review_lock_token: null,
+      review_started_at: null,
+      last_error: lastError,
+      audit_log: createDirectionAudit(
+        options.requestRow,
+        options.actorUser,
+        "request_error",
+        {
+          previousStatus: options.requestRow.status,
+          assignedRole: options.assignedRole,
+          assignedPermissions: options.assignedPermissions,
+          reason: options.reviewNote,
+          failedStep: options.step,
+          error: approvalError.error,
+          errorDetails: approvalError.details,
+          errorCode: approvalError.code,
+          company: options.requestRow.company,
+          companyDirectoryContext: getCompanyDirectoryContext(
+            options.requestRow.company
+          ),
+        }
+      ),
+    })
+    .eq("id", options.requestRow.id)
+    .eq("review_lock_token", options.reviewLockToken);
+
+  if (updateError) {
+    console.error("[account-requests][approve] failure_update_error", {
+      requestId: options.requestRow.id,
+      error: updateError.message,
+    });
+
+    await releaseApprovalLock({
+      requestId: options.requestRow.id,
+      reviewLockToken: options.reviewLockToken,
+      errorMessage: lastError,
+    });
+  }
+
+  return approvalError;
+}
+
 async function upsertAccountAccess(options: {
   requestRow: AccountRequestRow;
   actorUserId: string;
@@ -942,102 +1387,112 @@ export async function PATCH(
         return NextResponse.json({ success: true, status: "refused" });
       }
 
-      const employeeProfile = await upsertEmployeeProfile({
-        input: employeeProfileInput,
-        requestRow,
-      });
+      let approvalStep = "approve_start";
 
-      const approvalResult = await upsertAccountAccess({
-        requestRow,
-        actorUserId: user.id,
-        assignedRole,
-        assignedPermissions,
-        confirmOverwriteExistingAccount,
-        chauffeurId: employeeProfile.id,
-      });
+      try {
+        logApprovalStep("approve_start", {
+          requestId: requestRow.id,
+          email: normalizeEmail(requestRow.email),
+          assignedRole,
+          assignedPermissions,
+          confirmOverwriteExistingAccount,
+        });
 
-      if (!approvalResult.ok) {
-        await createAdminSupabaseClient()
-          .from("account_requests")
-          .update({
-            review_lock_token: null,
-            review_started_at: null,
-          })
-          .eq("id", id)
-          .eq("review_lock_token", locked.reviewLockToken);
+        approvalStep = "create_or_sync_auth_user";
+        const authUserResult = await ensureManagedAuthUser({
+          requestRow,
+          actorUserId: user.id,
+          assignedRole,
+          assignedPermissions,
+        });
+
+        approvalStep = "upsert_employee_profile";
+        logApprovalStep("upsert_employee_start", {
+          requestId: requestRow.id,
+          userId: authUserResult.user.id,
+          email: normalizeEmail(requestRow.email),
+          primaryCompany: requestRow.company,
+        });
+
+        const employeeProfile = await upsertEmployeeProfile({
+          input: employeeProfileInput,
+          requestRow,
+          authUserId: authUserResult.user.id,
+        });
+
+        logApprovalStep("upsert_employee_success", {
+          requestId: requestRow.id,
+          userId: authUserResult.user.id,
+          chauffeurId: employeeProfile.id,
+        });
+
+        if (employeeProfile.id) {
+          approvalStep = "sync_user_chauffeur_metadata";
+          await syncUserChauffeurMetadata({
+            userId: authUserResult.user.id,
+            chauffeurId: employeeProfile.id,
+          });
+
+          logApprovalStep("sync_chauffeur_metadata_success", {
+            requestId: requestRow.id,
+            userId: authUserResult.user.id,
+            chauffeurId: employeeProfile.id,
+          });
+        }
+
+        approvalStep = "update_request_status";
+        await finalizeApprovedRequest({
+          requestRow,
+          reviewLockToken: locked.reviewLockToken,
+          reviewedAt: locked.reviewedAt,
+          actorUser: user,
+          assignedRole,
+          assignedPermissions,
+          reviewNote,
+          invitedUserId: authUserResult.user.id,
+          existingUser: !authUserResult.created,
+          employeeProfileId: employeeProfile.id,
+        });
+
+        logApprovalStep("approve_complete", {
+          requestId: requestRow.id,
+          userId: authUserResult.user.id,
+          chauffeurId: employeeProfile.id,
+          existingUser: !authUserResult.created,
+          status: "active",
+        });
+
+        return NextResponse.json({
+          success: true,
+          status: "active",
+          userId: authUserResult.user.id,
+          chauffeurId: employeeProfile.id,
+          existingUser: !authUserResult.created,
+        });
+      } catch (approvalError) {
+        const normalizedError = await markApprovalFailure({
+          requestRow,
+          reviewLockToken: locked.reviewLockToken,
+          reviewedAt: locked.reviewedAt,
+          actorUser: user,
+          assignedRole,
+          assignedPermissions,
+          reviewNote,
+          step: approvalStep,
+          error: approvalError,
+        });
 
         return NextResponse.json(
           {
-            error: approvalResult.error,
-            existingAccount: approvalResult.existingAccount,
+            success: false,
+            error: normalizedError.error,
+            details: normalizedError.details,
+            code: normalizedError.code,
+            hint: normalizedError.hint,
           },
-          { status: 409 }
+          { status: normalizedError.status }
         );
       }
-
-      if (approvalResult.invitedUserId && employeeProfile.id) {
-        await syncUserChauffeurMetadata({
-          userId: approvalResult.invitedUserId,
-          chauffeurId: employeeProfile.id,
-        });
-      }
-
-      const eventName =
-        approvalResult.finalStatus === "active"
-          ? "request_activated"
-          : "request_invited";
-
-      const { error } = await createAdminSupabaseClient()
-        .from("account_requests")
-        .update({
-          status: approvalResult.finalStatus,
-          assigned_role: assignedRole,
-          assigned_permissions: assignedPermissions,
-          review_note: reviewNote,
-          reviewed_by: user.id,
-          reviewed_at: locked.reviewedAt,
-          invited_user_id: approvalResult.invitedUserId,
-          review_lock_token: null,
-          review_started_at: null,
-          last_error: null,
-          audit_log: appendAuditEntry(
-            baseLockAudit,
-            createAuditEntry(eventName, "direction", {
-              actorUserId: user.id,
-              details: {
-                previousAssignedRole: requestRow.assigned_role ?? null,
-                previousAssignedPermissions:
-                  requestRow.assigned_permissions ?? [],
-                previousAuthRole: approvalResult.existingRole,
-                previousAuthPermissions: approvalResult.existingPermissions,
-                assignedRole,
-                assignedPermissions,
-                newRole: assignedRole,
-                newPermissions: assignedPermissions,
-                reason: reviewNote,
-                decisionMaker: user.email ?? user.id,
-                invitedUserId: approvalResult.invitedUserId,
-                hadExistingAccount: Boolean(approvalResult.existingUser),
-                invitationResult: approvalResult.invitationResult,
-                company: requestRow.company,
-                companyDirectoryContext: getCompanyDirectoryContext(
-                  requestRow.company
-                ),
-              },
-            })
-          ),
-        })
-        .eq("id", id)
-        .eq("review_lock_token", locked.reviewLockToken);
-
-      if (error) {
-        return NextResponse.json({ error: error.message }, { status: 500 });
-      }
-
-      return NextResponse.json({
-        success: true,
-        status: approvalResult.finalStatus,
-      });
     }
 
     const requestRow = await loadRequestRow(id);
@@ -1381,10 +1836,14 @@ export async function PATCH(
   } catch (error) {
     return NextResponse.json(
       {
+        success: false,
         error:
           error instanceof Error
             ? error.message
             : "Erreur traitement demande.",
+        details: getErrorDetails(error),
+        code: getErrorCode(error),
+        hint: getErrorHint(error),
       },
       { status: 500 }
     );

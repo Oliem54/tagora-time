@@ -7,12 +7,14 @@ import { useCurrentAccess } from "@/app/hooks/useCurrentAccess";
 export default function AuthenticatedImprovementsFab() {
   const pathname = usePathname();
   const { user, role, loading } = useCurrentAccess();
+  const hiddenMarketingPaths = ["/", "/logiciel", "/etiquettes", "/contact", "/connexion"];
 
   if (loading || !user || !role) {
     return null;
   }
 
   if (
+    hiddenMarketingPaths.includes(pathname) ||
     pathname === "/ameliorations" ||
     pathname === "/feedback" ||
     pathname === "/direction/dashboard"
