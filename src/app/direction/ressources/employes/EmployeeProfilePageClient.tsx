@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import FeedbackMessage from "@/app/components/FeedbackMessage";
 import HeaderTagora from "@/app/components/HeaderTagora";
 import {
@@ -23,6 +23,43 @@ type EmployeeProfilePageClientProps = {
   employeeId?: number | null;
 };
 
+type AccountSecurityAction =
+  | "reset_password"
+  | "send_reset_link"
+  | "resend_invitation"
+  | "disable_account"
+  | "reactivate_account";
+
+type EmployeeAccountSecurity = {
+  employeeId: number;
+  authUserId: string | null;
+  email: string | null;
+  accountExists: boolean;
+  accountActivated: boolean;
+  accessDisabled: boolean;
+  status: "no_account" | "invited" | "active" | "disabled";
+  statusLabel: string;
+  role: "employe" | "direction" | null;
+  passwordChangeRequired: boolean;
+  activationDate: string | null;
+  lastSignInAt: string | null;
+  availableActions: {
+    resetPassword: boolean;
+    sendResetLink: boolean;
+    resendInvitation: boolean;
+    disableAccount: boolean;
+    reactivateAccount: boolean;
+  };
+  companyDirectoryContext: string | null;
+};
+
+type EmployeeAccordionSection =
+  | "identite"
+  | "permis"
+  | "horaire"
+  | "facturation"
+  | "alertes_sms";
+
 function SummaryItem({
   label,
   value,
@@ -38,12 +75,209 @@ function SummaryItem({
   );
 }
 
+function SecurityActionButton({
+  label,
+  description,
+  tone = "secondary",
+  busy = false,
+  disabled = false,
+  onClick,
+}: {
+  label: string;
+  description: string;
+  tone?: "primary" | "secondary" | "danger";
+  busy?: boolean;
+  disabled?: boolean;
+  onClick: () => void;
+}) {
+  const palette =
+    tone === "primary"
+      ? {
+          background: "linear-gradient(135deg, #0f172a 0%, #1e293b 100%)",
+          color: "#ffffff",
+          border: "1px solid rgba(15,23,42,0.15)",
+        }
+      : tone === "danger"
+        ? {
+            background: "linear-gradient(135deg, #7f1d1d 0%, #b91c1c 100%)",
+            color: "#ffffff",
+            border: "1px solid rgba(185,28,28,0.2)",
+          }
+        : {
+            background: "#ffffff",
+            color: "#0f172a",
+            border: "1px solid #cbd5e1",
+          };
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      style={{
+        width: "100%",
+        textAlign: "left",
+        borderRadius: 18,
+        padding: "18px 20px",
+        display: "grid",
+        gap: 6,
+        boxShadow:
+          tone === "primary"
+            ? "0 18px 40px rgba(15,23,42,0.16)"
+            : "0 10px 24px rgba(15,23,42,0.08)",
+        cursor: disabled ? "not-allowed" : "pointer",
+        opacity: disabled ? 0.6 : 1,
+        transition: "transform 160ms ease, box-shadow 160ms ease, opacity 160ms ease",
+        ...palette,
+      }}
+    >
+      <span style={{ fontSize: 16, fontWeight: 800 }}>
+        {busy ? "Traitement..." : label}
+      </span>
+      <span
+        style={{
+          fontSize: 13,
+          lineHeight: 1.45,
+          color: tone === "secondary" ? "#475569" : "rgba(255,255,255,0.82)",
+        }}
+      >
+        {description}
+      </span>
+    </button>
+  );
+}
+
+function AccordionSection({
+  title,
+  description,
+  open,
+  onToggle,
+  children,
+}: {
+  title: string;
+  description: string;
+  open: boolean;
+  onToggle: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="tagora-panel ui-stack-md">
+      <button
+        type="button"
+        onClick={onToggle}
+        style={{
+          width: "100%",
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          gap: 16,
+          padding: 0,
+          border: "none",
+          background: "transparent",
+          textAlign: "left",
+          cursor: "pointer",
+        }}
+      >
+        <div className="ui-stack-xs">
+          <h2 className="section-title" style={{ marginBottom: 0 }}>
+            {title}
+          </h2>
+          <p className="tagora-note" style={{ margin: 0 }}>
+            {description}
+          </p>
+        </div>
+
+        <div
+          className="tagora-panel-muted"
+          style={{
+            minWidth: 52,
+            padding: "10px 14px",
+            borderRadius: 14,
+            fontWeight: 800,
+            color: "#0f172a",
+          }}
+        >
+          {open ? "−" : "+"}
+        </div>
+      </button>
+
+      {open ? children : null}
+    </section>
+  );
+}
+
 function getErrorMessage(error: unknown) {
   if (error instanceof Error && error.message) {
     return error.message;
   }
 
   return "Erreur inconnue.";
+}
+
+function formatDateTime(value: string | null | undefined) {
+  if (!value) {
+    return "-";
+  }
+
+  return new Intl.DateTimeFormat("fr-CA", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(new Date(value));
+}
+
+function getLastAccountActivity(security: EmployeeAccountSecurity) {
+  if (security.lastSignInAt) {
+    return {
+      label: "Derniere connexion",
+      value: formatDateTime(security.lastSignInAt),
+    };
+  }
+
+  if (security.activationDate) {
+    return {
+      label: "Derniere activite compte",
+      value: formatDateTime(security.activationDate),
+    };
+  }
+
+  return {
+    label: "Derniere activite compte",
+    value: "-",
+  };
+}
+
+function getSecurityStatusPresentation(
+  status: EmployeeAccountSecurity["status"]
+) {
+  if (status === "active") {
+    return {
+      color: "#166534",
+      background: "#dcfce7",
+      border: "1px solid rgba(34,197,94,0.25)",
+    };
+  }
+
+  if (status === "invited") {
+    return {
+      color: "#1d4ed8",
+      background: "#dbeafe",
+      border: "1px solid rgba(59,130,246,0.25)",
+    };
+  }
+
+  if (status === "disabled") {
+    return {
+      color: "#991b1b",
+      background: "#fee2e2",
+      border: "1px solid rgba(239,68,68,0.25)",
+    };
+  }
+
+  return {
+    color: "#475569",
+    background: "#f8fafc",
+    border: "1px solid rgba(148,163,184,0.25)",
+  };
 }
 
 export default function EmployeeProfilePageClient({
@@ -65,6 +299,14 @@ export default function EmployeeProfilePageClient({
   );
   const [form, setForm] = useState<EmployeFormState>(buildEmployeForm(null));
   const [isEditing, setIsEditing] = useState(isCreating);
+  const [accountSecurity, setAccountSecurity] =
+    useState<EmployeeAccountSecurity | null>(null);
+  const [accountSecurityLoading, setAccountSecurityLoading] = useState(false);
+  const [accountSecurityError, setAccountSecurityError] = useState("");
+  const [securityAction, setSecurityAction] =
+    useState<AccountSecurityAction | null>(null);
+  const [openSection, setOpenSection] =
+    useState<EmployeeAccordionSection>("identite");
 
   const breakSummary = useMemo(() => computeBreakSummary(form), [form]);
   const computedCost = useMemo(() => {
@@ -88,8 +330,55 @@ export default function EmployeeProfilePageClient({
         color: "#0f172a",
         boxShadow: "none",
       };
+  const accountActivity = useMemo(
+    () => (accountSecurity ? getLastAccountActivity(accountSecurity) : null),
+    [accountSecurity]
+  );
 
-  async function loadEmployeProfile(targetId: number) {
+  const getAuthenticatedHeaders = useCallback(async () => {
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    const accessToken = session?.access_token;
+
+    if (!accessToken) {
+      throw new Error("Session admin introuvable.");
+    }
+
+    return {
+      Authorization: `Bearer ${accessToken}`,
+      "x-account-requests-client": "browser-authenticated",
+      "Cache-Control": "no-store",
+    };
+  }, []);
+
+  const loadAccountSecurity = useCallback(async (targetId: number) => {
+    setAccountSecurityLoading(true);
+    setAccountSecurityError("");
+
+    try {
+      const response = await fetch(`/api/employees/${targetId}/account-security`, {
+        headers: await getAuthenticatedHeaders(),
+      });
+      const payload = (await response.json()) as {
+        error?: string;
+        security?: EmployeeAccountSecurity;
+      };
+
+      if (!response.ok || !payload.security) {
+        throw new Error(payload.error || "Chargement du compte impossible.");
+      }
+
+      setAccountSecurity(payload.security);
+    } catch (error) {
+      setAccountSecurity(null);
+      setAccountSecurityError(getErrorMessage(error));
+    } finally {
+      setAccountSecurityLoading(false);
+    }
+  }, [getAuthenticatedHeaders]);
+
+  const loadEmployeProfile = useCallback(async (targetId: number) => {
     setLoading(true);
 
     const { data, error } = await supabase
@@ -119,8 +408,9 @@ export default function EmployeeProfilePageClient({
     setForm(buildEmployeForm(nextProfile));
     setMessage("");
     setMessageType(null);
+    await loadAccountSecurity(targetId);
     setLoading(false);
-  }
+  }, [loadAccountSecurity]);
 
   useEffect(() => {
     if (isCreating) {
@@ -128,6 +418,8 @@ export default function EmployeeProfilePageClient({
       setOriginalProfile(null);
       setForm(buildEmployeForm(null));
       setIsEditing(true);
+      setAccountSecurity(null);
+      setAccountSecurityError("");
       return;
     }
 
@@ -135,11 +427,13 @@ export default function EmployeeProfilePageClient({
       setLoading(false);
       setMessage("Identifiant employe invalide.");
       setMessageType("error");
+      setAccountSecurity(null);
+      setAccountSecurityError("");
       return;
     }
 
     void loadEmployeProfile(employeeId);
-  }, [employeeId, isCreating]);
+  }, [employeeId, isCreating, loadEmployeProfile]);
 
   async function uploadPermisFile(file: File, side: "recto" | "verso") {
     const safeName = (form.nom.trim() || `chauffeur-${Date.now()}`)
@@ -279,6 +573,7 @@ export default function EmployeeProfilePageClient({
 
       setOriginalProfile(nextProfile);
       setForm(buildEmployeForm(nextProfile));
+      await loadAccountSecurity(employeeId as number);
       setIsEditing(false);
       setMessage("Profil employe enregistre.");
       setMessageType("success");
@@ -287,6 +582,65 @@ export default function EmployeeProfilePageClient({
       setMessageType("error");
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function runAccountSecurityAction(action: AccountSecurityAction) {
+    if (!employeeId || isCreating) {
+      return;
+    }
+
+    const targetEmail =
+      accountSecurity?.email || form.courriel || originalProfile?.courriel || "";
+    const confirmationLabel =
+      action === "reset_password"
+        ? `Envoyer un lien de reinitialisation a ${targetEmail || "ce compte"} et forcer la reinitialisation du mot de passe ?`
+        : action === "send_reset_link"
+          ? `Envoyer le lien de reinitialisation a ${targetEmail || "ce compte"} ?`
+          : action === "resend_invitation"
+            ? `Renvoyer l invitation a ${targetEmail || "ce compte"} ?`
+            : action === "disable_account"
+              ? "Desactiver l acces de ce compte ?"
+              : "Reactiver l acces de ce compte ?";
+
+    if (!window.confirm(confirmationLabel)) {
+      return;
+    }
+
+    setSecurityAction(action);
+    setMessage("");
+    setMessageType(null);
+
+    try {
+      const response = await fetch(`/api/employees/${employeeId}/account-security`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(await getAuthenticatedHeaders()),
+        },
+        body: JSON.stringify({ action }),
+      });
+      const payload = (await response.json()) as {
+        error?: string;
+        message?: string;
+        security?: EmployeeAccountSecurity;
+      };
+
+      if (!response.ok || !payload.security) {
+        throw new Error(payload.error || "Action impossible.");
+      }
+
+      setAccountSecurity(payload.security);
+      setAccountSecurityError("");
+      setMessage(payload.message || "Action admin terminee.");
+      setMessageType("success");
+    } catch (error) {
+      const errorMessage = getErrorMessage(error);
+      setAccountSecurityError(errorMessage);
+      setMessage(errorMessage);
+      setMessageType("error");
+    } finally {
+      setSecurityAction(null);
     }
   }
 
@@ -321,12 +675,25 @@ export default function EmployeeProfilePageClient({
 
   const topActions = (
     <div className="tagora-actions">
+      {!isCreating && accountSecurity?.availableActions.resetPassword ? (
+        <button
+          type="button"
+          className="tagora-dark-action"
+          onClick={() => void runAccountSecurityAction("reset_password")}
+          disabled={loading || saving || deleting || Boolean(securityAction)}
+          style={{ minWidth: 240 }}
+        >
+          {securityAction === "reset_password"
+            ? "Envoi..."
+            : "Reinitialiser mot de passe"}
+        </button>
+      ) : null}
       {!isEditing ? (
         <button
           type="button"
           className="tagora-dark-action"
           onClick={() => setIsEditing(true)}
-          disabled={loading || saving || deleting}
+          disabled={loading || saving || deleting || Boolean(securityAction)}
         >
           Modifier
         </button>
@@ -336,7 +703,12 @@ export default function EmployeeProfilePageClient({
             type="button"
             className="tagora-dark-action"
             onClick={() => void handleSave()}
-            disabled={saving || uploadingRecto || uploadingVerso}
+            disabled={
+              saving ||
+              uploadingRecto ||
+              uploadingVerso ||
+              Boolean(securityAction)
+            }
           >
             {saving ? "Enregistrement..." : isCreating ? "Creer" : "Enregistrer"}
           </button>
@@ -344,7 +716,7 @@ export default function EmployeeProfilePageClient({
             type="button"
             className="tagora-dark-outline-action"
             onClick={handleCancel}
-            disabled={saving || deleting}
+            disabled={saving || deleting || Boolean(securityAction)}
           >
             Annuler
           </button>
@@ -464,16 +836,259 @@ export default function EmployeeProfilePageClient({
                 </div>
               </section>
 
-              <section className="tagora-panel ui-stack-md">
-                <div className="ui-stack-xs">
-                  <h2 className="section-title" style={{ marginBottom: 0 }}>
-                    Identite et rattachement
-                  </h2>
-                  <p className="tagora-note" style={{ margin: 0 }}>
-                    Fiche principale employee.
-                  </p>
-                </div>
+              {!isCreating ? (
+                <section
+                  className="tagora-panel ui-stack-md"
+                  style={{
+                    border: "1px solid #cbd5e1",
+                    boxShadow: "0 24px 60px rgba(15,23,42,0.08)",
+                  }}
+                >
+                  <div
+                    className="tagora-panel-muted"
+                    style={{
+                      padding: 20,
+                      border: "1px solid #dbeafe",
+                      background:
+                        "linear-gradient(135deg, rgba(239,246,255,0.95) 0%, rgba(248,250,252,1) 100%)",
+                    }}
+                  >
+                    <div className="ui-stack-xs">
+                      <div className="ui-eyebrow">Administration du compte</div>
+                      <h2 className="section-title" style={{ marginBottom: 0 }}>
+                        Compte et securite
+                      </h2>
+                      <p className="tagora-note" style={{ margin: 0 }}>
+                        Gere le mot de passe, l invitation et l acces employe
+                        directement depuis cette fiche.
+                      </p>
+                    </div>
+                  </div>
 
+                  {accountSecurityLoading ? (
+                    <div className="tagora-panel-muted">
+                      <p className="tagora-note" style={{ margin: 0 }}>
+                        Chargement du compte...
+                      </p>
+                    </div>
+                  ) : accountSecurityError ? (
+                    <div className="tagora-panel-muted">
+                      <p className="tagora-note" style={{ margin: 0, color: "#991b1b" }}>
+                        {accountSecurityError}
+                      </p>
+                    </div>
+                  ) : accountSecurity ? (
+                    <>
+                      <div
+                        style={{
+                          display: "grid",
+                          gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
+                          gap: 16,
+                        }}
+                      >
+                        <div
+                          className="tagora-panel"
+                          style={{
+                            margin: 0,
+                            padding: "18px 20px",
+                            borderRadius: 18,
+                            boxShadow: "none",
+                            ...getSecurityStatusPresentation(accountSecurity.status),
+                          }}
+                        >
+                          <div className="tagora-label">Statut du compte</div>
+                          <div
+                            style={{
+                              marginTop: 8,
+                              fontWeight: 800,
+                              fontSize: 20,
+                              color: getSecurityStatusPresentation(accountSecurity.status)
+                                .color,
+                            }}
+                          >
+                            {accountSecurity.statusLabel}
+                          </div>
+                          <p className="tagora-note" style={{ margin: "8px 0 0 0" }}>
+                            Compte Auth{" "}
+                            {accountSecurity.accountExists ? "present" : "absent"}.
+                          </p>
+                        </div>
+
+                        <div className="tagora-panel-muted" style={{ padding: 16 }}>
+                          <div className="tagora-label">Statut employe</div>
+                          <div
+                            style={{
+                              marginTop: 8,
+                              fontWeight: 800,
+                              fontSize: 18,
+                              color: form.actif ? "#166534" : "#475569",
+                            }}
+                          >
+                            {form.actif ? "Employe actif" : "Employe inactif"}
+                          </div>
+                          <p className="tagora-note" style={{ margin: "8px 0 0 0" }}>
+                            Statut RH de la fiche. Il ne definit pas a lui seul
+                            l acces au compte Auth.
+                          </p>
+                        </div>
+                      </div>
+
+                      <div
+                        style={{
+                          display: "grid",
+                          gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+                          gap: 16,
+                        }}
+                      >
+                        <SummaryItem
+                          label="Email de connexion"
+                          value={accountSecurity.email || "-"}
+                        />
+                        <SummaryItem
+                          label="Date d activation"
+                          value={formatDateTime(accountSecurity.activationDate)}
+                        />
+                        <SummaryItem
+                          label={accountActivity?.label || "Derniere activite compte"}
+                          value={accountActivity?.value || "-"}
+                        />
+                        <SummaryItem
+                          label="Etat de l acces"
+                          value={
+                            accountSecurity.accessDisabled
+                              ? "Desactive"
+                              : accountSecurity.accountExists
+                                ? "Autorise"
+                                : "Aucun acces"
+                          }
+                        />
+                      </div>
+
+                      {accountSecurity.passwordChangeRequired ? (
+                        <div
+                          className="tagora-panel-muted"
+                          style={{ border: "1px solid #fde68a", background: "#fffbeb" }}
+                        >
+                          <p className="tagora-note" style={{ margin: 0, color: "#92400e" }}>
+                            Une reinitialisation ou un changement de mot de passe
+                            est deja exige pour ce compte.
+                          </p>
+                        </div>
+                      ) : null}
+
+                      <div className="ui-stack-xs">
+                        <div className="tagora-label">Actions de securite</div>
+                        <p className="tagora-note" style={{ margin: 0 }}>
+                          Les actions ci-dessous sont basees sur le vrai statut du
+                          compte Auth, pas sur le seul statut employe.
+                        </p>
+                      </div>
+
+                      <div
+                        style={{
+                          display: "grid",
+                          gridTemplateColumns: "repeat(auto-fit, minmax(250px, 1fr))",
+                          gap: 16,
+                        }}
+                      >
+                        {accountSecurity.availableActions.resetPassword ? (
+                          <SecurityActionButton
+                            label="Reinitialiser le mot de passe"
+                            description="Disponible des qu un compte Auth existe. Envoie immediatement un vrai lien de reinitialisation."
+                            tone="primary"
+                            busy={securityAction === "reset_password"}
+                            disabled={Boolean(securityAction) || saving || deleting}
+                            onClick={() => void runAccountSecurityAction("reset_password")}
+                          />
+                        ) : null}
+
+                        {accountSecurity.availableActions.sendResetLink ? (
+                          <SecurityActionButton
+                            label="Envoyer le lien de reinitialisation"
+                            description="Renvoye un lien de reinitialisation sans changer le reste du profil."
+                            busy={securityAction === "send_reset_link"}
+                            disabled={Boolean(securityAction) || saving || deleting}
+                            onClick={() => void runAccountSecurityAction("send_reset_link")}
+                          />
+                        ) : null}
+
+                        {accountSecurity.availableActions.resendInvitation ? (
+                          <SecurityActionButton
+                            label={
+                              accountSecurity.accountExists
+                                ? "Renvoyer l invitation"
+                                : "Creer une invitation"
+                            }
+                            description={
+                              accountSecurity.accountExists
+                                ? "Renvoie un nouvel email d acces pour un compte deja cree mais non encore active."
+                                : "Cree le compte Auth puis envoie le premier email d invitation."
+                            }
+                            busy={securityAction === "resend_invitation"}
+                            disabled={Boolean(securityAction) || saving || deleting}
+                            onClick={() => void runAccountSecurityAction("resend_invitation")}
+                          />
+                        ) : null}
+
+                        {accountSecurity.availableActions.disableAccount ? (
+                          <SecurityActionButton
+                            label="Desactiver le compte"
+                            description="Coupe l acces sans supprimer la fiche employe."
+                            tone="danger"
+                            busy={securityAction === "disable_account"}
+                            disabled={Boolean(securityAction) || saving || deleting}
+                            onClick={() => void runAccountSecurityAction("disable_account")}
+                          />
+                        ) : null}
+
+                        {accountSecurity.availableActions.reactivateAccount ? (
+                          <SecurityActionButton
+                            label="Reactiver le compte"
+                            description="Restaure l acces du compte sans casser le profil employe."
+                            busy={securityAction === "reactivate_account"}
+                            disabled={Boolean(securityAction) || saving || deleting}
+                            onClick={() => void runAccountSecurityAction("reactivate_account")}
+                          />
+                        ) : null}
+
+                        <SecurityActionButton
+                          label="Actualiser le statut du compte"
+                          description="Recharge les informations d activation, de connexion et les actions disponibles."
+                          busy={accountSecurityLoading}
+                          disabled={accountSecurityLoading || Boolean(securityAction)}
+                          onClick={() => void loadAccountSecurity(employeeId as number)}
+                        />
+                      </div>
+
+                      <div
+                        className="tagora-panel-muted"
+                        style={{ border: "1px solid #dbe4f0", background: "#f8fafc" }}
+                      >
+                        <p className="tagora-note" style={{ margin: 0 }}>
+                          {accountSecurity.availableActions.reactivateAccount
+                            ? "Le compte est desactive. Vous pouvez le reactiver, et la reinitialisation du mot de passe reste disponible tant que le compte Auth existe."
+                            : accountSecurity.accountExists
+                              ? "Le compte Auth existe. Reinitialiser le mot de passe reste toujours disponible, meme si le compte est encore invite."
+                              : "Aucun compte Auth n existe encore pour cet employe. L action disponible cree l invitation initiale."}
+                        </p>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="tagora-panel-muted">
+                      <p className="tagora-note" style={{ margin: 0 }}>
+                        Aucun etat de compte disponible.
+                      </p>
+                    </div>
+                  )}
+                </section>
+              ) : null}
+
+              <AccordionSection
+                title="Identite"
+                description="Informations principales de l employe."
+                open={openSection === "identite"}
+                onToggle={() => setOpenSection("identite")}
+              >
                 <div className="tagora-form-grid">
                   <div className="tagora-form-grid-2">
                     <label className="tagora-field">
@@ -618,18 +1233,14 @@ export default function EmployeeProfilePageClient({
                     />
                   </label>
                 </div>
-              </section>
+              </AccordionSection>
 
-              <section className="tagora-panel ui-stack-md">
-                <div className="ui-stack-xs">
-                  <h2 className="section-title" style={{ marginBottom: 0 }}>
-                    Permis et documents
-                  </h2>
-                  <p className="tagora-note" style={{ margin: 0 }}>
-                    Information legale et pieces jointes.
-                  </p>
-                </div>
-
+              <AccordionSection
+                title="Permis"
+                description="Information legale et pieces jointes."
+                open={openSection === "permis"}
+                onToggle={() => setOpenSection("permis")}
+              >
                 <div className="tagora-form-grid">
                   <div className="tagora-form-grid-2">
                     <label className="tagora-field">
@@ -774,18 +1385,14 @@ export default function EmployeeProfilePageClient({
                     </div>
                   </div>
                 </div>
-              </section>
+              </AccordionSection>
 
-              <section className="tagora-panel ui-stack-md">
-                <div className="ui-stack-xs">
-                  <h2 className="section-title" style={{ marginBottom: 0 }}>
-                    Horaire prevu
-                  </h2>
-                  <p className="tagora-note" style={{ margin: 0 }}>
-                    Horaires, pauses et jours travailles.
-                  </p>
-                </div>
-
+              <AccordionSection
+                title="Horaire"
+                description="Horaires, pauses et jours travailles."
+                open={openSection === "horaire"}
+                onToggle={() => setOpenSection("horaire")}
+              >
                 <div className="tagora-form-grid">
                   <div className="tagora-form-grid-2">
                     <label className="tagora-field">
@@ -1045,20 +1652,16 @@ export default function EmployeeProfilePageClient({
                     </div>
                   ))}
                 </div>
-              </section>
+              </AccordionSection>
             </div>
 
             <aside className="tagora-stack">
-              <section className="tagora-panel ui-stack-md">
-                <div className="ui-stack-xs">
-                  <h2 className="section-title" style={{ marginBottom: 0 }}>
-                    Facturation et cout
-                  </h2>
-                  <p className="tagora-note" style={{ margin: 0 }}>
-                    Donnees Titan et cout refacturable.
-                  </p>
-                </div>
-
+              <AccordionSection
+                title="Facturation"
+                description="Donnees Titan, cout refacturable et resume pauses."
+                open={openSection === "facturation"}
+                onToggle={() => setOpenSection("facturation")}
+              >
                 <div className="tagora-form-grid">
                   <label className="tagora-field">
                     <span className="tagora-label">Taux de base Titan</span>
@@ -1118,17 +1721,6 @@ export default function EmployeeProfilePageClient({
                     value={formatMoney(computedCost)}
                   />
                 </div>
-              </section>
-
-              <section className="tagora-panel ui-stack-md">
-                <div className="ui-stack-xs">
-                  <h2 className="section-title" style={{ marginBottom: 0 }}>
-                    Resume pauses
-                  </h2>
-                  <p className="tagora-note" style={{ margin: 0 }}>
-                    Vue rapide sur les temps de pause.
-                  </p>
-                </div>
 
                 <div className="ui-grid-auto">
                   <SummaryItem
@@ -1148,18 +1740,14 @@ export default function EmployeeProfilePageClient({
                     value={`${String(breakSummary.unpaid)} min`}
                   />
                 </div>
-              </section>
+              </AccordionSection>
 
-              <section className="tagora-panel ui-stack-md">
-                <div className="ui-stack-xs">
-                  <h2 className="section-title" style={{ marginBottom: 0 }}>
-                    Alertes SMS
-                  </h2>
-                  <p className="tagora-note" style={{ margin: 0 }}>
-                    Activez ou coupez chaque alerte.
-                  </p>
-                </div>
-
+              <AccordionSection
+                title="Alertes SMS"
+                description="Activez ou coupez chaque alerte."
+                open={openSection === "alertes_sms"}
+                onToggle={() => setOpenSection("alertes_sms")}
+              >
                 <div className="ui-stack-sm">
                   {[
                     ["sms_alert_depart_terrain", "Depart terrain"],
@@ -1204,7 +1792,7 @@ export default function EmployeeProfilePageClient({
                     </div>
                   ))}
                 </div>
-              </section>
+              </AccordionSection>
 
               {!isCreating ? (
                 <section className="tagora-panel ui-stack-md">
@@ -1222,7 +1810,7 @@ export default function EmployeeProfilePageClient({
                       type="button"
                       className="tagora-dark-action"
                       onClick={() => setIsEditing(true)}
-                      disabled={saving || deleting}
+                      disabled={saving || deleting || Boolean(securityAction)}
                     >
                       Modifier
                     </button>
@@ -1232,7 +1820,12 @@ export default function EmployeeProfilePageClient({
                         type="button"
                         className="tagora-dark-action"
                         onClick={() => void handleSave()}
-                        disabled={saving || uploadingRecto || uploadingVerso}
+                        disabled={
+                          saving ||
+                          uploadingRecto ||
+                          uploadingVerso ||
+                          Boolean(securityAction)
+                        }
                       >
                         {saving ? "Enregistrement..." : "Enregistrer"}
                       </button>
@@ -1240,7 +1833,7 @@ export default function EmployeeProfilePageClient({
                         type="button"
                         className="tagora-dark-outline-action"
                         onClick={handleCancel}
-                        disabled={saving || deleting}
+                        disabled={saving || deleting || Boolean(securityAction)}
                       >
                         Annuler
                       </button>
@@ -1251,7 +1844,7 @@ export default function EmployeeProfilePageClient({
                     type="button"
                     className="tagora-btn-danger"
                     onClick={() => void handleDelete()}
-                    disabled={saving || deleting}
+                    disabled={saving || deleting || Boolean(securityAction)}
                   >
                     {deleting ? "Suppression..." : "Supprimer"}
                   </button>

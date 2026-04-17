@@ -2,6 +2,7 @@ import { type AccountRequestCompany } from "@/app/lib/account-requests.shared";
 
 export type EmployeProfile = {
   id: number;
+  auth_user_id?: string | null;
   nom: string | null;
   telephone: string | null;
   courriel: string | null;
