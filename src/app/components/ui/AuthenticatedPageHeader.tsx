@@ -1,6 +1,6 @@
 "use client";
 
-import type { ComponentProps } from "react";
+import { Suspense, type ComponentProps } from "react";
 import { useCurrentAccess } from "@/app/hooks/useCurrentAccess";
 import PageHeader from "./PageHeader";
 import TagoraPageNavigation from "./TagoraPageNavigation";
@@ -22,7 +22,12 @@ export default function AuthenticatedPageHeader({
 }: AuthenticatedPageHeaderProps) {
   const { user } = useCurrentAccess();
   const resolvedNavigation =
-    navigation ?? (showNavigation ? <TagoraPageNavigation /> : null);
+    navigation ??
+    (showNavigation ? (
+      <Suspense fallback={null}>
+        <TagoraPageNavigation />
+      </Suspense>
+    ) : null);
 
   return (
     <PageHeader
