@@ -1,7 +1,7 @@
 "use client";
 
-import Link from "next/link";
 import { ChangeEvent, useMemo, useState } from "react";
+import HeaderTagora from "@/app/components/HeaderTagora";
 
 export default function NewDirectionTerrainFolderPage() {
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
@@ -18,37 +18,24 @@ export default function NewDirectionTerrainFolderPage() {
   }
 
   const totalFilesText = useMemo(() => {
-    if (selectedFiles.length === 0) return "Aucun fichier sélectionné";
-    if (selectedFiles.length === 1) return "1 fichier sélectionné";
-    return `${selectedFiles.length} fichiers sélectionnés`;
+    if (selectedFiles.length === 0) return "Aucun fichier selectionne";
+    if (selectedFiles.length === 1) return "1 fichier selectionne";
+    return `${selectedFiles.length} fichiers selectionnes`;
   }, [selectedFiles]);
 
   return (
-    <main className="min-h-screen bg-white text-black p-6 md:p-10">
-      <div className="max-w-4xl mx-auto">
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-8">
-          <div>
-            <h1 className="text-4xl font-bold">Ajouter un dossier terrain</h1>
-            <p className="text-gray-600 mt-2">
-              Créez un dossier pour une livraison, un ramassage, un dommage ou tout autre document terrain
-            </p>
-          </div>
+    <main className="tagora-app-shell">
+      <div className="tagora-app-content ui-stack-lg" style={{ maxWidth: 1120 }}>
+        <HeaderTagora
+          title="Ajouter un dossier terrain"
+          subtitle="Creez un dossier pour une livraison, un ramassage, un dommage ou tout autre document terrain."
+        />
 
-          <Link
-            href="/direction/terrain"
-            className="px-5 py-3 rounded-xl border border-gray-300 hover:bg-gray-100 transition text-center"
-          >
-            Retour
-          </Link>
-        </div>
-
-        <div className="rounded-2xl border border-gray-200 shadow-sm p-6 md:p-8">
+        <div className="rounded-2xl border border-gray-200 bg-white shadow-sm p-6 md:p-8">
           <form className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+            <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
               <div>
-                <label className="block text-sm font-medium mb-2">
-                  Client
-                </label>
+                <label className="block text-sm font-medium mb-2">Client</label>
                 <input
                   type="text"
                   placeholder="Nom du client"
@@ -58,7 +45,7 @@ export default function NewDirectionTerrainFolderPage() {
 
               <div>
                 <label className="block text-sm font-medium mb-2">
-                  Référence obligatoire
+                  Reference obligatoire
                 </label>
                 <input
                   type="text"
@@ -72,22 +59,20 @@ export default function NewDirectionTerrainFolderPage() {
               <label className="block text-sm font-medium mb-2">
                 Type de dossier
               </label>
-              <select className="w-full rounded-xl border border-gray-300 px-4 py-3 outline-none focus:border-black bg-white">
+              <select className="w-full rounded-xl border border-gray-300 bg-white px-4 py-3 outline-none focus:border-black">
                 <option>Choisir un type</option>
                 <option>Livraison</option>
                 <option>Ramassage</option>
-                <option>Dommage à la livraison</option>
+                <option>Dommage a la livraison</option>
                 <option>Dommage avant ramassage</option>
-                <option>État du véhicule</option>
-                <option>Document signé</option>
+                <option>Etat du vehicule</option>
+                <option>Document signe</option>
                 <option>Autre</option>
               </select>
             </div>
 
             <div>
-              <label className="block text-sm font-medium mb-2">
-                Commentaire
-              </label>
+              <label className="block text-sm font-medium mb-2">Commentaire</label>
               <textarea
                 rows={5}
                 placeholder="Ajoutez un commentaire ou une note importante"
@@ -106,14 +91,14 @@ export default function NewDirectionTerrainFolderPage() {
                   onChange={handleFilesChange}
                   className="w-full rounded-xl border border-gray-300 px-4 py-3 outline-none focus:border-black"
                 />
-                <p className="text-sm text-gray-500 mt-2">
-                  Vous pouvez sélectionner plusieurs photos ou fichiers
+                <p className="mt-2 text-sm text-gray-500">
+                  Vous pouvez selectionner plusieurs photos ou fichiers.
                 </p>
               </div>
 
-              <div className="rounded-xl bg-gray-50 border border-gray-200 p-4">
-                <h2 className="text-lg font-bold mb-2">Aperçu des fichiers</h2>
-                <p className="text-sm text-gray-600 mb-3">{totalFilesText}</p>
+              <div className="rounded-xl border border-gray-200 bg-gray-50 p-4">
+                <h2 className="mb-2 text-lg font-bold">Apercu des fichiers</h2>
+                <p className="mb-3 text-sm text-gray-600">{totalFilesText}</p>
 
                 {selectedFiles.length > 0 ? (
                   <ul className="space-y-2">
@@ -128,7 +113,7 @@ export default function NewDirectionTerrainFolderPage() {
                   </ul>
                 ) : (
                   <p className="text-sm text-gray-500">
-                    Aucune photo ou document sélectionné pour le moment.
+                    Aucun photo ou document selectionne pour le moment.
                   </p>
                 )}
               </div>
@@ -137,8 +122,9 @@ export default function NewDirectionTerrainFolderPage() {
             <div className="rounded-2xl border border-gray-200 bg-gray-50 p-5 space-y-5">
               <div>
                 <h2 className="text-2xl font-bold">Confirmation vocale</h2>
-                <p className="text-gray-600 mt-2">
-                  Utilisez cette option pour faire confirmer verbalement la livraison ou le ramassage par le client.
+                <p className="mt-2 text-gray-600">
+                  Utilisez cette option pour faire confirmer verbalement la
+                  livraison ou le ramassage par le client.
                 </p>
               </div>
 
@@ -146,40 +132,36 @@ export default function NewDirectionTerrainFolderPage() {
                 <label className="block text-sm font-medium mb-2">
                   Type de confirmation
                 </label>
-                <select className="w-full rounded-xl border border-gray-300 px-4 py-3 outline-none focus:border-black bg-white">
+                <select className="w-full rounded-xl border border-gray-300 bg-white px-4 py-3 outline-none focus:border-black">
                   <option>Aucune confirmation vocale</option>
                   <option>Confirmation de livraison</option>
                   <option>Confirmation de ramassage</option>
-                  <option>Confirmation avec réserve</option>
+                  <option>Confirmation avec reserve</option>
                 </select>
               </div>
 
               <div>
                 <label className="block text-sm font-medium mb-2">
-                  Texte suggéré au livreur
+                  Texte suggere au livreur
                 </label>
                 <textarea
                   rows={8}
                   readOnly
-                  value={`Bonjour, nous sommes le [date], il est [heure]. Je confirme la livraison ou le ramassage au nom de [compagnie]. Pour nos dossiers, j’aimerais enregistrer votre confirmation pour la référence [référence]. Est-ce que vous acceptez d’être enregistré?
-
-Phrase suggérée pour le client :
-
-Je soussigné(e), [nom du client], confirme avoir reçu ou remis les items liés à la référence [référence], en date du [date] à [heure]. Je confirme l’état suivant : [conforme ou avec réserve]. Mes commentaires sont les suivants : [commentaire].`}
-                  className="w-full rounded-xl border border-gray-300 px-4 py-3 bg-white text-gray-700 outline-none"
+                  value={`Bonjour, nous sommes le [date], il est [heure]. Je confirme la livraison ou le ramassage au nom de [compagnie]. Pour nos dossiers, j'aimerais enregistrer votre confirmation pour la reference [reference]. Est-ce que vous acceptez d'etre enregistre?\n\nPhrase suggeree pour le client :\n\nJe soussigne(e), [nom du client], confirme avoir recu ou remis les items lies a la reference [reference], en date du [date] a [heure]. Je confirme l'etat suivant : [conforme ou avec reserve]. Mes commentaires sont les suivants : [commentaire].`}
+                  className="w-full rounded-xl border border-gray-300 bg-white px-4 py-3 text-gray-700 outline-none"
                 />
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+              <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
                 <div>
                   <label className="block text-sm font-medium mb-2">
-                    Résultat de la confirmation
+                    Resultat de la confirmation
                   </label>
-                  <select className="w-full rounded-xl border border-gray-300 px-4 py-3 outline-none focus:border-black bg-white">
-                    <option>À enregistrer</option>
-                    <option>Acceptée sans réserve</option>
-                    <option>Acceptée avec réserve</option>
-                    <option>Refusée</option>
+                  <select className="w-full rounded-xl border border-gray-300 bg-white px-4 py-3 outline-none focus:border-black">
+                    <option>A enregistrer</option>
+                    <option>Acceptee sans reserve</option>
+                    <option>Acceptee avec reserve</option>
+                    <option>Refusee</option>
                     <option>Client absent</option>
                   </select>
                 </div>
@@ -197,48 +179,48 @@ Je soussigné(e), [nom du client], confirme avoir reçu ou remis les items liés
                 </div>
               </div>
 
-              <div className="rounded-xl bg-white border border-gray-200 p-4">
-                <h2 className="text-lg font-bold mb-2">Aperçu du fichier audio</h2>
+              <div className="rounded-xl border border-gray-200 bg-white p-4">
+                <h2 className="mb-2 text-lg font-bold">Apercu du fichier audio</h2>
 
                 {audioFile ? (
                   <p className="text-sm text-gray-700">{audioFile.name}</p>
                 ) : (
                   <p className="text-sm text-gray-500">
-                    Aucun fichier audio sélectionné pour le moment.
+                    Aucun fichier audio selectionne pour le moment.
                   </p>
                 )}
               </div>
 
-              <div className="flex flex-col sm:flex-row gap-4">
+              <div className="flex flex-col gap-4 sm:flex-row">
                 <button
                   type="button"
-                  className="tagora-dark-action px-6 py-4 rounded-xl font-semibold text-lg transition"
+                  className="tagora-dark-action rounded-xl px-6 py-4 text-lg font-semibold transition"
                 >
-                  Démarrer l’enregistrement
+                  Demarrer l&apos;enregistrement
                 </button>
 
                 <button
                   type="button"
-                  className="tagora-dark-outline-action px-6 py-4 rounded-xl border font-semibold text-lg transition"
+                  className="tagora-dark-outline-action rounded-xl border px-6 py-4 text-lg font-semibold transition"
                 >
-                  Arrêter l’enregistrement
+                  Arreter l&apos;enregistrement
                 </button>
               </div>
             </div>
 
-            <div className="flex flex-col sm:flex-row gap-4">
+            <div className="flex flex-col gap-4 sm:flex-row">
               <button
                 type="submit"
-                className="tagora-dark-action px-6 py-4 rounded-xl font-semibold text-lg transition"
+                className="tagora-dark-action rounded-xl px-6 py-4 text-lg font-semibold transition"
               >
                 Creer
               </button>
 
               <button
                 type="button"
-                className="tagora-dark-outline-action px-6 py-4 rounded-xl border font-semibold text-lg transition"
+                className="tagora-dark-outline-action rounded-xl border px-6 py-4 text-lg font-semibold transition"
               >
-                Envoyer à la direction
+                Envoyer a la direction
               </button>
             </div>
           </form>
@@ -247,4 +229,3 @@ Je soussigné(e), [nom du client], confirme avoir reçu ou remis les items liés
     </main>
   );
 }
-

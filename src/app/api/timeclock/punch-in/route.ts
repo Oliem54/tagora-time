@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminSupabaseClient } from "@/app/lib/supabase/admin";
+import { notifyDirectionOfAuthorizationRequest } from "@/app/lib/notifications";
+import { type AccountRequestCompany } from "@/app/lib/account-requests.shared";
 import {
   isWithinRadiusMeters,
   isWithinScheduledWindow,
@@ -19,6 +21,32 @@ type ChauffeurConfigRow = {
   schedule_end: string | null;
   auto_start_enabled: boolean | null;
 };
+
+type AlertChauffeurProfileRow = {
+  nom: string | null;
+  courriel: string | null;
+  telephone: string | null;
+  primary_company: AccountRequestCompany | null;
+};
+
+function getAuthUserDisplayName(user: {
+  email?: string | null;
+  user_metadata?: Record<string, unknown> | null;
+  app_metadata?: Record<string, unknown> | null;
+}) {
+  const candidates = [
+    user.user_metadata?.full_name,
+    user.user_metadata?.name,
+    user.app_metadata?.full_name,
+    user.email,
+  ];
+
+  const match = candidates.find(
+    (value) => typeof value === "string" && value.trim().length > 0
+  );
+
+  return typeof match === "string" ? match.trim() : null;
+}
 
 export async function POST(req: NextRequest) {
   try {
@@ -133,12 +161,23 @@ export async function POST(req: NextRequest) {
               justification,
             },
           ])
-          .select("id, status")
+          .select(
+            "id, status, request_type, justification, requested_value, requested_at"
+          )
           .single();
 
       if (authorizationError) {
         throw authorizationError;
       }
+
+      console.info("[timeclock][punch-in] authorization_request_stored", {
+        requestId: authorizationRequest.id,
+        requestType: authorizationRequest.request_type,
+        companyContext,
+        userId: auth.user.id,
+        chauffeurId: Number.isFinite(chauffeurId) ? chauffeurId : null,
+        requestedAt: authorizationRequest.requested_at ?? null,
+      });
 
       await supabase.from("horodateur_events").insert([
         {
@@ -155,6 +194,38 @@ export async function POST(req: NextRequest) {
           },
         },
       ]);
+
+      let requesterProfile: AlertChauffeurProfileRow | null = null;
+
+      if (Number.isFinite(chauffeurId)) {
+        const { data: chauffeurProfile } = await supabase
+          .from("chauffeurs")
+          .select("nom, courriel, telephone, primary_company")
+          .eq("id", chauffeurId)
+          .maybeSingle<AlertChauffeurProfileRow>();
+
+        requesterProfile = chauffeurProfile ?? null;
+      }
+
+      await notifyDirectionOfAuthorizationRequest({
+        requestId: authorizationRequest.id,
+        requestType: authorizationRequest.request_type,
+        requesterName: requesterProfile?.nom ?? getAuthUserDisplayName(auth.user),
+        requesterEmail: requesterProfile?.courriel ?? auth.user.email ?? null,
+        requesterPhone: requesterProfile?.telephone ?? null,
+        company: requesterProfile?.primary_company ?? companyContext,
+        justification: authorizationRequest.justification,
+        requestedValue:
+          authorizationRequest.requested_value &&
+          typeof authorizationRequest.requested_value === "object"
+            ? (authorizationRequest.requested_value as Record<string, unknown>)
+            : {},
+        requestedAt:
+          typeof authorizationRequest.requested_at === "string"
+            ? authorizationRequest.requested_at
+            : new Date().toISOString(),
+        managementUrl: "/direction/horodateur",
+      });
 
       return NextResponse.json({
         success: false,

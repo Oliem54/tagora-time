@@ -320,7 +320,6 @@ export default function DossierPage() {
         <AuthenticatedPageHeader
           title={dossierTitle}
           subtitle="Notes et medias."
-          actions={<SecondaryButton onClick={() => router.push("/employe/dashboard")}>Retour</SecondaryButton>}
         />
 
         {feedback ? <SectionCard title="Action" subtitle={feedback} tone="muted" /> : null}

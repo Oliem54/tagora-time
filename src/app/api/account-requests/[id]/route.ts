@@ -163,15 +163,29 @@ type ChauffeurRow = {
   sms_alert_quart_fin: boolean | null;
 };
 
-const WORK_DAY_VALUES = [
-  "lundi",
-  "mardi",
-  "mercredi",
-  "jeudi",
-  "vendredi",
-  "samedi",
-  "dimanche",
-] as const;
+type ManagedRouteError = Error & {
+  status?: number;
+  code?: string | null;
+  details?: string | null;
+  hint?: string | null;
+};
+
+type EmployeeProfileResolution = {
+  profile: ChauffeurRow | null;
+  foundBy: "profile_id" | "auth_user_id" | "email" | "none";
+  candidateProfileIds: number[];
+  conflict:
+    | {
+        error: string;
+        details: string;
+        code: string;
+        hint?: string | null;
+      }
+    | null;
+};
+
+const CHAUFFEURS_APPROVAL_SELECT =
+  "id, auth_user_id, nom, courriel, telephone, actif, notes, primary_company";
 
 function parseNullableString(value: unknown) {
   const normalized = String(value ?? "").trim();
@@ -183,26 +197,19 @@ function parseNullableNumber(value: unknown) {
   return Number.isFinite(numericValue) ? numericValue : null;
 }
 
-function parseNullableTime(value: unknown) {
-  const normalized = String(value ?? "").trim();
-  return /^\d{2}:\d{2}(:\d{2})?$/.test(normalized) ? normalized : null;
-}
-
-function parseWorkDays(value: unknown) {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-
-  return Array.from(
-    new Set(
-      value
-        .map((item) => String(item ?? "").trim().toLowerCase())
-        .filter(
-          (item): item is (typeof WORK_DAY_VALUES)[number] =>
-            WORK_DAY_VALUES.includes(item as (typeof WORK_DAY_VALUES)[number])
-        )
-    )
-  );
+function createManagedRouteError(options: {
+  status: number;
+  error: string;
+  details?: string | null;
+  code?: string | null;
+  hint?: string | null;
+}) {
+  const error = new Error(options.error) as ManagedRouteError;
+  error.status = options.status;
+  error.code = options.code ?? null;
+  error.details = options.details ?? null;
+  error.hint = options.hint ?? null;
+  return error;
 }
 
 async function findAuthUserByEmail(email: string) {
@@ -271,41 +278,130 @@ async function loadLinkedEmployeeProfile(options: {
   profileId?: number | null;
   authUserId?: string | null;
   email: string;
-}) {
+}): Promise<EmployeeProfileResolution> {
   const supabase = createAdminSupabaseClient();
+  const normalizedEmail = normalizeEmail(options.email);
+
+  let byProfileId: ChauffeurRow | null = null;
+  let byAuthUserId: ChauffeurRow | null = null;
+  let byEmail: ChauffeurRow[] = [];
 
   if (options.profileId) {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("chauffeurs")
-      .select("*")
+      .select(CHAUFFEURS_APPROVAL_SELECT)
       .eq("id", options.profileId)
       .maybeSingle<ChauffeurRow>();
 
-    if (data) {
-      return data;
+    if (error) {
+      throw error;
     }
+
+    byProfileId = data ?? null;
   }
 
   if (options.authUserId) {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("chauffeurs")
-      .select("*")
+      .select(CHAUFFEURS_APPROVAL_SELECT)
       .eq("auth_user_id", options.authUserId)
       .maybeSingle<ChauffeurRow>();
 
-    if (data) {
-      return data;
+    if (error) {
+      throw error;
     }
+
+    byAuthUserId = data ?? null;
   }
 
-  const normalizedEmail = normalizeEmail(options.email);
-  const { data } = await supabase
+  const { data: emailMatches, error: emailError } = await supabase
     .from("chauffeurs")
-    .select("*")
+    .select(CHAUFFEURS_APPROVAL_SELECT)
     .eq("courriel", normalizedEmail)
-    .maybeSingle<ChauffeurRow>();
+    .order("id", { ascending: true })
+    .limit(10);
 
-  return data ?? null;
+  if (emailError) {
+    throw emailError;
+  }
+
+  byEmail = (emailMatches ?? []) as ChauffeurRow[];
+
+  const candidateIds = Array.from(
+    new Set(
+      [byProfileId, byAuthUserId, ...byEmail]
+        .filter((item): item is ChauffeurRow => Boolean(item?.id))
+        .map((item) => item.id)
+    )
+  );
+
+  if (
+    byProfileId &&
+    byAuthUserId &&
+    byProfileId.id !== byAuthUserId.id
+  ) {
+    return {
+      profile: byAuthUserId,
+      foundBy: "auth_user_id",
+      candidateProfileIds: candidateIds,
+      conflict: {
+        error: "Le compte existant est deja lie a une autre fiche employe.",
+        details: `Le compte Auth ${options.authUserId} est lie a la fiche employe #${byAuthUserId.id}, mais la demande tente d utiliser la fiche #${byProfileId.id}.`,
+        code: "employee_profile_auth_conflict",
+        hint:
+          "Reutilisez la fiche employe deja liee a ce compte ou corrigez le lien avant une nouvelle approbation.",
+      },
+    };
+  }
+
+  if (!byProfileId && !byAuthUserId && byEmail.length > 1) {
+    return {
+      profile: null,
+      foundBy: "none",
+      candidateProfileIds: candidateIds,
+      conflict: {
+        error: "Plusieurs fiches employe existent deja pour ce courriel.",
+        details: `Courriel ${normalizedEmail} present sur les fiches employe #${candidateIds.join(", ")}.`,
+        code: "employee_profile_email_conflict",
+        hint:
+          "Selectionnez la bonne fiche employe ou nettoyez les doublons avant d approuver la demande.",
+      },
+    };
+  }
+
+  if (byAuthUserId) {
+    return {
+      profile: byAuthUserId,
+      foundBy: "auth_user_id",
+      candidateProfileIds: candidateIds,
+      conflict: null,
+    };
+  }
+
+  if (byProfileId) {
+    return {
+      profile: byProfileId,
+      foundBy: "profile_id",
+      candidateProfileIds: candidateIds,
+      conflict: null,
+    };
+  }
+
+  if (byEmail.length === 1) {
+    return {
+      profile: byEmail[0],
+      foundBy: "email",
+      candidateProfileIds: candidateIds,
+      conflict: null,
+    };
+  }
+
+  return {
+    profile: null,
+    foundBy: "none",
+    candidateProfileIds: candidateIds,
+    conflict: null,
+  };
 }
 
 async function upsertEmployeeProfile(options: {
@@ -315,41 +411,27 @@ async function upsertEmployeeProfile(options: {
 }) {
   const supabase = createAdminSupabaseClient();
   const normalizedInput = options.input ?? {};
-  const linkedProfile = await loadLinkedEmployeeProfile({
+  const profileResolution = await loadLinkedEmployeeProfile({
     profileId: parseNullableNumber(normalizedInput.id),
     authUserId: options.authUserId ?? null,
     email: String(normalizedInput.courriel ?? options.requestRow.email),
   });
+  const linkedProfile = profileResolution.profile;
+
+  if (profileResolution.conflict) {
+    throw createManagedRouteError({
+      status: 409,
+      error: profileResolution.conflict.error,
+      details: profileResolution.conflict.details,
+      code: profileResolution.conflict.code,
+      hint: profileResolution.conflict.hint ?? null,
+    });
+  }
 
   const primaryCompany =
-    normalizeCompany(normalizedInput.primary_company) ?? options.requestRow.company;
-  const socialBenefitsPercent =
-    parseNullableNumber(normalizedInput.social_benefits_percent) ?? 15;
-  const breakAmEnabled =
-    normalizedInput.break_am_enabled === true ||
-    (normalizedInput.break_am_enabled !== false &&
-      (parseNullableNumber(normalizedInput.break_am_minutes) ??
-        linkedProfile?.break_am_minutes ??
-        linkedProfile?.break_1_minutes ??
-        0) > 0);
-  const lunchEnabled =
-    normalizedInput.lunch_enabled === true ||
-    (normalizedInput.lunch_enabled !== false &&
-      (parseNullableNumber(normalizedInput.lunch_minutes) ??
-        linkedProfile?.lunch_minutes ??
-        linkedProfile?.break_2_minutes ??
-        0) > 0);
-  const breakPmEnabled =
-    normalizedInput.break_pm_enabled === true ||
-    (normalizedInput.break_pm_enabled !== false &&
-      (parseNullableNumber(normalizedInput.break_pm_minutes) ??
-        linkedProfile?.break_pm_minutes ??
-        linkedProfile?.break_3_minutes ??
-        0) > 0);
-  const expectedBreaksCount =
-    parseNullableNumber(normalizedInput.expected_breaks_count) ??
-    [breakAmEnabled, lunchEnabled, breakPmEnabled].filter(Boolean).length;
-  const titanBillable = normalizedInput.titan_billable === true;
+    normalizeCompany(normalizedInput.primary_company) ??
+    linkedProfile?.primary_company ??
+    options.requestRow.company;
   const payload = {
     auth_user_id: options.authUserId ?? linkedProfile?.auth_user_id ?? null,
     nom:
@@ -371,169 +453,6 @@ async function upsertEmployeeProfile(options: {
     notes:
       parseNullableString(normalizedInput.notes) ?? linkedProfile?.notes ?? null,
     primary_company: primaryCompany,
-    taux_base_titan:
-      parseNullableNumber(normalizedInput.taux_base_titan) ??
-      linkedProfile?.taux_base_titan ??
-      null,
-    social_benefits_percent: socialBenefitsPercent,
-    titan_billable:
-      typeof normalizedInput.titan_billable === "boolean"
-        ? normalizedInput.titan_billable
-        : linkedProfile?.titan_billable ?? false,
-    schedule_start:
-      parseNullableTime(normalizedInput.schedule_start) ??
-      linkedProfile?.schedule_start ??
-      null,
-    schedule_end:
-      parseNullableTime(normalizedInput.schedule_end) ??
-      linkedProfile?.schedule_end ??
-      null,
-    scheduled_work_days:
-      parseWorkDays(normalizedInput.scheduled_work_days).length > 0
-        ? parseWorkDays(normalizedInput.scheduled_work_days)
-        : linkedProfile?.scheduled_work_days ?? [],
-    planned_daily_hours:
-      parseNullableNumber(normalizedInput.planned_daily_hours) ??
-      linkedProfile?.planned_daily_hours ??
-      null,
-    planned_weekly_hours:
-      parseNullableNumber(normalizedInput.planned_weekly_hours) ??
-      linkedProfile?.planned_weekly_hours ??
-      null,
-    pause_minutes:
-      parseNullableNumber(normalizedInput.pause_minutes) ??
-      linkedProfile?.pause_minutes ??
-      15,
-    expected_breaks_count: expectedBreaksCount,
-    break_1_label: "Pause AM",
-    break_1_minutes:
-      parseNullableNumber(normalizedInput.break_am_minutes) ??
-      parseNullableNumber(normalizedInput.break_1_minutes) ??
-      linkedProfile?.break_am_minutes ??
-      linkedProfile?.break_1_minutes ??
-      null,
-    break_1_paid:
-      typeof normalizedInput.break_am_paid === "boolean"
-        ? normalizedInput.break_am_paid
-        : typeof normalizedInput.break_1_paid === "boolean"
-          ? normalizedInput.break_1_paid
-          : linkedProfile?.break_am_paid ?? linkedProfile?.break_1_paid ?? true,
-    break_2_label: "Diner",
-    break_2_minutes:
-      parseNullableNumber(normalizedInput.lunch_minutes) ??
-      parseNullableNumber(normalizedInput.break_2_minutes) ??
-      linkedProfile?.lunch_minutes ??
-      linkedProfile?.break_2_minutes ??
-      null,
-    break_2_paid:
-      typeof normalizedInput.lunch_paid === "boolean"
-        ? normalizedInput.lunch_paid
-        : typeof normalizedInput.break_2_paid === "boolean"
-          ? normalizedInput.break_2_paid
-          : linkedProfile?.lunch_paid ?? linkedProfile?.break_2_paid ?? false,
-    break_3_label: "Pause PM",
-    break_3_minutes:
-      parseNullableNumber(normalizedInput.break_pm_minutes) ??
-      parseNullableNumber(normalizedInput.break_3_minutes) ??
-      linkedProfile?.break_pm_minutes ??
-      linkedProfile?.break_3_minutes ??
-      null,
-    break_3_paid:
-      typeof normalizedInput.break_pm_paid === "boolean"
-        ? normalizedInput.break_pm_paid
-        : typeof normalizedInput.break_3_paid === "boolean"
-          ? normalizedInput.break_3_paid
-          : linkedProfile?.break_pm_paid ?? linkedProfile?.break_3_paid ?? true,
-    break_am_enabled: breakAmEnabled,
-    break_am_time:
-      parseNullableTime(normalizedInput.break_am_time) ??
-      linkedProfile?.break_am_time ??
-      null,
-    break_am_minutes:
-      parseNullableNumber(normalizedInput.break_am_minutes) ??
-      linkedProfile?.break_am_minutes ??
-      linkedProfile?.break_1_minutes ??
-      null,
-    break_am_paid:
-      typeof normalizedInput.break_am_paid === "boolean"
-        ? normalizedInput.break_am_paid
-        : linkedProfile?.break_am_paid ?? linkedProfile?.break_1_paid ?? true,
-    lunch_enabled: lunchEnabled,
-    lunch_time:
-      parseNullableTime(normalizedInput.lunch_time) ??
-      linkedProfile?.lunch_time ??
-      null,
-    lunch_minutes:
-      parseNullableNumber(normalizedInput.lunch_minutes) ??
-      linkedProfile?.lunch_minutes ??
-      linkedProfile?.break_2_minutes ??
-      null,
-    lunch_paid:
-      typeof normalizedInput.lunch_paid === "boolean"
-        ? normalizedInput.lunch_paid
-        : linkedProfile?.lunch_paid ?? linkedProfile?.break_2_paid ?? false,
-    break_pm_enabled: breakPmEnabled,
-    break_pm_time:
-      parseNullableTime(normalizedInput.break_pm_time) ??
-      linkedProfile?.break_pm_time ??
-      null,
-    break_pm_minutes:
-      parseNullableNumber(normalizedInput.break_pm_minutes) ??
-      linkedProfile?.break_pm_minutes ??
-      linkedProfile?.break_3_minutes ??
-      null,
-    break_pm_paid:
-      typeof normalizedInput.break_pm_paid === "boolean"
-        ? normalizedInput.break_pm_paid
-        : linkedProfile?.break_pm_paid ?? linkedProfile?.break_3_paid ?? true,
-    sms_alert_depart_terrain:
-      typeof normalizedInput.sms_alert_depart_terrain === "boolean"
-        ? normalizedInput.sms_alert_depart_terrain
-        : linkedProfile?.sms_alert_depart_terrain ?? true,
-    sms_alert_arrivee_terrain:
-      typeof normalizedInput.sms_alert_arrivee_terrain === "boolean"
-        ? normalizedInput.sms_alert_arrivee_terrain
-        : linkedProfile?.sms_alert_arrivee_terrain ?? true,
-    sms_alert_sortie:
-      typeof normalizedInput.sms_alert_sortie === "boolean"
-        ? normalizedInput.sms_alert_sortie
-        : linkedProfile?.sms_alert_sortie ?? true,
-    sms_alert_retour:
-      typeof normalizedInput.sms_alert_retour === "boolean"
-        ? normalizedInput.sms_alert_retour
-        : linkedProfile?.sms_alert_retour ?? true,
-    sms_alert_pause_debut:
-      typeof normalizedInput.sms_alert_pause_debut === "boolean"
-        ? normalizedInput.sms_alert_pause_debut
-        : linkedProfile?.sms_alert_pause_debut ?? true,
-    sms_alert_pause_fin:
-      typeof normalizedInput.sms_alert_pause_fin === "boolean"
-        ? normalizedInput.sms_alert_pause_fin
-        : linkedProfile?.sms_alert_pause_fin ?? true,
-    sms_alert_dinner_debut:
-      typeof normalizedInput.sms_alert_dinner_debut === "boolean"
-        ? normalizedInput.sms_alert_dinner_debut
-        : linkedProfile?.sms_alert_dinner_debut ?? true,
-    sms_alert_dinner_fin:
-      typeof normalizedInput.sms_alert_dinner_fin === "boolean"
-        ? normalizedInput.sms_alert_dinner_fin
-        : linkedProfile?.sms_alert_dinner_fin ?? true,
-    sms_alert_quart_debut:
-      typeof normalizedInput.sms_alert_quart_debut === "boolean"
-        ? normalizedInput.sms_alert_quart_debut
-        : linkedProfile?.sms_alert_quart_debut ?? true,
-    sms_alert_quart_fin:
-      typeof normalizedInput.sms_alert_quart_fin === "boolean"
-        ? normalizedInput.sms_alert_quart_fin
-        : linkedProfile?.sms_alert_quart_fin ?? true,
-    can_work_for_oliem_solutions:
-      linkedProfile?.can_work_for_oliem_solutions ??
-      primaryCompany === "oliem_solutions",
-    can_work_for_titan_produits_industriels:
-      typeof normalizedInput.titan_billable === "boolean"
-        ? normalizedInput.titan_billable
-        : linkedProfile?.can_work_for_titan_produits_industriels ??
-          primaryCompany === "titan_produits_industriels",
   };
 
   if (linkedProfile?.id) {
@@ -541,7 +460,7 @@ async function upsertEmployeeProfile(options: {
       .from("chauffeurs")
       .update(payload)
       .eq("id", linkedProfile.id)
-      .select("*")
+      .select(CHAUFFEURS_APPROVAL_SELECT)
       .single<ChauffeurRow>();
 
     if (error) {
@@ -554,7 +473,7 @@ async function upsertEmployeeProfile(options: {
   const { data, error } = await supabase
     .from("chauffeurs")
     .insert([payload])
-    .select("*")
+    .select(CHAUFFEURS_APPROVAL_SELECT)
     .single<ChauffeurRow>();
 
   if (error) {
@@ -569,6 +488,31 @@ async function syncUserChauffeurMetadata(options: {
   chauffeurId: number;
 }) {
   const supabase = createAdminSupabaseClient();
+  const { data: existingLinkedProfile, error: existingLinkedProfileError } =
+    await supabase
+      .from("chauffeurs")
+      .select("id")
+      .eq("auth_user_id", options.userId)
+      .maybeSingle<{ id: number }>();
+
+  if (existingLinkedProfileError) {
+    throw existingLinkedProfileError;
+  }
+
+  if (
+    existingLinkedProfile?.id &&
+    existingLinkedProfile.id !== options.chauffeurId
+  ) {
+    throw createManagedRouteError({
+      status: 409,
+      error: "Ce compte existant est deja lie a une autre fiche employe.",
+      details: `Le compte utilisateur ${options.userId} est deja rattache a la fiche employe #${existingLinkedProfile.id} et ne peut pas etre relie a la fiche #${options.chauffeurId}.`,
+      code: "employee_profile_auth_conflict",
+      hint:
+        "Utilisez la fiche employe deja liee a ce compte ou corrigez le lien existant avant de reapprouver.",
+    });
+  }
+
   await supabase
     .from("chauffeurs")
     .update({ auth_user_id: options.userId })
@@ -702,6 +646,19 @@ function getErrorMessage(error: unknown) {
   return "Erreur traitement demande.";
 }
 
+function getErrorStatus(error: unknown) {
+  if (
+    error &&
+    typeof error === "object" &&
+    "status" in error &&
+    typeof error.status === "number"
+  ) {
+    return error.status;
+  }
+
+  return null;
+}
+
 function getErrorCode(error: unknown) {
   if (
     error &&
@@ -743,6 +700,7 @@ function getErrorDetails(error: unknown) {
 
 function isDuplicateEmailError(error: unknown) {
   const message = getErrorMessage(error).toLowerCase();
+  const details = (getErrorDetails(error) ?? "").toLowerCase();
   const code = getErrorCode(error);
 
   return (
@@ -750,8 +708,24 @@ function isDuplicateEmailError(error: unknown) {
     message.includes("already registered") ||
     message.includes("already exists") ||
     message.includes("email_exists") ||
+    message.includes("courriel") ||
+    details.includes("courriel") ||
     message.includes("duplicate key") ||
     message.includes("duplicate")
+  );
+}
+
+function isDuplicateAuthUserLinkError(error: unknown) {
+  const message = getErrorMessage(error).toLowerCase();
+  const details = (getErrorDetails(error) ?? "").toLowerCase();
+  const code = getErrorCode(error);
+
+  return (
+    code === "23505" &&
+    (message.includes("auth_user_id") ||
+      details.includes("auth_user_id") ||
+      message.includes("idx_chauffeurs_auth_user_id") ||
+      details.includes("idx_chauffeurs_auth_user_id"))
   );
 }
 
@@ -768,20 +742,77 @@ function isMissingColumnError(error: unknown) {
   );
 }
 
+function isMissingChauffeurAuthUserIdColumnError(error: unknown) {
+  const message = getErrorMessage(error).toLowerCase();
+  const details = (getErrorDetails(error) ?? "").toLowerCase();
+
+  return (
+    (message.includes("chauffeurs.auth_user_id") ||
+      details.includes("chauffeurs.auth_user_id") ||
+      message.includes("auth_user_id") ||
+      details.includes("auth_user_id")) &&
+    (message.includes("does not exist") ||
+      details.includes("does not exist") ||
+      message.includes("column") ||
+      details.includes("column"))
+  );
+}
+
 function getApprovalErrorResponse(error: unknown) {
+  const managedStatus = getErrorStatus(error);
   const message = getErrorMessage(error);
   const code = getErrorCode(error);
   const details = getErrorDetails(error);
   const hint = getErrorHint(error);
 
+  if (managedStatus) {
+    return {
+      status: managedStatus,
+      error: message || "Erreur traitement demande.",
+      details,
+      code,
+      hint,
+    };
+  }
+
   if (isMissingColumnError(error)) {
+    if (isMissingChauffeurAuthUserIdColumnError(error)) {
+      return {
+        status: 500,
+        error:
+          "La colonne chauffeurs.auth_user_id est absente dans la base de donnees. Appliquez la migration SQL qui ajoute cette colonne avant de reapprouver la demande.",
+        details:
+          details ??
+          message ??
+          "column chauffeurs.auth_user_id does not exist",
+        code,
+        hint:
+          hint ??
+          "Executez la migration ensure_chauffeurs_account_request_columns pour creer les colonnes chauffeurs attendues par ce flux.",
+      };
+    }
+
     return {
       status: 500,
       error:
         "Une colonne requise est manquante ou invalide dans la base pour finaliser l approbation.",
       details: details ?? message,
       code,
-      hint,
+      hint:
+        hint ??
+        "Executez la migration ensure_chauffeurs_account_request_columns pour aligner la table chauffeurs avec le flux d approbation.",
+    };
+  }
+
+  if (isDuplicateAuthUserLinkError(error)) {
+    return {
+      status: 409,
+      error: "Ce compte existant est deja lie a une autre fiche employe.",
+      details: details ?? message,
+      code,
+      hint:
+        hint ??
+        "Corrigez le lien employe existant avant de reapprouver la demande.",
     };
   }
 
@@ -811,12 +842,28 @@ function logApprovalStep(
   console.info("[account-requests][approve]", step, details);
 }
 
+function logPatchStep(step: string, details: Record<string, unknown> = {}) {
+  console.info("[account-requests][patch]", step, details);
+}
+
+function serializeError(error: unknown) {
+  return {
+    message: getErrorMessage(error),
+    code: getErrorCode(error),
+    details: getErrorDetails(error),
+    hint: getErrorHint(error),
+    status: getErrorStatus(error),
+    stack: error instanceof Error ? error.stack ?? null : null,
+  };
+}
+
 async function ensureManagedAuthUser(options: {
   requestRow: AccountRequestRow;
   actorUserId: string;
   assignedRole: AppRole;
   assignedPermissions: string[];
   chauffeurId?: number | null;
+  existingAuthUser?: User | null;
 }) {
   const supabase = createAdminSupabaseClient();
   const normalizedEmail = normalizeEmail(options.requestRow.email);
@@ -824,9 +871,10 @@ async function ensureManagedAuthUser(options: {
   logApprovalStep("lookup_auth_user", {
     requestId: options.requestRow.id,
     email: normalizedEmail,
+    preloadedExistingUser: Boolean(options.existingAuthUser),
   });
 
-  let authUser = await findAuthUserByEmail(normalizedEmail);
+  let authUser = options.existingAuthUser ?? (await findAuthUserByEmail(normalizedEmail));
   let created = false;
 
   if (!authUser) {
@@ -873,6 +921,12 @@ async function ensureManagedAuthUser(options: {
       authUser = data.user ?? null;
       created = true;
     }
+  } else {
+    logApprovalStep("existing_auth_user_detected", {
+      requestId: options.requestRow.id,
+      userId: authUser.id,
+      email: normalizedEmail,
+    });
   }
 
   if (!authUser) {
@@ -1035,10 +1089,10 @@ async function releaseApprovalLock(options: {
   requestId: string;
   reviewLockToken: string;
   errorMessage?: string | null;
+  step?: string | null;
 }) {
   const supabase = createAdminSupabaseClient();
-
-  await supabase
+  const { error } = await supabase
     .from("account_requests")
     .update({
       review_lock_token: null,
@@ -1047,6 +1101,26 @@ async function releaseApprovalLock(options: {
     })
     .eq("id", options.requestId)
     .eq("review_lock_token", options.reviewLockToken);
+
+  if (error) {
+    console.error("[account-requests][patch] lock_release_failed", {
+      requestId: options.requestId,
+      reviewLockToken: options.reviewLockToken,
+      step: options.step ?? null,
+      rawError: serializeError(error),
+    });
+    return;
+  }
+
+  logPatchStep(
+    options.errorMessage ? "lock_released_on_error" : "lock_released",
+    {
+      requestId: options.requestId,
+      reviewLockToken: options.reviewLockToken,
+      step: options.step ?? null,
+      lastError: options.errorMessage ?? null,
+    }
+  );
 }
 
 async function markApprovalFailure(options: {
@@ -1073,6 +1147,7 @@ async function markApprovalFailure(options: {
     error: approvalError.error,
     details: approvalError.details,
     hint: approvalError.hint,
+    rawError: serializeError(options.error),
   });
 
   const { error: updateError } = await supabase
@@ -1120,6 +1195,15 @@ async function markApprovalFailure(options: {
       requestId: options.requestRow.id,
       reviewLockToken: options.reviewLockToken,
       errorMessage: lastError,
+      step: options.step,
+    });
+  } else {
+    logPatchStep("lock_released_on_error", {
+      requestId: options.requestRow.id,
+      reviewLockToken: options.reviewLockToken,
+      step: options.step,
+      status: "error",
+      lastError,
     });
   }
 
@@ -1251,6 +1335,13 @@ async function acquirePendingReviewLock(id: string) {
       .eq("id", id)
       .maybeSingle();
 
+    logPatchStep("lock_timeout_conflict", {
+      requestId: id,
+      currentStatus: lockedRow?.status ?? null,
+      lock: getReviewLockMetadata(lockedRow?.review_started_at ?? null),
+      rawError: error ? serializeError(error) : null,
+    });
+
     return {
       requestRow: null,
       reviewLockToken: null,
@@ -1258,6 +1349,12 @@ async function acquirePendingReviewLock(id: string) {
       lock: getReviewLockMetadata(lockedRow?.review_started_at ?? null),
     };
   }
+
+  logPatchStep("lock_acquired", {
+    requestId: id,
+    reviewLockToken,
+    reviewedAt,
+  });
 
   return {
     requestRow: data,
@@ -1313,6 +1410,12 @@ export async function PATCH(
     const action = parseAction(body.action);
     const employeeProfileInput = (body.employeeProfile ?? null) as EmployeeProfileInput | null;
 
+    logPatchStep("request_received", {
+      requestId: id,
+      action: body.action ?? null,
+      payload: body,
+    });
+
     if (!action) {
       return NextResponse.json({ error: "Action invalide." }, { status: 400 });
     }
@@ -1321,92 +1424,169 @@ export async function PATCH(
       const locked = await acquirePendingReviewLock(id);
 
       if (!locked.requestRow || !locked.reviewLockToken || !locked.reviewedAt) {
+        const currentRequestRow = await loadRequestRow(id);
+
+        if (
+          action === "approve" &&
+          currentRequestRow &&
+          (currentRequestRow.status === "active" ||
+            currentRequestRow.status === "invited")
+        ) {
+          logPatchStep("approve_idempotent_return", {
+            requestId: id,
+            currentStatus: currentRequestRow.status,
+            invitedUserId: currentRequestRow.invited_user_id ?? null,
+          });
+
+          return NextResponse.json({
+            success: true,
+            status: currentRequestRow.status,
+            userId: currentRequestRow.invited_user_id ?? null,
+            alreadyProcessed: true,
+          });
+        }
+
         return NextResponse.json(
           {
             error: locked.lock?.isLocked
               ? "Cette demande est deja en cours de traitement par un autre membre de la direction."
-              : "La demande est introuvable, deja traitee ou indisponible.",
+              : currentRequestRow
+                ? `Cette demande n est plus en attente et son statut actuel est ${currentRequestRow.status}.`
+                : "La demande est introuvable, deja traitee ou indisponible.",
             lock: locked.lock,
+            currentStatus: currentRequestRow?.status ?? null,
           },
           { status: 409 }
         );
       }
 
       const requestRow = locked.requestRow;
-      const {
-        assignedRole,
-        assignedPermissions,
-        reviewNote,
-        confirmOverwriteExistingAccount,
-      } = buildDesiredAccess(body, requestRow);
-
-      const baseLockAudit = appendAuditEntry(
-        requestRow.audit_log,
-        createAuditEntry("review_locked", "direction", {
-          actorUserId: user.id,
-          details: { action },
-        })
-      );
-
-      if (action === "refuse") {
-        const { error } = await createAdminSupabaseClient()
-          .from("account_requests")
-          .update({
-            status: "refused",
-            assigned_role: assignedRole,
-            assigned_permissions: assignedPermissions,
-            review_note: reviewNote,
-            reviewed_by: user.id,
-            reviewed_at: locked.reviewedAt,
-            review_lock_token: null,
-            review_started_at: null,
-            last_error: null,
-            audit_log: appendAuditEntry(
-              baseLockAudit,
-              createAuditEntry("request_refused", "direction", {
-                actorUserId: user.id,
-                details: {
-                  previousAssignedRole: requestRow.assigned_role ?? null,
-                  previousAssignedPermissions:
-                    requestRow.assigned_permissions ?? [],
-                  assignedRole,
-                  assignedPermissions,
-                  reason: reviewNote,
-                  decisionMaker: user.email ?? user.id,
-                },
-              })
-            ),
-          })
-          .eq("id", id)
-          .eq("review_lock_token", locked.reviewLockToken);
-
-        if (error) {
-          return NextResponse.json({ error: error.message }, { status: 500 });
-        }
-
-        return NextResponse.json({ success: true, status: "refused" });
-      }
-
-      let approvalStep = "approve_start";
-
+      let processingStep =
+        action === "approve" ? "approval_preflight" : "refuse_start";
       try {
-        logApprovalStep("approve_start", {
-          requestId: requestRow.id,
-          email: normalizeEmail(requestRow.email),
+        const {
           assignedRole,
           assignedPermissions,
+          reviewNote,
+          confirmOverwriteExistingAccount,
+        } = buildDesiredAccess(body, requestRow);
+        const baseLockAudit = appendAuditEntry(
+          requestRow.audit_log,
+          createAuditEntry("review_locked", "direction", {
+            actorUserId: user.id,
+            details: { action },
+          })
+        );
+
+        if (action === "refuse") {
+          processingStep = "request_refused";
+          const { error } = await createAdminSupabaseClient()
+            .from("account_requests")
+            .update({
+              status: "refused",
+              assigned_role: assignedRole,
+              assigned_permissions: assignedPermissions,
+              review_note: reviewNote,
+              reviewed_by: user.id,
+              reviewed_at: locked.reviewedAt,
+              review_lock_token: null,
+              review_started_at: null,
+              last_error: null,
+              audit_log: appendAuditEntry(
+                baseLockAudit,
+                createAuditEntry("request_refused", "direction", {
+                  actorUserId: user.id,
+                  details: {
+                    previousAssignedRole: requestRow.assigned_role ?? null,
+                    previousAssignedPermissions:
+                      requestRow.assigned_permissions ?? [],
+                    assignedRole,
+                    assignedPermissions,
+                    reason: reviewNote,
+                    decisionMaker: user.email ?? user.id,
+                  },
+                })
+              ),
+            })
+            .eq("id", id)
+            .eq("review_lock_token", locked.reviewLockToken);
+
+          if (error) {
+            throw error;
+          }
+
+          logPatchStep("lock_released", {
+            requestId: requestRow.id,
+            reviewLockToken: locked.reviewLockToken,
+            step: "request_refused",
+            status: "refused",
+          });
+
+          return NextResponse.json({ success: true, status: "refused" });
+        }
+
+        const normalizedRequestEmail = normalizeEmail(requestRow.email);
+        const existingAuthUser = await findAuthUserByEmail(
+          normalizedRequestEmail
+        );
+        const employeeResolution = await loadLinkedEmployeeProfile({
+          profileId: parseNullableNumber(employeeProfileInput?.id),
+          authUserId: existingAuthUser?.id ?? null,
+          email: String(employeeProfileInput?.courriel ?? requestRow.email),
+        });
+
+        logPatchStep("approval_context_loaded", {
+          requestId: requestRow.id,
+          currentStatus: requestRow.status,
+          email: normalizedRequestEmail,
+          existingAccount: Boolean(existingAuthUser),
+          existingAccountUserId: existingAuthUser?.id ?? null,
+          existingEmployee: Boolean(employeeResolution.profile),
+          existingEmployeeId: employeeResolution.profile?.id ?? null,
+          employeeFoundBy: employeeResolution.foundBy,
+          candidateEmployeeIds: employeeResolution.candidateProfileIds,
+          employeeConflict: employeeResolution.conflict,
           confirmOverwriteExistingAccount,
         });
 
+        let approvalStep = "approve_start";
+        processingStep = approvalStep;
+
+        logApprovalStep("approve_start", {
+          requestId: requestRow.id,
+          email: normalizedRequestEmail,
+          assignedRole,
+          assignedPermissions,
+          confirmOverwriteExistingAccount,
+          currentStatus: requestRow.status,
+          existingAccount: Boolean(existingAuthUser),
+          existingAccountUserId: existingAuthUser?.id ?? null,
+          existingEmployee: Boolean(employeeResolution.profile),
+          existingEmployeeId: employeeResolution.profile?.id ?? null,
+        });
+
+        if (employeeResolution.conflict) {
+          throw createManagedRouteError({
+            status: 409,
+            error: employeeResolution.conflict.error,
+            details: employeeResolution.conflict.details,
+            code: employeeResolution.conflict.code,
+            hint: employeeResolution.conflict.hint ?? null,
+          });
+        }
+
         approvalStep = "create_or_sync_auth_user";
+        processingStep = approvalStep;
         const authUserResult = await ensureManagedAuthUser({
           requestRow,
           actorUserId: user.id,
           assignedRole,
           assignedPermissions,
+          existingAuthUser,
         });
 
         approvalStep = "upsert_employee_profile";
+        processingStep = approvalStep;
         logApprovalStep("upsert_employee_start", {
           requestId: requestRow.id,
           userId: authUserResult.user.id,
@@ -1428,6 +1608,7 @@ export async function PATCH(
 
         if (employeeProfile.id) {
           approvalStep = "sync_user_chauffeur_metadata";
+          processingStep = approvalStep;
           await syncUserChauffeurMetadata({
             userId: authUserResult.user.id,
             chauffeurId: employeeProfile.id,
@@ -1441,6 +1622,7 @@ export async function PATCH(
         }
 
         approvalStep = "update_request_status";
+        processingStep = approvalStep;
         await finalizeApprovedRequest({
           requestRow,
           reviewLockToken: locked.reviewLockToken,
@@ -1452,6 +1634,13 @@ export async function PATCH(
           invitedUserId: authUserResult.user.id,
           existingUser: !authUserResult.created,
           employeeProfileId: employeeProfile.id,
+        });
+
+        logPatchStep("lock_released", {
+          requestId: requestRow.id,
+          reviewLockToken: locked.reviewLockToken,
+          step: approvalStep,
+          status: "active",
         });
 
         logApprovalStep("approve_complete", {
@@ -1470,27 +1659,59 @@ export async function PATCH(
           existingUser: !authUserResult.created,
         });
       } catch (approvalError) {
-        const normalizedError = await markApprovalFailure({
-          requestRow,
+        const normalizedBaseError = getApprovalErrorResponse(approvalError);
+        const lastError = [normalizedBaseError.error, normalizedBaseError.details]
+          .filter(Boolean)
+          .join(" | ");
+
+        if (action === "approve") {
+          const {
+            assignedRole,
+            assignedPermissions,
+            reviewNote,
+          } = buildDesiredAccess(body, requestRow);
+          const normalizedError = await markApprovalFailure({
+            requestRow,
+            reviewLockToken: locked.reviewLockToken,
+            reviewedAt: locked.reviewedAt,
+            actorUser: user,
+            assignedRole,
+            assignedPermissions,
+            reviewNote,
+            step: processingStep,
+            error: approvalError,
+          });
+
+          return NextResponse.json(
+            {
+              success: false,
+              error: normalizedError.error,
+              details: normalizedError.details,
+              code: normalizedError.code,
+              hint: normalizedError.hint,
+              requestId: requestRow.id,
+            },
+            { status: normalizedError.status }
+          );
+        }
+
+        await releaseApprovalLock({
+          requestId: requestRow.id,
           reviewLockToken: locked.reviewLockToken,
-          reviewedAt: locked.reviewedAt,
-          actorUser: user,
-          assignedRole,
-          assignedPermissions,
-          reviewNote,
-          step: approvalStep,
-          error: approvalError,
+          errorMessage: lastError,
+          step: processingStep,
         });
 
         return NextResponse.json(
           {
             success: false,
-            error: normalizedError.error,
-            details: normalizedError.details,
-            code: normalizedError.code,
-            hint: normalizedError.hint,
+            error: normalizedBaseError.error,
+            details: normalizedBaseError.details,
+            code: normalizedBaseError.code,
+            hint: normalizedBaseError.hint,
+            requestId: requestRow.id,
           },
-          { status: normalizedError.status }
+          { status: normalizedBaseError.status }
         );
       }
     }
@@ -1834,18 +2055,21 @@ export async function PATCH(
       { status: 400 }
     );
   } catch (error) {
+    const normalizedError = getApprovalErrorResponse(error);
+
+    console.error("[account-requests][patch] unexpected_failure", {
+      ...serializeError(error),
+    });
+
     return NextResponse.json(
       {
         success: false,
-        error:
-          error instanceof Error
-            ? error.message
-            : "Erreur traitement demande.",
-        details: getErrorDetails(error),
-        code: getErrorCode(error),
-        hint: getErrorHint(error),
+        error: normalizedError.error,
+        details: normalizedError.details,
+        code: normalizedError.code,
+        hint: normalizedError.hint,
       },
-      { status: 500 }
+      { status: normalizedError.status }
     );
   }
 }

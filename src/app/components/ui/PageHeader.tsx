@@ -6,6 +6,7 @@ import UserIdentityBadge from "./UserIdentityBadge";
 type PageHeaderProps = {
   title?: string;
   subtitle?: string;
+  navigation?: ReactNode;
   actions?: ReactNode;
   userIdentity?: string | null;
   logoSrc?: string;
@@ -17,6 +18,7 @@ type PageHeaderProps = {
 export default function PageHeader({
   title,
   subtitle,
+  navigation,
   actions,
   userIdentity,
   logoSrc = "/logo.png",
@@ -24,7 +26,7 @@ export default function PageHeader({
   className,
   compact = false,
 }: PageHeaderProps) {
-  const hasText = Boolean(title || subtitle);
+  const hasCopy = Boolean(title || subtitle || navigation);
 
   return (
     <section
@@ -48,10 +50,13 @@ export default function PageHeader({
         </div>
       </div>
 
-      {hasText ? (
+      {hasCopy ? (
         <div className="ui-page-header-copy">
           {title ? <h1 className="ui-page-header-title">{title}</h1> : null}
           {subtitle ? <p className="ui-page-header-subtitle">{subtitle}</p> : null}
+          {navigation ? (
+            <div className="ui-page-header-navigation">{navigation}</div>
+          ) : null}
         </div>
       ) : null}
 

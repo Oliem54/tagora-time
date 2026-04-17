@@ -25,7 +25,8 @@ import {
 } from "@/app/lib/account-requests.shared";
 import { supabase } from "@/app/lib/supabase/client";
 
-type GpsBaseType = "siege" | "entrepot" | "chantier" | "client" | "autre";
+type GpsBaseType = "bureau" | "entrepot" | "chantier" | "client" | "autre";
+type LegacyGpsBaseType = GpsBaseType | "siege";
 
 type GpsBaseRow = {
   id: string;
@@ -34,8 +35,9 @@ type GpsBaseRow = {
   latitude: number;
   longitude: number;
   rayon_m: number;
-  company_context: AccountRequestCompany;
-  type_base: GpsBaseType;
+  compagnie?: AccountRequestCompany | null;
+  company_context?: AccountRequestCompany | null;
+  type_base: LegacyGpsBaseType;
   created_at: string;
   updated_at: string;
 };
@@ -55,7 +57,7 @@ const BASE_TYPE_OPTIONS: Array<{
   label: string;
   icon: typeof Building2;
 }> = [
-  { value: "siege", label: "Siege", icon: Building2 },
+  { value: "bureau", label: "Bureau", icon: Building2 },
   { value: "entrepot", label: "Entrepot", icon: Warehouse },
   { value: "chantier", label: "Chantier", icon: Route },
   { value: "client", label: "Client", icon: MapPin },
@@ -69,7 +71,7 @@ const DEFAULT_FORM: FormState = {
   longitude: "",
   rayon_m: "100",
   company_context: "oliem_solutions",
-  type_base: "siege",
+  type_base: "bureau",
 };
 
 function getMapUrl(latitude: number | null, longitude: number | null) {
@@ -90,12 +92,48 @@ function normalizeNumber(value: string) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+function resolveGpsBaseCompany(row: Pick<GpsBaseRow, "compagnie" | "company_context">) {
+  if (
+    row.company_context === "oliem_solutions" ||
+    row.company_context === "titan_produits_industriels"
+  ) {
+    return row.company_context;
+  }
+
+  if (
+    row.compagnie === "oliem_solutions" ||
+    row.compagnie === "titan_produits_industriels"
+  ) {
+    return row.compagnie;
+  }
+
+  return "oliem_solutions" as AccountRequestCompany;
+}
+
+function normalizeGpsBaseType(value: LegacyGpsBaseType | string | null | undefined): GpsBaseType {
+  if (value === "siege") {
+    return "bureau";
+  }
+
+  if (
+    value === "bureau" ||
+    value === "entrepot" ||
+    value === "chantier" ||
+    value === "client" ||
+    value === "autre"
+  ) {
+    return value;
+  }
+
+  return "bureau";
+}
+
 function getTypeLabel(type: GpsBaseType) {
   return BASE_TYPE_OPTIONS.find((item) => item.value === type)?.label ?? type;
 }
 
 function getTypeTone(type: GpsBaseType) {
-  if (type === "siege") return "info" as const;
+  if (type === "bureau") return "info" as const;
   if (type === "entrepot") return "success" as const;
   if (type === "chantier") return "warning" as const;
   return "default" as const;
@@ -142,12 +180,51 @@ export default function GpsBasesAdminClient() {
       latitude: Number(row.latitude),
       longitude: Number(row.longitude),
       rayon_m: Number(row.rayon_m),
+      company_context: resolveGpsBaseCompany(row),
+      type_base: normalizeGpsBaseType(row.type_base),
     })));
     setLoading(false);
   }, []);
 
   useEffect(() => {
-    void loadBases();
+    let isActive = true;
+
+    async function loadInitialBases() {
+      const { data, error } = await supabase
+        .from("gps_bases")
+        .select("*")
+        .order("nom", { ascending: true });
+
+      if (!isActive) {
+        return;
+      }
+
+      if (error) {
+        setBases([]);
+        setMessage(error.message);
+        setMessageType("error");
+        setLoading(false);
+        return;
+      }
+
+      setBases(
+        ((data ?? []) as GpsBaseRow[]).map((row) => ({
+          ...row,
+          latitude: Number(row.latitude),
+          longitude: Number(row.longitude),
+          rayon_m: Number(row.rayon_m),
+          company_context: resolveGpsBaseCompany(row),
+          type_base: normalizeGpsBaseType(row.type_base),
+        }))
+      );
+      setLoading(false);
+    }
+
+    void loadInitialBases();
+
+    return () => {
+      isActive = false;
+    };
   }, [loadBases]);
 
   const previewLatitude = useMemo(() => normalizeNumber(form.latitude), [form.latitude]);
@@ -175,8 +252,8 @@ export default function GpsBasesAdminClient() {
       latitude: String(base.latitude),
       longitude: String(base.longitude),
       rayon_m: String(base.rayon_m),
-      company_context: base.company_context,
-      type_base: base.type_base,
+      company_context: resolveGpsBaseCompany(base),
+      type_base: normalizeGpsBaseType(base.type_base),
     });
     setMessage("");
   }
@@ -240,16 +317,31 @@ export default function GpsBasesAdminClient() {
     setSaving(true);
     setMessage("");
 
+    console.info("[gps-bases] form_payload", {
+      mode: editingId ? "update" : "insert",
+      editingId,
+      form,
+    });
+
+    const selectedCompany = form.company_context;
+    const selectedType = normalizeGpsBaseType(form.type_base);
     const payload = {
       nom: form.nom.trim(),
       adresse: form.adresse.trim(),
       latitude,
       longitude,
       rayon_m: Math.round(rayon),
-      company_context: form.company_context,
-      type_base: form.type_base,
+      compagnie: selectedCompany,
+      company_context: selectedCompany,
+      type_base: selectedType,
       updated_at: new Date().toISOString(),
     };
+
+    console.info("[gps-bases] supabase_payload", {
+      mode: editingId ? "update" : "insert",
+      editingId,
+      payload,
+    });
 
     const query = editingId
       ? supabase.from("gps_bases").update(payload).eq("id", editingId)
@@ -258,6 +350,17 @@ export default function GpsBasesAdminClient() {
     const { error } = await query;
 
     if (error) {
+      console.error("[gps-bases] submit_failure", {
+        mode: editingId ? "update" : "insert",
+        editingId,
+        form,
+        payload,
+        error,
+        message: error.message,
+        details: "details" in error ? error.details : null,
+        hint: "hint" in error ? error.hint : null,
+        code: "code" in error ? error.code : null,
+      });
       setFeedback(error.message, "error");
       setSaving(false);
       return;
@@ -327,8 +430,9 @@ export default function GpsBasesAdminClient() {
             ) : (
               <div className="ui-stack-sm">
                 {bases.map((base) => {
+                  const normalizedType = normalizeGpsBaseType(base.type_base);
                   const Icon = BASE_TYPE_OPTIONS.find(
-                    (item) => item.value === base.type_base
+                    (item) => item.value === normalizedType
                   )?.icon ?? MapPin;
 
                   return (
@@ -391,8 +495,8 @@ export default function GpsBasesAdminClient() {
                           </div>
                         </div>
                         <StatusBadge
-                          label={getTypeLabel(base.type_base)}
-                          tone={getTypeTone(base.type_base)}
+                          label={getTypeLabel(normalizedType)}
+                          tone={getTypeTone(normalizedType)}
                         />
                       </div>
 

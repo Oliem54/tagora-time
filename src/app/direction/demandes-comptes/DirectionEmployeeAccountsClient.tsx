@@ -173,6 +173,20 @@ function formatDate(value: string | null | undefined) {
     : "-";
 }
 
+function buildApiErrorMessage(payload: unknown, fallback: string) {
+  if (!payload || typeof payload !== "object") {
+    return fallback;
+  }
+
+  const parts = [
+    "error" in payload && typeof payload.error === "string" ? payload.error : null,
+    "details" in payload && typeof payload.details === "string" ? payload.details : null,
+    "hint" in payload && typeof payload.hint === "string" ? payload.hint : null,
+  ].filter((item): item is string => Boolean(item));
+
+  return parts.length > 0 ? parts.join(" | ") : fallback;
+}
+
 function formatPermissions(values: string[] | null | undefined) {
   return values && values.length > 0
     ? values
@@ -307,6 +321,7 @@ export default function DirectionEmployeeAccountsClient() {
   const [reviewNote, setReviewNote] = useState("");
   const [confirmOverwriteExistingAccount, setConfirmOverwriteExistingAccount] = useState(false);
   const [form, setForm] = useState<FormState>(buildForm(null));
+  const [isEditing, setIsEditing] = useState(false);
   const [message, setMessage] = useState("");
   const [messageType, setMessageType] = useState<"success" | "error" | null>(null);
   const [toastMessage, setToastMessage] = useState("");
@@ -356,6 +371,21 @@ export default function DirectionEmployeeAccountsClient() {
     { key: "sms_alert_quart_debut" as const, label: "Quart debut", enabled: form.sms_alert_quart_debut },
     { key: "sms_alert_quart_fin" as const, label: "Quart fin", enabled: form.sms_alert_quart_fin },
   ]), [form.sms_alert_arrivee_terrain, form.sms_alert_depart_terrain, form.sms_alert_dinner_debut, form.sms_alert_dinner_fin, form.sms_alert_pause_debut, form.sms_alert_pause_fin, form.sms_alert_quart_debut, form.sms_alert_quart_fin, form.sms_alert_retour, form.sms_alert_sortie]);
+  const quickStatusAction = useMemo(() => {
+    if (!selectedRequest) return null;
+    if (selectedRequest.status === "pending") return { action: "approve" as const, label: "Activer" };
+    if (selectedRequest.status === "active") return { action: "disable_access" as const, label: "Desactiver" };
+    return null;
+  }, [selectedRequest]);
+  const isFormEditable = isEditing && !savingAction;
+  const readOnlyFieldStyle = isEditing
+    ? undefined
+    : {
+        background: "#f8fafc",
+        borderColor: "#dbe4f0",
+        color: "#0f172a",
+        boxShadow: "none",
+      };
 
   const fetchRequests = useCallback(async (targetId?: string | null) => {
     if (!accessToken) return;
@@ -401,13 +431,18 @@ export default function DirectionEmployeeAccountsClient() {
     })();
   }, []);
 
+  function hydrateEditor(request: AccountRequest) {
+    setAssignedRole(request.assigned_role ?? request.requested_role ?? "employe");
+    setAssignedPermissions(request.assigned_permissions ?? request.requested_permissions ?? []);
+    setReviewNote(request.review_note ?? "");
+    setForm(buildForm(request));
+    setConfirmOverwriteExistingAccount(false);
+  }
+
   useEffect(() => {
     if (!selectedRequest) return;
-    setAssignedRole(selectedRequest.assigned_role ?? selectedRequest.requested_role ?? "employe");
-    setAssignedPermissions(selectedRequest.assigned_permissions ?? selectedRequest.requested_permissions ?? []);
-    setReviewNote(selectedRequest.review_note ?? "");
-    setForm(buildForm(selectedRequest));
-    setConfirmOverwriteExistingAccount(false);
+    hydrateEditor(selectedRequest);
+    setIsEditing(false);
   }, [selectedRequest]);
 
   useEffect(() => {
@@ -423,10 +458,17 @@ export default function DirectionEmployeeAccountsClient() {
   }
 
   function toggleDay(day: string) {
+    if (!isEditing) return;
     setForm((current) => ({
       ...current,
       scheduled_work_days: current.scheduled_work_days.includes(day) ? current.scheduled_work_days.filter((item) => item !== day) : [...current.scheduled_work_days, day],
     }));
+  }
+
+  function handleCancelEditing() {
+    if (!selectedRequest) return;
+    hydrateEditor(selectedRequest);
+    setIsEditing(false);
   }
 
   async function runAction(action: RequestAction) {
@@ -467,7 +509,7 @@ export default function DirectionEmployeeAccountsClient() {
         }),
       });
       const payload = await response.json();
-      if (!response.ok) throw new Error(typeof payload.error === "string" ? payload.error : "Le traitement a echoue.");
+      if (!response.ok) throw new Error(buildApiErrorMessage(payload, "Le traitement a echoue."));
       const successMessage =
         action === "approve"
           ? "Employe active avec succes"
@@ -484,6 +526,7 @@ export default function DirectionEmployeeAccountsClient() {
         }, 1200);
       }
       await fetchRequests(action === "delete" ? null : selectedRequest.id);
+      setIsEditing(false);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Le traitement a echoue.");
       setMessageType("error");
@@ -567,6 +610,35 @@ export default function DirectionEmployeeAccountsClient() {
                   {summary("Creation", formatDate(selectedRequest.created_at))}
                   {summary("Derniere connexion", formatDate(selectedRequest.existing_account?.lastSignInAt))}
                 </div>
+                <div className="tagora-panel-muted" style={{ display: "flex", justifyContent: "space-between", gap: 16, flexWrap: "wrap", alignItems: "center", padding: 18, border: isEditing ? "1px solid #bfdbfe" : "1px solid #e2e8f0" }}>
+                  <div className="ui-stack-xs">
+                    <div className="tagora-label">Mode fiche</div>
+                    <div style={{ fontWeight: 800, color: isEditing ? "#1d4ed8" : "#0f172a" }}>{isEditing ? "Edition active" : "Consultation"}</div>
+                  </div>
+                  <div className="account-requests-actions" style={{ justifyContent: "flex-end" }}>
+                    <button type="button" className="tagora-dark-outline-action" onClick={() => setSelectedId(null)} disabled={Boolean(savingAction)}>Retour a la liste</button>
+                    {quickStatusAction ? (
+                      <button
+                        type="button"
+                        className={quickStatusAction.action === "disable_access" ? "tagora-btn-danger" : "tagora-dark-outline-action"}
+                        onClick={() => void runAction(quickStatusAction.action)}
+                        disabled={Boolean(savingAction)}
+                      >
+                        {savingAction === quickStatusAction.action ? "Traitement..." : quickStatusAction.label}
+                      </button>
+                    ) : null}
+                    {!isEditing ? (
+                      <button type="button" className="tagora-dark-action" onClick={() => setIsEditing(true)} disabled={Boolean(savingAction)}>Modifier</button>
+                    ) : (
+                      <>
+                        <button type="button" className="tagora-dark-action" onClick={() => void runAction(primaryAction(selectedRequest.status))} disabled={Boolean(savingAction)}>
+                          {savingAction === primaryAction(selectedRequest.status) ? "Enregistrement..." : "Enregistrer"}
+                        </button>
+                        <button type="button" className="tagora-dark-outline-action" onClick={handleCancelEditing} disabled={Boolean(savingAction)}>Annuler</button>
+                      </>
+                    )}
+                  </div>
+                </div>
               </section>
 
               <section className="tagora-panel ui-stack-md">
@@ -581,33 +653,35 @@ export default function DirectionEmployeeAccountsClient() {
                   {summary("Role actuel", formatRole(selectedRequest.existing_account?.role))}
                   {summary("Permissions actuelles", formatPermissions(selectedRequest.existing_account?.permissions))}
                 </div>
+                {!isEditing ? <div className="tagora-panel-muted" style={{ padding: 16, color: "#475569" }}>Passez en mode modification pour changer le role, la note admin et les permissions.</div> : null}
                 <div className="tagora-form-grid">
-                  <label className="tagora-field"><span className="tagora-label">Role</span><select className="tagora-input" value={assignedRole} onChange={(e) => setAssignedRole(e.target.value === "direction" ? "direction" : "employe")}><option value="employe">Employe</option><option value="direction">Direction</option></select></label>
-                  <label className="tagora-field" style={{ gridColumn: "1 / -1" }}><span className="tagora-label">Note admin</span><textarea className="tagora-textarea" value={reviewNote} onChange={(e) => setReviewNote(e.target.value)} placeholder="Note admin" /></label>
+                  <label className="tagora-field"><span className="tagora-label">Role</span><select className="tagora-input" style={readOnlyFieldStyle} value={assignedRole} onChange={(e) => setAssignedRole(e.target.value === "direction" ? "direction" : "employe")} disabled={!isFormEditable}><option value="employe">Employe</option><option value="direction">Direction</option></select></label>
+                  <label className="tagora-field" style={{ gridColumn: "1 / -1" }}><span className="tagora-label">Note admin</span><textarea className="tagora-textarea" style={readOnlyFieldStyle} value={reviewNote} onChange={(e) => setReviewNote(e.target.value)} placeholder="Note admin" readOnly={!isFormEditable} /></label>
                 </div>
-                <div className="tagora-panel-muted account-requests-permissions">{permissionOptions.map((option) => <label key={option.value} className="account-requests-permission-option"><input type="checkbox" checked={assignedPermissions.includes(option.value)} onChange={() => togglePermission(option.value)} /><span>{option.label}</span></label>)}</div>
+                <div className="tagora-panel-muted account-requests-permissions">{permissionOptions.map((option) => <label key={option.value} className="account-requests-permission-option" style={!isEditing ? { opacity: 0.8 } : undefined}><input type="checkbox" checked={assignedPermissions.includes(option.value)} onChange={() => togglePermission(option.value)} disabled={!isFormEditable} /><span>{option.label}</span></label>)}</div>
               </section>
 
               <section className="tagora-panel ui-stack-md">
                 <div className="ui-stack-xs"><h2 className="section-title" style={{ marginBottom: 0 }}>Emploi</h2><p className="tagora-note" style={{ margin: 0 }}>Fiche employe.</p></div>
+                {!isEditing ? <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 16 }}>{summary("Nom fiche", form.nom || "-")}{summary("Courriel fiche", form.courriel || "-")}{summary("Telephone fiche", form.telephone || "-")}{summary("Compagnie de rattachement", getCompanyLabel(form.primary_company))}{summary("Statut employe", form.actif ? "Actif" : "Inactif")}</div> : null}
                 <div className="tagora-form-grid">
-                  <label className="tagora-field"><span className="tagora-label">Nom</span><input className="tagora-input" value={form.nom} onChange={(e) => setForm((c) => ({ ...c, nom: e.target.value }))} /></label>
-                  <label className="tagora-field"><span className="tagora-label">Courriel</span><input className="tagora-input" type="email" value={form.courriel} onChange={(e) => setForm((c) => ({ ...c, courriel: e.target.value }))} /></label>
-                  <label className="tagora-field"><span className="tagora-label">Telephone</span><input className="tagora-input" value={form.telephone} onChange={(e) => setForm((c) => ({ ...c, telephone: e.target.value }))} /></label>
-                  <label className="tagora-field"><span className="tagora-label">Compagnie de rattachement</span><select className="tagora-input" value={form.primary_company} onChange={(e) => setForm((c) => ({ ...c, primary_company: e.target.value as AccountRequestCompany }))}><option value="oliem_solutions">{getCompanyLabel("oliem_solutions")}</option><option value="titan_produits_industriels">{getCompanyLabel("titan_produits_industriels")}</option></select></label>
-                  <label className="account-requests-permission-option"><input type="checkbox" checked={form.actif} onChange={(e) => setForm((c) => ({ ...c, actif: e.target.checked }))} /><span>Employe actif</span></label>
-                  <label className="tagora-field" style={{ gridColumn: "1 / -1" }}><span className="tagora-label">Note employe</span><textarea className="tagora-textarea" value={form.notes} onChange={(e) => setForm((c) => ({ ...c, notes: e.target.value }))} placeholder="Note interne" /></label>
+                  <label className="tagora-field"><span className="tagora-label">Nom</span><input className="tagora-input" style={readOnlyFieldStyle} value={form.nom} onChange={(e) => setForm((c) => ({ ...c, nom: e.target.value }))} readOnly={!isFormEditable} /></label>
+                  <label className="tagora-field"><span className="tagora-label">Courriel</span><input className="tagora-input" style={readOnlyFieldStyle} type="email" value={form.courriel} onChange={(e) => setForm((c) => ({ ...c, courriel: e.target.value }))} readOnly={!isFormEditable} /></label>
+                  <label className="tagora-field"><span className="tagora-label">Telephone</span><input className="tagora-input" style={readOnlyFieldStyle} value={form.telephone} onChange={(e) => setForm((c) => ({ ...c, telephone: e.target.value }))} readOnly={!isFormEditable} /></label>
+                  <label className="tagora-field"><span className="tagora-label">Compagnie de rattachement</span><select className="tagora-input" style={readOnlyFieldStyle} value={form.primary_company} onChange={(e) => setForm((c) => ({ ...c, primary_company: e.target.value as AccountRequestCompany }))} disabled={!isFormEditable}><option value="oliem_solutions">{getCompanyLabel("oliem_solutions")}</option><option value="titan_produits_industriels">{getCompanyLabel("titan_produits_industriels")}</option></select></label>
+                  <label className="account-requests-permission-option" style={!isEditing ? { opacity: 0.8 } : undefined}><input type="checkbox" checked={form.actif} onChange={(e) => setForm((c) => ({ ...c, actif: e.target.checked }))} disabled={!isFormEditable} /><span>Employe actif</span></label>
+                  <label className="tagora-field" style={{ gridColumn: "1 / -1" }}><span className="tagora-label">Note employe</span><textarea className="tagora-textarea" style={readOnlyFieldStyle} value={form.notes} onChange={(e) => setForm((c) => ({ ...c, notes: e.target.value }))} placeholder="Note interne" readOnly={!isFormEditable} /></label>
                 </div>
               </section>
 
               <section className="tagora-panel ui-stack-md">
                 <div className="ui-stack-xs"><h2 className="section-title" style={{ marginBottom: 0 }}>Horaire prevu</h2><p className="tagora-note" style={{ margin: 0 }}>Base horodateur.</p></div>
                 <div className="tagora-form-grid">
-                  <label className="tagora-field"><span className="tagora-label">Heure de debut</span><input className="tagora-input" type="time" value={form.schedule_start} onChange={(e) => setForm((c) => ({ ...c, schedule_start: e.target.value }))} /></label>
-                  <label className="tagora-field"><span className="tagora-label">Heure de fin</span><input className="tagora-input" type="time" value={form.schedule_end} onChange={(e) => setForm((c) => ({ ...c, schedule_end: e.target.value }))} /></label>
-                  <label className="tagora-field"><span className="tagora-label">Heures par jour</span><input className="tagora-input" type="number" min="0" step="0.25" value={form.planned_daily_hours} onChange={(e) => setForm((c) => ({ ...c, planned_daily_hours: e.target.value }))} /></label>
-                  <label className="tagora-field"><span className="tagora-label">Heures hebdo</span><input className="tagora-input" type="number" min="0" step="0.25" value={form.planned_weekly_hours} onChange={(e) => setForm((c) => ({ ...c, planned_weekly_hours: e.target.value }))} /></label>
-                  <div className="tagora-field" style={{ gridColumn: "1 / -1" }}><span className="tagora-label">Jours travailles</span><div className="tagora-panel-muted" style={{ display: "flex", gap: 12, flexWrap: "wrap", padding: 16 }}>{workDays.map(([value, label]) => <label key={value} className="account-requests-permission-option"><input type="checkbox" checked={form.scheduled_work_days.includes(value)} onChange={() => toggleDay(value)} /><span>{label}</span></label>)}</div></div>
+                  <label className="tagora-field"><span className="tagora-label">Heure de debut</span><input className="tagora-input" style={readOnlyFieldStyle} type="time" value={form.schedule_start} onChange={(e) => setForm((c) => ({ ...c, schedule_start: e.target.value }))} readOnly={!isFormEditable} /></label>
+                  <label className="tagora-field"><span className="tagora-label">Heure de fin</span><input className="tagora-input" style={readOnlyFieldStyle} type="time" value={form.schedule_end} onChange={(e) => setForm((c) => ({ ...c, schedule_end: e.target.value }))} readOnly={!isFormEditable} /></label>
+                  <label className="tagora-field"><span className="tagora-label">Heures par jour</span><input className="tagora-input" style={readOnlyFieldStyle} type="number" min="0" step="0.25" value={form.planned_daily_hours} onChange={(e) => setForm((c) => ({ ...c, planned_daily_hours: e.target.value }))} readOnly={!isFormEditable} /></label>
+                  <label className="tagora-field"><span className="tagora-label">Heures hebdo</span><input className="tagora-input" style={readOnlyFieldStyle} type="number" min="0" step="0.25" value={form.planned_weekly_hours} onChange={(e) => setForm((c) => ({ ...c, planned_weekly_hours: e.target.value }))} readOnly={!isFormEditable} /></label>
+                  <div className="tagora-field" style={{ gridColumn: "1 / -1" }}><span className="tagora-label">Jours travailles</span><div className="tagora-panel-muted" style={{ display: "flex", gap: 12, flexWrap: "wrap", padding: 16 }}>{workDays.map(([value, label]) => <label key={value} className="account-requests-permission-option" style={!isEditing ? { opacity: 0.8 } : undefined}><input type="checkbox" checked={form.scheduled_work_days.includes(value)} onChange={() => toggleDay(value)} disabled={!isFormEditable} /><span>{label}</span></label>)}</div></div>
                 </div>
                 <div className="ui-stack-sm">
                   <div className="tagora-label">Pauses et diner</div>
@@ -626,6 +700,7 @@ export default function DirectionEmployeeAccountsClient() {
                           <input
                             type="checkbox"
                             checked={row.enabled}
+                            disabled={!isFormEditable}
                             onChange={(e) =>
                               setForm((c) => ({
                                 ...c,
@@ -639,6 +714,7 @@ export default function DirectionEmployeeAccountsClient() {
                         </label>
                         <input
                           className="tagora-input"
+                          style={readOnlyFieldStyle}
                           type="time"
                           value={row.time}
                           onChange={(e) =>
@@ -649,9 +725,11 @@ export default function DirectionEmployeeAccountsClient() {
                               ...(row.key === "break_pm" ? { break_pm_time: e.target.value } : {}),
                             }))
                           }
+                          readOnly={!isFormEditable}
                         />
                         <input
                           className="tagora-input"
+                          style={readOnlyFieldStyle}
                           type="number"
                           min="0"
                           step="1"
@@ -664,9 +742,11 @@ export default function DirectionEmployeeAccountsClient() {
                               ...(row.key === "break_pm" ? { break_pm_minutes: e.target.value } : {}),
                             }))
                           }
+                          readOnly={!isFormEditable}
                         />
                         <select
                           className="tagora-input"
+                          style={readOnlyFieldStyle}
                           value={row.paid ? "paid" : "unpaid"}
                           onChange={(e) =>
                             setForm((c) => ({
@@ -676,6 +756,7 @@ export default function DirectionEmployeeAccountsClient() {
                               ...(row.key === "break_pm" ? { break_pm_paid: e.target.value === "paid" } : {}),
                             }))
                           }
+                          disabled={!isFormEditable}
                         >
                           <option value="paid">Payee</option>
                           <option value="unpaid">Non payee</option>
@@ -702,6 +783,7 @@ export default function DirectionEmployeeAccountsClient() {
                         <input
                           type="checkbox"
                           checked={row.enabled}
+                          disabled={!isFormEditable}
                           onChange={(e) =>
                             setForm((c) => ({
                               ...c,
@@ -719,10 +801,10 @@ export default function DirectionEmployeeAccountsClient() {
               <section className="tagora-panel ui-stack-md">
                 <div className="ui-stack-xs"><h2 className="section-title" style={{ marginBottom: 0 }}>Refacturation Titan</h2><p className="tagora-note" style={{ margin: 0 }}>Cout employe calcule.</p></div>
                 <div className="tagora-form-grid">
-                  <label className="tagora-field"><span className="tagora-label">Taux horaire</span><input className="tagora-input" type="number" min="0" step="0.01" value={form.taux_base_titan} onChange={(e) => setForm((c) => ({ ...c, taux_base_titan: e.target.value }))} /></label>
-                  <label className="tagora-field"><span className="tagora-label">Avantages sociaux %</span><input className="tagora-input" type="number" min="0" step="0.01" value={form.social_benefits_percent} onChange={(e) => setForm((c) => ({ ...c, social_benefits_percent: e.target.value }))} /></label>
+                  <label className="tagora-field"><span className="tagora-label">Taux horaire</span><input className="tagora-input" style={readOnlyFieldStyle} type="number" min="0" step="0.01" value={form.taux_base_titan} onChange={(e) => setForm((c) => ({ ...c, taux_base_titan: e.target.value }))} readOnly={!isFormEditable} /></label>
+                  <label className="tagora-field"><span className="tagora-label">Avantages sociaux %</span><input className="tagora-input" style={readOnlyFieldStyle} type="number" min="0" step="0.01" value={form.social_benefits_percent} onChange={(e) => setForm((c) => ({ ...c, social_benefits_percent: e.target.value }))} readOnly={!isFormEditable} /></label>
                   <div className="tagora-panel-muted" style={{ padding: 18 }}><div className="tagora-label">Cout refacturable</div><div style={{ marginTop: 8, fontWeight: 700, fontSize: 20 }}>{formatMoney(computedCost)}</div></div>
-                  <label className="account-requests-permission-option"><input type="checkbox" checked={form.titan_billable} onChange={(e) => setForm((c) => ({ ...c, titan_billable: e.target.checked }))} /><span>Refacturable a Titan</span></label>
+                  <label className="account-requests-permission-option" style={!isEditing ? { opacity: 0.8 } : undefined}><input type="checkbox" checked={form.titan_billable} onChange={(e) => setForm((c) => ({ ...c, titan_billable: e.target.checked }))} disabled={!isFormEditable} /><span>Refacturable a Titan</span></label>
                 </div>
               </section>
 
@@ -730,7 +812,7 @@ export default function DirectionEmployeeAccountsClient() {
                 <div className="ui-stack-xs"><h2 className="section-title" style={{ marginBottom: 0 }}>Actions admin</h2><p className="tagora-note" style={{ margin: 0 }}>Acces et invitation.</p></div>
                 {selectedRequest.existing_account?.exists ? <label className="account-requests-permission-option"><input type="checkbox" checked={confirmOverwriteExistingAccount} onChange={() => setConfirmOverwriteExistingAccount((current) => !current)} /><span>Autoriser le remplacement des acces existants</span></label> : null}
                 {selectedRequest.review_lock?.isLocked ? <div className="account-requests-lock">Traitement verrouille jusqu au {formatDate(selectedRequest.review_lock.expiresAt)}.</div> : null}
-                <div className="account-requests-actions"><button type="button" className="tagora-dark-action" onClick={() => void runAction(primaryAction(selectedRequest.status))} disabled={Boolean(savingAction)}>{savingAction === primaryAction(selectedRequest.status) ? "Traitement..." : "Appliquer les changements"}</button></div>
+                {isEditing ? <div className="tagora-panel-muted" style={{ padding: 16, color: "#475569" }}>Modifiez la fiche puis utilisez <strong>Enregistrer</strong> en haut de la fiche.</div> : null}
                 <div className="account-requests-actions">{secondaryActions(selectedRequest.status).map((item) => <button key={item.action} type="button" className={actionClass(item.tone)} onClick={() => void runAction(item.action)} disabled={Boolean(savingAction)}>{savingAction === item.action ? "Traitement..." : item.label}</button>)}</div>
                 {destructiveAction(selectedRequest.status) ? <div className="account-requests-actions"><button type="button" className="tagora-btn-danger" onClick={() => void runAction(destructiveAction(selectedRequest.status)!.action)} disabled={Boolean(savingAction)}>{savingAction === destructiveAction(selectedRequest.status)!.action ? "Traitement..." : destructiveAction(selectedRequest.status)!.label}</button></div> : null}
               </section>

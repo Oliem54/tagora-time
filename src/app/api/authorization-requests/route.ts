@@ -1,10 +1,38 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminSupabaseClient } from "@/app/lib/supabase/admin";
+import { notifyDirectionOfAuthorizationRequest } from "@/app/lib/notifications";
+import { type AccountRequestCompany } from "@/app/lib/account-requests.shared";
 import {
   isAuthorizationRequestType,
   requireAuthenticatedUser,
   resolveCompanyContext,
 } from "@/app/lib/timeclock-api";
+
+type AlertChauffeurProfileRow = {
+  nom: string | null;
+  courriel: string | null;
+  telephone: string | null;
+  primary_company: AccountRequestCompany | null;
+};
+
+function getAuthUserDisplayName(user: {
+  email?: string | null;
+  user_metadata?: Record<string, unknown> | null;
+  app_metadata?: Record<string, unknown> | null;
+}) {
+  const candidates = [
+    user.user_metadata?.full_name,
+    user.user_metadata?.name,
+    user.app_metadata?.full_name,
+    user.email,
+  ];
+
+  const match = candidates.find(
+    (value) => typeof value === "string" && value.trim().length > 0
+  );
+
+  return typeof match === "string" ? match.trim() : null;
+}
 
 export async function POST(req: NextRequest) {
   try {
@@ -31,7 +59,10 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const chauffeurId = Number(auth.user.app_metadata?.chauffeur_id ?? auth.user.user_metadata?.chauffeur_id);
+    const chauffeurId = Number(
+      auth.user.app_metadata?.chauffeur_id ??
+        auth.user.user_metadata?.chauffeur_id
+    );
     const companyContext = resolveCompanyContext(auth.user, body.company_context);
     const supabase = createAdminSupabaseClient();
     const { data, error } = await supabase
@@ -53,6 +84,15 @@ export async function POST(req: NextRequest) {
       throw error;
     }
 
+    console.info("[authorization-requests][create] request_stored", {
+      requestId: data.id,
+      requestType: data.request_type,
+      companyContext,
+      userId: auth.user.id,
+      chauffeurId: Number.isFinite(chauffeurId) ? chauffeurId : null,
+      requestedAt: data.requested_at ?? null,
+    });
+
     await supabase.from("horodateur_events").insert([
       {
         user_id: auth.user.id,
@@ -66,6 +106,37 @@ export async function POST(req: NextRequest) {
         },
       },
     ]);
+
+    let requesterProfile: AlertChauffeurProfileRow | null = null;
+
+    if (Number.isFinite(chauffeurId)) {
+      const { data: chauffeurProfile } = await supabase
+        .from("chauffeurs")
+        .select("nom, courriel, telephone, primary_company")
+        .eq("id", chauffeurId)
+        .maybeSingle<AlertChauffeurProfileRow>();
+
+      requesterProfile = chauffeurProfile ?? null;
+    }
+
+    await notifyDirectionOfAuthorizationRequest({
+      requestId: data.id,
+      requestType: data.request_type,
+      requesterName: requesterProfile?.nom ?? getAuthUserDisplayName(auth.user),
+      requesterEmail: requesterProfile?.courriel ?? auth.user.email ?? null,
+      requesterPhone: requesterProfile?.telephone ?? null,
+      company: requesterProfile?.primary_company ?? companyContext,
+      justification: data.justification,
+      requestedValue:
+        data.requested_value && typeof data.requested_value === "object"
+          ? (data.requested_value as Record<string, unknown>)
+          : {},
+      requestedAt:
+        typeof data.requested_at === "string"
+          ? data.requested_at
+          : new Date().toISOString(),
+      managementUrl: "/direction/horodateur",
+    });
 
     return NextResponse.json({ success: true, authorization_request: data });
   } catch (error) {

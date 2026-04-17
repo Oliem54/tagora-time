@@ -83,6 +83,20 @@ function formatDate(value: string | null | undefined) {
   }).format(new Date(value));
 }
 
+function buildApiErrorMessage(payload: unknown, fallback: string) {
+  if (!payload || typeof payload !== "object") {
+    return fallback;
+  }
+
+  const parts = [
+    "error" in payload && typeof payload.error === "string" ? payload.error : null,
+    "details" in payload && typeof payload.details === "string" ? payload.details : null,
+    "hint" in payload && typeof payload.hint === "string" ? payload.hint : null,
+  ].filter((item): item is string => Boolean(item));
+
+  return parts.length > 0 ? parts.join(" | ") : fallback;
+}
+
 function getStatusPresentation(status: RequestStatus) {
   if (status === "active") {
     return {
@@ -392,11 +406,7 @@ export default function DirectionAccountRequestsClient() {
       const payload = await response.json();
 
       if (!response.ok) {
-        setMessage(
-          typeof payload.error === "string"
-            ? payload.error
-            : "Le traitement de la demande n a pas pu aboutir."
-        );
+        setMessage(buildApiErrorMessage(payload, "Le traitement de la demande n a pas pu aboutir."));
         setMessageType("error");
         return;
       }

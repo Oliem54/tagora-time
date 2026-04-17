@@ -256,6 +256,14 @@ export async function POST(req: NextRequest) {
     const message = String(body.message ?? "").trim() || null;
     const requestIp = getRequestIp(req);
 
+    console.info("[account-requests][create] submit_received", {
+      email,
+      company: body.company ?? null,
+      portalSource,
+      requestedRole,
+      requestIp,
+    });
+
     if (!fullName || !email) {
       return NextResponse.json(
         { error: "Le nom complet et le courriel sont obligatoires." },
@@ -308,7 +316,10 @@ export async function POST(req: NextRequest) {
       // Ignore temporary rate-limit backend failures and continue normal validation.
     }
 
+    const accountRequestId = crypto.randomUUID();
+    const createdAt = new Date().toISOString();
     const payload = {
+      id: accountRequestId,
       full_name: fullName,
       email,
       phone,
@@ -318,6 +329,7 @@ export async function POST(req: NextRequest) {
       requested_permissions: requestedPermissions,
       message,
       status: "pending",
+      created_at: createdAt,
       audit_log: [
         createAuditEntry("request_submitted", "requester", {
           ip: requestIp,
@@ -359,16 +371,44 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    try {
-      await notifyDirectionOfAccountRequest({
-        fullName,
-        email,
-        requestedRole,
-        portalSource,
-      });
-    } catch {
-      // Notification failures must not block the request flow.
-    }
+    console.info("[account-requests][create] request_stored", {
+      requestId: accountRequestId,
+      email,
+      company,
+      requestedRole,
+      createdAt,
+    });
+
+    console.info("[account-requests][create] direction_alert_trigger", {
+      requestId: accountRequestId,
+      email,
+      company,
+      requestedRole,
+    });
+
+    const directionAlertResult = await notifyDirectionOfAccountRequest({
+      requestId: accountRequestId,
+      fullName,
+      email,
+      phone,
+      company,
+      requestedRole,
+      requestedPermissions,
+      portalSource,
+      message,
+      createdAt,
+      managementUrl: "/direction/demandes-comptes",
+    });
+
+    console.info("[account-requests][create] direction_alert_result", {
+      requestId: accountRequestId,
+      ok: directionAlertResult.ok,
+      skipped: directionAlertResult.skipped,
+      reason: directionAlertResult.reason,
+      recipients: directionAlertResult.recipients,
+      invalidRecipients: directionAlertResult.invalidRecipients,
+      providerMessageId: directionAlertResult.providerMessageId,
+    });
 
     return NextResponse.json({ success: true });
   } catch (error) {

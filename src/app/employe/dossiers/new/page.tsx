@@ -84,7 +84,6 @@ export default function NewDossierPage() {
         <AuthenticatedPageHeader
           title="Nouveau dossier"
           subtitle="Creation"
-          actions={<SecondaryButton onClick={() => router.push("/employe/dashboard")}>Retour</SecondaryButton>}
         />
 
         <SectionCard

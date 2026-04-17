@@ -869,6 +869,60 @@ select {
   color: rgba(255, 255, 255, 0.88);
 }
 
+.ui-page-header-navigation {
+  margin-top: 18px;
+}
+
+.tagora-page-navigation {
+  display: grid;
+  gap: 14px;
+}
+
+.tagora-page-navigation-breadcrumbs {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-height: 24px;
+  font-size: 14px;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.92);
+}
+
+.tagora-page-navigation-crumb {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.tagora-page-navigation-separator {
+  color: rgba(191, 219, 254, 0.72);
+  flex: 0 0 auto;
+}
+
+.tagora-page-navigation-link {
+  color: rgba(224, 231, 255, 0.92);
+  transition: color 140ms ease;
+}
+
+.tagora-page-navigation-link:hover {
+  color: #ffffff;
+}
+
+.tagora-page-navigation-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.tagora-page-navigation-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .ui-page-header-actions {
   position: relative;
   z-index: 1;
@@ -1606,6 +1660,15 @@ select {
 
   .ui-page-header-subtitle {
     font-size: 16px;
+  }
+
+  .tagora-page-navigation-actions {
+    width: 100%;
+  }
+
+  .tagora-page-navigation-button {
+    flex: 1 1 220px;
+    justify-content: center;
   }
 
   .tagora-header-title {

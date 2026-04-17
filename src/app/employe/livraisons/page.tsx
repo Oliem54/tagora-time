@@ -15,7 +15,6 @@ import AppCard from "@/app/components/ui/AppCard";
 import InfoRow from "@/app/components/ui/InfoRow";
 import FormField from "@/app/components/ui/FormField";
 import PrimaryButton from "@/app/components/ui/PrimaryButton";
-import SecondaryButton from "@/app/components/ui/SecondaryButton";
 import StatusBadge from "@/app/components/ui/StatusBadge";
 
 type Livraison = {
@@ -270,7 +269,6 @@ export default function EmployeLivraisonsPage() {
         <AuthenticatedPageHeader
           title="Tournee"
           subtitle="Livraisons du jour."
-          actions={<SecondaryButton onClick={() => router.push("/employe/dashboard")}>Retour</SecondaryButton>}
         />
 
         {feedback ? <SectionCard title="Action" subtitle={feedback} tone="muted" /> : null}
