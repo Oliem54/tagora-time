@@ -9,6 +9,7 @@ export default function HeaderTagora({
   actions,
   compact,
   showUserIdentity,
+  showNavigation,
 }: HeaderTagoraProps) {
   return (
     <AuthenticatedPageHeader
@@ -17,6 +18,7 @@ export default function HeaderTagora({
       actions={actions}
       compact={compact}
       showUserIdentity={showUserIdentity}
+      showNavigation={showNavigation}
       className="tagora-header"
     />
   );

@@ -1,792 +1,378 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import HeaderTagora from "@/app/components/HeaderTagora";
 import AccessNotice from "@/app/components/AccessNotice";
 import { useCurrentAccess } from "@/app/hooks/useCurrentAccess";
-import { getCompanyLabel, type AccountRequestCompany } from "@/app/lib/account-requests.shared";
-import {
-  buildHorodateurLoadError,
-  HorodateurEventType,
-} from "@/app/lib/horodateur";
 import { supabase } from "@/app/lib/supabase/client";
+import { getCompanyLabel } from "@/app/lib/account-requests.shared";
 
-type EventType = HorodateurEventType;
-
-type HorodateurEvent = {
-  id: string;
-  user_id: string;
-  event_type: EventType;
-  occurred_at: string;
-  source_module: string;
-  livraison_id: number | null;
-  dossier_id: number | null;
-  sortie_id: number | null;
-  notes: string | null;
-  company_context: AccountRequestCompany | null;
-  metadata: Record<string, unknown>;
+type EmployeeSnapshot = {
+  employee: {
+    employeeId: number;
+    fullName: string | null;
+    email: string | null;
+    primaryCompany: "oliem_solutions" | "titan_produits_industriels" | null;
+  };
+  currentState: {
+    current_state: string;
+    last_event_at: string | null;
+    last_event_type: string | null;
+    has_open_exception: boolean;
+  };
+  todayShift: {
+    work_date: string;
+    worked_minutes: number;
+    payable_minutes: number;
+    paid_break_minutes: number;
+    unpaid_break_minutes: number;
+    unpaid_lunch_minutes: number;
+    pending_exception_minutes: number;
+    approved_exception_minutes: number;
+    anomalies_count: number;
+    status: string;
+  };
+  weeklyProjection: {
+    workedMinutes: number;
+    targetMinutes: number;
+    remainingMinutes: number;
+    projectedOverflowMinutes: number;
+  };
+  pendingExceptions: Array<{
+    id: string;
+    exception_type: string;
+    reason_label: string;
+    details: string | null;
+    impact_minutes: number;
+    status: string;
+  }>;
 };
 
-type DossierOption = {
-  id: number;
-  nom: string | null;
-  client: string | null;
+type HistoryPayload = {
+  workDate: string;
+  events: Array<{
+    id: string;
+    occurred_at: string;
+    event_type: string;
+    status: string;
+    notes: string | null;
+  }>;
+  exceptions: Array<{
+    id: string;
+    exception_type: string;
+    reason_label: string;
+    impact_minutes: number;
+    status: string;
+    details: string | null;
+  }>;
 };
 
-type LivraisonOption = {
-  id: number;
-  date_livraison: string | null;
-  heure_prevue: string | null;
-  client: string | null;
-  dossier_id: number | null;
-};
-
-type PunchState = "hors_quart" | "en_quart" | "en_pause" | "en_sortie" | "termine";
-type BreakConfig = {
-  expected_breaks_count: number | null;
-  break_1_label: string | null;
-  break_1_minutes: number | null;
-  break_1_paid: boolean | null;
-  break_2_label: string | null;
-  break_2_minutes: number | null;
-  break_2_paid: boolean | null;
-  break_3_label: string | null;
-  break_3_minutes: number | null;
-  break_3_paid: boolean | null;
-};
+const EMPLOYEE_ACTIONS = [
+  { eventType: "quart_debut", label: "Entree" },
+  { eventType: "pause_debut", label: "Debut pause" },
+  { eventType: "pause_fin", label: "Fin pause" },
+  { eventType: "dinner_debut", label: "Debut diner" },
+  { eventType: "dinner_fin", label: "Fin diner" },
+  { eventType: "quart_fin", label: "Sortie" },
+] as const;
 
 function formatDateTime(value: string | null | undefined) {
   if (!value) return "-";
   return new Date(value).toLocaleString("fr-CA");
 }
 
-function startOfTodayIso() {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, "0");
-  const day = String(now.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}T00:00:00`;
-}
-
-function diffMinutes(aIso: string, bIso: string) {
-  const a = new Date(aIso).getTime();
-  const b = new Date(bIso).getTime();
-  return Math.max(0, Math.floor((b - a) / 60000));
-}
-
 function formatMinutes(totalMinutes: number) {
-  const h = Math.floor(totalMinutes / 60);
-  const m = totalMinutes % 60;
-  return `${h}h ${String(m).padStart(2, "0")}m`;
-}
-
-function getEventLabel(type: EventType) {
-  if (type === "quart_debut") return "Debut du quart";
-  if (type === "pause_debut") return "Debut pause";
-  if (type === "pause_fin") return "Fin pause";
-  if (type === "sortie_depart") return "Depart sortie";
-  if (type === "sortie_retour") return "Retour sortie";
-  if (type === "quart_fin") return "Fin du quart";
-  return "Anomalie";
-}
-
-function computeState(events: HorodateurEvent[]) {
-  let state: PunchState = "hors_quart";
-
-  for (const event of events) {
-    if (event.event_type === "quart_debut") {
-      state = "en_quart";
-      continue;
-    }
-
-    if (event.event_type === "pause_debut" && state === "en_quart") {
-      state = "en_pause";
-      continue;
-    }
-
-    if (event.event_type === "pause_fin" && state === "en_pause") {
-      state = "en_quart";
-      continue;
-    }
-
-    if (event.event_type === "sortie_depart" && state === "en_quart") {
-      state = "en_sortie";
-      continue;
-    }
-
-    if (event.event_type === "sortie_retour" && state === "en_sortie") {
-      state = "en_quart";
-      continue;
-    }
-
-    if (event.event_type === "quart_fin") {
-      state = "termine";
-    }
-  }
-
-  return state;
-}
-
-function computeWorkedMinutes(events: HorodateurEvent[]) {
-  const nowIso = new Date().toISOString();
-  let startedAt: string | null = null;
-  let pauseStartedAt: string | null = null;
-  let total = 0;
-
-  for (const event of events) {
-    if (event.event_type === "quart_debut" && !startedAt) {
-      startedAt = event.occurred_at;
-      continue;
-    }
-
-    if (event.event_type === "pause_debut" && startedAt && !pauseStartedAt) {
-      total += diffMinutes(startedAt, event.occurred_at);
-      startedAt = null;
-      pauseStartedAt = event.occurred_at;
-      continue;
-    }
-
-    if (event.event_type === "pause_fin" && pauseStartedAt) {
-      pauseStartedAt = null;
-      startedAt = event.occurred_at;
-      continue;
-    }
-
-    if (event.event_type === "quart_fin") {
-      if (startedAt) {
-        total += diffMinutes(startedAt, event.occurred_at);
-      }
-      startedAt = null;
-      pauseStartedAt = null;
-    }
-  }
-
-  if (startedAt) {
-    total += diffMinutes(startedAt, nowIso);
-  }
-
-  return total;
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  return `${hours}h ${String(minutes).padStart(2, "0")}m`;
 }
 
 export default function EmployeHorodateurPage() {
   const router = useRouter();
-  const { user, loading: accessLoading, hasPermission, companyAccess } =
-    useCurrentAccess();
+  const { user, loading: accessLoading, hasPermission } = useCurrentAccess();
   const canUseTerrain = hasPermission("terrain");
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [events, setEvents] = useState<HorodateurEvent[]>([]);
-  const [feedback, setFeedback] = useState("");
-  const [dossiers, setDossiers] = useState<DossierOption[]>([]);
-  const [livraisons, setLivraisons] = useState<LivraisonOption[]>([]);
-  const [breakConfig, setBreakConfig] = useState<BreakConfig | null>(null);
+  const [message, setMessage] = useState("");
+  const [note, setNote] = useState("");
+  const [snapshot, setSnapshot] = useState<EmployeeSnapshot | null>(null);
+  const [history, setHistory] = useState<HistoryPayload | null>(null);
 
-  const [selectedDossierId, setSelectedDossierId] = useState("");
-  const [selectedLivraisonId, setSelectedLivraisonId] = useState("");
-  const [sortieNotes, setSortieNotes] = useState("");
-  const [companyContext, setCompanyContext] = useState<AccountRequestCompany | "">("");
-  const resolvedCompanyContext =
-    companyContext || companyAccess.primaryCompany || "";
+  const currentStateLabel = useMemo(() => {
+    const value = snapshot?.currentState.current_state ?? "hors_quart";
 
-  const state = useMemo(() => computeState(events), [events]);
-  const lastEvent = useMemo(() => (events.length > 0 ? events[events.length - 1] : null), [events]);
-  const workedMinutes = useMemo(() => computeWorkedMinutes(events), [events]);
-  const configuredBreaks = useMemo(
-    () =>
-      breakConfig
-        ? [
-            {
-              label: breakConfig.break_1_label || "Pause 1",
-              minutes: breakConfig.break_1_minutes ?? 0,
-              paid: breakConfig.break_1_paid ?? true,
-            },
-            {
-              label: breakConfig.break_2_label || "Pause 2",
-              minutes: breakConfig.break_2_minutes ?? 0,
-              paid: breakConfig.break_2_paid ?? true,
-            },
-            {
-              label: breakConfig.break_3_label || "Pause 3",
-              minutes: breakConfig.break_3_minutes ?? 0,
-              paid: breakConfig.break_3_paid ?? true,
-            },
-          ].filter((item) => item.minutes > 0)
-        : [],
-    [breakConfig]
-  );
-  const totalConfiguredBreakMinutes = useMemo(
-    () => configuredBreaks.reduce((sum, item) => sum + item.minutes, 0),
-    [configuredBreaks]
-  );
-  const totalConfiguredUnpaidBreakMinutes = useMemo(
-    () =>
-      configuredBreaks.reduce(
-        (sum, item) => sum + (!item.paid ? item.minutes : 0),
-        0
-      ),
-    [configuredBreaks]
-  );
-  const pauseCountToday = useMemo(
-    () => events.filter((event) => event.event_type === "pause_debut").length,
-    [events]
-  );
-  const anomalies = useMemo(() => {
-    const next: string[] = [];
+    if (value === "en_quart") return "En quart";
+    if (value === "en_pause") return "En pause";
+    if (value === "en_diner") return "En diner";
+    if (value === "termine") return "Quart termine";
+    return "Hors quart";
+  }, [snapshot?.currentState.current_state]);
 
-    if (state === "en_quart") {
-      next.push("Quart en cours sans fin de quart pour l instant.");
-    }
+  const loadData = useCallback(async () => {
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
 
-    if (state === "en_pause") {
-      next.push("Pause en cours: fin de pause attendue.");
-    }
-
-    if (state === "en_sortie") {
-      next.push("Sortie en cours: retour sortie attendu.");
-    }
-
-    if (
-      breakConfig?.expected_breaks_count != null &&
-      breakConfig.expected_breaks_count > 0 &&
-      pauseCountToday > breakConfig.expected_breaks_count
-    ) {
-      next.push("Nombre de pauses autorise depasse.");
-    }
-
-    return next;
-  }, [breakConfig?.expected_breaks_count, pauseCountToday, state]);
-
-  async function loadEvents(userId: string) {
-    const { data, error } = await supabase
-      .from("horodateur_events")
-      .select("id, user_id, event_type, occurred_at, source_module, livraison_id, dossier_id, sortie_id, notes, company_context, metadata")
-      .eq("user_id", userId)
-      .gte("occurred_at", startOfTodayIso())
-      .order("occurred_at", { ascending: true });
-
-    if (error) {
-      setEvents([]);
-      setFeedback(buildHorodateurLoadError(error, "employe"));
+    if (!session?.access_token) {
+      setLoading(false);
       return;
     }
 
-    setEvents((data ?? []) as HorodateurEvent[]);
-  }
+    setLoading(true);
 
-  useEffect(() => {
-    async function init() {
-      if (accessLoading) return;
-      if (!user) {
-        router.push("/employe/login");
-        return;
+    try {
+      const [snapshotResponse, historyResponse] = await Promise.all([
+        fetch("/api/horodateur/me", {
+          headers: {
+            Authorization: `Bearer ${session.access_token}`,
+          },
+        }),
+        fetch("/api/horodateur/me/history", {
+          headers: {
+            Authorization: `Bearer ${session.access_token}`,
+          },
+        }),
+      ]);
+
+      const snapshotPayload = await snapshotResponse.json();
+      const historyPayload = await historyResponse.json();
+
+      if (!snapshotResponse.ok) {
+        throw new Error(snapshotPayload.error ?? "Impossible de charger l horodateur.");
       }
 
-      setLoading(true);
-      setFeedback("");
+      if (!historyResponse.ok) {
+        throw new Error(historyPayload.error ?? "Impossible de charger l historique.");
+      }
 
-      const loadContext = async () => {
-        if (!canUseTerrain) {
-          setDossiers([]);
-          setLivraisons([]);
-          return;
-        }
-
-        const [{ data: dossiersData }, { data: livraisonsData }] = await Promise.all([
-          supabase.from("dossiers").select("id, nom, client").eq("user_id", user.id).order("id", { ascending: false }).limit(50),
-          supabase
-            .from("livraisons_planifiees")
-            .select("id, date_livraison, heure_prevue, client, dossier_id")
-            .gte("date_livraison", new Date().toISOString().slice(0, 10))
-            .order("date_livraison", { ascending: true })
-            .limit(30),
-        ]);
-
-        setDossiers((dossiersData ?? []) as DossierOption[]);
-        setLivraisons((livraisonsData ?? []) as LivraisonOption[]);
-      };
-      const loadBreakConfig = async () => {
-        const chauffeurId = Number(
-          user.app_metadata?.chauffeur_id ?? user.user_metadata?.chauffeur_id ?? NaN
-        );
-
-        if (!Number.isFinite(chauffeurId)) {
-          setBreakConfig(null);
-          return;
-        }
-
-        const { data } = await supabase
-          .from("chauffeurs")
-          .select(
-            "expected_breaks_count, break_1_label, break_1_minutes, break_1_paid, break_2_label, break_2_minutes, break_2_paid, break_3_label, break_3_minutes, break_3_paid"
-          )
-          .eq("id", chauffeurId)
-          .maybeSingle<BreakConfig>();
-
-        setBreakConfig(data ?? null);
-      };
-
-      await Promise.all([loadEvents(user.id), loadContext(), loadBreakConfig()]);
+      setSnapshot(snapshotPayload.snapshot);
+      setHistory({
+        workDate: historyPayload.workDate,
+        events: Array.isArray(historyPayload.events) ? historyPayload.events : [],
+        exceptions: Array.isArray(historyPayload.exceptions)
+          ? historyPayload.exceptions
+          : [],
+      });
+      setMessage("");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Erreur de chargement.");
+    } finally {
       setLoading(false);
     }
+  }, []);
 
-    void init();
-  }, [accessLoading, canUseTerrain, router, user]);
-
-  async function insertHorodateurEvent(
-    userId: string,
-    eventType: EventType,
-    options?: {
-      notes?: string;
-      dossierId?: number | null;
-      livraisonId?: number | null;
-      sortieId?: number | null;
-      metadata?: Record<string, unknown>;
-      sourceModule?: string;
-      companyContext?: AccountRequestCompany | null;
+  useEffect(() => {
+    if (accessLoading) {
+      return;
     }
-  ) {
-    const { error } = await supabase.from("horodateur_events").insert([
-      {
-        user_id: userId,
-        event_type: eventType,
-        occurred_at: new Date().toISOString(),
-        source_module: options?.sourceModule ?? "horodateur",
-        dossier_id: options?.dossierId ?? null,
-        livraison_id: options?.livraisonId ?? null,
-        sortie_id: options?.sortieId ?? null,
-        notes: options?.notes ?? null,
-        company_context:
-          options?.companyContext ??
-          (resolvedCompanyContext ? resolvedCompanyContext : null),
-        metadata: options?.metadata ?? {},
-      },
-    ]);
 
-    return error;
-  }
-
-  async function logAnomaly(userId: string, message: string) {
-    await insertHorodateurEvent(userId, "anomalie", {
-      notes: message,
-      metadata: { level: "warning" },
-    });
-  }
-
-  async function handleAction(action: EventType) {
     if (!user) {
       router.push("/employe/login");
       return;
     }
 
-    if (!resolvedCompanyContext) {
-      setFeedback("Choisissez une compagnie avant d enregistrer un pointage.");
+    if (!canUseTerrain) {
+      setLoading(false);
       return;
     }
 
-    const allowed =
-      (state === "hors_quart" && action === "quart_debut") ||
-      (state === "en_quart" &&
-        [
-          "pause_debut",
-          ...(canUseTerrain ? ["sortie_depart"] : []),
-          "quart_fin",
-        ].includes(action)) ||
-      (state === "en_pause" && action === "pause_fin") ||
-      (state === "en_sortie" && action === "sortie_retour");
+    void loadData();
+  }, [accessLoading, canUseTerrain, loadData, router, user]);
 
-    if (!allowed) {
-      const msg = "Action impossible selon votre etat courant.";
-      setFeedback(msg);
-      await logAnomaly(user.id, msg);
-      await loadEvents(user.id);
+  async function handlePunch(eventType: string) {
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+
+    if (!session?.access_token) {
       return;
     }
 
     setSaving(true);
-    setFeedback("");
+    setMessage("");
 
-    if (
-      action === "pause_debut" &&
-      breakConfig?.expected_breaks_count != null &&
-      breakConfig.expected_breaks_count > 0 &&
-      pauseCountToday >= breakConfig.expected_breaks_count
-    ) {
-      await logAnomaly(user.id, "Nombre de pauses autorise depasse.");
-    }
-
-    if (action === "sortie_depart") {
-      const dossierId = selectedDossierId ? Number(selectedDossierId) : null;
-      const livraisonId = selectedLivraisonId ? Number(selectedLivraisonId) : null;
-      const dossier = dossierId ? dossiers.find((d) => d.id === dossierId) : null;
-
-      const { data: sortieData, error: sortieInsertError } = await supabase
-        .from("sorties_terrain")
-        .insert([
-          {
-            user_id: user.id,
-            dossier_id: dossierId,
-            dossier: dossier?.nom || null,
-            livraison_id: livraisonId,
-            company_context: resolvedCompanyContext || null,
-            date_sortie: new Date().toISOString().slice(0, 10),
-            heure_depart: new Date().toISOString(),
-            statut: "en_cours",
-            notes: sortieNotes.trim() || null,
-          },
-        ])
-        .select("id")
-        .single();
-
-      if (sortieInsertError) {
-        setFeedback("Impossible de demarrer la sortie terrain.");
-        setSaving(false);
-        return;
-      }
-
-      const insertError = await insertHorodateurEvent(user.id, "sortie_depart", {
-        dossierId,
-        livraisonId,
-        sortieId: Number(sortieData.id),
-        notes: sortieNotes.trim() || undefined,
-        metadata: { user_email: user.email ?? null },
-        companyContext: resolvedCompanyContext || null,
+    try {
+      const response = await fetch("/api/horodateur/punch", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          eventType,
+          note: note.trim() || null,
+          companyContext: snapshot?.employee.primaryCompany ?? null,
+        }),
       });
 
-      if (insertError) {
-        setFeedback("Sortie demarree mais evenement horodateur non enregistre.");
+      const payload = await response.json();
+
+      if (!response.ok) {
+        throw new Error(payload.error ?? "Impossible d enregistrer ce pointage.");
       }
 
-      setSelectedDossierId("");
-      setSelectedLivraisonId("");
-      setSortieNotes("");
-      await loadEvents(user.id);
+      setNote("");
+      setMessage(
+        payload.exception
+          ? "Pointage enregistre avec exception en attente d approbation."
+          : "Pointage enregistre."
+      );
+      await loadData();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Erreur de pointage.");
+    } finally {
       setSaving(false);
-      return;
     }
-
-    if (action === "sortie_retour") {
-      const { data: activeSortie, error: activeSortieError } = await supabase
-        .from("sorties_terrain")
-        .select("id, heure_depart, livraison_id, dossier_id")
-        .eq("user_id", user.id)
-        .eq("statut", "en_cours")
-        .order("id", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-
-      if (activeSortieError || !activeSortie) {
-        const msg = "Aucune sortie en cours a cloturer.";
-        setFeedback(msg);
-        await logAnomaly(user.id, msg);
-        await loadEvents(user.id);
-        setSaving(false);
-        return;
-      }
-
-      const nowIso = new Date().toISOString();
-      const startMs = activeSortie.heure_depart ? new Date(activeSortie.heure_depart).getTime() : Date.now();
-      const diffMin = Math.max(0, Math.floor((Date.now() - startMs) / 60000));
-      const totalText = `${Math.floor(diffMin / 60)}h ${String(diffMin % 60).padStart(2, "0")}m`;
-
-      const { error: sortieUpdateError } = await supabase
-        .from("sorties_terrain")
-        .update({
-          heure_retour: nowIso,
-          temps_total: totalText,
-          statut: "terminee",
-        })
-        .eq("id", activeSortie.id)
-        .eq("user_id", user.id);
-
-      if (sortieUpdateError) {
-        setFeedback("Impossible de terminer la sortie terrain.");
-        setSaving(false);
-        return;
-      }
-
-      const insertError = await insertHorodateurEvent(user.id, "sortie_retour", {
-        dossierId: activeSortie.dossier_id,
-        livraisonId: activeSortie.livraison_id,
-        sortieId: Number(activeSortie.id),
-        metadata: { user_email: user.email ?? null },
-        companyContext: resolvedCompanyContext || null,
-      });
-
-      if (insertError) {
-        setFeedback("Sortie terminee mais evenement horodateur non enregistre.");
-      }
-
-      await loadEvents(user.id);
-      setSaving(false);
-      return;
-    }
-
-    const insertError = await insertHorodateurEvent(user.id, action, {
-      metadata: { user_email: user.email ?? null },
-      companyContext: resolvedCompanyContext || null,
-    });
-
-    if (insertError) {
-      setFeedback("Impossible d enregistrer cette action horodateur.");
-      setSaving(false);
-      return;
-    }
-
-    await loadEvents(user.id);
-    setSaving(false);
   }
-
-  const statusLabel =
-    state === "hors_quart"
-      ? "Hors quart"
-      : state === "en_quart"
-        ? "En quart"
-        : state === "en_pause"
-          ? "En pause"
-          : state === "en_sortie"
-            ? "En sortie"
-            : "Quart termine";
 
   if (accessLoading || loading) {
     return (
       <main className="page-container">
-        <HeaderTagora title="Horodateur" subtitle="Pointage" />
+        <HeaderTagora title="Horodateur" subtitle="" />
         <AccessNotice description="Chargement en cours." />
+      </main>
+    );
+  }
+
+  if (!canUseTerrain) {
+    return (
+      <main className="page-container">
+        <HeaderTagora title="Horodateur" subtitle="" />
+        <AccessNotice description="La permission terrain est requise pour utiliser l horodateur." />
       </main>
     );
   }
 
   return (
     <main className="page-container">
-      <HeaderTagora title="Horodateur" subtitle="Pointage" />
+      <HeaderTagora title="Horodateur" subtitle="" />
 
-      {feedback ? <AccessNotice title="Attention" description={feedback} /> : null}
+      {message ? <AccessNotice title="Information" description={message} /> : null}
 
       <section className="tagora-panel" style={{ marginTop: 24 }}>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 16 }}>
           <div className="tagora-panel-muted">
-            <div className="tagora-label">Statut courant</div>
-            <div style={{ marginTop: 8, fontSize: 22, fontWeight: 800, color: "#0f2948" }}>{statusLabel}</div>
+            <div className="tagora-label">Etat actuel</div>
+            <div style={{ marginTop: 8, fontSize: 24, fontWeight: 800 }}>{currentStateLabel}</div>
           </div>
           <div className="tagora-panel-muted">
-            <div className="tagora-label">Derniere action</div>
-            <div style={{ marginTop: 8, fontSize: 16, fontWeight: 700 }}>{lastEvent ? getEventLabel(lastEvent.event_type) : "Aucune"}</div>
-            <div className="tagora-note" style={{ marginTop: 4 }}>{formatDateTime(lastEvent?.occurred_at)}</div>
-          </div>
-          <div className="tagora-panel-muted">
-            <div className="tagora-label">Temps travaille aujourd hui</div>
-            <div style={{ marginTop: 8, fontSize: 22, fontWeight: 800, color: "#0f2948" }}>{formatMinutes(workedMinutes)}</div>
-          </div>
-          <div className="tagora-panel-muted">
-            <div className="tagora-label">Compagnie active</div>
-            <div style={{ marginTop: 8, fontSize: 18, fontWeight: 700, color: "#0f2948" }}>
-              {resolvedCompanyContext
-                ? getCompanyLabel(resolvedCompanyContext)
-                : "Choisir une compagnie"}
+            <div className="tagora-label">Compagnie</div>
+            <div style={{ marginTop: 8, fontSize: 18, fontWeight: 700 }}>
+              {getCompanyLabel(snapshot?.employee.primaryCompany)}
             </div>
           </div>
           <div className="tagora-panel-muted">
-            <div className="tagora-label">Pauses autorisees</div>
-            <div style={{ marginTop: 8, fontSize: 22, fontWeight: 800, color: "#0f2948" }}>
-              {breakConfig?.expected_breaks_count ?? 0}
+            <div className="tagora-label">Temps paye aujourd hui</div>
+            <div style={{ marginTop: 8, fontSize: 24, fontWeight: 800 }}>
+              {formatMinutes(snapshot?.todayShift.payable_minutes ?? 0)}
             </div>
           </div>
           <div className="tagora-panel-muted">
-            <div className="tagora-label">Pauses non payees prevues</div>
-            <div style={{ marginTop: 8, fontSize: 22, fontWeight: 800, color: "#0f2948" }}>
-              {totalConfiguredUnpaidBreakMinutes} min
+            <div className="tagora-label">Progression semaine</div>
+            <div style={{ marginTop: 8, fontSize: 24, fontWeight: 800 }}>
+              {formatMinutes(snapshot?.weeklyProjection.workedMinutes ?? 0)}
+            </div>
+          </div>
+          <div className="tagora-panel-muted">
+            <div className="tagora-label">Restant avant 40 h</div>
+            <div style={{ marginTop: 8, fontSize: 24, fontWeight: 800 }}>
+              {formatMinutes(snapshot?.weeklyProjection.remainingMinutes ?? 0)}
+            </div>
+          </div>
+          <div className="tagora-panel-muted">
+            <div className="tagora-label">Depassement projete</div>
+            <div style={{ marginTop: 8, fontSize: 24, fontWeight: 800 }}>
+              {formatMinutes(snapshot?.weeklyProjection.projectedOverflowMinutes ?? 0)}
             </div>
           </div>
         </div>
       </section>
 
       <section className="tagora-panel" style={{ marginTop: 24 }}>
-        <h2 className="section-title" style={{ marginBottom: 10 }}>Pauses autorisees</h2>
-        {configuredBreaks.length === 0 ? (
-          <p className="tagora-note">Aucune pause configuree.</p>
-        ) : (
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 16 }}>
-            {configuredBreaks.map((item) => (
-              <div key={`${item.label}-${item.minutes}-${item.paid ? "paid" : "unpaid"}`} className="tagora-panel-muted">
-                <div className="tagora-label">{item.label}</div>
-                <div style={{ marginTop: 8, fontSize: 18, fontWeight: 700, color: "#0f2948" }}>
-                  {item.minutes} min
-                </div>
-                <div className="tagora-note" style={{ marginTop: 6 }}>
-                  {item.paid ? "Payee" : "Non payee"}
-                </div>
-              </div>
-            ))}
-            <div className="tagora-panel-muted">
-              <div className="tagora-label">Total theorique</div>
-              <div style={{ marginTop: 8, fontSize: 18, fontWeight: 700, color: "#0f2948" }}>
-                {totalConfiguredBreakMinutes} min
-              </div>
-              <div className="tagora-note" style={{ marginTop: 6 }}>
-                Non paye: {totalConfiguredUnpaidBreakMinutes} min
-              </div>
-            </div>
-          </div>
-        )}
-      </section>
-
-      <section className="tagora-panel" style={{ marginTop: 24 }}>
-        <h2 className="section-title" style={{ marginBottom: 10 }}>Actions</h2>
-
-        <div className="tagora-panel-muted" style={{ marginBottom: 16 }}>
-          <label className="tagora-field" style={{ marginBottom: 0 }}>
-            <span className="tagora-label">Contexte compagnie</span>
-            <select
-              className="tagora-input"
-              value={resolvedCompanyContext}
-              onChange={(e) =>
-                setCompanyContext(e.target.value as AccountRequestCompany | "")
+        <h2 className="section-title" style={{ marginBottom: 12 }}>Pointage</h2>
+        <label className="tagora-field" style={{ marginBottom: 16 }}>
+          <span className="tagora-label">Note optionnelle</span>
+          <textarea
+            className="tagora-textarea"
+            value={note}
+            onChange={(event) => setNote(event.target.value)}
+            placeholder="Ajoutez une note si necessaire"
+          />
+        </label>
+        <div className="actions-row">
+          {EMPLOYEE_ACTIONS.map((action) => (
+            <button
+              key={action.eventType}
+              type="button"
+              className={
+                action.eventType === "quart_debut" || action.eventType === "quart_fin"
+                  ? "tagora-dark-action"
+                  : "tagora-dark-outline-action"
               }
+              onClick={() => void handlePunch(action.eventType)}
+              disabled={saving}
             >
-              <option value="">Choisir une compagnie</option>
-              {companyAccess.allowedCompanies.map((company) => (
-                <option key={company} value={company}>
-                  {getCompanyLabel(company)}
-                </option>
-              ))}
-            </select>
-          </label>
+              {action.label}
+            </button>
+          ))}
         </div>
-
-        {state === "hors_quart" && (
-          <button className="tagora-dark-action" onClick={() => void handleAction("quart_debut")} disabled={saving}>
-            {saving ? "Debut du quart..." : "Debut du quart"}
-          </button>
-        )}
-
-        {state === "en_quart" && (
-          <div className="actions-row">
-            <button className="tagora-dark-action" onClick={() => void handleAction("pause_debut")} disabled={saving}>
-              Debut pause
-            </button>
-            {canUseTerrain ? (
-              <button className="tagora-navy-action" onClick={() => void handleAction("sortie_depart")} disabled={saving}>
-                Depart sortie
-              </button>
-            ) : null}
-            <button className="tagora-dark-outline-action" onClick={() => void handleAction("quart_fin")} disabled={saving}>
-              Fin du quart
-            </button>
-          </div>
-        )}
-
-        {state === "en_pause" && (
-          <button className="tagora-dark-action" onClick={() => void handleAction("pause_fin")} disabled={saving}>
-            Fin pause
-          </button>
-        )}
-
-        {state === "en_sortie" && (
-          <button className="tagora-dark-action" onClick={() => void handleAction("sortie_retour")} disabled={saving}>
-            Retour sortie
-          </button>
-        )}
-
-        {state === "termine" && (
-          <AccessNotice title="Quart termine" description="Aucun pointage possible." />
-        )}
-
-        {state === "en_quart" && canUseTerrain ? (
-          <div className="tagora-panel-muted" style={{ marginTop: 16 }}>
-            <h3 className="section-title" style={{ fontSize: 18, marginBottom: 10 }}>Contexte sortie</h3>
-            <div className="tagora-form-grid">
-              <label className="tagora-field">
-                <span className="tagora-label">Livraison liee</span>
-                <select className="tagora-input" value={selectedLivraisonId} onChange={(e) => setSelectedLivraisonId(e.target.value)}>
-                  <option value="">Aucune livraison</option>
-                  {livraisons.map((item) => (
-                    <option key={item.id} value={item.id}>
-                      #{item.id} - {item.client || "Sans client"} - {item.date_livraison || "-"}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              <label className="tagora-field">
-                <span className="tagora-label">Dossier lie</span>
-                <select className="tagora-input" value={selectedDossierId} onChange={(e) => setSelectedDossierId(e.target.value)}>
-                  <option value="">Aucun dossier</option>
-                  {dossiers.map((item) => (
-                    <option key={item.id} value={item.id}>
-                      #{item.id} - {item.nom || "Sans nom"}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              <label className="tagora-field" style={{ gridColumn: "1 / -1" }}>
-                  <span className="tagora-label">Notes</span>
-                <textarea className="tagora-textarea" value={sortieNotes} onChange={(e) => setSortieNotes(e.target.value)} />
-              </label>
-            </div>
-          </div>
-        ) : null}
-
-        {state === "en_quart" && !canUseTerrain ? (
-          <p className="tagora-note" style={{ marginTop: 16 }}>
-            Sorties masquees.
-          </p>
-        ) : null}
       </section>
 
       <section className="tagora-panel" style={{ marginTop: 24 }}>
-        <h2 className="section-title" style={{ marginBottom: 10 }}>Anomalies V1</h2>
-        {anomalies.length === 0 ? (
-          <p className="tagora-note">Aucune anomalie.</p>
-        ) : (
-          <ul style={{ margin: 0, paddingLeft: 18 }}>
-            {anomalies.map((item) => (
-              <li key={item} className="tagora-note" style={{ marginBottom: 6 }}>{item}</li>
+        <h2 className="section-title" style={{ marginBottom: 12 }}>Exceptions en attente</h2>
+        {snapshot?.pendingExceptions.length ? (
+          <div style={{ display: "grid", gap: 12 }}>
+            {snapshot.pendingExceptions.map((item) => (
+              <div key={item.id} className="tagora-panel-muted">
+                <div className="tagora-label">{item.reason_label}</div>
+                <div style={{ marginTop: 6, fontWeight: 700 }}>{item.exception_type}</div>
+                <div className="tagora-note" style={{ marginTop: 6 }}>
+                  Impact estime: {formatMinutes(item.impact_minutes)}
+                </div>
+                {item.details ? (
+                  <div className="tagora-note" style={{ marginTop: 4 }}>
+                    {item.details}
+                  </div>
+                ) : null}
+              </div>
             ))}
-          </ul>
+          </div>
+        ) : (
+          <p className="tagora-note">Aucune exception en attente.</p>
         )}
       </section>
 
       <section className="tagora-panel" style={{ marginTop: 24 }}>
-        <h2 className="section-title" style={{ marginBottom: 10 }}>Historique du jour</h2>
-        {events.length === 0 ? (
-          <p className="tagora-note">Aucun evenement.</p>
-        ) : (
+        <h2 className="section-title" style={{ marginBottom: 12 }}>Historique du jour</h2>
+        {history?.events.length ? (
           <div style={{ overflowX: "auto" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 780 }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 760 }}>
               <thead>
                 <tr style={{ background: "#f8fafc" }}>
                   <th style={thStyle}>Heure</th>
                   <th style={thStyle}>Evenement</th>
-                  <th style={thStyle}>Contexte</th>
+                  <th style={thStyle}>Statut</th>
                   <th style={thStyle}>Note</th>
                 </tr>
               </thead>
               <tbody>
-                {[...events].reverse().map((event) => (
+                {history.events.map((event) => (
                   <tr key={event.id}>
                     <td style={tdStyle}>{formatDateTime(event.occurred_at)}</td>
-                    <td style={tdStyle}>{getEventLabel(event.event_type)}</td>
-                    <td style={tdStyle}>
-                      {event.company_context ? `${getCompanyLabel(event.company_context)} / ` : ""}
-                      {event.livraison_id ? `Livraison #${event.livraison_id}` : "-"}
-                      {event.dossier_id ? ` / Dossier #${event.dossier_id}` : ""}
-                      {event.sortie_id ? ` / Sortie #${event.sortie_id}` : ""}
-                    </td>
+                    <td style={tdStyle}>{event.event_type}</td>
+                    <td style={tdStyle}>{event.status}</td>
                     <td style={tdStyle}>{event.notes || "-"}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
+        ) : (
+          <p className="tagora-note">Aucun evenement aujourd hui.</p>
         )}
       </section>
-
-      <div className="actions-row" style={{ marginTop: 24 }}>
-        <button className="tagora-dark-outline-action" onClick={() => router.push("/employe/dashboard")}>Retour</button>
-      </div>
     </main>
   );
 }

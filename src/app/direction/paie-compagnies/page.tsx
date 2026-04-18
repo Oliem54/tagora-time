@@ -347,7 +347,8 @@ export default function DirectionPayrollByCompanyPage() {
       <div className="page-container">
         <HeaderTagora
           title="Paie par compagnie"
-          subtitle="Ventilation des heures et des couts par compagnie"
+          subtitle=""
+          showNavigation={false}
         />
         <AccessNotice description="Verification des acces et chargement des donnees de paie en cours." />
       </div>
@@ -363,7 +364,8 @@ export default function DirectionPayrollByCompanyPage() {
       <div className="page-container">
         <HeaderTagora
           title="Paie par compagnie"
-          subtitle="Ventilation des heures et des couts par compagnie"
+          subtitle=""
+          showNavigation={false}
         />
         <AccessNotice description="La permission terrain n est pas active sur ce compte direction. L ecran paie par compagnie reste masque." />
       </div>
@@ -374,12 +376,13 @@ export default function DirectionPayrollByCompanyPage() {
     <div className="page-container">
       <HeaderTagora
         title="Paie par compagnie"
-        subtitle="Synthese par employe et par compagnie, avec export CSV compatible Excel"
+        subtitle=""
+        showNavigation={false}
       />
 
       {errorMessage ? (
         <div style={{ marginTop: 24 }}>
-          <AccessNotice title="Chargement limite" description={errorMessage} />
+          <AccessNotice title="Erreur" description={errorMessage} />
         </div>
       ) : null}
 
@@ -539,9 +542,6 @@ export default function DirectionPayrollByCompanyPage() {
           <h2 className="section-title" style={{ marginBottom: 14 }}>
             Totaux par employe
           </h2>
-          <p className="tagora-note" style={{ marginBottom: 16 }}>
-            Cette vue est prete pour un export CSV vers Excel par employe et par compagnie.
-          </p>
 
           <div style={{ overflowX: "auto" }}>
             <table style={tableStyle}>

@@ -200,7 +200,8 @@ export default function DirectionDashboardClient({
         <div className="tagora-app-content">
           <AuthenticatedPageHeader
             title="Tableau de bord direction"
-            subtitle="Vue d ensemble"
+            subtitle=""
+            showNavigation={false}
           />
           <SectionCard
             title="Chargement"
@@ -221,7 +222,8 @@ export default function DirectionDashboardClient({
       <div className="tagora-app-content ui-stack-lg">
         <AuthenticatedPageHeader
           title="Tableau de bord direction"
-          subtitle="Acces modules."
+          subtitle=""
+          showNavigation={false}
           actions={
             <div
               style={{

@@ -10,14 +10,14 @@ export default function FeedbackMessage({ message, type }: FeedbackMessageProps)
 
   const styles = {
     success: {
-      background: "#d1fae5", // vert pâle
-      color: "#065f46", // vert foncé
-      border: "1px solid #a7f3d0",
+      background: "#e8f7ee",
+      color: "#1f8f54",
+      border: "1px solid #c9ecd5",
     },
     error: {
-      background: "#fee2e2", // rouge pâle
-      color: "#991b1b", // rouge foncé
-      border: "1px solid #fca5a5",
+      background: "#fdecec",
+      color: "#cf4a4a",
+      border: "1px solid #f6caca",
     },
   };
 
@@ -26,8 +26,9 @@ export default function FeedbackMessage({ message, type }: FeedbackMessageProps)
       style={{
         marginTop: 18,
         padding: "12px 14px",
-        borderRadius: 12,
-        fontSize: 14,
+        borderRadius: 14,
+        fontSize: 13,
+        boxShadow: "0 6px 18px rgba(15, 23, 42, 0.04)",
         ...styles[type],
       }}
     >

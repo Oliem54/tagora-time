@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import FeedbackMessage from "@/app/components/FeedbackMessage";
 import HeaderTagora from "@/app/components/HeaderTagora";
+import { DataTable, DataTableCell, DataTableRow } from "@/app/components/ui/DataTable";
+import StatusBadge from "@/app/components/ui/StatusBadge";
 import {
   getCompanyLabel,
   type AccountRequestCompany,
@@ -174,84 +176,59 @@ export default function Page() {
               </p>
             </div>
           ) : (
-            <div style={{ overflowX: "auto" }}>
-              <table style={tableStyle}>
-                <thead>
-                  <tr>
-                    <th style={thStyle}>ID</th>
-                    <th style={thStyle}>Nom</th>
-                    <th style={thStyle}>Courriel</th>
-                    <th style={thStyle}>Telephone</th>
-                    <th style={thStyle}>Compagnie</th>
-                    <th style={thStyle}>Statut</th>
-                    <th style={thStyle}>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {employes.map((item) => (
-                    <tr key={item.id}>
-                      <td style={tdStyle}>#{item.id}</td>
-                      <td style={tdStyle}>{item.nom || "-"}</td>
-                      <td style={tdStyle}>{item.courriel || "-"}</td>
-                      <td style={tdStyle}>{item.telephone || "-"}</td>
-                      <td style={tdStyle}>
-                        {item.primary_company
-                          ? getCompanyLabel(item.primary_company)
-                          : "-"}
-                      </td>
-                      <td style={tdStyle}>{item.actif ? "Actif" : "Inactif"}</td>
-                      <td style={tdStyle}>
-                        <div style={actionsRowStyle}>
-                          <Link
-                            href={`/direction/ressources/employes/${item.id}`}
-                            className="tagora-dark-action"
-                          >
-                            Modifier profil
-                          </Link>
-                          <button
-                            type="button"
-                            className="tagora-btn-danger"
-                            onClick={() => void handleDelete(item.id)}
-                            disabled={deletingId === item.id}
-                          >
-                            {deletingId === item.id ? "Suppression..." : "Supprimer"}
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <DataTable
+              columns={[
+                { key: "id", label: "ID" },
+                { key: "nom", label: "Nom" },
+                { key: "courriel", label: "Courriel" },
+                { key: "telephone", label: "Telephone" },
+                { key: "compagnie", label: "Compagnie" },
+                { key: "statut", label: "Statut" },
+                { key: "actions", label: "Actions" },
+              ]}
+            >
+              {employes.map((item) => (
+                <DataTableRow key={item.id}>
+                  <DataTableCell>#{item.id}</DataTableCell>
+                  <DataTableCell>{item.nom || "-"}</DataTableCell>
+                  <DataTableCell>{item.courriel || "-"}</DataTableCell>
+                  <DataTableCell>{item.telephone || "-"}</DataTableCell>
+                  <DataTableCell>
+                    {item.primary_company ? getCompanyLabel(item.primary_company) : "-"}
+                  </DataTableCell>
+                  <DataTableCell>
+                    <StatusBadge
+                      label={item.actif ? "Actif" : "Inactif"}
+                      tone={item.actif ? "success" : "default"}
+                    />
+                  </DataTableCell>
+                  <DataTableCell>
+                    <div style={actionsRowStyle}>
+                      <Link
+                        href={`/direction/ressources/employes/${item.id}`}
+                        className="tagora-dark-action"
+                      >
+                        Modifier profil
+                      </Link>
+                      <button
+                        type="button"
+                        className="tagora-btn-danger"
+                        onClick={() => void handleDelete(item.id)}
+                        disabled={deletingId === item.id}
+                      >
+                        {deletingId === item.id ? "Suppression..." : "Supprimer"}
+                      </button>
+                    </div>
+                  </DataTableCell>
+                </DataTableRow>
+              ))}
+            </DataTable>
           )}
         </section>
       </div>
     </main>
   );
 }
-
-const tableStyle: React.CSSProperties = {
-  width: "100%",
-  minWidth: 980,
-  borderCollapse: "collapse",
-};
-
-const thStyle: React.CSSProperties = {
-  textAlign: "left",
-  padding: "14px 12px",
-  borderBottom: "1px solid #e5e7eb",
-  fontSize: 14,
-  color: "#475569",
-  background: "#f8fafc",
-};
-
-const tdStyle: React.CSSProperties = {
-  padding: "16px 12px",
-  borderBottom: "1px solid #e5e7eb",
-  verticalAlign: "top",
-  fontSize: 14,
-  color: "#0f172a",
-};
 
 const actionsRowStyle: React.CSSProperties = {
   display: "flex",

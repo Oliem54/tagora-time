@@ -9,7 +9,7 @@ export default function Page() {
       <div className="tagora-app-content ui-stack-lg" style={{ maxWidth: 1240 }}>
         <AuthenticatedPageHeader
           title="Ressources direction"
-          subtitle="Acces modules."
+          subtitle=""
         />
 
         <div className="ui-grid-auto">

@@ -1,0 +1,10 @@
+TAGORA Time - Activation de votre acces
+
+Bonjour,
+
+Un compte TAGORA Time a ete cree pour vous.
+
+Activez votre acces ici :
+{{ .ConfirmationURL }}
+
+TAGORA Time - Oliem Solutions

@@ -1,0 +1,296 @@
+import type { AccountRequestCompany } from "@/app/lib/account-requests.shared";
+
+export const HORODATEUR_PHASE1_EVENT_TYPES = [
+  "quart_debut",
+  "quart_fin",
+  "pause_debut",
+  "pause_fin",
+  "dinner_debut",
+  "dinner_fin",
+  "sortie_depart",
+  "sortie_retour",
+  "correction",
+  "exception",
+  "anomalie",
+] as const;
+
+export type HorodateurPhase1EventType =
+  (typeof HORODATEUR_PHASE1_EVENT_TYPES)[number];
+
+export const HORODATEUR_PHASE1_ACTOR_ROLES = [
+  "employe",
+  "direction",
+  "systeme",
+] as const;
+
+export type HorodateurPhase1ActorRole =
+  (typeof HORODATEUR_PHASE1_ACTOR_ROLES)[number];
+
+export const HORODATEUR_PHASE1_SOURCE_KINDS = [
+  "employe",
+  "direction",
+  "automatique",
+] as const;
+
+export type HorodateurPhase1SourceKind =
+  (typeof HORODATEUR_PHASE1_SOURCE_KINDS)[number];
+
+export const HORODATEUR_PHASE1_EVENT_STATUSES = [
+  "normal",
+  "en_attente",
+  "approuve",
+  "refuse",
+] as const;
+
+export type HorodateurPhase1EventStatus =
+  (typeof HORODATEUR_PHASE1_EVENT_STATUSES)[number];
+
+export const HORODATEUR_PHASE1_STATE_KINDS = [
+  "hors_quart",
+  "en_quart",
+  "en_pause",
+  "en_diner",
+  "termine",
+] as const;
+
+export type HorodateurPhase1StateKind =
+  (typeof HORODATEUR_PHASE1_STATE_KINDS)[number];
+
+export const HORODATEUR_PHASE1_SHIFT_STATUSES = [
+  "ouvert",
+  "ferme",
+  "en_attente",
+  "valide",
+] as const;
+
+export type HorodateurPhase1ShiftStatus =
+  (typeof HORODATEUR_PHASE1_SHIFT_STATUSES)[number];
+
+export const HORODATEUR_PHASE1_EXCEPTION_TYPES = [
+  "outside_schedule",
+  "direction_manual_correction",
+  "shift_too_long",
+  "incoherent_pause",
+  "incoherent_dinner",
+  "invalid_sequence",
+  "missing_punch_adjustment",
+] as const;
+
+export type HorodateurPhase1ExceptionType =
+  (typeof HORODATEUR_PHASE1_EXCEPTION_TYPES)[number];
+
+export const HORODATEUR_PHASE1_EXCEPTION_STATUSES = [
+  "en_attente",
+  "approuve",
+  "refuse",
+  "modifie",
+] as const;
+
+export type HorodateurPhase1ExceptionStatus =
+  (typeof HORODATEUR_PHASE1_EXCEPTION_STATUSES)[number];
+
+export type HorodateurPhase1EmployeeProfile = {
+  employeeId: number;
+  authUserId: string | null;
+  fullName: string | null;
+  email: string | null;
+  active: boolean;
+  primaryCompany: AccountRequestCompany | null;
+  scheduleStart: string | null;
+  scheduleEnd: string | null;
+  scheduledWorkDays: string[] | null;
+  plannedWeeklyHours: number | null;
+  pausePaid: boolean;
+  pauseMinutes: number;
+  lunchPaid: boolean;
+  lunchMinutes: number;
+  expectedBreaksCount: number | null;
+  toleranceBeforeStartMinutes: number;
+  toleranceAfterEndMinutes: number;
+  maxShiftMinutes: number;
+};
+
+export type HorodateurPhase1EventRecord = {
+  id: string;
+  employee_id: number;
+  event_type: HorodateurPhase1EventType;
+  occurred_at: string;
+  source_module: string;
+  company_context: AccountRequestCompany | null;
+  actor_user_id: string | null;
+  actor_role: HorodateurPhase1ActorRole;
+  source_kind: HorodateurPhase1SourceKind;
+  status: HorodateurPhase1EventStatus;
+  requires_approval: boolean;
+  exception_code: HorodateurPhase1ExceptionType | null;
+  approved_by: string | null;
+  approved_at: string | null;
+  rejected_by: string | null;
+  rejected_at: string | null;
+  approval_note: string | null;
+  related_event_id: string | null;
+  work_date: string;
+  week_start_date: string;
+  is_manual_correction: boolean;
+  notes: string | null;
+  metadata: Record<string, unknown>;
+  livraison_id: number | null;
+  dossier_id: number | null;
+  sortie_id: number | null;
+  created_at?: string;
+};
+
+export type HorodateurPhase1CurrentStateRecord = {
+  employee_id: number;
+  current_state: HorodateurPhase1StateKind;
+  active_shift_id: string | null;
+  active_shift_start_event_id: string | null;
+  active_pause_start_event_id: string | null;
+  active_dinner_start_event_id: string | null;
+  last_event_id: string | null;
+  last_event_type: HorodateurPhase1EventType | null;
+  last_event_at: string | null;
+  company_context: AccountRequestCompany | null;
+  has_open_exception: boolean;
+  created_at?: string;
+  updated_at?: string;
+};
+
+export type HorodateurPhase1ShiftRecord = {
+  id: string;
+  employee_id: number;
+  shift_start_event_id: string | null;
+  shift_end_event_id: string | null;
+  work_date: string;
+  week_start_date: string;
+  company_context: AccountRequestCompany | null;
+  shift_start_at: string | null;
+  shift_end_at: string | null;
+  gross_minutes: number;
+  paid_break_minutes: number;
+  unpaid_break_minutes: number;
+  unpaid_lunch_minutes: number;
+  worked_minutes: number;
+  payable_minutes: number;
+  approved_exception_minutes: number;
+  pending_exception_minutes: number;
+  anomalies: unknown;
+  anomalies_count: number;
+  status: HorodateurPhase1ShiftStatus;
+  last_recomputed_at: string;
+  created_at?: string;
+  updated_at?: string;
+};
+
+export type HorodateurPhase1ExceptionRecord = {
+  id: string;
+  employee_id: number;
+  shift_id: string | null;
+  source_event_id: string;
+  exception_type: HorodateurPhase1ExceptionType;
+  reason_label: string;
+  details: string | null;
+  impact_minutes: number;
+  status: HorodateurPhase1ExceptionStatus;
+  requested_at: string;
+  requested_by_user_id: string | null;
+  reviewed_at: string | null;
+  reviewed_by_user_id: string | null;
+  review_note: string | null;
+  approved_minutes: number | null;
+  created_at?: string;
+  updated_at?: string;
+};
+
+export type HorodateurPhase1DirectionLiveRow = {
+  employeeId: number;
+  fullName: string | null;
+  email: string | null;
+  primaryCompany: AccountRequestCompany | null;
+  currentState: HorodateurPhase1StateKind;
+  lastEventAt: string | null;
+  lastEventType: HorodateurPhase1EventType | null;
+  todayShift: HorodateurPhase1ShiftRecord | null;
+  weekWorkedMinutes: number;
+  weekTargetMinutes: number;
+  weekRemainingMinutes: number;
+  projectedOverflowMinutes: number;
+  hasOpenException: boolean;
+};
+
+export type HorodateurPhase1EmployeeDashboardSnapshot = {
+  employee: HorodateurPhase1EmployeeProfile;
+  currentState: HorodateurPhase1CurrentStateRecord;
+  todayShift: HorodateurPhase1ShiftRecord;
+  weeklyProjection: {
+    employeeId: number;
+    weekStartDate: string;
+    workedMinutes: number;
+    targetMinutes: number;
+    remainingMinutes: number;
+    projectedOverflowMinutes: number;
+    shiftCount: number;
+    primaryCompanyLabel: string;
+  };
+  pendingExceptions: HorodateurPhase1ExceptionRecord[];
+};
+
+export type HorodateurPhase1Classification = {
+  status: HorodateurPhase1EventStatus;
+  requiresApproval: boolean;
+  exceptionType: HorodateurPhase1ExceptionType | null;
+  reasonLabel: string | null;
+  details: string | null;
+};
+
+export type HorodateurPhase1ClassifyInput = {
+  employee: HorodateurPhase1EmployeeProfile;
+  currentState: HorodateurPhase1CurrentStateRecord | null;
+  latestApprovedEvents: HorodateurPhase1EventRecord[];
+  eventType: HorodateurPhase1EventType;
+  occurredAt: string;
+  actorRole: HorodateurPhase1ActorRole;
+  note?: string | null;
+  forcedExceptionType?: HorodateurPhase1ExceptionType | null;
+};
+
+export type HorodateurPhase1InsertEventInput = {
+  employeeId: number;
+  occurredAt: string;
+  eventType: HorodateurPhase1EventType;
+  actorUserId: string | null;
+  actorRole: HorodateurPhase1ActorRole;
+  sourceKind: HorodateurPhase1SourceKind;
+  companyContext: AccountRequestCompany;
+  sourceModule?: string;
+  note?: string | null;
+  metadata?: Record<string, unknown>;
+  relatedEventId?: string | null;
+  livraisonId?: number | null;
+  dossierId?: number | null;
+  sortieId?: number | null;
+  isManualCorrection?: boolean;
+  status: HorodateurPhase1EventStatus;
+  requiresApproval: boolean;
+  exceptionCode?: HorodateurPhase1ExceptionType | null;
+  approvalNote?: string | null;
+};
+
+export type HorodateurPhase1CreatePunchResult = {
+  event: HorodateurPhase1EventRecord;
+  exception: HorodateurPhase1ExceptionRecord | null;
+  currentState: HorodateurPhase1CurrentStateRecord;
+  shift: HorodateurPhase1ShiftRecord;
+};
+
+export class HorodateurPhase1Error extends Error {
+  code: string;
+  status: number;
+
+  constructor(message: string, options?: { code?: string; status?: number }) {
+    super(message);
+    this.name = "HorodateurPhase1Error";
+    this.code = options?.code ?? "horodateur_phase1_error";
+    this.status = options?.status ?? 400;
+  }
+}

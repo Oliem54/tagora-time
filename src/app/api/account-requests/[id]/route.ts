@@ -31,7 +31,6 @@ type AccountRequestAction =
   | "approve"
   | "refuse"
   | "update_access"
-  | "save_employee_profile"
   | "reset_pending"
   | "resend_invitation"
   | "disable_access"
@@ -42,7 +41,6 @@ function parseAction(value: unknown): AccountRequestAction | null {
     value === "approve" ||
     value === "refuse" ||
     value === "update_access" ||
-    value === "save_employee_profile" ||
     value === "reset_pending" ||
     value === "resend_invitation" ||
     value === "disable_access" ||
@@ -66,47 +64,6 @@ type EmployeeProfileInput = {
   actif?: unknown;
   notes?: unknown;
   primary_company?: unknown;
-  taux_base_titan?: unknown;
-  social_benefits_percent?: unknown;
-  titan_billable?: unknown;
-  schedule_start?: unknown;
-  schedule_end?: unknown;
-  scheduled_work_days?: unknown;
-  planned_daily_hours?: unknown;
-  planned_weekly_hours?: unknown;
-  pause_minutes?: unknown;
-  expected_breaks_count?: unknown;
-  break_1_label?: unknown;
-  break_1_minutes?: unknown;
-  break_1_paid?: unknown;
-  break_2_label?: unknown;
-  break_2_minutes?: unknown;
-  break_2_paid?: unknown;
-  break_3_label?: unknown;
-  break_3_minutes?: unknown;
-  break_3_paid?: unknown;
-  break_am_enabled?: unknown;
-  break_am_time?: unknown;
-  break_am_minutes?: unknown;
-  break_am_paid?: unknown;
-  lunch_enabled?: unknown;
-  lunch_time?: unknown;
-  lunch_minutes?: unknown;
-  lunch_paid?: unknown;
-  break_pm_enabled?: unknown;
-  break_pm_time?: unknown;
-  break_pm_minutes?: unknown;
-  break_pm_paid?: unknown;
-  sms_alert_depart_terrain?: unknown;
-  sms_alert_arrivee_terrain?: unknown;
-  sms_alert_sortie?: unknown;
-  sms_alert_retour?: unknown;
-  sms_alert_pause_debut?: unknown;
-  sms_alert_pause_fin?: unknown;
-  sms_alert_dinner_debut?: unknown;
-  sms_alert_dinner_fin?: unknown;
-  sms_alert_quart_debut?: unknown;
-  sms_alert_quart_fin?: unknown;
 };
 
 type ChauffeurRow = {
@@ -1008,6 +965,7 @@ async function finalizeApprovedRequest(options: {
   invitedUserId: string;
   existingUser: boolean;
   employeeProfileId: number | null;
+  employeeProfileDisposition: "created" | "existing";
 }) {
   const supabase = createAdminSupabaseClient();
   const basePayload = {
@@ -1035,6 +993,7 @@ async function finalizeApprovedRequest(options: {
         invitedUserId: options.invitedUserId,
         hadExistingAccount: options.existingUser,
         employeeProfileId: options.employeeProfileId,
+        employeeProfileDisposition: options.employeeProfileDisposition,
         company: options.requestRow.company,
         companyDirectoryContext: getCompanyDirectoryContext(
           options.requestRow.company
@@ -1408,7 +1367,6 @@ export async function PATCH(
     const { id } = await params;
     const body = (await req.json()) as Record<string, unknown>;
     const action = parseAction(body.action);
-    const employeeProfileInput = (body.employeeProfile ?? null) as EmployeeProfileInput | null;
 
     logPatchStep("request_received", {
       requestId: id,
@@ -1530,9 +1488,9 @@ export async function PATCH(
           normalizedRequestEmail
         );
         const employeeResolution = await loadLinkedEmployeeProfile({
-          profileId: parseNullableNumber(employeeProfileInput?.id),
+          profileId: null,
           authUserId: existingAuthUser?.id ?? null,
-          email: String(employeeProfileInput?.courriel ?? requestRow.email),
+          email: requestRow.email,
         });
 
         logPatchStep("approval_context_loaded", {
@@ -1595,7 +1553,7 @@ export async function PATCH(
         });
 
         const employeeProfile = await upsertEmployeeProfile({
-          input: employeeProfileInput,
+          input: null,
           requestRow,
           authUserId: authUserResult.user.id,
         });
@@ -1634,6 +1592,9 @@ export async function PATCH(
           invitedUserId: authUserResult.user.id,
           existingUser: !authUserResult.created,
           employeeProfileId: employeeProfile.id,
+          employeeProfileDisposition: employeeResolution.profile
+            ? "existing"
+            : "created",
         });
 
         logPatchStep("lock_released", {
@@ -1733,46 +1694,6 @@ export async function PATCH(
     } = buildDesiredAccess(body, requestRow);
     const reviewedAt = new Date().toISOString();
 
-    if (action === "save_employee_profile") {
-      const authUser = await findAuthUserByEmail(normalizeEmail(requestRow.email));
-      const employeeProfile = await upsertEmployeeProfile({
-        input: employeeProfileInput,
-        requestRow,
-        authUserId: authUser?.id ?? null,
-      });
-
-      if (authUser?.id && employeeProfile.id) {
-        await syncUserChauffeurMetadata({
-          userId: authUser.id,
-          chauffeurId: employeeProfile.id,
-        });
-      }
-
-      const updated = await updateRequestRow(id, {
-        assigned_role: assignedRole,
-        assigned_permissions: assignedPermissions,
-        review_note: reviewNote,
-        reviewed_by: user.id,
-        reviewed_at: reviewedAt,
-        last_error: null,
-        audit_log: createDirectionAudit(
-          requestRow,
-          user,
-          "request_updated",
-          {
-            previousStatus: requestRow.status,
-            assignedRole,
-            assignedPermissions,
-            reason: reviewNote,
-            employeeProfileId: employeeProfile.id,
-            employeeProfileSaved: true,
-          }
-        ),
-      });
-
-      return NextResponse.json({ success: true, status: updated.status });
-    }
-
     if (action === "reset_pending") {
       const updated = await updateRequestRow(id, {
         status: "pending",
@@ -1803,7 +1724,7 @@ export async function PATCH(
       }
 
       const employeeProfile = await upsertEmployeeProfile({
-        input: employeeProfileInput,
+        input: null,
         requestRow,
       });
 
@@ -1868,7 +1789,7 @@ export async function PATCH(
       }
 
       const employeeProfile = await upsertEmployeeProfile({
-        input: employeeProfileInput,
+        input: null,
         requestRow,
       });
 
@@ -1986,7 +1907,7 @@ export async function PATCH(
       }
 
       const employeeProfile = await upsertEmployeeProfile({
-        input: employeeProfileInput,
+        input: null,
         requestRow,
       });
 

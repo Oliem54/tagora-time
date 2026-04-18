@@ -1,0 +1,12 @@
+TAGORA Time - Reinitialisation du mot de passe
+
+Bonjour,
+
+Une demande de reinitialisation du mot de passe a ete effectuee pour votre compte.
+
+Utilisez ce lien pour definir un nouveau mot de passe :
+{{ .ConfirmationURL }}
+
+Si vous n etes pas a l origine de cette demande, ignorez ce message.
+
+TAGORA Time - Oliem Solutions

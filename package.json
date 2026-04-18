@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "sync:auth-email-templates": "node scripts/sync-supabase-auth-email-templates.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.102.1",

@@ -14,16 +14,16 @@ type BreadcrumbItem = {
 const AREA_CONFIG = {
   direction: {
     dashboardHref: "/direction/dashboard",
-    dashboardLabel: "Dashboard Direction",
+    dashboardLabel: "Tableau de bord direction",
   },
   employe: {
     dashboardHref: "/employe/dashboard",
-    dashboardLabel: "Dashboard Employe",
+    dashboardLabel: "Tableau de bord employe",
   },
 } as const;
 
 const SEGMENT_LABELS: Record<string, string> = {
-  dashboard: "Dashboard",
+  dashboard: "Tableau de bord",
   ressources: "Ressources",
   employes: "Employes",
   "bases-gps": "Bases GPS",
@@ -42,7 +42,7 @@ const SEGMENT_LABELS: Record<string, string> = {
   "temps-titan": "Temps Titan",
   "facturation-titan": "Facturation Titan",
   paie: "Paie",
-  "paie-compagnies": "Paie compagnies",
+  "paie-compagnies": "Paie par compagnie",
   nouveau: "Nouveau",
   new: "Nouveau",
 };

@@ -1,76 +1,40 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
-import HeaderTagora from "@/app/components/HeaderTagora";
+import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
+import {
+  ArrowLeft,
+  CircleAlert,
+  Clock3,
+  LayoutDashboard,
+  Mail,
+  OctagonX,
+  UserCheck,
+} from "lucide-react";
 import FeedbackMessage from "@/app/components/FeedbackMessage";
+import UserIdentityBadge from "@/app/components/ui/UserIdentityBadge";
+import StatusBadge from "@/app/components/ui/StatusBadge";
+import { useCurrentAccess } from "@/app/hooks/useCurrentAccess";
 import { accountRequestPermissionOptions } from "@/app/lib/account-request-options";
+import {
+  type AccountAccessAction,
+  type AccountAccessRequestRecord,
+  type AccountAccessStatus,
+} from "@/app/lib/account-access";
 import {
   getCompanyLabel,
   type AccountRequestCompany,
 } from "@/app/lib/account-requests.shared";
 import { supabase } from "@/app/lib/supabase/client";
+import AccountRequestRowActions from "./AccountRequestRowActions";
+import EmployeeLinkStatusBadge from "./EmployeeLinkStatusBadge";
 
-type RequestStatus = "pending" | "invited" | "active" | "refused" | "error";
 type RequestRole = "employe" | "direction";
-type RequestAction =
-  | "approve"
-  | "refuse"
-  | "update_access"
-  | "reset_pending"
-  | "resend_invitation"
-  | "disable_access"
-  | "retry"
-  | "delete";
-
-type AccountRequest = {
-  id: string;
-  full_name: string;
-  email: string;
-  phone: string | null;
-  company: AccountRequestCompany;
-  portal_source: RequestRole;
-  requested_role: RequestRole;
-  requested_permissions: string[] | null;
-  message: string | null;
-  status: RequestStatus;
-  assigned_role: RequestRole | null;
-  assigned_permissions: string[] | null;
-  review_note: string | null;
-  reviewed_at: string | null;
-  last_error?: string | null;
-  existing_account?: {
-    exists: boolean;
-    userId: string | null;
-    role: RequestRole | null;
-    permissions: string[];
-    company: AccountRequestCompany | null;
-    primaryCompany: AccountRequestCompany | null;
-    allowedCompanies: AccountRequestCompany[];
-    companyDirectoryContext: string | null;
-    emailConfirmed: boolean;
-    hasSignedIn: boolean;
-    lastSignInAt: string | null;
-  } | null;
-  review_lock?: {
-    isLocked: boolean;
-    isExpired: boolean;
-    expiresAt: string | null;
-  } | null;
-  employee_profile?: {
-    id: number | null;
-    nom: string | null;
-    courriel: string | null;
-    telephone: string | null;
-    actif: boolean | null;
-    notes: string | null;
-    primary_company: AccountRequestCompany | null;
-  } | null;
-  created_at: string;
-};
+type AccountSecurityAction = "reset_password" | "send_reset_link";
 
 type ActionConfig = {
-  action: RequestAction;
+  action: AccountAccessAction;
   label: string;
   tone: "primary" | "secondary" | "danger";
 };
@@ -87,9 +51,23 @@ function formatDate(value: string | null | undefined) {
   if (!value) return "-";
 
   return new Intl.DateTimeFormat("fr-CA", {
-    dateStyle: "medium",
-    timeStyle: "short",
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
   }).format(new Date(value));
+}
+
+function formatPermissions(values: string[] | null | undefined) {
+  return values && values.length > 0
+    ? values
+        .map((value) => {
+          const match = accountRequestPermissionOptions.find((item) => item.value === value);
+          return match?.label ?? value;
+        })
+        .join(", ")
+    : "Aucune";
 }
 
 function buildApiErrorMessage(payload: unknown, fallback: string) {
@@ -106,64 +84,25 @@ function buildApiErrorMessage(payload: unknown, fallback: string) {
   return parts.length > 0 ? parts.join(" | ") : fallback;
 }
 
-function formatPermissions(values: string[] | null | undefined) {
-  return values && values.length > 0
-    ? values
-        .map((value) => {
-          const match = accountRequestPermissionOptions.find((item) => item.value === value);
-          return match?.label ?? value;
-        })
-        .join(", ")
-    : "Aucune";
+function getStatusLabel(status: AccountAccessStatus) {
+  if (status === "active") return "Actif";
+  if (status === "invited") return "Invite";
+  if (status === "refused") return "Refuse";
+  if (status === "error") return "Erreur";
+  return "En attente";
 }
 
-function getStatusPresentation(status: RequestStatus) {
-  if (status === "active") {
-    return {
-      color: "#166534",
-      background: "#dcfce7",
-      label: "Actif",
-    };
-  }
-
-  if (status === "invited") {
-    return {
-      color: "#1d4ed8",
-      background: "#dbeafe",
-      label: "Invite",
-    };
-  }
-
-  if (status === "refused") {
-    return {
-      color: "#991b1b",
-      background: "#fee2e2",
-      label: "Refuse",
-    };
-  }
-
-  if (status === "error") {
-    return {
-      color: "#b45309",
-      background: "#fef3c7",
-      label: "Erreur",
-    };
-  }
-
-  return {
-    color: "#92400e",
-    background: "#fef3c7",
-    label: "En attente",
-  };
+function getStatusTone(status: AccountAccessStatus) {
+  if (status === "active") return "success" as const;
+  if (status === "invited") return "info" as const;
+  if (status === "refused") return "danger" as const;
+  if (status === "error") return "warning" as const;
+  return "warning" as const;
 }
 
-function getPrimaryActionForStatus(status: RequestStatus): ActionConfig | null {
+function getPrimaryActionForStatus(status: AccountAccessStatus): ActionConfig | null {
   if (status === "pending") {
-    return {
-      action: "approve",
-      label: "Approuver l acces",
-      tone: "primary",
-    };
+    return { action: "approve", label: "Approuver", tone: "primary" };
   }
 
   if (status === "invited" || status === "active") {
@@ -177,70 +116,398 @@ function getPrimaryActionForStatus(status: RequestStatus): ActionConfig | null {
   return null;
 }
 
-function getSecondaryActionsForStatus(status: RequestStatus): ActionConfig[] {
-  if (status === "pending") {
-    return [
-      { action: "approve", label: "Approuver", tone: "secondary" },
-    ];
-  }
-
+function getSecondaryActionsForStatus(status: AccountAccessStatus): ActionConfig[] {
   if (status === "invited") {
     return [
       { action: "resend_invitation", label: "Renvoyer l invitation", tone: "secondary" },
       { action: "reset_pending", label: "Remettre en attente", tone: "secondary" },
-      { action: "delete", label: "Supprimer", tone: "danger" },
     ];
   }
 
   if (status === "active") {
-    return [
-      { action: "disable_access", label: "Desactiver l acces", tone: "secondary" },
-    ];
+    return [{ action: "disable_access", label: "Desactiver l acces", tone: "danger" }];
   }
 
   if (status === "refused") {
+    return [{ action: "reset_pending", label: "Remettre en attente", tone: "secondary" }];
+  }
+
+  if (status === "error") {
     return [
+      { action: "retry", label: "Relancer", tone: "secondary" },
       { action: "reset_pending", label: "Remettre en attente", tone: "secondary" },
     ];
   }
 
-  return [
-    { action: "retry", label: "Relancer le traitement", tone: "secondary" },
-    { action: "reset_pending", label: "Remettre en attente", tone: "secondary" },
-  ];
+  return [{ action: "refuse", label: "Refuser", tone: "danger" }];
 }
 
-function getDestructiveActionForStatus(status: RequestStatus): ActionConfig | null {
-  if (status === "pending") {
-    return { action: "refuse", label: "Refuser", tone: "danger" };
-  }
-
-  if (
-    status === "invited" ||
-    status === "active" ||
-    status === "refused" ||
-    status === "error"
-  ) {
-    return { action: "delete", label: "Supprimer", tone: "danger" };
-  }
-
-  return null;
+function getSuccessMessage(action: AccountAccessAction) {
+  if (action === "approve") return "Demande approuvee avec succes.";
+  if (action === "refuse") return "Demande refusee avec succes.";
+  if (action === "update_access") return "Acces mis a jour.";
+  if (action === "reset_pending") return "Demande remise en attente.";
+  if (action === "resend_invitation") return "Invitation renvoyee avec succes.";
+  if (action === "disable_access") return "Acces desactive avec succes.";
+  return "Traitement relance avec succes.";
 }
 
-function getAccountStateLabel(request: AccountRequest) {
-  if (request.status === "active") return "Compte actif";
-  if (request.status === "invited") return "Invitation envoyee";
-  if (request.status === "error") return "Erreur de provisioning";
-  if (request.status === "refused") return "Acces refuse";
-  return request.existing_account?.exists ? "Compte a valider" : "Aucun compte";
+function getButtonClassName(tone: ActionConfig["tone"]) {
+  if (tone === "danger") return "tagora-btn-danger";
+  if (tone === "secondary") return "tagora-dark-outline-action";
+  return "tagora-dark-action";
+}
+
+function SummaryItem({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="tagora-panel-muted" style={{ padding: 12, borderRadius: 14 }}>
+      <div className="tagora-label">{label}</div>
+      <div style={{ marginTop: 6, color: "#0f172a", fontWeight: 700, fontSize: 13 }}>
+        {value}
+      </div>
+    </div>
+  );
+}
+
+function StatCard({
+  label,
+  value,
+  tone,
+  icon,
+}: {
+  label: string;
+  value: number;
+  tone: "pending" | "invited" | "active" | "refused" | "error";
+  icon: ReactNode;
+}) {
+  return (
+    <div className={`account-requests-premium-stat account-requests-stat-${tone}`}>
+      <div className="account-requests-premium-stat-icon">{icon}</div>
+      <div className="account-requests-premium-stat-copy">
+        <div className="account-requests-premium-stat-label">{label}</div>
+        <div className="account-requests-premium-stat-value">{value}</div>
+      </div>
+    </div>
+  );
+}
+
+function AccountEditDrawer({
+  request,
+  assignedRole,
+  assignedPermissions,
+  reviewNote,
+  confirmOverwriteExistingAccount,
+  permissionOptions,
+  savingAction,
+  securityAction,
+  onClose,
+  onRoleChange,
+  onReviewNoteChange,
+  onTogglePermission,
+  onConfirmOverwriteChange,
+  onRunAction,
+  onRunSecurityAction,
+}: {
+  request: AccountAccessRequestRecord;
+  assignedRole: RequestRole;
+  assignedPermissions: string[];
+  reviewNote: string;
+  confirmOverwriteExistingAccount: boolean;
+  permissionOptions: Array<{ value: string; label: string }>;
+  savingAction: AccountAccessAction | null;
+  securityAction: AccountSecurityAction | null;
+  onClose: () => void;
+  onRoleChange: (role: RequestRole) => void;
+  onReviewNoteChange: (value: string) => void;
+  onTogglePermission: (permission: string) => void;
+  onConfirmOverwriteChange: () => void;
+  onRunAction: (action: AccountAccessAction) => void;
+  onRunSecurityAction: (action: AccountSecurityAction) => void;
+}) {
+  const primaryAction = getPrimaryActionForStatus(request.status);
+  const secondaryActions = getSecondaryActionsForStatus(request.status);
+
+  return (
+    <div
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 60,
+        background: "rgba(15,23,42,0.22)",
+        display: "flex",
+        justifyContent: "flex-end",
+      }}
+    >
+      <button
+        type="button"
+        aria-label="Fermer"
+        onClick={onClose}
+        style={{
+          flex: 1,
+          border: "none",
+          background: "transparent",
+          cursor: "pointer",
+        }}
+      />
+
+      <aside
+        className="tagora-panel ui-stack-md"
+        style={{
+          margin: 0,
+          width: "min(680px, 100vw)",
+          height: "100vh",
+          overflowY: "auto",
+          borderRadius: 0,
+          padding: 18,
+          boxShadow: "-12px 0 32px rgba(15,23,42,0.12)",
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            gap: 16,
+            alignItems: "flex-start",
+          }}
+        >
+          <div className="ui-stack-xs">
+            <div className="tagora-label">Compte application</div>
+            <h2 className="section-title" style={{ marginBottom: 0 }}>
+              {request.full_name}
+            </h2>
+            <p className="tagora-note" style={{ margin: 0 }}>
+              {request.email}
+            </p>
+          </div>
+
+          <button
+            type="button"
+            className="tagora-dark-outline-action"
+            onClick={onClose}
+            style={{ height: 34, padding: "0 12px", borderRadius: 10, fontSize: 12 }}
+          >
+            Fermer
+          </button>
+        </div>
+
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+            gap: 10,
+          }}
+        >
+          <SummaryItem label="Statut" value={getStatusLabel(request.status)} />
+          <SummaryItem label="Portail source" value={formatRole(request.portal_source as RequestRole)} />
+          <SummaryItem label="Compagnie" value={getCompanyLabel(request.company)} />
+          <SummaryItem
+            label="Derniere connexion"
+            value={formatDate(request.existing_account?.lastSignInAt)}
+          />
+          <SummaryItem
+            label="Etat fiche employe"
+            value={request.employee_link?.label ?? "Fiche employe manquante"}
+          />
+          <SummaryItem
+            label="Activation courriel"
+            value={request.existing_account?.emailConfirmed ? "Confirmee" : "En attente"}
+          />
+        </div>
+
+        <div className="tagora-form-grid">
+          <label className="tagora-field">
+            <span className="tagora-label">Role</span>
+            <select
+              className="tagora-input"
+              value={assignedRole}
+              onChange={(event) =>
+                onRoleChange(event.target.value === "direction" ? "direction" : "employe")
+              }
+              disabled={Boolean(savingAction)}
+            >
+              <option value="employe">Employe</option>
+              <option value="direction">Direction</option>
+            </select>
+          </label>
+
+          <label className="tagora-field" style={{ gridColumn: "1 / -1" }}>
+            <span className="tagora-label">Note admin compte</span>
+            <textarea
+              className="tagora-textarea"
+              value={reviewNote}
+              onChange={(event) => onReviewNoteChange(event.target.value)}
+              placeholder="Note admin"
+              readOnly={Boolean(savingAction)}
+            />
+          </label>
+        </div>
+
+        <div className="ui-stack-xs">
+          <div className="tagora-label">Permissions</div>
+          <div className="tagora-panel-muted account-requests-permissions">
+            {permissionOptions.map((option) => (
+              <label key={option.value} className="account-requests-permission-option">
+                <input
+                  type="checkbox"
+                  checked={assignedPermissions.includes(option.value)}
+                  onChange={() => onTogglePermission(option.value)}
+                  disabled={Boolean(savingAction)}
+                />
+                <span>{option.label}</span>
+              </label>
+            ))}
+          </div>
+        </div>
+
+        {request.existing_account?.exists ? (
+          <label className="account-requests-permission-option">
+            <input
+              type="checkbox"
+              checked={confirmOverwriteExistingAccount}
+              onChange={onConfirmOverwriteChange}
+              disabled={Boolean(savingAction)}
+            />
+            <span>Autoriser le remplacement des acces existants</span>
+          </label>
+        ) : null}
+
+        {request.review_lock?.isLocked ? (
+          <div className="account-requests-lock">
+            Traitement verrouille jusqu au {formatDate(request.review_lock.expiresAt)}.
+          </div>
+        ) : null}
+
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
+            gap: 20,
+          }}
+        >
+          <div className="tagora-panel-muted ui-stack-sm" style={{ padding: 20 }}>
+            <div className="ui-stack-xs">
+              <div className="tagora-label">Acces et activation</div>
+            </div>
+
+            {primaryAction ? (
+              <button
+                type="button"
+                className={getButtonClassName(primaryAction.tone)}
+                onClick={() => onRunAction(primaryAction.action)}
+                disabled={Boolean(savingAction)}
+                style={{ height: 34, padding: "0 12px", borderRadius: 10, fontSize: 12 }}
+              >
+                {savingAction === primaryAction.action ? "Traitement..." : primaryAction.label}
+              </button>
+            ) : null}
+
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              {secondaryActions.map((item) => (
+                <button
+                  key={item.action}
+                  type="button"
+                  className={getButtonClassName(item.tone)}
+                  onClick={() => onRunAction(item.action)}
+                  disabled={Boolean(savingAction)}
+                  style={{ height: 34, padding: "0 12px", borderRadius: 10, fontSize: 12 }}
+                >
+                  {savingAction === item.action ? "Traitement..." : item.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="tagora-panel-muted ui-stack-sm" style={{ padding: 20 }}>
+            <div className="ui-stack-xs">
+              <div className="tagora-label">Securite</div>
+            </div>
+
+            <button
+              type="button"
+              className="tagora-dark-outline-action"
+              onClick={() => onRunSecurityAction("reset_password")}
+              disabled={
+                !request.employee_link?.id ||
+                !request.existing_account?.exists ||
+                Boolean(securityAction)
+              }
+              style={{ height: 34, padding: "0 12px", borderRadius: 10, fontSize: 12 }}
+            >
+              {securityAction === "reset_password"
+                ? "Envoi..."
+                : "Reinitialiser le mot de passe"}
+            </button>
+
+            <button
+              type="button"
+              className="tagora-dark-outline-action"
+              onClick={() => onRunSecurityAction("send_reset_link")}
+              disabled={
+                !request.employee_link?.id ||
+                !request.existing_account?.exists ||
+                Boolean(securityAction)
+              }
+              style={{ height: 34, padding: "0 12px", borderRadius: 10, fontSize: 12 }}
+            >
+              {securityAction === "send_reset_link"
+                ? "Envoi..."
+                : "Envoyer le lien de reinitialisation"}
+            </button>
+          </div>
+        </div>
+
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            gap: 12,
+            flexWrap: "wrap",
+            alignItems: "center",
+          }}
+        >
+          {request.employee_link?.id ? (
+            <Link
+              href={`/direction/ressources/employes/${request.employee_link.id}`}
+              className="tagora-dark-outline-action"
+              style={{
+                height: 34,
+                padding: "0 12px",
+                borderRadius: 10,
+                fontSize: 12,
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              Ouvrir la fiche employe
+            </Link>
+          ) : (
+            <p className="tagora-note" style={{ margin: 0 }}>
+              Fiche employe manquante.
+            </p>
+          )}
+
+          <button
+            type="button"
+            className="tagora-dark-action"
+            onClick={onClose}
+            style={{ height: 34, padding: "0 12px", borderRadius: 10, fontSize: 12 }}
+          >
+            Terminer
+          </button>
+        </div>
+      </aside>
+    </div>
+  );
 }
 
 export default function DirectionEmployeeAccountsClient() {
-  const [requests, setRequests] = useState<AccountRequest[]>([]);
+  const { user } = useCurrentAccess();
+  const [requests, setRequests] = useState<AccountAccessRequestRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [accessToken, setAccessToken] = useState<string | null>(null);
   const [isReady, setIsReady] = useState(false);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [editingRequestId, setEditingRequestId] = useState<string | null>(null);
   const [assignedRole, setAssignedRole] = useState<RequestRole>("employe");
   const [assignedPermissions, setAssignedPermissions] = useState<string[]>([]);
   const [reviewNote, setReviewNote] = useState("");
@@ -248,7 +515,8 @@ export default function DirectionEmployeeAccountsClient() {
     useState(false);
   const [message, setMessage] = useState("");
   const [messageType, setMessageType] = useState<"success" | "error" | null>(null);
-  const [savingAction, setSavingAction] = useState<RequestAction | null>(null);
+  const [savingAction, setSavingAction] = useState<AccountAccessAction | null>(null);
+  const [securityAction, setSecurityAction] = useState<AccountSecurityAction | null>(null);
   const [permissionOptions, setPermissionOptions] = useState<
     Array<{ value: string; label: string }>
   >(fallbackPermissions);
@@ -262,26 +530,9 @@ export default function DirectionEmployeeAccountsClient() {
     [requests]
   );
 
-  const selectedRequest = useMemo(
-    () => sortedRequests.find((item) => item.id === selectedId) || null,
-    [selectedId, sortedRequests]
-  );
-  const primaryAction = useMemo(
-    () =>
-      selectedRequest ? getPrimaryActionForStatus(selectedRequest.status) : null,
-    [selectedRequest]
-  );
-  const secondaryActions = useMemo(
-    () =>
-      selectedRequest ? getSecondaryActionsForStatus(selectedRequest.status) : [],
-    [selectedRequest]
-  );
-  const destructiveAction = useMemo(
-    () =>
-      selectedRequest
-        ? getDestructiveActionForStatus(selectedRequest.status)
-        : null,
-    [selectedRequest]
+  const editingRequest = useMemo(
+    () => sortedRequests.find((item) => item.id === editingRequestId) ?? null,
+    [editingRequestId, sortedRequests]
   );
 
   const counts = useMemo(
@@ -295,53 +546,45 @@ export default function DirectionEmployeeAccountsClient() {
     [sortedRequests]
   );
 
-  const fetchRequests = useCallback(
-    async (selectedRequestId?: string | null) => {
-      if (!accessToken) {
-        return;
-      }
+  const fetchRequests = useCallback(async () => {
+    if (!accessToken) {
+      return;
+    }
 
-      setLoading(true);
+    setLoading(true);
 
-      try {
-        const response = await fetch("/api/account-requests", {
-          method: "GET",
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-            "x-account-requests-client": "browser-authenticated",
-            "Cache-Control": "no-store",
-          },
-        });
+    try {
+      const response = await fetch("/api/account-requests", {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "x-account-requests-client": "browser-authenticated",
+          "Cache-Control": "no-store",
+        },
+      });
 
-        const payload = await response.json();
+      const payload = await response.json();
 
-        if (!response.ok) {
-          setMessage("Impossible de charger les demandes pour le moment.");
-          setMessageType("error");
-          setRequests([]);
-          return;
-        }
-
-        const nextRequests = Array.isArray(payload.requests) ? payload.requests : [];
-        const nextSelectedId =
-          nextRequests.find((item: AccountRequest) => item.id === selectedRequestId)?.id ||
-          nextRequests[0]?.id ||
-          null;
-
-        setRequests(nextRequests);
-        setSelectedId(nextSelectedId);
-        setMessage("");
-        setMessageType(null);
-      } catch {
+      if (!response.ok) {
         setMessage("Impossible de charger les demandes pour le moment.");
         setMessageType("error");
         setRequests([]);
-      } finally {
-        setLoading(false);
+        return;
       }
-    },
-    [accessToken]
-  );
+
+      const nextRequests = Array.isArray(payload.requests) ? payload.requests : [];
+
+      setRequests(nextRequests);
+      setMessage("");
+      setMessageType(null);
+    } catch {
+      setMessage("Impossible de charger les demandes pour le moment.");
+      setMessageType("error");
+      setRequests([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [accessToken]);
 
   useEffect(() => {
     const init = async () => {
@@ -383,21 +626,19 @@ export default function DirectionEmployeeAccountsClient() {
   }, []);
 
   useEffect(() => {
-    if (!selectedRequest) {
+    if (!editingRequest) {
       return;
     }
 
     setAssignedRole(
-      selectedRequest.assigned_role ?? selectedRequest.requested_role ?? "employe"
+      (editingRequest.assigned_role ?? editingRequest.requested_role ?? "employe") as RequestRole
     );
     setAssignedPermissions(
-      selectedRequest.assigned_permissions ??
-        selectedRequest.requested_permissions ??
-        []
+      editingRequest.assigned_permissions ?? editingRequest.requested_permissions ?? []
     );
-    setReviewNote(selectedRequest.review_note ?? "");
+    setReviewNote(editingRequest.review_note ?? "");
     setConfirmOverwriteExistingAccount(false);
-  }, [selectedRequest]);
+  }, [editingRequest]);
 
   function togglePermission(permission: string) {
     setAssignedPermissions((prev) =>
@@ -407,8 +648,8 @@ export default function DirectionEmployeeAccountsClient() {
     );
   }
 
-  async function runAction(action: RequestAction) {
-    if (!selectedRequest || !accessToken) {
+  async function runAction(action: AccountAccessAction, request: AccountAccessRequestRecord) {
+    if (!accessToken) {
       return;
     }
 
@@ -417,8 +658,8 @@ export default function DirectionEmployeeAccountsClient() {
     setMessageType(null);
 
     try {
-      const response = await window.fetch(`/api/account-requests/${selectedRequest.id}`, {
-        method: action === "delete" ? "DELETE" : "PATCH",
+      const response = await window.fetch(`/api/account-requests/${request.id}`, {
+        method: "PATCH",
         cache: "no-store",
         headers: {
           Authorization: `Bearer ${accessToken}`,
@@ -426,18 +667,13 @@ export default function DirectionEmployeeAccountsClient() {
           "x-account-requests-client": "browser-authenticated",
           "x-account-requests-page": "direction-demandes-comptes",
         },
-        ...(action === "delete"
-          ? {}
-          : {
-              body: JSON.stringify({
-                action,
-                assignedRole,
-                assignedPermissions,
-                reviewNote,
-                confirmOverwriteExistingAccount,
-                employeeProfile: selectedRequest.employee_profile ?? null,
-              }),
-            }),
+        body: JSON.stringify({
+          action,
+          assignedRole,
+          assignedPermissions,
+          reviewNote,
+          confirmOverwriteExistingAccount,
+        }),
       });
 
       const payload = await response.json();
@@ -450,7 +686,7 @@ export default function DirectionEmployeeAccountsClient() {
 
       setMessage(getSuccessMessage(action));
       setMessageType("success");
-      await fetchRequests(action === "delete" ? null : selectedRequest.id);
+      await fetchRequests();
     } catch {
       setMessage("Le traitement de la demande n a pas pu aboutir.");
       setMessageType("error");
@@ -459,483 +695,261 @@ export default function DirectionEmployeeAccountsClient() {
     }
   }
 
+  async function runSecurityAction(action: AccountSecurityAction, request: AccountAccessRequestRecord) {
+    if (!request.employee_link?.id || !accessToken) {
+      return;
+    }
+
+    setSecurityAction(action);
+    setMessage("");
+    setMessageType(null);
+
+    try {
+      const response = await fetch(
+        `/api/employees/${request.employee_link.id}/account-security`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ action }),
+        }
+      );
+      const payload = await response.json();
+
+      if (!response.ok) {
+        setMessage(buildApiErrorMessage(payload, "L action de securite a echoue."));
+        setMessageType("error");
+        return;
+      }
+
+      setMessage(
+        typeof payload.message === "string"
+          ? payload.message
+          : "Action de securite terminee."
+      );
+      setMessageType("success");
+      await fetchRequests();
+    } catch {
+      setMessage("L action de securite a echoue.");
+      setMessageType("error");
+    } finally {
+      setSecurityAction(null);
+    }
+  }
+
   return (
     <main className="tagora-app-shell account-requests-page">
-      <div className="tagora-app-content" style={{ maxWidth: 1460 }}>
-        <HeaderTagora
-          title="Gestion des comptes employe"
-          subtitle="Acces, activation, roles, permissions et securite uniquement."
-        />
-
-        <div
-          className="tagora-panel"
-          style={{
-            marginBottom: 24,
-            display: "flex",
-            justifyContent: "space-between",
-            gap: 16,
-            flexWrap: "wrap",
-            alignItems: "center",
-          }}
-        >
-          <div className="ui-stack-xs">
-            <h2 className="section-title" style={{ marginBottom: 0 }}>
-              Page compte uniquement
-            </h2>
-            <p className="tagora-note" style={{ margin: 0 }}>
-              L emploi, l horaire, les alertes SMS, la refacturation Titan et les autres
-              parametres operationnels se gerent maintenant uniquement dans la fiche
-              profil employe.
-            </p>
+      <div className="tagora-app-content account-requests-premium-layout">
+        <section className="account-requests-premium-hero">
+          <div className="account-requests-premium-logo-card">
+            <Image
+              src="/logo.png"
+              alt="Logo TAGORA"
+              width={220}
+              height={110}
+              priority
+              className="account-requests-premium-logo"
+            />
           </div>
-          <Link href="/direction/dashboard" className="tagora-dark-outline-action">
-            Retour
-          </Link>
-        </div>
 
-        <div className="tagora-stat-grid account-requests-stats">
-          <StatCard label="En attente" value={counts.pending} tone="pending" />
-          <StatCard label="Invites" value={counts.invited} tone="invited" />
-          <StatCard label="Actifs" value={counts.active} tone="active" />
-          <StatCard label="Refuses" value={counts.refused} tone="refused" />
-          <StatCard label="Erreurs" value={counts.error} tone="error" />
+          <div className="account-requests-premium-hero-copy">
+            <h1 className="account-requests-premium-title">Demandes de comptes</h1>
+          </div>
+
+          <div className="account-requests-premium-hero-actions">
+            {user?.email ? <UserIdentityBadge value={user.email} /> : null}
+            <Link href="/direction" className="account-requests-hero-button account-requests-hero-button-secondary">
+              <LayoutDashboard size={14} />
+              Tableau
+            </Link>
+            <Link href="/direction/dashboard" className="account-requests-hero-button account-requests-hero-button-light">
+              <ArrowLeft size={14} />
+              Retour
+            </Link>
+          </div>
+        </section>
+
+        <div className="account-requests-stats">
+          <StatCard
+            label="En attente"
+            value={counts.pending}
+            tone="pending"
+            icon={<Clock3 size={20} strokeWidth={1.9} />}
+          />
+          <StatCard
+            label="Invites"
+            value={counts.invited}
+            tone="invited"
+            icon={<Mail size={20} strokeWidth={1.9} />}
+          />
+          <StatCard
+            label="Actifs"
+            value={counts.active}
+            tone="active"
+            icon={<UserCheck size={20} strokeWidth={1.9} />}
+          />
+          <StatCard
+            label="Refuses"
+            value={counts.refused}
+            tone="refused"
+            icon={<OctagonX size={20} strokeWidth={1.9} />}
+          />
+          <StatCard
+            label="Erreurs"
+            value={counts.error}
+            tone="error"
+            icon={<CircleAlert size={20} strokeWidth={1.9} />}
+          />
         </div>
 
         <FeedbackMessage message={message} type={messageType} />
 
-        <div
-          className="tagora-split"
-          style={{ gridTemplateColumns: "minmax(320px, 0.92fr) minmax(0, 1.55fr)", gap: 28 }}
-        >
-          <section className="tagora-panel account-requests-panel">
-            <div className="account-requests-section-head">
-              <div>
-                <h2 className="section-title account-requests-section-title">
-                  Comptes employe
-                </h2>
-                <p className="tagora-note account-requests-section-note">
-                  La liste ci dessous sert uniquement a gerer l acces au systeme.
-                </p>
-              </div>
+        <section className="account-requests-premium-shell">
+          <div className="account-requests-premium-toolbar">
+            <button
+              type="button"
+              className="account-requests-toolbar-button"
+              onClick={() => void fetchRequests()}
+              disabled={loading}
+            >
+              {loading ? "Actualisation..." : "Actualiser"}
+            </button>
+          </div>
+
+          {loading ? (
+            <div className="tagora-panel-muted">
+              <p className="tagora-note" style={{ margin: 0 }}>
+                Chargement...
+              </p>
             </div>
-
-            {loading ? (
-              <div className="tagora-panel-muted account-requests-empty">
-                <p className="tagora-note">Chargement...</p>
-              </div>
-            ) : sortedRequests.length === 0 ? (
-              <div className="tagora-panel-muted account-requests-empty">
-                <p className="tagora-note">Aucune demande.</p>
-              </div>
-            ) : (
-              <div className="account-requests-list">
-                {sortedRequests.map((request) => {
-                  const status = getStatusPresentation(request.status);
-                  const isSelected = selectedId === request.id;
-
-                  return (
-                    <button
-                      key={request.id}
-                      type="button"
-                      onClick={() => setSelectedId(request.id)}
-                      className={`account-requests-card${isSelected ? " is-selected" : ""}`}
-                    >
-                      <div className="account-requests-card-head">
-                        <div className="account-requests-card-identity">
-                          <h3 className="account-requests-card-title">{request.full_name}</h3>
-                          <div className="account-requests-card-contact">
-                            <div className="account-requests-card-contact-item">
-                              <span className="account-requests-card-meta-label">Courriel</span>
-                              <span className="account-requests-card-email">{request.email}</span>
-                            </div>
-                            <div className="account-requests-card-contact-item">
-                              <span className="account-requests-card-meta-label">Telephone</span>
-                              <span className="account-requests-card-secondary">
-                                {request.phone || "Non fourni"}
-                              </span>
-                            </div>
+          ) : sortedRequests.length === 0 ? (
+            <div className="tagora-panel-muted">
+              <p className="tagora-note" style={{ margin: 0 }}>
+                Aucune demande.
+              </p>
+            </div>
+          ) : (
+            <div className="account-requests-premium-table-wrap">
+              <table className="account-requests-premium-table">
+                <colgroup>
+                  <col style={{ width: "20%" }} />
+                  <col style={{ width: "12%" }} />
+                  <col style={{ width: "16%" }} />
+                  <col style={{ width: "10%" }} />
+                  <col style={{ width: "12%" }} />
+                  <col style={{ width: "11%" }} />
+                  <col style={{ width: "11%" }} />
+                  <col style={{ width: "18%" }} />
+                </colgroup>
+                <thead>
+                  <tr>
+                    <th>Demandeur</th>
+                    <th>Portail</th>
+                    <th>Acces</th>
+                    <th>Compte</th>
+                    <th>Fiche employe</th>
+                    <th>Derniere connexion</th>
+                    <th>Cree le</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sortedRequests.map((request) => (
+                    <tr key={request.id}>
+                      <td>
+                        <div className="account-requests-requester">
+                          <div className="account-requests-requester-name">{request.full_name}</div>
+                          <div className="account-requests-requester-meta">{request.email}</div>
+                          <div className="account-requests-requester-meta">
+                            {request.phone || "Telephone non fourni"}
                           </div>
                         </div>
-                        <span
-                          className="account-requests-status-badge"
-                          style={{
-                            color: status.color,
-                            background: status.background,
-                          }}
-                        >
-                          {status.label}
-                        </span>
-                      </div>
-
-                      <div className="account-requests-card-meta">
-                        <div className="account-requests-card-meta-item">
-                          <span className="account-requests-card-meta-label">Portail</span>
-                          <span className="account-requests-card-meta-value">
+                      </td>
+                      <td>
+                        <div className="account-requests-cell-stack">
+                          <span className="account-requests-cell-main">
                             {formatRole(request.portal_source)}
                           </span>
-                        </div>
-                        <div className="account-requests-card-meta-item">
-                          <span className="account-requests-card-meta-label">Role</span>
-                          <span className="account-requests-card-meta-value">
-                            {formatRole(request.assigned_role ?? request.requested_role)}
+                          <span className="account-requests-cell-sub">
+                            {getCompanyLabel(request.company as AccountRequestCompany)}
                           </span>
                         </div>
-                        <div className="account-requests-card-meta-item">
-                          <span className="account-requests-card-meta-label">Compte</span>
-                          <span className="account-requests-card-meta-value">
-                            {request.existing_account?.exists ? "Existant" : "A creer"}
+                      </td>
+                      <td>
+                        <div className="account-requests-cell-stack">
+                          <span className="account-requests-cell-main">
+                            {formatRole((request.assigned_role ?? request.requested_role) as RequestRole)}
+                          </span>
+                          <span className="account-requests-cell-sub">
+                            {formatPermissions(request.assigned_permissions ?? request.requested_permissions)}
                           </span>
                         </div>
-                        <div className="account-requests-card-meta-item">
-                          <span className="account-requests-card-meta-label">Creation</span>
-                          <span className="account-requests-card-meta-value">
-                            {formatDate(request.created_at)}
+                      </td>
+                      <td>
+                        <div className="account-requests-cell-stack">
+                          <StatusBadge
+                            label={getStatusLabel(request.status)}
+                            tone={getStatusTone(request.status)}
+                          />
+                          <span className="account-requests-cell-sub">
+                            {request.existing_account?.exists ? "Compte detecte" : "Compte a creer"}
                           </span>
                         </div>
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-          </section>
-
-          <aside className="ui-stack-md">
-            {!selectedRequest ? (
-              <div className="tagora-panel">
-                <div className="tagora-panel-muted account-requests-empty">
-                  <p className="tagora-note">Selectionnez un compte pour ouvrir le detail.</p>
-                </div>
-              </div>
-            ) : (
-              <>
-                <section className="tagora-panel ui-stack-md">
-                  <div
-                    style={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      gap: 16,
-                      flexWrap: "wrap",
-                      alignItems: "flex-start",
-                    }}
-                  >
-                    <div className="ui-stack-xs">
-                      <h2 className="section-title" style={{ marginBottom: 0 }}>
-                        {selectedRequest.full_name}
-                      </h2>
-                      <p className="tagora-note" style={{ margin: 0 }}>
-                        {selectedRequest.email}
-                      </p>
-                    </div>
-                    <span
-                      className="account-requests-status-badge"
-                      style={{
-                        color: getStatusPresentation(selectedRequest.status).color,
-                        background: getStatusPresentation(selectedRequest.status).background,
-                      }}
-                    >
-                      {getStatusPresentation(selectedRequest.status).label}
-                    </span>
-                  </div>
-
-                  <div
-                    style={{
-                      display: "grid",
-                      gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))",
-                      gap: 16,
-                    }}
-                  >
-                    <SummaryItem label="Statut du compte" value={getAccountStateLabel(selectedRequest)} />
-                    <SummaryItem
-                      label="Compte existant"
-                      value={selectedRequest.existing_account?.exists ? "Oui" : "Non"}
-                    />
-                    <SummaryItem label="Portail" value={formatRole(selectedRequest.portal_source)} />
-                    <SummaryItem label="Date de creation" value={formatDate(selectedRequest.created_at)} />
-                    <SummaryItem
-                      label="Derniere connexion"
-                      value={formatDate(selectedRequest.existing_account?.lastSignInAt)}
-                    />
-                    <SummaryItem
-                      label="Statut employe"
-                      value={selectedRequest.employee_profile?.actif === false ? "Employe inactif" : "Employe actif"}
-                    />
-                  </div>
-
-                  <div
-                    className="tagora-panel-muted"
-                    style={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      gap: 16,
-                      flexWrap: "wrap",
-                      alignItems: "center",
-                      padding: 18,
-                    }}
-                  >
-                    <div className="ui-stack-xs">
-                      <div className="tagora-label">Navigation</div>
-                      <div style={{ fontWeight: 800, color: "#0f172a" }}>
-                        Compte ici, emploi dans la fiche employe
-                      </div>
-                    </div>
-                    <div className="account-requests-actions" style={{ justifyContent: "flex-end" }}>
-                      <button
-                        type="button"
-                        className="tagora-dark-outline-action"
-                        onClick={() => setSelectedId(null)}
-                        disabled={Boolean(savingAction)}
-                      >
-                        Retour a la liste
-                      </button>
-                      {selectedRequest.employee_profile?.id ? (
-                        <Link
-                          href={`/direction/ressources/employes/${selectedRequest.employee_profile.id}`}
-                          className="tagora-dark-action"
-                        >
-                          Ouvrir la fiche employe
-                        </Link>
-                      ) : null}
-                    </div>
-                  </div>
-                </section>
-
-                <section className="tagora-panel ui-stack-md">
-                  <div className="ui-stack-xs">
-                    <h2 className="section-title" style={{ marginBottom: 0 }}>
-                      Acces et securite
-                    </h2>
-                    <p className="tagora-note" style={{ margin: 0 }}>
-                      Cette page ne modifie plus les donnees d emploi. Elle sert uniquement
-                      au compte, au role, aux permissions et a la note admin.
-                    </p>
-                  </div>
-
-                  <div
-                    style={{
-                      display: "grid",
-                      gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))",
-                      gap: 16,
-                    }}
-                  >
-                    <SummaryItem label="Courriel du compte" value={selectedRequest.email} />
-                    <SummaryItem label="Telephone" value={selectedRequest.phone || "Non fourni"} />
-                    <SummaryItem label="Compagnie" value={getCompanyLabel(selectedRequest.company)} />
-                    <SummaryItem label="Role demande" value={formatRole(selectedRequest.requested_role)} />
-                    <SummaryItem
-                      label="Permissions demandees"
-                      value={formatPermissions(selectedRequest.requested_permissions)}
-                    />
-                    <SummaryItem label="Role actuel" value={formatRole(selectedRequest.existing_account?.role)} />
-                    <SummaryItem
-                      label="Permissions actuelles"
-                      value={formatPermissions(selectedRequest.existing_account?.permissions)}
-                    />
-                    <SummaryItem
-                      label="Courriel confirme"
-                      value={selectedRequest.existing_account?.emailConfirmed ? "Oui" : "Non"}
-                    />
-                  </div>
-
-                  <div className="tagora-form-grid">
-                    <label className="tagora-field">
-                      <span className="tagora-label">Role admin cible</span>
-                      <select
-                        className="tagora-input"
-                        value={assignedRole}
-                        onChange={(e) =>
-                          setAssignedRole(
-                            e.target.value === "direction" ? "direction" : "employe"
-                          )
-                        }
-                        disabled={Boolean(savingAction)}
-                      >
-                        <option value="employe">Employe</option>
-                        <option value="direction">Direction</option>
-                      </select>
-                    </label>
-                    <label className="tagora-field" style={{ gridColumn: "1 / -1" }}>
-                      <span className="tagora-label">Note admin liee au compte</span>
-                      <textarea
-                        className="tagora-textarea"
-                        value={reviewNote}
-                        onChange={(e) => setReviewNote(e.target.value)}
-                        placeholder="Note admin"
-                        readOnly={Boolean(savingAction)}
-                      />
-                    </label>
-                  </div>
-
-                  <div className="tagora-panel-muted account-requests-permissions">
-                    {permissionOptions.map((option) => (
-                      <label key={option.value} className="account-requests-permission-option">
-                        <input
-                          type="checkbox"
-                          checked={assignedPermissions.includes(option.value)}
-                          onChange={() => togglePermission(option.value)}
-                          disabled={Boolean(savingAction)}
-                        />
-                        <span>{option.label}</span>
-                      </label>
-                    ))}
-                  </div>
-                </section>
-
-                <section className="tagora-panel ui-stack-md">
-                  <div className="ui-stack-xs">
-                    <h2 className="section-title" style={{ marginBottom: 0 }}>
-                      Actions compte
-                    </h2>
-                    <p className="tagora-note" style={{ margin: 0 }}>
-                      Activation, invitation, modification d acces et administration du compte.
-                    </p>
-                  </div>
-
-                  {selectedRequest.existing_account?.exists ? (
-                    <label className="account-requests-permission-option">
-                      <input
-                        type="checkbox"
-                        checked={confirmOverwriteExistingAccount}
-                        onChange={() =>
-                          setConfirmOverwriteExistingAccount((current) => !current)
-                        }
-                      />
-                      <span>Autoriser le remplacement des acces existants</span>
-                    </label>
-                  ) : null}
-
-                  {selectedRequest.review_lock?.isLocked ? (
-                    <div className="account-requests-lock">
-                      Traitement verrouille jusqu au {formatDate(selectedRequest.review_lock.expiresAt)}.
-                    </div>
-                  ) : null}
-
-                  {primaryAction ? (
-                    <div
-                      className="tagora-panel-muted"
-                      style={{ display: "grid", gap: 14, padding: 20, border: "1px solid #c7d2fe" }}
-                    >
-                      <div>
-                        <div className="tagora-field-label">Action principale</div>
-                        <p className="tagora-note" style={{ margin: "8px 0 0" }}>
-                          {primaryAction.action === "approve"
-                            ? "Cree ou active le compte avec les acces choisis."
-                            : "Enregistre les changements de role, permissions et note admin."}
-                        </p>
-                      </div>
-                      <div className="account-requests-actions">
-                        <button
-                          type="button"
-                          className={getButtonClassName(primaryAction.tone)}
-                          onClick={() => void runAction(primaryAction.action)}
-                          disabled={Boolean(savingAction)}
-                        >
-                          {savingAction === primaryAction.action ? "Traitement..." : primaryAction.label}
-                        </button>
-                      </div>
-                    </div>
-                  ) : null}
-
-                  {secondaryActions.length > 0 ? (
-                    <div className="tagora-panel-muted" style={{ display: "grid", gap: 14, padding: 20 }}>
-                      <div>
-                        <div className="tagora-field-label">Actions secondaires</div>
-                        <p className="tagora-note" style={{ margin: "8px 0 0" }}>
-                          Actions complementaires selon l etat reel du compte.
-                        </p>
-                      </div>
-                      <div className="account-requests-actions">
-                        {secondaryActions.map((item) => {
-                          const isBusy = savingAction === item.action;
-
-                          return (
-                            <button
-                              key={item.action}
-                              type="button"
-                              className={getButtonClassName(item.tone)}
-                              onClick={() => void runAction(item.action)}
-                              disabled={Boolean(savingAction)}
-                            >
-                              {isBusy ? "Traitement..." : item.label}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  ) : null}
-
-                  {destructiveAction ? (
-                    <div
-                      className="tagora-panel-muted"
-                      style={{ display: "grid", gap: 14, padding: 20, border: "1px solid #fecaca" }}
-                    >
-                      <div>
-                        <div className="tagora-field-label">Action destructive</div>
-                        <p className="tagora-note" style={{ margin: "8px 0 0" }}>
-                          Action irreversible sur la demande de compte.
-                        </p>
-                      </div>
-                      <div className="account-requests-actions">
-                        <button
-                          type="button"
-                          className="tagora-btn-danger"
-                          onClick={() => void runAction(destructiveAction.action)}
-                          disabled={Boolean(savingAction)}
-                        >
-                          {savingAction === destructiveAction.action ? "Traitement..." : destructiveAction.label}
-                        </button>
-                      </div>
-                    </div>
-                  ) : null}
-                </section>
-              </>
-            )}
-          </aside>
-        </div>
+                      </td>
+                      <td>
+                        <div className="account-requests-cell-stack">
+                          <EmployeeLinkStatusBadge employeeLink={request.employee_link} />
+                          {request.employee_link?.id ? (
+                            <span className="account-requests-cell-sub">#{request.employee_link.id}</span>
+                          ) : null}
+                        </div>
+                      </td>
+                      <td className="account-requests-cell-date">
+                        {formatDate(request.existing_account?.lastSignInAt)}
+                      </td>
+                      <td className="account-requests-cell-date">
+                        {formatDate(request.created_at)}
+                      </td>
+                      <td>
+                        <div className="account-requests-cell-actions">
+                          <AccountRequestRowActions
+                            request={request}
+                            onEdit={() => setEditingRequestId(request.id)}
+                          />
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
       </div>
+
+      {editingRequest ? (
+        <AccountEditDrawer
+          request={editingRequest}
+          assignedRole={assignedRole}
+          assignedPermissions={assignedPermissions}
+          reviewNote={reviewNote}
+          confirmOverwriteExistingAccount={confirmOverwriteExistingAccount}
+          permissionOptions={permissionOptions}
+          savingAction={savingAction}
+          securityAction={securityAction}
+          onClose={() => setEditingRequestId(null)}
+          onRoleChange={setAssignedRole}
+          onReviewNoteChange={setReviewNote}
+          onTogglePermission={togglePermission}
+          onConfirmOverwriteChange={() =>
+            setConfirmOverwriteExistingAccount((current) => !current)
+          }
+          onRunAction={(action) => void runAction(action, editingRequest)}
+          onRunSecurityAction={(action) => void runSecurityAction(action, editingRequest)}
+        />
+      ) : null}
     </main>
   );
-}
-
-function SummaryItem({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="account-requests-summary-item">
-      <span className="account-requests-card-meta-label">{label}</span>
-      <span className="account-requests-summary-value">{value}</span>
-    </div>
-  );
-}
-
-function StatCard({
-  label,
-  value,
-  tone,
-}: {
-  label: string;
-  value: number;
-  tone: "pending" | "invited" | "active" | "refused" | "error";
-}) {
-  return (
-    <div className={`tagora-stat-card account-requests-stat-card account-requests-stat-${tone}`}>
-      <div className="tagora-stat-label">{label}</div>
-      <div className="tagora-stat-value">{value}</div>
-    </div>
-  );
-}
-
-function getButtonClassName(tone: ActionConfig["tone"]) {
-  if (tone === "danger") return "tagora-btn-danger";
-  if (tone === "secondary") return "tagora-dark-outline-action";
-  return "tagora-btn tagora-btn-primary";
-}
-
-function getSuccessMessage(action: RequestAction) {
-  if (action === "approve") return "Demande approuvee avec succes.";
-  if (action === "refuse") return "Demande refusee avec succes.";
-  if (action === "update_access") return "Role et permissions mis a jour.";
-  if (action === "reset_pending") return "Demande remise en attente.";
-  if (action === "resend_invitation") return "Invitation renvoyee avec succes.";
-  if (action === "disable_access") return "Acces desactive avec succes.";
-  if (action === "retry") return "Traitement relance avec succes.";
-  return "Demande supprimee avec succes.";
 }
