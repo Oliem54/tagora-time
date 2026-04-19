@@ -1,9 +1,11 @@
 import "server-only";
 
+import type { User } from "@supabase/supabase-js";
 import { NextRequest } from "next/server";
 import { createAdminSupabaseClient } from "@/app/lib/supabase/admin";
 import { createPublicServerSupabaseClient } from "@/app/lib/supabase/server";
 import { normalizeEmail } from "@/app/lib/account-requests.shared";
+import { APP_SESSION_COOKIE_NAME } from "@/app/lib/auth/session-cookie";
 
 const ACCOUNT_REQUESTS_CLIENT_MARKER_HEADER = "x-account-requests-client";
 const ACCOUNT_REQUESTS_CLIENT_MARKER_VALUE = "browser-authenticated";
@@ -13,6 +15,35 @@ function getBearerToken(req: NextRequest) {
   return authHeader?.startsWith("Bearer ")
     ? authHeader.slice("Bearer ".length)
     : null;
+}
+
+export function getCookieToken(req: NextRequest) {
+  return req.cookies.get(APP_SESSION_COOKIE_NAME)?.value ?? null;
+}
+
+export function getRequestAccessToken(req: NextRequest) {
+  const bearerToken = getBearerToken(req);
+
+  if (bearerToken) {
+    return {
+      token: bearerToken,
+      source: "bearer" as const,
+    };
+  }
+
+  const cookieToken = getCookieToken(req);
+
+  if (cookieToken) {
+    return {
+      token: cookieToken,
+      source: "cookie" as const,
+    };
+  }
+
+  return {
+    token: null,
+    source: "none" as const,
+  };
 }
 
 function normalizeAppRole(value: unknown): "direction" | "employe" | null {
@@ -41,10 +72,17 @@ function normalizeAppRole(value: unknown): "direction" | "employe" | null {
   return null;
 }
 
-export function extractRoleFromUser(user: any): "direction" | "employe" | null {
-  return normalizeAppRole(
-    user?.app_metadata?.role ?? user?.user_metadata?.role ?? user?.role ?? null
-  );
+export function extractRoleFromUser(
+  user: User | null | undefined
+): "direction" | "employe" | null {
+  if (!user) {
+    return null;
+  }
+
+  const appRole = (user.app_metadata as { role?: unknown } | null)?.role;
+  const userMetaRole = (user.user_metadata as { role?: unknown } | null)?.role;
+
+  return normalizeAppRole(appRole ?? userMetaRole ?? null);
 }
 
 function decodeJwtPayload(token: string) {
@@ -101,12 +139,14 @@ export function getAccountRequestsRequestDebug(req: NextRequest) {
 
 export type DirectionAccessDebug = {
   apiBlockReason: string | null;
+  authSource: "bearer" | "cookie" | "none";
   jwtRole: string | null;
   tokenRole: string | null;
   adminRole: string | null;
   userId: string | null;
   email: string | null;
   hasAuthorizationHeader: boolean;
+  hasSessionCookie: boolean;
   tokenReadable: boolean;
   adminReadable: boolean;
   roleMismatch: boolean;
@@ -114,21 +154,25 @@ export type DirectionAccessDebug = {
 
 export async function resolveDirectionRequestUser(req: NextRequest) {
   const authHeader = req.headers.get("authorization");
-  const token = getBearerToken(req);
+  const accessToken = getRequestAccessToken(req);
+  const token = accessToken.token;
   const hasAuthorizationHeader = Boolean(authHeader);
+  const hasSessionCookie = Boolean(getCookieToken(req));
 
   if (!token) {
     return {
       user: null,
       role: null,
       debug: {
-        apiBlockReason: "missing_bearer_token",
+        apiBlockReason: "missing_session_token",
+        authSource: accessToken.source,
         jwtRole: null,
         tokenRole: null,
         adminRole: null,
         userId: null,
         email: null,
         hasAuthorizationHeader,
+        hasSessionCookie,
         tokenReadable: false,
         adminReadable: false,
         roleMismatch: false,
@@ -157,12 +201,14 @@ export async function resolveDirectionRequestUser(req: NextRequest) {
       role: null,
       debug: {
         apiBlockReason: error ? "token_user_lookup_failed" : "authenticated_user_missing",
+        authSource: accessToken.source,
         jwtRole,
         tokenRole,
         adminRole: null,
         userId: tokenUser?.id ?? null,
         email: tokenUser?.email ?? null,
         hasAuthorizationHeader,
+        hasSessionCookie,
         tokenReadable,
         adminReadable: false,
         roleMismatch: false,
@@ -195,12 +241,14 @@ export async function resolveDirectionRequestUser(req: NextRequest) {
           : adminUser
             ? "direction_role_missing"
             : "admin_user_missing",
+        authSource: accessToken.source,
         jwtRole,
         tokenRole,
         adminRole,
         userId: adminUser?.id ?? tokenUser.id ?? null,
         email: adminUser?.email ?? tokenUser.email ?? null,
         hasAuthorizationHeader,
+        hasSessionCookie,
         tokenReadable,
         adminReadable,
         roleMismatch,
@@ -213,12 +261,14 @@ export async function resolveDirectionRequestUser(req: NextRequest) {
     role: "direction" as const,
     debug: {
       apiBlockReason: null,
+      authSource: accessToken.source,
       jwtRole,
       tokenRole,
       adminRole,
       userId: adminUser?.id ?? tokenUser.id ?? null,
       email: adminUser?.email ?? tokenUser.email ?? null,
       hasAuthorizationHeader,
+      hasSessionCookie,
       tokenReadable,
       adminReadable,
       roleMismatch,
@@ -234,22 +284,24 @@ export function getRequestIp(req: NextRequest) {
 }
 
 export async function getAuthenticatedRequestUser(req: NextRequest) {
-  const token = getBearerToken(req);
+  const accessToken = getRequestAccessToken(req);
+  const token = accessToken.token;
 
   if (!token) {
-    return { user: null, role: null };
+    return { user: null, role: null, authSource: accessToken.source };
   }
 
   const supabase = createPublicServerSupabaseClient();
   const { data, error } = await supabase.auth.getUser(token);
 
   if (error || !data.user) {
-    return { user: null, role: null };
+    return { user: null, role: null, authSource: accessToken.source };
   }
 
   return {
     user: data.user,
     role: extractRoleFromUser(data.user),
+    authSource: accessToken.source,
   };
 }
 

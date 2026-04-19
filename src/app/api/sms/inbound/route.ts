@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminSupabaseClient } from "@/app/lib/supabase/admin";
-import { normalizePhoneNumber } from "@/app/lib/timeclock-api";
+import { normalizePhoneNumber } from "@/app/lib/timeclock-api.shared";
 
 type ChauffeurPhoneRow = {
   id: number;
@@ -22,8 +22,19 @@ export async function POST(req: NextRequest) {
     const expectedToken =
       process.env.SMS_WEBHOOK_TOKEN ?? process.env.TAGORA_SMS_WEBHOOK_TOKEN;
     const receivedToken = req.headers.get("x-tagora-webhook-token");
+    const isProd = process.env.NODE_ENV === "production";
 
-    if (expectedToken && receivedToken !== expectedToken) {
+    if (isProd) {
+      if (!expectedToken?.trim()) {
+        return NextResponse.json(
+          { error: "Configuration webhook SMS manquante." },
+          { status: 503 }
+        );
+      }
+      if (receivedToken !== expectedToken) {
+        return NextResponse.json({ error: "Webhook refuse." }, { status: 403 });
+      }
+    } else if (expectedToken && receivedToken !== expectedToken) {
       return NextResponse.json({ error: "Webhook refuse." }, { status: 403 });
     }
 

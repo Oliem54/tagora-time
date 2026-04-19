@@ -25,6 +25,18 @@ export default function SiteFooter() {
             </Link>
           ))}
           <Link
+            href="/mentions-legales"
+            className="text-sm font-medium text-slate-600 transition hover:text-slate-950"
+          >
+            Mentions legales
+          </Link>
+          <Link
+            href="/confidentialite"
+            className="text-sm font-medium text-slate-600 transition hover:text-slate-950"
+          >
+            Confidentialite
+          </Link>
+          <Link
             href={marketingConnectionLinks.root}
             className="text-sm font-semibold text-slate-950 transition hover:text-slate-700"
           >

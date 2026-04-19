@@ -31,7 +31,7 @@ export default function EmployeProfilPage() {
     return (
       <main className="tagora-app-shell">
         <div className="tagora-app-content">
-          <AuthenticatedPageHeader title="Profil employe" subtitle="Chargement" />
+          <AuthenticatedPageHeader title="Profil employe" />
           <SectionCard title="Chargement" subtitle="Profil en preparation." />
         </div>
       </main>
@@ -43,7 +43,6 @@ export default function EmployeProfilPage() {
       <div className="tagora-app-content ui-stack-lg">
         <AuthenticatedPageHeader
           title="Profil employe"
-          subtitle="Compte."
           actions={
             <div style={{ display: "flex", gap: "var(--ui-space-3)", flexWrap: "wrap" }}>
               <SecondaryButton onClick={() => router.push("/employe/dashboard")}>

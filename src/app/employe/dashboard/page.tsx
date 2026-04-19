@@ -13,6 +13,7 @@ import InfoRow from "@/app/components/ui/InfoRow";
 import ModuleTile from "@/app/components/ui/ModuleTile";
 import PrimaryButton from "@/app/components/ui/PrimaryButton";
 import SecondaryButton from "@/app/components/ui/SecondaryButton";
+import HorodateurEmployeeCard from "@/app/components/horodateur/HorodateurEmployeeCard";
 
 type NoteRow = {
   id: number;
@@ -77,6 +78,7 @@ export default function EmployeDashboardPage() {
   const router = useRouter();
   const { user, loading: accessLoading, hasPermission } = useCurrentAccess();
   const userId = user?.id ?? null;
+  const canUseTerrain = hasPermission("terrain");
   const canUseDossiers = hasPermission("dossiers");
   const canUseLivraisons = hasPermission("livraisons");
 
@@ -240,7 +242,6 @@ export default function EmployeDashboardPage() {
         <div className="tagora-app-content">
           <AuthenticatedPageHeader
             title="Tableau de bord employe"
-            subtitle="Chargement"
           />
           <SectionCard title="Chargement" subtitle="Acces en cours." />
         </div>
@@ -253,7 +254,6 @@ export default function EmployeDashboardPage() {
       <div className="tagora-app-content ui-stack-lg">
         <AuthenticatedPageHeader
           title="Tableau de bord employe"
-          subtitle="Acces rapide."
           actions={
             <div
               style={{
@@ -350,6 +350,10 @@ export default function EmployeDashboardPage() {
               }
             />
           </div>
+        </SectionCard>
+
+        <SectionCard title="Horodateur" subtitle="Pointage et progression.">
+          <HorodateurEmployeeCard enabled={canUseTerrain} />
         </SectionCard>
 
         <SectionCard title="Mes dossiers" subtitle="Dossiers terrain.">

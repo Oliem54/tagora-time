@@ -7,6 +7,7 @@ import HeaderTagora from "@/app/components/HeaderTagora";
 import FeedbackMessage from "@/app/components/FeedbackMessage";
 import { accountRequestPermissionOptions } from "@/app/lib/account-request-options";
 import { ACCOUNT_REQUEST_COMPANIES } from "@/app/lib/account-requests.shared";
+import { devInfo } from "@/app/lib/logger";
 
 function DemandeComptePageContent() {
   const searchParams = useSearchParams();
@@ -77,7 +78,7 @@ function DemandeComptePageContent() {
         message: message.trim(),
       };
 
-      console.log("[demande-compte] donnees envoyees", requestPayload);
+      devInfo("demande-compte", "donnees envoyees", requestPayload);
 
       const response = await fetch("/api/account-requests", {
         method: "POST",
@@ -89,21 +90,11 @@ function DemandeComptePageContent() {
 
       const payload = await response.json();
 
-      console.log("[demande-compte] response.status", response.status);
-      console.log("[demande-compte] payload", payload);
-      console.log("[demande-compte] payload.debug", payload?.debug ?? null);
-
-      console.log("[demande-compte] reponse api", {
+      devInfo("demande-compte", "reponse api", {
         ok: response.ok,
         status: response.status,
-        statusText: response.statusText,
         payload,
       });
-
-      console.log("[demande-compte] error.message", payload?.debug?.message ?? null);
-      console.log("[demande-compte] error.details", payload?.debug?.details ?? null);
-      console.log("[demande-compte] error.hint", payload?.debug?.hint ?? null);
-      console.log("[demande-compte] error.code", payload?.debug?.code ?? null);
 
       if (!response.ok) {
         throw new Error(payload.error || "Erreur lors de la demande.");

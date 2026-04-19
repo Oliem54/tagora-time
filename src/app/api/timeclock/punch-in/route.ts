@@ -8,7 +8,7 @@ import {
   parseNumericCoordinate,
   requireAuthenticatedUser,
   resolveCompanyContext,
-} from "@/app/lib/timeclock-api";
+} from "@/app/lib/timeclock-api.server";
 
 type ChauffeurConfigRow = {
   id: number;

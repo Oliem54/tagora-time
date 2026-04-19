@@ -94,6 +94,7 @@ export type HorodateurPhase1EmployeeProfile = {
   authUserId: string | null;
   fullName: string | null;
   email: string | null;
+  phoneNumber: string | null;
   active: boolean;
   primaryCompany: AccountRequestCompany | null;
   scheduleStart: string | null;
@@ -108,48 +109,44 @@ export type HorodateurPhase1EmployeeProfile = {
   toleranceBeforeStartMinutes: number;
   toleranceAfterEndMinutes: number;
   maxShiftMinutes: number;
+  smsAlertQuartDebut: boolean;
 };
 
 export type HorodateurPhase1EventRecord = {
   id: string;
+  user_id?: string | null;
   employee_id: number;
   event_type: HorodateurPhase1EventType;
-  occurred_at: string;
-  source_module: string;
-  company_context: AccountRequestCompany | null;
-  actor_user_id: string | null;
-  actor_role: HorodateurPhase1ActorRole;
-  source_kind: HorodateurPhase1SourceKind;
+  event_time: string | null;
+  actor_user_id?: string | null;
+  actor_role?: HorodateurPhase1ActorRole;
+  source_kind?: HorodateurPhase1SourceKind;
   status: HorodateurPhase1EventStatus;
-  requires_approval: boolean;
-  exception_code: HorodateurPhase1ExceptionType | null;
-  approved_by: string | null;
-  approved_at: string | null;
-  rejected_by: string | null;
-  rejected_at: string | null;
-  approval_note: string | null;
-  related_event_id: string | null;
-  work_date: string;
-  week_start_date: string;
-  is_manual_correction: boolean;
-  notes: string | null;
-  metadata: Record<string, unknown>;
-  livraison_id: number | null;
-  dossier_id: number | null;
-  sortie_id: number | null;
+  requires_approval?: boolean;
+  exception_code?: HorodateurPhase1ExceptionType | null;
+  approved_by?: string | null;
+  approved_at?: string | null;
+  rejected_by?: string | null;
+  rejected_at?: string | null;
+  approval_note?: string | null;
+  related_event_id?: string | null;
+  work_date: string | null;
+  week_start_date: string | null;
+  is_manual_correction?: boolean;
+  note?: string | null;
   created_at?: string;
 };
 
 export type HorodateurPhase1CurrentStateRecord = {
   employee_id: number;
   current_state: HorodateurPhase1StateKind;
-  active_shift_id: string | null;
-  active_shift_start_event_id: string | null;
-  active_pause_start_event_id: string | null;
-  active_dinner_start_event_id: string | null;
-  last_event_id: string | null;
-  last_event_type: HorodateurPhase1EventType | null;
-  last_event_at: string | null;
+  active_shift_id?: string | null;
+  active_shift_start_event_id?: string | null;
+  active_pause_start_event_id?: string | null;
+  active_dinner_start_event_id?: string | null;
+  last_event_id?: string | null;
+  last_event_type?: HorodateurPhase1EventType | null;
+  last_event_at?: string | null;
   company_context: AccountRequestCompany | null;
   has_open_exception: boolean;
   created_at?: string;
@@ -159,8 +156,6 @@ export type HorodateurPhase1CurrentStateRecord = {
 export type HorodateurPhase1ShiftRecord = {
   id: string;
   employee_id: number;
-  shift_start_event_id: string | null;
-  shift_end_event_id: string | null;
   work_date: string;
   week_start_date: string;
   company_context: AccountRequestCompany | null;
@@ -172,9 +167,8 @@ export type HorodateurPhase1ShiftRecord = {
   unpaid_lunch_minutes: number;
   worked_minutes: number;
   payable_minutes: number;
-  approved_exception_minutes: number;
-  pending_exception_minutes: number;
-  anomalies: unknown;
+  approved_exception_minutes?: number;
+  pending_exception_minutes?: number;
   anomalies_count: number;
   status: HorodateurPhase1ShiftStatus;
   last_recomputed_at: string;
@@ -198,8 +192,49 @@ export type HorodateurPhase1ExceptionRecord = {
   reviewed_by_user_id: string | null;
   review_note: string | null;
   approved_minutes: number | null;
+  direction_email_notified_at?: string | null;
+  direction_sms_notified_at?: string | null;
+  direction_reminder_email_notified_at?: string | null;
+  direction_reminder_sms_notified_at?: string | null;
   created_at?: string;
   updated_at?: string;
+};
+
+export type HorodateurDirectionAlertConfigRecord = {
+  config_key: "default";
+  email_enabled: boolean;
+  sms_enabled: boolean;
+  reminder_delay_minutes: number;
+  direction_emails: string[];
+  direction_sms_numbers: string[];
+  created_at?: string;
+  updated_at?: string;
+};
+
+export type HorodateurLatenessNotificationRecord = {
+  id: string;
+  employee_id: number;
+  work_date: string;
+  scheduled_start_at: string;
+  detected_at: string;
+  late_detected_at: string;
+  late_direction_email_notified_at: string | null;
+  late_direction_sms_notified_at: string | null;
+  late_employee_sms_notified_at: string | null;
+  resolution_reason?: string | null;
+  created_at?: string;
+  updated_at?: string;
+};
+
+export type HorodateurPhase1DirectionPendingExceptionAlert = {
+  id: string;
+  employeeId: number;
+  employeeName: string | null;
+  employeeEmail: string | null;
+  exceptionType: HorodateurPhase1ExceptionType;
+  reasonLabel: string;
+  occurredAt: string | null;
+  requestedAt: string;
 };
 
 export type HorodateurPhase1DirectionLiveRow = {
@@ -255,20 +290,18 @@ export type HorodateurPhase1ClassifyInput = {
 };
 
 export type HorodateurPhase1InsertEventInput = {
+  userId: string;
   employeeId: number;
   occurredAt: string;
+  workDate: string;
+  weekStartDate: string;
   eventType: HorodateurPhase1EventType;
   actorUserId: string | null;
   actorRole: HorodateurPhase1ActorRole;
   sourceKind: HorodateurPhase1SourceKind;
   companyContext: AccountRequestCompany;
-  sourceModule?: string;
   note?: string | null;
-  metadata?: Record<string, unknown>;
   relatedEventId?: string | null;
-  livraisonId?: number | null;
-  dossierId?: number | null;
-  sortieId?: number | null;
   isManualCorrection?: boolean;
   status: HorodateurPhase1EventStatus;
   requiresApproval: boolean;

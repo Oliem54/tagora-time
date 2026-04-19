@@ -1,12 +1,9 @@
-import type { NextRequest } from "next/server";
 import type { User } from "@supabase/supabase-js";
 import {
   buildUserCompanyAccess,
   normalizeCompany,
   type AccountRequestCompany,
 } from "@/app/lib/account-requests.shared";
-import { getAuthenticatedRequestUser, getStrictDirectionRequestUser } from "@/app/lib/account-requests.server";
-import { hasUserPermission } from "@/app/lib/auth/permissions";
 
 export const AUTHORIZATION_REQUEST_TYPES = [
   "early_start",
@@ -67,60 +64,6 @@ export function resolveCompanyContext(
   }
 
   return companyAccess.primaryCompany ?? companyAccess.company ?? "oliem_solutions";
-}
-
-export async function requireAuthenticatedUser(
-  req: NextRequest,
-  permission?: "terrain" | "livraisons" | "documents" | "dossiers" | "ressources"
-) {
-  const { user, role } = await getAuthenticatedRequestUser(req);
-
-  if (!user) {
-    return {
-      ok: false as const,
-      response: { error: "Authentification requise.", status: 401 },
-    };
-  }
-
-  if (permission && !hasUserPermission(user, permission)) {
-    return {
-      ok: false as const,
-      response: { error: "Acces refuse.", status: 403 },
-    };
-  }
-
-  return {
-    ok: true as const,
-    user,
-    role,
-    companyContext: resolveCompanyContext(user, null),
-  };
-}
-
-export async function requireDirectionUser(
-  req: NextRequest,
-  permission: "terrain" | "livraisons" | "ressources"
-) {
-  const { user, role } = await getStrictDirectionRequestUser(req);
-
-  if (!user || role !== "direction") {
-    return {
-      ok: false as const,
-      response: { error: "Acces refuse.", status: 403 },
-    };
-  }
-
-  if (!hasUserPermission(user, permission)) {
-    return {
-      ok: false as const,
-      response: { error: "Permission insuffisante.", status: 403 },
-    };
-  }
-
-  return {
-    ok: true as const,
-    user,
-  };
 }
 
 export function isWithinRadiusMeters(options: {

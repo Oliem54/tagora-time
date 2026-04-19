@@ -2,29 +2,40 @@ import "server-only";
 
 import { getCompanyLabel, type AccountRequestCompany } from "@/app/lib/account-requests.shared";
 import {
+  notifyDirectionOfHorodateurException,
+  notifyHorodateurLateness,
+} from "@/app/lib/notifications";
+import {
   attachShiftToException,
   countPendingExceptionsForEmployee,
   getCurrentStateByEmployeeId,
+  getDirectionAlertConfig,
   getEmployeeByAuthUserId,
   getEmployeeById,
   getEventById,
   getExceptionById,
+  getLatenessNotification,
   getShiftByEmployeeAndWorkDate,
   insertEvent,
   insertException,
   listActiveEmployees,
   listEventsForEmployee,
+  listExceptionsForEmployeeWorkDate,
   listExceptionsForShift,
   listPendingExceptions,
   listShiftsForEmployeeWeek,
   updateEventReviewStatus,
+  updateExceptionNotificationStatus,
   updateExceptionReview,
+  upsertDirectionAlertConfig,
   upsertCurrentState,
+  upsertLatenessNotification,
   upsertShift,
 } from "./repository";
 import {
   classifyEventPhase1,
   diffMinutes,
+  getEventOccurredAt,
   getLastApprovedEvent,
   getLocalWorkDate,
   getWeekStartDate,
@@ -36,9 +47,11 @@ import {
   HorodateurPhase1Error,
 } from "./types";
 import type {
+  HorodateurDirectionAlertConfigRecord,
   HorodateurPhase1CreatePunchResult,
   HorodateurPhase1CurrentStateRecord,
   HorodateurPhase1DirectionLiveRow,
+  HorodateurPhase1DirectionPendingExceptionAlert,
   HorodateurPhase1EmployeeDashboardSnapshot,
   HorodateurPhase1EmployeeProfile,
   HorodateurPhase1EventRecord,
@@ -49,6 +62,9 @@ import type {
   HorodateurPhase1ShiftRecord,
   HorodateurPhase1StateKind,
 } from "./types";
+
+const HORODATEUR_DEFAULT_LATENESS_TOLERANCE_MINUTES = 5;
+const TORONTO_TIMEZONE = "America/Toronto";
 
 function ensureEmployeeActive(employee: HorodateurPhase1EmployeeProfile) {
   if (!employee.active) {
@@ -76,6 +92,135 @@ function requireCompanyContext(
   }
 
   return resolved;
+}
+
+function requireEmployeeAuthUserId(employee: HorodateurPhase1EmployeeProfile) {
+  if (!employee.authUserId) {
+    throw new HorodateurPhase1Error(
+      "Le chauffeur selectionne n a pas de compte lie (auth_user_id manquant).",
+      {
+        code: "employee_auth_user_missing",
+        status: 409,
+      }
+    );
+  }
+
+  return employee.authUserId;
+}
+
+function normalizeConfigList(values: string[] | null | undefined) {
+  return Array.from(
+    new Set(
+      (values ?? [])
+        .map((item) => String(item ?? "").trim())
+        .filter(Boolean)
+    )
+  );
+}
+
+function parseEnvList(rawValue: string | undefined) {
+  return normalizeConfigList((rawValue ?? "").split(","));
+}
+
+function formatDatePartsInToronto(value: Date) {
+  const formatter = new Intl.DateTimeFormat("en-CA", {
+    timeZone: TORONTO_TIMEZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+    timeZoneName: "shortOffset",
+  });
+
+  const parts = formatter.formatToParts(value);
+  const map = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+
+  return {
+    year: map.year,
+    month: map.month,
+    day: map.day,
+    hour: map.hour,
+    minute: map.minute,
+    second: map.second,
+    offset: map.timeZoneName?.replace("GMT", "") || "-04:00",
+  };
+}
+
+function getTorontoCurrentMinutes(now = new Date()) {
+  const parts = formatDatePartsInToronto(now);
+  return Number(parts.hour) * 60 + Number(parts.minute);
+}
+
+function buildTorontoTimestamp(workDate: string, timeValue: string, now = new Date()) {
+  const normalizedTime = timeValue.length === 5 ? `${timeValue}:00` : timeValue;
+  const { offset } = formatDatePartsInToronto(now);
+  return `${workDate}T${normalizedTime}${offset}`;
+}
+
+function getTodayWorkDateAndDay(now = new Date()) {
+  const parts = formatDatePartsInToronto(now);
+  const workDate = `${parts.year}-${parts.month}-${parts.day}`;
+  const weekday = new Intl.DateTimeFormat("fr-CA", {
+    timeZone: TORONTO_TIMEZONE,
+    weekday: "long",
+  }).format(now);
+
+  return {
+    workDate,
+    weekday: weekday.toLowerCase(),
+  };
+}
+
+function getScheduledStartMinutes(scheduleStart: string) {
+  const [hours, minutes] = scheduleStart.split(":").map((item) => Number.parseInt(item, 10));
+
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) {
+    return null;
+  }
+
+  return hours * 60 + minutes;
+}
+
+export async function getHorodateurDirectionAlertConfig(): Promise<HorodateurDirectionAlertConfigRecord> {
+  const storedConfig = await getDirectionAlertConfig();
+
+  if (storedConfig) {
+    return {
+      ...storedConfig,
+      direction_emails: normalizeConfigList(storedConfig.direction_emails),
+      direction_sms_numbers: normalizeConfigList(storedConfig.direction_sms_numbers),
+    };
+  }
+
+  return {
+    config_key: "default",
+    email_enabled: true,
+    sms_enabled: true,
+    reminder_delay_minutes: 60,
+    direction_emails: parseEnvList(process.env.DIRECTION_ALERT_EMAILS),
+    direction_sms_numbers: parseEnvList(
+      process.env.DIRECTION_ALERT_SMS_NUMBERS ?? process.env.DIRECTION_ALERT_PHONES
+    ),
+  };
+}
+
+export async function saveHorodateurDirectionAlertConfig(input: {
+  emailEnabled: boolean;
+  smsEnabled: boolean;
+  reminderDelayMinutes: number;
+  directionEmails: string[];
+  directionSmsNumbers: string[];
+}) {
+  return upsertDirectionAlertConfig({
+    email_enabled: input.emailEnabled,
+    sms_enabled: input.smsEnabled,
+    reminder_delay_minutes: Math.max(5, Math.floor(input.reminderDelayMinutes || 0)),
+    direction_emails: normalizeConfigList(input.directionEmails),
+    direction_sms_numbers: normalizeConfigList(input.directionSmsNumbers),
+  });
 }
 
 export async function resolveEmployeeByAuthUserId(authUserId: string) {
@@ -109,32 +254,25 @@ async function resolveEmployeeById(employeeId: number) {
   return employee;
 }
 
-function buildEventMetadata(options: {
-  workDate: string;
-  weekStartDate: string;
-  actorEmail?: string | null;
-  extra?: Record<string, unknown>;
-}) {
+function resolveEventDates(occurredAt: string) {
   return {
-    work_date: options.workDate,
-    week_start_date: options.weekStartDate,
-    actor_email: options.actorEmail ?? null,
-    ...(options.extra ?? {}),
+    workDate: getLocalWorkDate(occurredAt),
+    weekStartDate: getWeekStartDate(occurredAt),
   };
 }
 
 export async function insertHorodateurEvent(input: HorodateurPhase1InsertEventInput) {
-  const workDate = getLocalWorkDate(input.occurredAt);
-  const weekStartDate = getWeekStartDate(input.occurredAt);
-
   return insertEvent({
     ...input,
-    metadata: buildEventMetadata({
-      workDate,
-      weekStartDate,
-      extra: input.metadata,
-    }),
+    ...resolveEventDates(input.occurredAt),
   });
+}
+
+function shouldBypassExceptionWorkflow(event: Pick<
+  HorodateurPhase1EventRecord,
+  "actor_role" | "source_kind"
+>) {
+  return event.actor_role === "direction" || event.source_kind === "direction";
 }
 
 export async function createPendingExceptionForEvent(options: {
@@ -145,6 +283,10 @@ export async function createPendingExceptionForEvent(options: {
   details?: string | null;
   impactMinutes?: number;
 }) {
+  if (shouldBypassExceptionWorkflow(options.event)) {
+    return null;
+  }
+
   if (!options.event.exception_code) {
     throw new HorodateurPhase1Error(
       "Impossible de creer une exception sans exception_code.",
@@ -157,7 +299,8 @@ export async function createPendingExceptionForEvent(options: {
 
   const existingShift = await getShiftByEmployeeAndWorkDate(
     options.employeeId,
-    options.event.work_date
+    options.event.work_date ??
+      getLocalWorkDate(getEventOccurredAt(options.event) ?? new Date().toISOString())
   );
 
   return insertException({
@@ -170,6 +313,341 @@ export async function createPendingExceptionForEvent(options: {
     impactMinutes: options.impactMinutes ?? 0,
     requestedByUserId: options.requestedByUserId,
   });
+}
+
+async function notifyDirectionOfPendingException(options: {
+  employee: HorodateurPhase1EmployeeProfile;
+  exception: HorodateurPhase1ExceptionRecord;
+  event: HorodateurPhase1EventRecord;
+}) {
+  const config = await getHorodateurDirectionAlertConfig();
+
+  if (
+    options.exception.status !== "en_attente" ||
+    ((!config.email_enabled || options.exception.direction_email_notified_at) &&
+      (!config.sms_enabled || options.exception.direction_sms_notified_at))
+  ) {
+    return options.exception;
+  }
+
+  try {
+    const notificationResult = await notifyDirectionOfHorodateurException({
+      exceptionId: options.exception.id,
+      employeeName: options.employee.fullName,
+      employeeEmail: options.employee.email,
+      exceptionType: options.exception.exception_type,
+        reasonLabel: options.exception.reason_label,
+        occurredAt: getEventOccurredAt(options.event),
+        requestedAt: options.exception.requested_at,
+        managementUrl: "/direction/horodateur",
+        emailEnabled: config.email_enabled,
+        smsEnabled: config.sms_enabled,
+        recipientEmails: config.direction_emails,
+        recipientSmsNumbers: config.direction_sms_numbers,
+      });
+
+    const nowIso = new Date().toISOString();
+    const shouldPersistEmail =
+      notificationResult.email.ok && !options.exception.direction_email_notified_at;
+    const shouldPersistSms =
+      notificationResult.sms.sent && !options.exception.direction_sms_notified_at;
+
+    if (!shouldPersistEmail && !shouldPersistSms) {
+      return options.exception;
+    }
+
+    return updateExceptionNotificationStatus({
+      exceptionId: options.exception.id,
+      directionEmailNotifiedAt: shouldPersistEmail ? nowIso : undefined,
+      directionSmsNotifiedAt: shouldPersistSms ? nowIso : undefined,
+    });
+  } catch (error) {
+    console.error("[horodateur-service] pending exception notification failed", {
+      exceptionId: options.exception.id,
+      employeeId: options.employee.employeeId,
+      errorMessage: error instanceof Error ? error.message : String(error),
+    });
+
+    return options.exception;
+  }
+}
+
+function getReminderReferenceTime(exception: HorodateurPhase1ExceptionRecord) {
+  const values = [
+    exception.direction_email_notified_at,
+    exception.direction_sms_notified_at,
+    exception.requested_at,
+  ]
+    .filter((value): value is string => Boolean(value))
+    .map((value) => new Date(value).getTime())
+    .filter((value) => Number.isFinite(value));
+
+  return values.length > 0 ? Math.max(...values) : Date.now();
+}
+
+export async function processPendingExceptionReminders() {
+  const config = await getHorodateurDirectionAlertConfig();
+  const pendingExceptions = await listPendingExceptionsForDirection();
+  const now = Date.now();
+  const processed: Array<{
+    exceptionId: string;
+    emailSent: boolean;
+    smsSent: boolean;
+  }> = [];
+
+  for (const item of pendingExceptions) {
+    const emailAlreadyReminded = Boolean(item.direction_reminder_email_notified_at);
+    const smsAlreadyReminded = Boolean(item.direction_reminder_sms_notified_at);
+
+    if (
+      (!config.email_enabled || emailAlreadyReminded) &&
+      (!config.sms_enabled || smsAlreadyReminded)
+    ) {
+      continue;
+    }
+
+    if (item.status !== "en_attente") {
+      continue;
+    }
+
+    const reminderAt =
+      getReminderReferenceTime(item) + config.reminder_delay_minutes * 60 * 1000;
+
+    if (now < reminderAt) {
+      continue;
+    }
+
+    if (!item.employee || !item.event) {
+      continue;
+    }
+
+    const notificationResult = await notifyDirectionOfHorodateurException({
+      exceptionId: item.id,
+      employeeName: item.employee.fullName,
+      employeeEmail: item.employee.email,
+      exceptionType: item.exception_type,
+      reasonLabel: item.reason_label,
+      occurredAt: item.event.occurredAt,
+      requestedAt: item.requested_at,
+      managementUrl: "/direction/horodateur",
+      emailEnabled: config.email_enabled && !emailAlreadyReminded,
+      smsEnabled: config.sms_enabled && !smsAlreadyReminded,
+      recipientEmails: config.direction_emails,
+      recipientSmsNumbers: config.direction_sms_numbers,
+      isReminder: true,
+    });
+
+    const nowIso = new Date().toISOString();
+    const shouldPersistEmail =
+      notificationResult.email.ok &&
+      config.email_enabled &&
+      !emailAlreadyReminded;
+    const shouldPersistSms =
+      notificationResult.sms.sent &&
+      config.sms_enabled &&
+      !smsAlreadyReminded;
+
+    if (shouldPersistEmail || shouldPersistSms) {
+      await updateExceptionNotificationStatus({
+        exceptionId: item.id,
+        directionReminderEmailNotifiedAt: shouldPersistEmail ? nowIso : undefined,
+        directionReminderSmsNotifiedAt: shouldPersistSms ? nowIso : undefined,
+      });
+    }
+
+    processed.push({
+      exceptionId: item.id,
+      emailSent: shouldPersistEmail,
+      smsSent: shouldPersistSms,
+    });
+  }
+
+  return {
+    processedCount: processed.length,
+    processed,
+    reminderDelayMinutes: config.reminder_delay_minutes,
+  };
+}
+
+function hasStartedShiftToday(
+  events: HorodateurPhase1EventRecord[],
+  currentState: HorodateurPhase1CurrentStateRecord | null
+) {
+  const hasQuarterStart = events.some((event) => event.event_type === "quart_debut");
+  const stateIndicatesStarted =
+    currentState?.current_state === "en_quart" ||
+    currentState?.current_state === "en_pause" ||
+    currentState?.current_state === "en_diner" ||
+    currentState?.current_state === "termine";
+
+  return hasQuarterStart || stateIndicatesStarted;
+}
+
+async function shouldSkipLatenessNotification(options: {
+  employee: HorodateurPhase1EmployeeProfile;
+  workDate: string;
+  events: HorodateurPhase1EventRecord[];
+}) {
+  const approvedOrReviewedExceptions = await listExceptionsForEmployeeWorkDate({
+    employeeId: options.employee.employeeId,
+    workDate: options.workDate,
+    statuses: ["approuve", "modifie"],
+  });
+
+  return approvedOrReviewedExceptions.length > 0;
+}
+
+export async function processLateEmployeeNotifications() {
+  const now = new Date();
+  const { workDate, weekday } = getTodayWorkDateAndDay(now);
+  const currentMinutes = getTorontoCurrentMinutes(now);
+  const config = await getHorodateurDirectionAlertConfig();
+  const employees = await listActiveEmployees();
+  const processed: Array<{
+    employeeId: number;
+    workDate: string;
+    directionEmailSent: boolean;
+    directionSmsSent: boolean;
+    employeeSmsSent: boolean;
+  }> = [];
+  let detectedCount = 0;
+
+  for (const employee of employees) {
+    if (!employee.active) {
+      continue;
+    }
+
+    if (!employee.scheduleStart) {
+      continue;
+    }
+
+    if (
+      Array.isArray(employee.scheduledWorkDays) &&
+      employee.scheduledWorkDays.length > 0 &&
+      !employee.scheduledWorkDays.map((item) => item.toLowerCase()).includes(weekday)
+    ) {
+      continue;
+    }
+
+    const scheduledStartMinutes = getScheduledStartMinutes(employee.scheduleStart);
+
+    if (scheduledStartMinutes == null) {
+      continue;
+    }
+
+    const toleranceMinutes =
+      employee.toleranceBeforeStartMinutes ??
+      HORODATEUR_DEFAULT_LATENESS_TOLERANCE_MINUTES;
+    const lateThresholdMinutes = scheduledStartMinutes + Math.max(0, toleranceMinutes);
+
+    if (currentMinutes <= lateThresholdMinutes) {
+      continue;
+    }
+
+    const [events, currentState, existingNotification] = await Promise.all([
+      listEventsForEmployee({
+        employeeId: employee.employeeId,
+        workDate,
+      }),
+      getCurrentStateByEmployeeId(employee.employeeId),
+      getLatenessNotification(employee.employeeId, workDate),
+    ]);
+
+    if (hasStartedShiftToday(events, currentState)) {
+      continue;
+    }
+
+    if (
+      await shouldSkipLatenessNotification({
+        employee,
+        workDate,
+        events,
+      })
+    ) {
+      if (!existingNotification?.resolution_reason) {
+        await upsertLatenessNotification({
+          employeeId: employee.employeeId,
+          workDate,
+          scheduledStartAt: buildTorontoTimestamp(workDate, employee.scheduleStart, now),
+          resolutionReason: "approved_exception_or_absence",
+        });
+      }
+      continue;
+    }
+
+    const scheduledStartAt = buildTorontoTimestamp(workDate, employee.scheduleStart, now);
+    const lateDetectedAt = now.toISOString();
+    const notification =
+      existingNotification ??
+      (await upsertLatenessNotification({
+        employeeId: employee.employeeId,
+        workDate,
+        scheduledStartAt,
+        lateDetectedAt,
+      }));
+
+    detectedCount += 1;
+
+    const shouldSendDirectionEmail =
+      config.email_enabled && !notification.late_direction_email_notified_at;
+    const shouldSendDirectionSms =
+      config.sms_enabled && !notification.late_direction_sms_notified_at;
+    const shouldSendEmployeeSms =
+      employee.smsAlertQuartDebut !== false &&
+      !notification.late_employee_sms_notified_at;
+
+    if (
+      !shouldSendDirectionEmail &&
+      !shouldSendDirectionSms &&
+      !shouldSendEmployeeSms
+    ) {
+      continue;
+    }
+
+    const result = await notifyHorodateurLateness({
+      employeeName: employee.fullName,
+      employeePhone: employee.phoneNumber,
+      scheduledStartAt,
+      detectedAt: lateDetectedAt,
+      managementUrl: "/direction/horodateur",
+      emailEnabled: shouldSendDirectionEmail,
+      smsEnabled: shouldSendDirectionSms,
+      employeeSmsEnabled: shouldSendEmployeeSms,
+      recipientEmails: config.direction_emails,
+      recipientSmsNumbers: config.direction_sms_numbers,
+    });
+
+    const nowIso = new Date().toISOString();
+    const directionEmailSent = shouldSendDirectionEmail && result.email.ok;
+    const directionSmsSent = shouldSendDirectionSms && result.directionSms.sent;
+    const employeeSmsSent = shouldSendEmployeeSms && result.employeeSms.sent;
+
+    if (directionEmailSent || directionSmsSent || employeeSmsSent) {
+      await upsertLatenessNotification({
+        employeeId: employee.employeeId,
+        workDate,
+        scheduledStartAt,
+        lateDirectionEmailNotifiedAt: directionEmailSent ? nowIso : undefined,
+        lateDirectionSmsNotifiedAt: directionSmsSent ? nowIso : undefined,
+        lateEmployeeSmsNotifiedAt: employeeSmsSent ? nowIso : undefined,
+      });
+    }
+
+    processed.push({
+      employeeId: employee.employeeId,
+      workDate,
+      directionEmailSent,
+      directionSmsSent,
+      employeeSmsSent,
+    });
+  }
+
+  return {
+    processedCount: processed.length,
+    detectedCount,
+    workDate,
+    processed,
+  };
 }
 
 export async function recomputeCurrentState(employeeId: number) {
@@ -227,8 +705,12 @@ export async function recomputeCurrentState(employeeId: number) {
   }
 
   const activeShift =
-    lastEvent?.work_date != null
-      ? await getShiftByEmployeeAndWorkDate(employeeId, lastEvent.work_date)
+    (lastEvent?.work_date ?? getEventOccurredAt(lastEvent))
+      ? await getShiftByEmployeeAndWorkDate(
+          employeeId,
+          lastEvent?.work_date ??
+            getLocalWorkDate(getEventOccurredAt(lastEvent) ?? new Date().toISOString())
+        )
       : null;
 
   return upsertCurrentState({
@@ -245,8 +727,8 @@ export async function recomputeCurrentState(employeeId: number) {
     active_dinner_start_event_id: activeDinnerStartEventId,
     last_event_id: lastEvent?.id ?? null,
     last_event_type: lastEvent?.event_type ?? null,
-    last_event_at: lastEvent?.occurred_at ?? null,
-    company_context: lastEvent?.company_context ?? null,
+    last_event_at: getEventOccurredAt(lastEvent),
+    company_context: activeShift?.company_context ?? null,
     has_open_exception: pendingExceptionsCount > 0,
   });
 }
@@ -266,8 +748,6 @@ export async function recomputeShiftForDate(
 
   let shiftStartAt: string | null = null;
   let shiftEndAt: string | null = null;
-  let shiftStartEventId: string | null = null;
-  let shiftEndEventId: string | null = null;
   let workSegmentStartAt: string | null = null;
   let pauseStartAt: string | null = null;
   let dinnerStartAt: string | null = null;
@@ -279,11 +759,17 @@ export async function recomputeShiftForDate(
   let state: HorodateurPhase1StateKind = "hors_quart";
 
   for (const event of approvedEvents) {
+    const eventOccurredAt = getEventOccurredAt(event);
+
+    if (!eventOccurredAt) {
+      anomalies.push(`Evenement ${event.event_type} sans event_time exploitable.`);
+      continue;
+    }
+
     if (event.event_type === "quart_debut") {
       if (!shiftStartAt) {
-        shiftStartAt = event.occurred_at;
-        shiftStartEventId = event.id;
-        workSegmentStartAt = event.occurred_at;
+        shiftStartAt = eventOccurredAt;
+        workSegmentStartAt = eventOccurredAt;
         state = "en_quart";
       } else {
         anomalies.push("Deux debuts de quart approuves sur la meme journee.");
@@ -295,9 +781,9 @@ export async function recomputeShiftForDate(
       if (state !== "en_quart" || !workSegmentStartAt) {
         anomalies.push("Pause approuvee dans une sequence invalide.");
       } else {
-        workedMinutes += diffMinutes(workSegmentStartAt, event.occurred_at);
+        workedMinutes += diffMinutes(workSegmentStartAt, eventOccurredAt);
         workSegmentStartAt = null;
-        pauseStartAt = event.occurred_at;
+        pauseStartAt = eventOccurredAt;
         state = "en_pause";
       }
       continue;
@@ -307,13 +793,13 @@ export async function recomputeShiftForDate(
       if (state !== "en_pause" || !pauseStartAt) {
         anomalies.push("Fin de pause approuvee sans pause active.");
       } else {
-        const duration = diffMinutes(pauseStartAt, event.occurred_at);
+        const duration = diffMinutes(pauseStartAt, eventOccurredAt);
         if (employee.pausePaid) {
           paidBreakMinutes += duration;
         } else {
           unpaidBreakMinutes += duration;
         }
-        workSegmentStartAt = event.occurred_at;
+        workSegmentStartAt = eventOccurredAt;
         pauseStartAt = null;
         state = "en_quart";
       }
@@ -324,9 +810,9 @@ export async function recomputeShiftForDate(
       if (state !== "en_quart" || !workSegmentStartAt) {
         anomalies.push("Diner approuve dans une sequence invalide.");
       } else {
-        workedMinutes += diffMinutes(workSegmentStartAt, event.occurred_at);
+        workedMinutes += diffMinutes(workSegmentStartAt, eventOccurredAt);
         workSegmentStartAt = null;
-        dinnerStartAt = event.occurred_at;
+        dinnerStartAt = eventOccurredAt;
         state = "en_diner";
       }
       continue;
@@ -336,11 +822,11 @@ export async function recomputeShiftForDate(
       if (state !== "en_diner" || !dinnerStartAt) {
         anomalies.push("Fin de diner approuvee sans diner actif.");
       } else {
-        const duration = diffMinutes(dinnerStartAt, event.occurred_at);
+        const duration = diffMinutes(dinnerStartAt, eventOccurredAt);
         if (!employee.lunchPaid) {
           unpaidLunchMinutes += duration;
         }
-        workSegmentStartAt = event.occurred_at;
+        workSegmentStartAt = eventOccurredAt;
         dinnerStartAt = null;
         state = "en_quart";
       }
@@ -348,11 +834,10 @@ export async function recomputeShiftForDate(
     }
 
     if (event.event_type === "quart_fin") {
-      shiftEndAt = event.occurred_at;
-      shiftEndEventId = event.id;
+      shiftEndAt = eventOccurredAt;
 
       if (state === "en_quart" && workSegmentStartAt) {
-        workedMinutes += diffMinutes(workSegmentStartAt, event.occurred_at);
+        workedMinutes += diffMinutes(workSegmentStartAt, eventOccurredAt);
       } else if (state === "en_pause") {
         anomalies.push("Fin de quart approuvee pendant une pause.");
       } else if (state === "en_diner") {
@@ -401,7 +886,7 @@ export async function recomputeShiftForDate(
   );
   const companyContext = resolveCompanyContextForShift(
     approvedEvents,
-    employee.primaryCompany
+    existingShift?.company_context ?? employee.primaryCompany
   );
 
   if (!companyContext) {
@@ -417,8 +902,6 @@ export async function recomputeShiftForDate(
   const shift = await upsertShift({
     id: existingShift?.id ?? crypto.randomUUID(),
     employee_id: employeeId,
-    shift_start_event_id: shiftStartEventId,
-    shift_end_event_id: shiftEndEventId,
     work_date: workDate,
     week_start_date: getWeekStartDate(`${workDate}T12:00:00Z`),
     company_context: companyContext,
@@ -432,7 +915,6 @@ export async function recomputeShiftForDate(
     payable_minutes: payableMinutes,
     approved_exception_minutes: approvedExceptionMinutes,
     pending_exception_minutes: pendingExceptionMinutes,
-    anomalies,
     anomalies_count: anomalies.length,
     status: resolveShiftStatus({
       hasPendingExceptions: pendingExceptions.length > 0,
@@ -451,12 +933,10 @@ export async function recomputeShiftForDate(
 
 export async function createEmployeePunch(options: {
   actorUserId: string;
-  actorEmail?: string | null;
   eventType: HorodateurPhase1EventType;
   occurredAt?: string;
   note?: string | null;
   companyContext?: AccountRequestCompany | null;
-  metadata?: Record<string, unknown>;
   relatedEventId?: string | null;
 }) : Promise<HorodateurPhase1CreatePunchResult> {
   const occurredAt = options.occurredAt ?? new Date().toISOString();
@@ -482,20 +962,16 @@ export async function createEmployeePunch(options: {
   );
 
   const event = await insertHorodateurEvent({
+    userId: requireEmployeeAuthUserId(employee),
     employeeId: employee.employeeId,
     occurredAt,
+    ...resolveEventDates(occurredAt),
     eventType: options.eventType,
     actorUserId: options.actorUserId,
     actorRole: "employe",
     sourceKind: "employe",
     companyContext,
     note: options.note,
-    metadata: buildEventMetadata({
-      workDate: getLocalWorkDate(occurredAt),
-      weekStartDate: getWeekStartDate(occurredAt),
-      actorEmail: options.actorEmail,
-      extra: options.metadata,
-    }),
     relatedEventId: options.relatedEventId,
     isManualCorrection: false,
     status: classification.status,
@@ -514,9 +990,20 @@ export async function createEmployeePunch(options: {
       reasonLabel: classification.reasonLabel ?? "Exception horodateur en attente",
       details: classification.details,
     });
+
+    if (exception) {
+      exception = await notifyDirectionOfPendingException({
+        employee,
+        exception,
+        event,
+      });
+    }
   }
 
-  const shift = await recomputeShiftForDate(employee.employeeId, event.work_date);
+  const shift = await recomputeShiftForDate(
+    employee.employeeId,
+    event.work_date ?? getLocalWorkDate(occurredAt)
+  );
   const refreshedState = await recomputeCurrentState(employee.employeeId);
 
   return {
@@ -529,13 +1016,11 @@ export async function createEmployeePunch(options: {
 
 export async function createDirectionPunch(options: {
   actorUserId: string;
-  actorEmail?: string | null;
   employeeId: number;
   eventType: HorodateurPhase1EventType;
   occurredAt?: string;
   note: string;
   companyContext?: AccountRequestCompany | null;
-  metadata?: Record<string, unknown>;
   relatedEventId?: string | null;
   forcedExceptionType?: HorodateurPhase1ExceptionType | null;
 }) : Promise<HorodateurPhase1CreatePunchResult> {
@@ -567,7 +1052,7 @@ export async function createDirectionPunch(options: {
     occurredAt,
     actorRole: "direction",
     note: normalizedNote,
-    forcedExceptionType: options.forcedExceptionType ?? "direction_manual_correction",
+    forcedExceptionType: options.forcedExceptionType ?? null,
   });
   const companyContext = requireCompanyContext(
     options.companyContext,
@@ -575,20 +1060,16 @@ export async function createDirectionPunch(options: {
   );
 
   const event = await insertHorodateurEvent({
+    userId: requireEmployeeAuthUserId(employee),
     employeeId: employee.employeeId,
     occurredAt,
+    ...resolveEventDates(occurredAt),
     eventType: options.eventType,
     actorUserId: options.actorUserId,
     actorRole: "direction",
     sourceKind: "direction",
     companyContext,
     note: normalizedNote,
-    metadata: buildEventMetadata({
-      workDate: getLocalWorkDate(occurredAt),
-      weekStartDate: getWeekStartDate(occurredAt),
-      actorEmail: options.actorEmail,
-      extra: options.metadata,
-    }),
     relatedEventId: options.relatedEventId,
     isManualCorrection: true,
     status: classification.status,
@@ -611,7 +1092,10 @@ export async function createDirectionPunch(options: {
     });
   }
 
-  const shift = await recomputeShiftForDate(employee.employeeId, event.work_date);
+  const shift = await recomputeShiftForDate(
+    employee.employeeId,
+    event.work_date ?? getLocalWorkDate(occurredAt)
+  );
   const refreshedState = await recomputeCurrentState(employee.employeeId);
 
   return {
@@ -684,8 +1168,6 @@ export async function getEmployeeDashboardSnapshotByAuthUserId(
       ({
         id: "",
         employee_id: employee.employeeId,
-        shift_start_event_id: null,
-        shift_end_event_id: null,
         work_date: today,
         week_start_date: getWeekStartDate(today),
         company_context: employee.primaryCompany,
@@ -699,7 +1181,6 @@ export async function getEmployeeDashboardSnapshotByAuthUserId(
         payable_minutes: 0,
         approved_exception_minutes: 0,
         pending_exception_minutes: 0,
-        anomalies: [],
         anomalies_count: 0,
         status: "ouvert",
         last_recomputed_at: new Date().toISOString(),
@@ -725,7 +1206,38 @@ export async function getEmployeeHistoryByAuthUserId(options: {
     employee,
     workDate,
     shift,
-    events,
+    events: events.map((event) => ({
+      id: event.id,
+      employee_id: event.employee_id,
+      event_type: event.event_type,
+      occurredAt: getEventOccurredAt(event),
+      source_module: null,
+      company_context:
+        shift?.company_context ??
+        employee.primaryCompany ??
+        null,
+      actor_user_id: event.actor_user_id,
+      actor_role: event.actor_role,
+      source_kind: event.source_kind,
+      status: event.status,
+      requires_approval: event.requires_approval,
+      exception_code: event.exception_code,
+      approved_by: event.approved_by,
+      approved_at: event.approved_at,
+      rejected_by: event.rejected_by,
+      rejected_at: event.rejected_at,
+      approval_note: event.approval_note,
+      related_event_id: event.related_event_id,
+      work_date: event.work_date,
+      week_start_date: event.week_start_date,
+      is_manual_correction: event.is_manual_correction,
+      notes: event.note ?? null,
+      metadata: {},
+      livraison_id: null,
+      dossier_id: null,
+      sortie_id: null,
+      created_at: event.created_at,
+    })),
     exceptions: exceptions.map((item) => ({
       id: item.id,
       employee_id: item.employee_id,
@@ -794,9 +1306,51 @@ export async function listPendingExceptionsForDirection() {
 
   return exceptions.map((item) => ({
     ...item,
-    event: eventMap.get(item.source_event_id) ?? null,
+    event:
+      eventMap.get(item.source_event_id) != null
+        ? {
+            id: eventMap.get(item.source_event_id)!.id,
+            employee_id: eventMap.get(item.source_event_id)!.employee_id,
+            event_type: eventMap.get(item.source_event_id)!.event_type,
+            occurredAt: getEventOccurredAt(eventMap.get(item.source_event_id)!),
+            status: eventMap.get(item.source_event_id)!.status,
+            notes: eventMap.get(item.source_event_id)!.note ?? null,
+          }
+        : null,
     employee: employeeMap.get(item.employee_id) ?? null,
   }));
+}
+
+export async function getDirectionDashboardHorodateurAlerts(): Promise<{
+  pendingCount: number;
+  items: HorodateurPhase1DirectionPendingExceptionAlert[];
+}> {
+  await processPendingExceptionReminders();
+  const exceptions = await listPendingExceptionsForDirection();
+
+  const items = exceptions
+    .slice()
+    .sort((left, right) => {
+      const leftTime = new Date(left.requested_at).getTime();
+      const rightTime = new Date(right.requested_at).getTime();
+      return rightTime - leftTime;
+    })
+    .slice(0, 3)
+    .map((item) => ({
+      id: item.id,
+      employeeId: item.employee_id,
+      employeeName: item.employee?.fullName ?? null,
+      employeeEmail: item.employee?.email ?? null,
+      exceptionType: item.exception_type,
+      reasonLabel: item.reason_label,
+      occurredAt: item.event?.occurredAt ?? null,
+      requestedAt: item.requested_at,
+    }));
+
+  return {
+    pendingCount: exceptions.length,
+    items,
+  };
 }
 
 export async function approveHorodateurException(options: {
@@ -841,7 +1395,11 @@ export async function approveHorodateurException(options: {
     reviewNote: options.reviewNote ?? null,
   });
 
-  const shift = await recomputeShiftForDate(exception.employee_id, event.work_date);
+  const shift = await recomputeShiftForDate(
+    exception.employee_id,
+    event.work_date ??
+      getLocalWorkDate(getEventOccurredAt(event) ?? new Date().toISOString())
+  );
   const currentState = await recomputeCurrentState(exception.employee_id);
 
   return {
@@ -897,7 +1455,11 @@ export async function refuseHorodateurException(options: {
     reviewNote: normalizedReviewNote,
   });
 
-  const shift = await recomputeShiftForDate(exception.employee_id, event.work_date);
+  const shift = await recomputeShiftForDate(
+    exception.employee_id,
+    event.work_date ??
+      getLocalWorkDate(getEventOccurredAt(event) ?? new Date().toISOString())
+  );
   const currentState = await recomputeCurrentState(exception.employee_id);
 
   return {

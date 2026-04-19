@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminSupabaseClient } from "@/app/lib/supabase/admin";
-import { requireDirectionUser } from "@/app/lib/timeclock-api";
+import { requireDirectionUser } from "@/app/lib/timeclock-api.server";
 
 export async function POST(req: NextRequest) {
   try {

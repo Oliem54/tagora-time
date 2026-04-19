@@ -18,7 +18,11 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      ...history,
+      employee: history.employee,
+      workDate: history.workDate,
+      shift: history.shift,
+      events: history.events,
+      exceptions: history.exceptions,
     });
   } catch (error) {
     return buildHorodateurErrorResponse(error);

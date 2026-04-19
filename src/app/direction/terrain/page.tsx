@@ -275,7 +275,7 @@ export default function DirectionTerrainPage() {
     return (
       <main className="tagora-app-shell">
         <div className="tagora-app-content">
-          <AuthenticatedPageHeader title="Terrain direction" subtitle="Carte en direct." />
+          <AuthenticatedPageHeader title="Terrain direction" />
           <SectionCard title="Chargement" subtitle="Positions en cours." />
         </div>
       </main>
@@ -289,7 +289,7 @@ export default function DirectionTerrainPage() {
     return (
       <main className="tagora-app-shell">
         <div className="tagora-app-content">
-          <AuthenticatedPageHeader title="Terrain direction" subtitle="Carte en direct." />
+          <AuthenticatedPageHeader title="Terrain direction" />
           <SectionCard title="Acces bloque" subtitle="Module masque." />
         </div>
       </main>
@@ -301,7 +301,6 @@ export default function DirectionTerrainPage() {
       <div className="tagora-app-content ui-stack-lg">
         <AuthenticatedPageHeader
           title="Terrain direction"
-          subtitle="Carte en direct."
           actions={<SecondaryButton onClick={() => void loadData()}>{refreshing ? "Synchronisation..." : "Actualiser"}</SecondaryButton>}
         />
 

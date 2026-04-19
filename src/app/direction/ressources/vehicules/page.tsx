@@ -107,11 +107,6 @@ export default function Page() {
     await fetchVehicules();
   }
 
-  function getVehiculeLabel(item: Vehicule) {
-    if (item.nom && item.plaque) return `${item.nom} - ${item.plaque}`;
-    return item.nom || item.plaque || `Véhicule #${item.id}`;
-  }
-
   return (
     <main style={{ minHeight: "100vh", background: "#f7f7f7" }}>
       <HeaderTagora />

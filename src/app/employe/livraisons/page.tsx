@@ -245,7 +245,7 @@ export default function EmployeLivraisonsPage() {
     return (
       <main className="tagora-app-shell">
         <div className="tagora-app-content">
-          <AuthenticatedPageHeader title="Tournee" subtitle="Livraisons du jour." />
+          <AuthenticatedPageHeader title="Tournee" />
           <SectionCard title="Chargement" subtitle="Acces en cours." />
         </div>
       </main>
@@ -256,7 +256,7 @@ export default function EmployeLivraisonsPage() {
     return (
       <main className="tagora-app-shell">
         <div className="tagora-app-content">
-          <AuthenticatedPageHeader title="Tournee" subtitle="Livraisons du jour." />
+          <AuthenticatedPageHeader title="Tournee" />
           <SectionCard title="Module masque" subtitle="Acces requis." />
         </div>
       </main>
@@ -268,7 +268,6 @@ export default function EmployeLivraisonsPage() {
       <div className="tagora-app-content ui-stack-lg">
         <AuthenticatedPageHeader
           title="Tournee"
-          subtitle="Livraisons du jour."
         />
 
         {feedback ? <SectionCard title="Action" subtitle={feedback} tone="muted" /> : null}

@@ -6,7 +6,7 @@ import {
   isAuthorizationRequestType,
   requireAuthenticatedUser,
   resolveCompanyContext,
-} from "@/app/lib/timeclock-api";
+} from "@/app/lib/timeclock-api.server";
 
 type AlertChauffeurProfileRow = {
   nom: string | null;

@@ -13,7 +13,22 @@ import PrimaryButton from "@/app/components/ui/PrimaryButton";
 import SecondaryButton from "@/app/components/ui/SecondaryButton";
 import SectionCard from "@/app/components/ui/SectionCard";
 import { getHomePathForRole, getUserRole } from "@/app/lib/auth/roles";
-import { supabase } from "../../lib/supabase/client";
+import {
+  buildAppSessionCookieWriteDebug,
+  writeBrowserSessionCookie,
+} from "@/app/lib/auth/session-cookie";
+import {
+  getSupabaseBrowserLoginDebug,
+  probeSupabaseAuthSettingsReachable,
+  supabase,
+} from "../../lib/supabase/client";
+
+const isDev = process.env.NODE_ENV === "development";
+
+type LoginDebugEnv = ReturnType<typeof getSupabaseBrowserLoginDebug> & {
+  localOrigin: string;
+  localPort: string;
+};
 
 export default function DirectionLoginPage() {
   const router = useRouter();
@@ -28,23 +43,82 @@ export default function DirectionLoginPage() {
     searchParams.get("reset") === "ok" ? "success" : null
   );
 
+  const [debugEnv, setDebugEnv] = useState<LoginDebugEnv | null>(null);
+  const [probeResult, setProbeResult] = useState<Awaited<
+    ReturnType<typeof probeSupabaseAuthSettingsReachable>
+  > | null>(null);
+  const [signInThrow, setSignInThrow] = useState<{ name: string; message: string } | null>(null);
+  const [authApiErr, setAuthApiErr] = useState<{ name: string; message: string } | null>(null);
+
   useEffect(() => {
-    if (searchParams.get("reset") === "ok") {
-      setMessage("Mot de passe reinitialise.");
-      setMessageType("success");
+    if (!isDev) {
+      return;
     }
-  }, [searchParams]);
+
+    let cancelled = false;
+
+    async function runInitialProbe() {
+      const d = getSupabaseBrowserLoginDebug();
+      setDebugEnv({
+        ...d,
+        localOrigin: window.location.origin,
+        localPort: window.location.port || "(port par defaut)",
+      });
+      const p = await probeSupabaseAuthSettingsReachable();
+      if (!cancelled) {
+        setProbeResult(p);
+      }
+    }
+
+    void runInitialProbe();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const handleLogin = async () => {
     setMessage("");
     setMessageType(null);
+    setSignInThrow(null);
+    setAuthApiErr(null);
 
-    const { error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
+    if (isDev) {
+      const d = getSupabaseBrowserLoginDebug();
+      setDebugEnv({
+        ...d,
+        localOrigin: window.location.origin,
+        localPort: window.location.port || "(port par defaut)",
+      });
+      const probe = await probeSupabaseAuthSettingsReachable();
+      setProbeResult(probe);
+    }
+
+    let signInResult: Awaited<
+      ReturnType<typeof supabase.auth.signInWithPassword>
+    >;
+
+    try {
+      signInResult = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+    } catch (caught) {
+      const err = caught instanceof Error ? caught : new Error(String(caught));
+      if (isDev) {
+        setSignInThrow({ name: err.name, message: err.message });
+      }
+      setMessage(err.message || "Erreur reseau (connexion Supabase impossible).");
+      setMessageType("error");
+      return;
+    }
+
+    const { error } = signInResult;
 
     if (error) {
+      if (isDev) {
+        setAuthApiErr({ name: error.name, message: error.message });
+      }
       setMessage(error.message);
       setMessageType("error");
       return;
@@ -55,13 +129,24 @@ export default function DirectionLoginPage() {
     } = await supabase.auth.getSession();
 
     if (session?.access_token) {
+      writeBrowserSessionCookie(session.access_token);
+      console.info(
+        "[auth-cookie] login cookie written",
+        buildAppSessionCookieWriteDebug(
+          session.access_token,
+          window.location.protocol === "https:"
+        )
+      );
+
       try {
-        await fetch("/api/account-requests/sync-activation", {
+        const syncResponse = await fetch("/api/account-requests/sync-activation", {
           method: "POST",
           headers: {
             Authorization: `Bearer ${session.access_token}`,
           },
         });
+        const syncPayload = await syncResponse.json().catch(() => null);
+        console.info("[auth-cookie] sync-activation response", syncPayload);
       } catch {
         // Le hook d acces refera la synchronisation sur le dashboard.
       }
@@ -184,6 +269,102 @@ export default function DirectionLoginPage() {
               <PrimaryButton onClick={handleLogin}>Entrer</PrimaryButton>
               <SecondaryButton onClick={() => router.push("/")}>Voir</SecondaryButton>
             </div>
+
+            {isDev && (
+              <div
+                className="ui-stack-sm"
+                style={{
+                  marginTop: 16,
+                  padding: 14,
+                  borderRadius: 10,
+                  border: "1px solid #fdba74",
+                  background: "#fffbeb",
+                  fontSize: 12,
+                  fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
+                  lineHeight: 1.5,
+                  color: "#1c1917",
+                  wordBreak: "break-word",
+                }}
+              >
+                <strong style={{ display: "block", marginBottom: 10, fontSize: 13 }}>
+                  Diagnostic dev (visible uniquement en npm run dev)
+                </strong>
+
+                {debugEnv ? (
+                  <div style={{ marginBottom: 10 }}>
+                    <div>hasUrl: {String(debugEnv.hasUrl)}</div>
+                    <div>hasResolvedKey: {String(debugEnv.hasResolvedKey)}</div>
+                    <div>hasAnonKey: {String(debugEnv.hasAnonKey)}</div>
+                    <div>hasPublishableKey: {String(debugEnv.hasPublishableKey)}</div>
+                    <div>host Supabase: {debugEnv.host ?? "(null)"}</div>
+                    <div>port local: {debugEnv.localPort}</div>
+                    <div>origin local: {debugEnv.localOrigin}</div>
+                    <div style={{ marginTop: 6 }}>
+                      GET attendu (probe): {debugEnv.settingsUrl ?? "—"}
+                    </div>
+                    <div>POST attendu (signIn): {debugEnv.passwordGrantUrl ?? "—"}</div>
+                  </div>
+                ) : (
+                  <div style={{ marginBottom: 10 }}>Chargement env…</div>
+                )}
+
+                <div style={{ marginBottom: 10 }}>
+                  <strong>Test GET /auth/v1/settings (avant signInWithPassword)</strong>
+                  {probeResult ? (
+                    <>
+                      <div>
+                        Resultat:{" "}
+                        {probeResult.fetchErrorMessage
+                          ? "ECHEC (reseau / navigateur / extension)"
+                          : probeResult.ok
+                            ? "OK HTTP"
+                            : "KO HTTP"}
+                      </div>
+                      {probeResult.url ? <div>URL: {probeResult.url}</div> : null}
+                      {probeResult.status != null ? (
+                        <div>
+                          status: {probeResult.status} {probeResult.statusText ?? ""}
+                        </div>
+                      ) : null}
+                      {probeResult.fetchErrorName ? (
+                        <div style={{ color: "#b91c1c" }}>
+                          Erreur fetch: {probeResult.fetchErrorName}: {probeResult.fetchErrorMessage}
+                        </div>
+                      ) : null}
+                      {probeResult.fetchErrorMessage == null && probeResult.status === 401 ? (
+                        <div style={{ color: "#b45309" }}>
+                          Indice: HTTP 401 — verifier que la cle anon/publishable correspond au
+                          meme projet que NEXT_PUBLIC_SUPABASE_URL.
+                        </div>
+                      ) : null}
+                    </>
+                  ) : (
+                    <div>Probe en cours…</div>
+                  )}
+                </div>
+
+                <div>
+                  <strong>signInWithPassword</strong>
+                  {signInThrow ? (
+                    <div style={{ color: "#b91c1c" }}>
+                      Exception: {signInThrow.name}: {signInThrow.message}
+                      {probeResult && !probeResult.fetchErrorMessage && signInThrow.message.includes("fetch") ? (
+                        <div style={{ marginTop: 6, color: "#1c1917" }}>
+                          Si le probe GET a reussi mais signIn echoue encore: comparer Network (token)
+                          avec @supabase/supabase-js; sinon client deja valide et cause ailleurs.
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : authApiErr ? (
+                    <div style={{ color: "#b45309" }}>
+                      AuthApiError (requete partie): {authApiErr.name}: {authApiErr.message}
+                    </div>
+                  ) : (
+                    <div>(apres clic sur Entrer si erreur)</div>
+                  )}
+                </div>
+              </div>
+            )}
 
             <AppCard tone="muted" className="ui-stack-sm">
               <span className="ui-eyebrow">Acces</span>

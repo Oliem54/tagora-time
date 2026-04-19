@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { approveHorodateurException } from "@/app/lib/horodateur-v1/service";
+import {
+  approveHorodateurException,
+  getWeeklyProjection,
+} from "@/app/lib/horodateur-v1/service";
 import { buildHorodateurErrorResponse, requireDirectionHorodateurAccess } from "@/app/api/horodateur/_shared";
 
 export async function POST(
@@ -36,7 +39,24 @@ export async function POST(
           : null,
     });
 
-    return NextResponse.json({ success: true, ...result });
+    const weeklyProjection = await getWeeklyProjection(result.exception.employee_id);
+
+    return NextResponse.json({
+      success: true,
+      ...result,
+      event: {
+        id: result.event.id,
+        employee_id: result.event.employee_id,
+        event_type: result.event.event_type,
+        occurredAt: result.event.event_time ?? result.event.created_at ?? null,
+        status: result.event.status,
+        notes: result.event.note,
+        work_date: result.event.work_date,
+        week_start_date: result.event.week_start_date,
+        created_at: result.event.created_at,
+      },
+      weeklyProjection,
+    });
   } catch (error) {
     return buildHorodateurErrorResponse(error);
   }

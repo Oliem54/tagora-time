@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { startTransition, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import HeaderTagora from "../../components/HeaderTagora";
 import AccessNotice from "../../components/AccessNotice";
@@ -220,13 +220,15 @@ export default function TerrainPage() {
       return;
     }
 
-    setPauseMatinMinutes(String(sortieActive.morning_break_minutes ?? 0));
-    setPauseMatinPaid(sortieActive.morning_break_paid ?? true);
-    setDinerMinutes(String(sortieActive.lunch_minutes ?? 0));
-    setDinerPaid(sortieActive.lunch_paid ?? false);
-    setPauseApresMidiMinutes(String(sortieActive.afternoon_break_minutes ?? 0));
-    setPauseApresMidiPaid(sortieActive.afternoon_break_paid ?? true);
-    setNotes(sortieActive.notes ?? "");
+    startTransition(() => {
+      setPauseMatinMinutes(String(sortieActive.morning_break_minutes ?? 0));
+      setPauseMatinPaid(sortieActive.morning_break_paid ?? true);
+      setDinerMinutes(String(sortieActive.lunch_minutes ?? 0));
+      setDinerPaid(sortieActive.lunch_paid ?? false);
+      setPauseApresMidiMinutes(String(sortieActive.afternoon_break_minutes ?? 0));
+      setPauseApresMidiPaid(sortieActive.afternoon_break_paid ?? true);
+      setNotes(sortieActive.notes ?? "");
+    });
   }, [sortieActive]);
 
   const handleChoixDossier = (value: string) => {

@@ -9,6 +9,11 @@ import {
   getUserPermissions,
 } from "@/app/lib/auth/permissions";
 import {
+  buildAppSessionCookieWriteDebug,
+  writeBrowserSessionCookie,
+} from "@/app/lib/auth/session-cookie";
+import { devInfo } from "@/app/lib/logger";
+import {
   buildUserCompanyAccess,
   type UserCompanyAccess,
 } from "@/app/lib/account-requests.shared";
@@ -40,17 +45,29 @@ export function useCurrentAccess() {
 
       const token = session?.access_token;
 
+      writeBrowserSessionCookie(token ?? null);
+      devInfo(
+        "auth-cookie",
+        "refresh cookie written",
+        buildAppSessionCookieWriteDebug(
+          token ?? null,
+          window.location.protocol === "https:"
+        )
+      );
+
       if (!token) {
         return;
       }
 
       try {
-        await fetch("/api/account-requests/sync-activation", {
+        const response = await fetch("/api/account-requests/sync-activation", {
           method: "POST",
           headers: {
             Authorization: `Bearer ${token}`,
           },
         });
+        const payload = await response.json().catch(() => null);
+        devInfo("auth-cookie", "refresh sync-activation response", payload);
       } catch {
         // Silent on purpose: access loading must keep working even if the sync endpoint is unavailable.
       }
@@ -61,6 +78,10 @@ export function useCurrentAccess() {
 
       const { data } = await supabase.auth.getUser();
       const user = data.user;
+
+      if (!user) {
+        writeBrowserSessionCookie(null);
+      }
 
       if (cancelled) return;
 

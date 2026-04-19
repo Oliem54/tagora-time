@@ -377,7 +377,6 @@ export default function GpsBasesAdminClient() {
       <div className="tagora-app-content ui-stack-lg">
         <AuthenticatedPageHeader
           title="Bases GPS"
-          subtitle="Depart, retour et presence terrain."
           actions={
             <SecondaryButton onClick={() => void loadBases()}>
               <RefreshCw size={16} />

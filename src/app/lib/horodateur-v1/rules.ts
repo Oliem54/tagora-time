@@ -144,6 +144,15 @@ export function getLastApprovedEvent(
   return events.length > 0 ? events[events.length - 1] ?? null : null;
 }
 
+export function getEventOccurredAt(
+  event:
+    | Pick<HorodateurPhase1EventRecord, "event_time" | "created_at">
+    | null
+    | undefined
+) {
+  return event?.event_time ?? event?.created_at ?? null;
+}
+
 function isWithinScheduledWindow(
   employee: HorodateurPhase1EmployeeProfile,
   occurredAt: string
@@ -239,6 +248,16 @@ function buildPendingClassification(
   };
 }
 
+function buildApprovedClassification(): HorodateurPhase1Classification {
+  return {
+    status: "normal",
+    requiresApproval: false,
+    exceptionType: null,
+    reasonLabel: null,
+    details: null,
+  };
+}
+
 function getActiveShiftStartEvent(
   events: HorodateurPhase1EventRecord[]
 ): HorodateurPhase1EventRecord | null {
@@ -278,6 +297,10 @@ export function classifyEventPhase1(
     forcedExceptionType,
   } = input;
 
+  if (actorRole === "direction") {
+    return buildApprovedClassification();
+  }
+
   if (hasRequiredExceptionType(forcedExceptionType)) {
     const reasonLabel =
       forcedExceptionType === "missing_punch_adjustment"
@@ -287,14 +310,6 @@ export function classifyEventPhase1(
     return buildPendingClassification(
       forcedExceptionType,
       reasonLabel,
-      note ?? null
-    );
-  }
-
-  if (actorRole === "direction") {
-    return buildPendingClassification(
-      "direction_manual_correction",
-      "Correction manuelle direction en attente",
       note ?? null
     );
   }
@@ -323,7 +338,17 @@ export function classifyEventPhase1(
   const activeShiftStart = getActiveShiftStartEvent(latestApprovedEvents);
 
   if (activeShiftStart) {
-    const elapsedMinutes = diffMinutes(activeShiftStart.occurred_at, occurredAt);
+    const activeShiftStartAt = getEventOccurredAt(activeShiftStart);
+
+    if (!activeShiftStartAt) {
+      return buildPendingClassification(
+        "invalid_sequence",
+        "Sequence de pointage invalide",
+        "Impossible de determiner l heure du debut de quart actif."
+      );
+    }
+
+    const elapsedMinutes = diffMinutes(activeShiftStartAt, occurredAt);
 
     if (elapsedMinutes > employee.maxShiftMinutes) {
       return buildPendingClassification(
@@ -334,13 +359,7 @@ export function classifyEventPhase1(
     }
   }
 
-  return {
-    status: "normal",
-    requiresApproval: false,
-    exceptionType: null,
-    reasonLabel: null,
-    details: null,
-  };
+  return buildApprovedClassification();
 }
 
 export function resolveShiftStatus(options: {
@@ -369,6 +388,5 @@ export function resolveCompanyContextForShift(
 ) {
   const matchedStartEvent =
     events.find((event) => event.event_type === "quart_debut") ?? events[0] ?? null;
-
-  return matchedStartEvent?.company_context ?? fallbackCompany;
+  return matchedStartEvent ? fallbackCompany : fallbackCompany;
 }

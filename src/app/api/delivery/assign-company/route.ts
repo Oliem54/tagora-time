@@ -4,7 +4,7 @@ import {
   normalizeCompany,
   type AccountRequestCompany,
 } from "@/app/lib/account-requests.shared";
-import { requireAuthenticatedUser } from "@/app/lib/timeclock-api";
+import { requireAuthenticatedUser } from "@/app/lib/timeclock-api.server";
 
 export async function POST(req: NextRequest) {
   try {

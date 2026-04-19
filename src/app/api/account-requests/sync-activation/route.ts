@@ -11,6 +11,23 @@ import { getAuthenticatedRequestUser } from "@/app/lib/account-requests.server";
 import { createAdminSupabaseClient } from "@/app/lib/supabase/admin";
 import { getUserPermissions } from "@/app/lib/auth/permissions";
 import { getUserRole } from "@/app/lib/auth/roles";
+import {
+  APP_SESSION_COOKIE_NAME,
+  buildAppSessionCookieWriteDebug,
+  getAppSessionCookieOptions,
+} from "@/app/lib/auth/session-cookie";
+
+function getBearerToken(req: NextRequest) {
+  const authHeader = req.headers.get("authorization");
+  return authHeader?.startsWith("Bearer ")
+    ? authHeader.slice("Bearer ".length)
+    : null;
+}
+
+function isSecureRequest(req: NextRequest) {
+  const forwardedProto = req.headers.get("x-forwarded-proto");
+  return forwardedProto === "https" || req.nextUrl.protocol === "https:";
+}
 
 async function loadMatchingRequest(userId: string, email: string) {
   const supabase = createAdminSupabaseClient();
@@ -82,10 +99,29 @@ function buildSynchronizedMetadata(options: {
 
 export async function POST(req: NextRequest) {
   try {
+    const bearerToken = getBearerToken(req);
+    const secure = isSecureRequest(req);
     const { user } = await getAuthenticatedRequestUser(req);
 
     if (!user?.id || !user.email) {
-      return NextResponse.json({ error: "Acces refuse." }, { status: 401 });
+      const response = NextResponse.json(
+        {
+          error: "Acces refuse.",
+          ...(process.env.NODE_ENV !== "production"
+            ? {
+                debug: {
+                  cookieWritten: buildAppSessionCookieWriteDebug(null, secure),
+                },
+              }
+            : {}),
+        },
+        { status: 401 }
+      );
+      response.cookies.set(APP_SESSION_COOKIE_NAME, "", {
+        ...getAppSessionCookieOptions(secure),
+        maxAge: 0,
+      });
+      return response;
     }
 
     const supabase = createAdminSupabaseClient();
@@ -103,7 +139,27 @@ export async function POST(req: NextRequest) {
     const requestRow = await loadMatchingRequest(adminUser.id, adminUser.email ?? user.email);
 
     if (!requestRow) {
-      return NextResponse.json({ success: true, synchronized: false });
+      const response = NextResponse.json({
+        success: true,
+        synchronized: false,
+        ...(process.env.NODE_ENV !== "production"
+          ? {
+              debug: {
+                cookieWritten: buildAppSessionCookieWriteDebug(bearerToken, secure),
+              },
+            }
+          : {}),
+      });
+
+      if (bearerToken) {
+        response.cookies.set(
+          APP_SESSION_COOKIE_NAME,
+          bearerToken,
+          getAppSessionCookieOptions(secure)
+        );
+      }
+
+      return response;
     }
 
     const role = getUserRole(adminUser);
@@ -170,12 +226,29 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    return NextResponse.json({
+    const response = NextResponse.json({
       success: true,
       synchronized: true,
       requestId: requestRow.id,
       status: nextStatus,
+      ...(process.env.NODE_ENV !== "production"
+        ? {
+            debug: {
+              cookieWritten: buildAppSessionCookieWriteDebug(bearerToken, secure),
+            },
+          }
+        : {}),
     });
+
+    if (bearerToken) {
+      response.cookies.set(
+        APP_SESSION_COOKIE_NAME,
+        bearerToken,
+        getAppSessionCookieOptions(secure)
+      );
+    }
+
+    return response;
   } catch (error) {
     return NextResponse.json(
       {

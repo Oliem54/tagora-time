@@ -5,7 +5,6 @@ type HeaderTagoraProps = ComponentProps<typeof AuthenticatedPageHeader>;
 
 export default function HeaderTagora({
   title,
-  subtitle,
   actions,
   compact,
   showUserIdentity,
@@ -14,11 +13,11 @@ export default function HeaderTagora({
   return (
     <AuthenticatedPageHeader
       title={title}
-      subtitle={subtitle}
+      subtitle={undefined}
       actions={actions}
-      compact={compact}
+      compact={compact ?? true}
       showUserIdentity={showUserIdentity}
-      showNavigation={showNavigation}
+      showNavigation={showNavigation ?? false}
       className="tagora-header"
     />
   );

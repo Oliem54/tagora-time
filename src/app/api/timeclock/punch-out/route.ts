@@ -4,7 +4,7 @@ import {
   parseNumericCoordinate,
   requireAuthenticatedUser,
   resolveCompanyContext,
-} from "@/app/lib/timeclock-api";
+} from "@/app/lib/timeclock-api.server";
 
 export async function POST(req: NextRequest) {
   try {

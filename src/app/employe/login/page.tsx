@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ArrowUpRight, BadgeCheck, Clock3, FileStack, Waypoints } from "lucide-react";
 import FeedbackMessage from "@/app/components/FeedbackMessage";
@@ -18,7 +18,15 @@ import {
   getUserRole,
 } from "@/app/lib/auth/roles";
 import { hasPasswordChangeRequired } from "@/app/lib/auth/passwords";
-import { supabase } from "../../lib/supabase/client";
+import {
+  buildAppSessionCookieWriteDebug,
+  writeBrowserSessionCookie,
+} from "@/app/lib/auth/session-cookie";
+import { devInfo } from "@/app/lib/logger";
+import {
+  getSupabaseBrowserLoginDebug,
+  supabase,
+} from "../../lib/supabase/client";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -35,23 +43,52 @@ export default function LoginPage() {
     searchParams.get("reset") === "ok" ? "success" : null
   );
 
-  useEffect(() => {
-    if (searchParams.get("reset") === "ok") {
-      setMessage("Mot de passe reinitialise.");
-      setMessageType("success");
-    }
-  }, [searchParams]);
-
   const handleLogin = async () => {
     setMessage("");
     setMessageType(null);
 
-    const { error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
+    if (process.env.NODE_ENV === "development") {
+      const d = getSupabaseBrowserLoginDebug();
+      console.info("[employe-login] env", {
+        hasUrl: d.hasUrl,
+        hasResolvedKey: d.hasResolvedKey,
+        hasAnonKey: d.hasAnonKey,
+        hasPublishableKey: d.hasPublishableKey,
+        host: d.host,
+      });
+    }
+
+    let signInResult: Awaited<
+      ReturnType<typeof supabase.auth.signInWithPassword>
+    >;
+
+    try {
+      signInResult = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+    } catch (caught) {
+      const err = caught instanceof Error ? caught : new Error(String(caught));
+      if (process.env.NODE_ENV === "development") {
+        console.info("[employe-login] signIn threw", {
+          name: err.name,
+          message: err.message,
+        });
+      }
+      setMessage(err.message || "Erreur reseau (connexion Supabase impossible).");
+      setMessageType("error");
+      return;
+    }
+
+    const { error } = signInResult;
 
     if (error) {
+      if (process.env.NODE_ENV === "development") {
+        console.info("[employe-login] signIn error", {
+          name: error.name,
+          message: error.message,
+        });
+      }
       setMessage(error.message);
       setMessageType("error");
       return;
@@ -62,13 +99,25 @@ export default function LoginPage() {
     } = await supabase.auth.getSession();
 
     if (session?.access_token) {
+      writeBrowserSessionCookie(session.access_token);
+      devInfo(
+        "auth-cookie",
+        "login cookie written",
+        buildAppSessionCookieWriteDebug(
+          session.access_token,
+          window.location.protocol === "https:"
+        )
+      );
+
       try {
-        await fetch("/api/account-requests/sync-activation", {
+        const syncResponse = await fetch("/api/account-requests/sync-activation", {
           method: "POST",
           headers: {
             Authorization: `Bearer ${session.access_token}`,
           },
         });
+        const syncPayload = await syncResponse.json().catch(() => null);
+        devInfo("auth-cookie", "sync-activation response", syncPayload);
       } catch {
         // Le hook d acces refera la synchronisation sur le dashboard.
       }

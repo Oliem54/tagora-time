@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import DirectionDashboardClient from "./DirectionDashboardClient";
 import { createAdminSupabaseClient } from "../../lib/supabase/admin";
+import { getDirectionDashboardHorodateurAlerts } from "@/app/lib/horodateur-v1/service";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = {
@@ -10,6 +11,10 @@ export const metadata: Metadata = {
 
 export default async function DirectionDashboardPage() {
   let pendingAccountsCount = 0;
+  let pendingHorodateurExceptionsCount = 0;
+  let pendingHorodateurExceptions: Awaited<
+    ReturnType<typeof getDirectionDashboardHorodateurAlerts>
+  >["items"] = [];
 
   try {
     const supabase = createAdminSupabaseClient();
@@ -23,7 +28,20 @@ export default async function DirectionDashboardPage() {
     pendingAccountsCount = 0;
   }
 
+  try {
+    const horodateurAlerts = await getDirectionDashboardHorodateurAlerts();
+    pendingHorodateurExceptionsCount = horodateurAlerts.pendingCount;
+    pendingHorodateurExceptions = horodateurAlerts.items;
+  } catch {
+    pendingHorodateurExceptionsCount = 0;
+    pendingHorodateurExceptions = [];
+  }
+
   return (
-    <DirectionDashboardClient pendingAccountsCount={pendingAccountsCount} />
+    <DirectionDashboardClient
+      pendingAccountsCount={pendingAccountsCount}
+      pendingHorodateurExceptionsCount={pendingHorodateurExceptionsCount}
+      pendingHorodateurExceptions={pendingHorodateurExceptions}
+    />
   );
 }

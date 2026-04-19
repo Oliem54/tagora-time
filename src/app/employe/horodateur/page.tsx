@@ -53,7 +53,7 @@ type HistoryPayload = {
   workDate: string;
   events: Array<{
     id: string;
-    occurred_at: string;
+    occurredAt: string | null;
     event_type: string;
     status: string;
     notes: string | null;
@@ -110,7 +110,7 @@ export default function EmployeHorodateurPage() {
     return "Hors quart";
   }, [snapshot?.currentState.current_state]);
 
-  const loadData = useCallback(async () => {
+  const loadData = useCallback(async (options?: { preserveMessage?: boolean }) => {
     const {
       data: { session },
     } = await supabase.auth.getSession();
@@ -155,7 +155,9 @@ export default function EmployeHorodateurPage() {
           ? historyPayload.exceptions
           : [],
       });
-      setMessage("");
+      if (!options?.preserveMessage) {
+        setMessage("");
+      }
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Erreur de chargement.");
     } finally {
@@ -180,6 +182,31 @@ export default function EmployeHorodateurPage() {
 
     void loadData();
   }, [accessLoading, canUseTerrain, loadData, router, user]);
+
+  useEffect(() => {
+    if (!user || !canUseTerrain) {
+      return;
+    }
+
+    const intervalId = window.setInterval(() => {
+      void loadData({ preserveMessage: true });
+    }, 15000);
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        void loadData({ preserveMessage: true });
+      }
+    };
+
+    window.addEventListener("focus", handleVisibilityChange);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener("focus", handleVisibilityChange);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [canUseTerrain, loadData, user]);
 
   async function handlePunch(eventType: string) {
     const {
@@ -219,7 +246,7 @@ export default function EmployeHorodateurPage() {
           ? "Pointage enregistre avec exception en attente d approbation."
           : "Pointage enregistre."
       );
-      await loadData();
+      await loadData({ preserveMessage: true });
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Erreur de pointage.");
     } finally {
@@ -360,7 +387,7 @@ export default function EmployeHorodateurPage() {
               <tbody>
                 {history.events.map((event) => (
                   <tr key={event.id}>
-                    <td style={tdStyle}>{formatDateTime(event.occurred_at)}</td>
+                    <td style={tdStyle}>{formatDateTime(event.occurredAt)}</td>
                     <td style={tdStyle}>{event.event_type}</td>
                     <td style={tdStyle}>{event.status}</td>
                     <td style={tdStyle}>{event.notes || "-"}</td>

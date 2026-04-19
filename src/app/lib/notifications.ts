@@ -5,6 +5,7 @@ import {
   isValidEmail,
   type AccountRequestCompany,
 } from "@/app/lib/account-requests.shared";
+import { normalizePhoneNumber } from "@/app/lib/timeclock-api.shared";
 
 type DirectionAlertClassification = "informative" | "direction_action_required";
 type DirectionAlertDetailValue =
@@ -74,6 +75,42 @@ type DeliveryTrackingSmsPayload = {
   phone: string;
   trackingUrl: string;
   statusLabel: string;
+};
+
+type DirectionSmsResult = {
+  sent: boolean;
+  skipped: boolean;
+  reason: string | null;
+  recipients: string[];
+};
+
+type DirectionAlertDeliveryOptions = {
+  enabled?: boolean;
+  recipients?: string[];
+};
+
+type HorodateurExceptionNotificationPayload = {
+  exceptionId: string;
+  employeeName: string | null;
+  employeeEmail: string | null;
+  exceptionType: string;
+  reasonLabel: string;
+  occurredAt: string | null;
+  requestedAt: string;
+  managementUrl?: string | null;
+};
+
+type HorodateurLatenessNotificationPayload = {
+  employeeName: string | null;
+  employeePhone: string | null;
+  scheduledStartAt: string;
+  detectedAt: string;
+  managementUrl?: string | null;
+  emailEnabled?: boolean;
+  smsEnabled?: boolean;
+  employeeSmsEnabled?: boolean;
+  recipientEmails?: string[];
+  recipientSmsNumbers?: string[];
 };
 
 const DIRECTION_ALERT_LOG_PREFIX = "[direction-alert]";
@@ -170,12 +207,14 @@ function splitFullName(fullName: string) {
   };
 }
 
-function normalizeDirectionAlertRecipients() {
-  const rawRecipients = process.env.DIRECTION_ALERT_EMAILS ?? "";
-  const recipients = rawRecipients
-    .split(",")
-    .map((item) => item.trim().toLowerCase())
-    .filter(Boolean);
+function normalizeDirectionAlertRecipients(rawValues?: string[]) {
+  const recipients =
+    rawValues && rawValues.length > 0
+      ? rawValues.map((item) => item.trim().toLowerCase()).filter(Boolean)
+      : (process.env.DIRECTION_ALERT_EMAILS ?? "")
+          .split(",")
+          .map((item) => item.trim().toLowerCase())
+          .filter(Boolean);
 
   const validRecipients: string[] = [];
   const invalidRecipients: string[] = [];
@@ -197,6 +236,19 @@ function normalizeDirectionAlertRecipients() {
     validRecipients: Array.from(new Set(validRecipients)),
     invalidRecipients: Array.from(new Set(invalidRecipients)),
   };
+}
+
+function normalizeDirectionSmsRecipients(rawValues?: string[]) {
+  const recipients =
+    rawValues && rawValues.length > 0
+      ? rawValues
+      : (
+          process.env.DIRECTION_ALERT_SMS_NUMBERS ??
+          process.env.DIRECTION_ALERT_PHONES ??
+          ""
+        ).split(",");
+
+  return Array.from(new Set(recipients.map((item) => normalizePhoneNumber(item)).filter(Boolean)));
 }
 
 function buildManagementUrl(pathOrUrl: string | null | undefined) {
@@ -335,7 +387,8 @@ function buildDirectionAlertHtml(payload: DirectionAlertPayload) {
 }
 
 export async function sendDirectionAlert(
-  payload: DirectionAlertPayload
+  payload: DirectionAlertPayload,
+  options?: DirectionAlertDeliveryOptions
 ): Promise<DirectionAlertResult> {
   logDirectionAlertStep("received", {
     alertType: payload.alertType,
@@ -360,10 +413,26 @@ export async function sendDirectionAlert(
     };
   }
 
+  if (options?.enabled === false) {
+    logDirectionAlertStep("email_disabled", {
+      alertType: payload.alertType,
+      requestId: payload.requestId ?? null,
+    });
+
+    return {
+      ok: true,
+      skipped: true,
+      reason: "email_disabled",
+      recipients: [],
+      invalidRecipients: [],
+      providerMessageId: null,
+    };
+  }
+
   const apiKey = process.env.RESEND_API_KEY;
   const fromEmail = process.env.RESEND_FROM_EMAIL;
   const { validRecipients, invalidRecipients } =
-    normalizeDirectionAlertRecipients();
+    normalizeDirectionAlertRecipients(options?.recipients);
   const managementUrl = buildManagementUrl(payload.managementUrl);
 
   if (invalidRecipients.length > 0) {
@@ -510,6 +579,316 @@ export async function sendDirectionAlert(
       providerMessageId: null,
     };
   }
+}
+
+export async function sendDirectionSmsAlert(payload: {
+  body: string;
+}, options?: DirectionAlertDeliveryOptions): Promise<DirectionSmsResult> {
+  if (options?.enabled === false) {
+    console.info(DIRECTION_ALERT_LOG_PREFIX, "sms_disabled", {});
+
+    return {
+      sent: false,
+      skipped: true,
+      reason: "sms_disabled",
+      recipients: [],
+    };
+  }
+
+  const accountSid = process.env.TWILIO_ACCOUNT_SID;
+  const authToken = process.env.TWILIO_AUTH_TOKEN;
+  const fromNumber = process.env.TWILIO_FROM_NUMBER;
+  const recipients = normalizeDirectionSmsRecipients(options?.recipients);
+
+  if (!accountSid || !authToken || !fromNumber) {
+    console.info(DIRECTION_ALERT_LOG_PREFIX, "sms_config_missing", {
+      hasAccountSid: Boolean(accountSid),
+      hasAuthToken: Boolean(authToken),
+      hasFromNumber: Boolean(fromNumber),
+    });
+
+    return {
+      sent: false,
+      skipped: true,
+      reason: "sms_not_configured",
+      recipients,
+    };
+  }
+
+  if (recipients.length === 0) {
+    console.info(DIRECTION_ALERT_LOG_PREFIX, "sms_recipients_missing", {});
+
+    return {
+      sent: false,
+      skipped: true,
+      reason: "sms_recipients_missing",
+      recipients: [],
+    };
+  }
+
+  try {
+    await Promise.all(
+      recipients.map(async (recipient) => {
+        const body = new URLSearchParams({
+          To: recipient,
+          From: fromNumber,
+          Body: payload.body,
+        });
+
+        const response = await fetch(
+          `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`,
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Basic ${Buffer.from(
+                `${accountSid}:${authToken}`
+              ).toString("base64")}`,
+              "Content-Type": "application/x-www-form-urlencoded",
+            },
+            body,
+          }
+        );
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`Twilio SMS failed for ${recipient}: ${errorText}`);
+        }
+      })
+    );
+
+    return {
+      sent: true,
+      skipped: false,
+      reason: null,
+      recipients,
+    };
+  } catch (error) {
+    console.error(DIRECTION_ALERT_LOG_PREFIX, "sms_send_failure", {
+      recipients,
+      errorMessage: error instanceof Error ? error.message : String(error),
+    });
+
+    return {
+      sent: false,
+      skipped: false,
+      reason: error instanceof Error ? error.message : "direction_sms_send_failed",
+      recipients,
+    };
+  }
+}
+
+export async function sendSmsToPhone(payload: {
+  phone: string | null | undefined;
+  body: string;
+}) {
+  const normalizedPhone = normalizePhoneNumber(payload.phone ?? "");
+  const accountSid = process.env.TWILIO_ACCOUNT_SID;
+  const authToken = process.env.TWILIO_AUTH_TOKEN;
+  const fromNumber = process.env.TWILIO_FROM_NUMBER;
+
+  if (!normalizedPhone) {
+    return {
+      sent: false,
+      skipped: true,
+      reason: "sms_recipient_missing",
+      recipient: null,
+    } as const;
+  }
+
+  if (!accountSid || !authToken || !fromNumber) {
+    return {
+      sent: false,
+      skipped: true,
+      reason: "sms_not_configured",
+      recipient: normalizedPhone,
+    } as const;
+  }
+
+  try {
+    const body = new URLSearchParams({
+      To: normalizedPhone,
+      From: fromNumber,
+      Body: payload.body,
+    });
+
+    const response = await fetch(
+      `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Basic ${Buffer.from(
+            `${accountSid}:${authToken}`
+          ).toString("base64")}`,
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+        body,
+      }
+    );
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Twilio SMS failed: ${errorText}`);
+    }
+
+    return {
+      sent: true,
+      skipped: false,
+      reason: null,
+      recipient: normalizedPhone,
+    } as const;
+  } catch (error) {
+    console.error(DIRECTION_ALERT_LOG_PREFIX, "employee_sms_send_failure", {
+      recipient: normalizedPhone,
+      errorMessage: error instanceof Error ? error.message : String(error),
+    });
+
+    return {
+      sent: false,
+      skipped: false,
+      reason: error instanceof Error ? error.message : "employee_sms_send_failed",
+      recipient: normalizedPhone,
+    } as const;
+  }
+}
+
+export async function notifyDirectionOfHorodateurException(
+  payload: HorodateurExceptionNotificationPayload & {
+    emailEnabled?: boolean;
+    smsEnabled?: boolean;
+    recipientEmails?: string[];
+    recipientSmsNumbers?: string[];
+    isReminder?: boolean;
+  }
+) {
+  const managementUrl = payload.managementUrl ?? "/direction/horodateur";
+  const formattedOccurredAt = formatAlertDateTime(payload.occurredAt);
+  const formattedRequestedAt = formatAlertDateTime(payload.requestedAt);
+  const reminderPrefix = payload.isReminder ? "Rappel - " : "";
+
+  const emailResult = await sendDirectionAlert({
+    alertType: "horodateur_exception",
+    classification: "direction_action_required",
+    subject: `${reminderPrefix}Exception horodateur en attente - TAGORA Time`,
+    summary:
+      payload.isReminder
+        ? "Une exception horodateur est toujours en attente d approbation et requiert un suivi de la direction."
+        : "Une exception horodateur est en attente d approbation et requiert une intervention rapide de la direction.",
+    requesterLabel: "Employe",
+    requesterName: payload.employeeName,
+    requesterEmail: payload.employeeEmail,
+    requestedAt: payload.requestedAt,
+    requestId: payload.exceptionId,
+    managementUrl,
+    managementLabel: "Ouvrir l horodateur direction",
+    details: {
+      Employe: payload.employeeName,
+      Courriel: payload.employeeEmail,
+      "Type d exception": payload.exceptionType,
+      Motif: payload.reasonLabel,
+        "Heure de l evenement": formattedOccurredAt,
+        "Heure de creation": formattedRequestedAt,
+        "Identifiant de l exception": payload.exceptionId,
+        "Type d envoi": payload.isReminder ? "Rappel" : "Notification initiale",
+      },
+    }, {
+      enabled: payload.emailEnabled,
+      recipients: payload.recipientEmails,
+    });
+
+  const smsResult = await sendDirectionSmsAlert({
+    body: [
+      payload.isReminder ? "Rappel horodateur TAGORA" : "Alerte horodateur TAGORA",
+      `Employe: ${payload.employeeName ?? payload.employeeEmail ?? "-"}`,
+      `Type: ${payload.exceptionType}`,
+      `Motif: ${payload.reasonLabel}`,
+      `Quand: ${formattedOccurredAt}`,
+      `Lien: ${buildManagementUrl(managementUrl) ?? managementUrl}`,
+    ].join(" | "),
+  }, {
+    enabled: payload.smsEnabled,
+    recipients: payload.recipientSmsNumbers,
+  });
+
+  return {
+    email: emailResult,
+    sms: smsResult,
+  };
+}
+
+export async function notifyHorodateurLateness(
+  payload: HorodateurLatenessNotificationPayload
+) {
+  const managementUrl = payload.managementUrl ?? "/direction/horodateur";
+  const formattedScheduledStart = formatAlertDateTime(payload.scheduledStartAt);
+  const formattedDetectedAt = formatAlertDateTime(payload.detectedAt);
+
+  const email = await sendDirectionAlert(
+    {
+      alertType: "horodateur_lateness",
+      classification: "direction_action_required",
+      subject: "Retard horodateur detecte - TAGORA Time",
+      summary:
+        "Un employe n a pas commence son quart a l heure prevue et requiert un suivi rapide de la direction.",
+      requesterLabel: "Employe",
+      requesterName: payload.employeeName,
+      requesterPhone: payload.employeePhone,
+      requestedAt: payload.detectedAt,
+      requestId: `${payload.employeeName ?? "employe"}-${payload.scheduledStartAt}`,
+      managementUrl,
+      managementLabel: "Ouvrir l horodateur direction",
+      details: {
+        Employe: payload.employeeName,
+        Telephone: payload.employeePhone,
+        "Heure prevue": formattedScheduledStart,
+        "Heure actuelle": formattedDetectedAt,
+        "Type d alerte": "Retard employe",
+      },
+    },
+    {
+      enabled: payload.emailEnabled,
+      recipients: payload.recipientEmails,
+    }
+  );
+
+  const directionSms = await sendDirectionSmsAlert(
+    {
+      body: [
+        "Retard horodateur TAGORA",
+        `Employe: ${payload.employeeName ?? "-"}`,
+        `Prevu: ${formattedScheduledStart}`,
+        `Actuel: ${formattedDetectedAt}`,
+        `Lien: ${buildManagementUrl(managementUrl) ?? managementUrl}`,
+      ].join(" | "),
+    },
+    {
+      enabled: payload.smsEnabled,
+      recipients: payload.recipientSmsNumbers,
+    }
+  );
+
+  const employeeSms =
+    payload.employeeSmsEnabled === false
+      ? {
+          sent: false,
+          skipped: true,
+          reason: "employee_sms_disabled",
+          recipient: normalizePhoneNumber(payload.employeePhone ?? ""),
+        }
+      : await sendSmsToPhone({
+          phone: payload.employeePhone,
+          body: [
+            "TAGORA Time",
+            `Votre quart devait commencer a ${formattedScheduledStart}.`,
+            `Heure actuelle: ${formattedDetectedAt}.`,
+            "Si vous etes en route ou si une correction est requise, contactez la direction.",
+          ].join(" "),
+        });
+
+  return {
+    email,
+    directionSms,
+    employeeSms,
+  };
 }
 
 export async function notifyDirectionOfAccountRequest(

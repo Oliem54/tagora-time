@@ -3,6 +3,7 @@
 import { useMemo } from "react";
 import { motion } from "framer-motion";
 import {
+  AlertTriangle,
   ArrowUpRight,
   BriefcaseBusiness,
   Clock3,
@@ -24,6 +25,7 @@ import SectionCard from "@/app/components/ui/SectionCard";
 import AppCard from "@/app/components/ui/AppCard";
 import SecondaryButton from "@/app/components/ui/SecondaryButton";
 import StatusBadge from "@/app/components/ui/StatusBadge";
+import type { HorodateurPhase1DirectionPendingExceptionAlert } from "@/app/lib/horodateur-v1/types";
 
 type ModulePermission = "documents" | "livraisons" | "terrain" | "ressources" | null;
 type ModuleGroupId = "operations" | "gestion" | "administration";
@@ -46,7 +48,17 @@ type ModuleGroup = {
 
 type DirectionDashboardClientProps = {
   pendingAccountsCount: number;
+  pendingHorodateurExceptionsCount: number;
+  pendingHorodateurExceptions: HorodateurPhase1DirectionPendingExceptionAlert[];
 };
+
+function formatDateTime(value: string | null | undefined) {
+  if (!value) {
+    return "-";
+  }
+
+  return new Date(value).toLocaleString("fr-CA");
+}
 
 const MODULE_GROUPS: ModuleGroup[] = [
   {
@@ -171,6 +183,8 @@ const MODULES: ModuleDefinition[] = [
 
 export default function DirectionDashboardClient({
   pendingAccountsCount,
+  pendingHorodateurExceptionsCount,
+  pendingHorodateurExceptions,
 }: DirectionDashboardClientProps) {
   const router = useRouter();
   const { user, loading, hasPermission } = useCurrentAccess();
@@ -238,6 +252,66 @@ export default function DirectionDashboardClient({
           }
         />
 
+        {pendingHorodateurExceptionsCount > 0 ? (
+          <AppCard
+            className="ui-stack-md"
+            style={{
+              border: "1px solid rgba(245, 158, 11, 0.28)",
+              background:
+                "linear-gradient(180deg, rgba(255,251,235,0.98) 0%, rgba(255,247,237,0.98) 100%)",
+              boxShadow: "0 18px 38px rgba(146, 64, 14, 0.08)",
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                gap: 16,
+                alignItems: "flex-start",
+                flexWrap: "wrap",
+              }}
+            >
+              <div className="ui-stack-sm">
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <AlertTriangle size={18} color="#b45309" />
+                  <strong style={{ color: "#92400e", fontSize: 18 }}>
+                    {pendingHorodateurExceptionsCount} exception
+                    {pendingHorodateurExceptionsCount > 1 ? "s" : ""} horodateur en attente
+                  </strong>
+                </div>
+                <p style={{ margin: 0, color: "#78350f", lineHeight: 1.6 }}>
+                  Validation direction requise dans l horodateur.
+                </p>
+              </div>
+
+              <SecondaryButton onClick={() => router.push("/direction/horodateur")}>
+                Ouvrir l horodateur
+              </SecondaryButton>
+            </div>
+
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                gap: "var(--ui-space-4)",
+              }}
+            >
+              {pendingHorodateurExceptions.map((item) => (
+                <AppCard key={item.id} tone="default" className="ui-stack-xs">
+                  <span className="ui-eyebrow">Exception recente</span>
+                  <strong style={{ fontSize: 16 }}>
+                    {item.employeeName || item.employeeEmail || item.id}
+                  </strong>
+                  <span className="ui-text-muted">{item.reasonLabel}</span>
+                  <span className="ui-text-muted">
+                    {item.exceptionType} - {formatDateTime(item.occurredAt || item.requestedAt)}
+                  </span>
+                </AppCard>
+              ))}
+            </div>
+          </AppCard>
+        ) : null}
+
         {groupedModules.map((group, groupIndex) => (
           <motion.section
             key={group.id}
@@ -260,6 +334,7 @@ export default function DirectionDashboardClient({
                 {group.modules.map((item, moduleIndex) => {
                   const Icon = item.icon;
                   const isPendingAccounts = item.href === "/direction/demandes-comptes";
+                  const isHorodateur = item.href === "/direction/horodateur";
 
                   return (
                     <motion.article
@@ -320,6 +395,11 @@ export default function DirectionDashboardClient({
                               <StatusBadge
                                 label={`${pendingAccountsCount} attente`}
                                 tone="danger"
+                              />
+                            ) : isHorodateur && pendingHorodateurExceptionsCount > 0 ? (
+                              <StatusBadge
+                                label={`${pendingHorodateurExceptionsCount} attente`}
+                                tone="warning"
                               />
                             ) : null}
                           </div>
