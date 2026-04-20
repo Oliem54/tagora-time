@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import { createAdminSupabaseClient } from "@/app/lib/supabase/admin";
-import { getDeliveryStatusLabel } from "@/app/lib/delivery-tracking";
+import {
+  getDeliveryStatusLabel,
+  resolveDeliveryCompanyLabel,
+} from "@/app/lib/delivery-tracking";
 import { toFiniteNumber } from "@/app/lib/terrain-gps";
 
 type LivraisonRow = {
@@ -13,6 +16,7 @@ type LivraisonRow = {
   tracking_enabled: boolean | null;
   chauffeur_id: string | number | null;
   vehicule_id: string | number | null;
+  company_context: string | null;
 };
 
 function getPersonName(row: Record<string, unknown> | null) {
@@ -41,7 +45,7 @@ export async function GET(
     const { data: livraison, error: livraisonError } = await supabase
       .from("livraisons_planifiees")
       .select(
-        "id, client, adresse, date_livraison, heure_prevue, statut, tracking_enabled, chauffeur_id, vehicule_id"
+        "id, client, adresse, date_livraison, heure_prevue, statut, tracking_enabled, chauffeur_id, vehicule_id, company_context"
       )
       .eq("tracking_token", token)
       .eq("tracking_enabled", true)
@@ -108,6 +112,7 @@ export async function GET(
 
     return NextResponse.json({
       client: livraison.client,
+      companyLabel: resolveDeliveryCompanyLabel(livraison.company_context),
       adresse: livraison.adresse,
       dateLivraison: livraison.date_livraison,
       heurePrevue: livraison.heure_prevue,

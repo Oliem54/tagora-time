@@ -9,6 +9,7 @@ import {
 
 type TrackingPayload = {
   client: string | null;
+  companyLabel: string;
   adresse: string | null;
   dateLivraison: string | null;
   heurePrevue: string | null;
@@ -146,6 +147,16 @@ export default function SuiviClientPage({ token }: { token: string }) {
               <h1 style={{ margin: 0, fontSize: "clamp(2rem, 4vw, 3.2rem)", lineHeight: 1.02 }}>
                 {payload?.client || "Livraison en direct"}
               </h1>
+              <p
+                style={{
+                  margin: "6px 0 0",
+                  fontSize: 17,
+                  fontWeight: 600,
+                  color: "rgba(248, 250, 252, 0.95)",
+                }}
+              >
+                {payload?.companyLabel ? `Livraison par ${payload.companyLabel}` : "\u00a0"}
+              </p>
               <p style={{ margin: 0, color: "rgba(226, 232, 240, 0.82)", maxWidth: 680 }}>
                 Consultez la progression de votre livraison en temps reel. La position est
                 rafraichie automatiquement toutes les 8 secondes.

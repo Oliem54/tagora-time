@@ -1,4 +1,20 @@
+import {
+  getCompanyLabel,
+  normalizeCompany,
+  type AccountRequestCompany,
+} from "@/app/lib/account-requests.shared";
+
 export const DELIVERY_TRACKING_REFRESH_MS = 8000;
+
+const DEFAULT_DELIVERY_COMPANY: AccountRequestCompany = "oliem_solutions";
+
+/** Libellé client pour la compagnie qui exécute la livraison (depuis `company_context`). */
+export function resolveDeliveryCompanyLabel(
+  companyContext: string | null | undefined
+): string {
+  const normalized = normalizeCompany(companyContext) ?? DEFAULT_DELIVERY_COMPANY;
+  return getCompanyLabel(normalized);
+}
 
 export function generateDeliveryTrackingToken() {
   return crypto.randomUUID().replace(/-/g, "");

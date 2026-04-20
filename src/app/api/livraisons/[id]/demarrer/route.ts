@@ -6,6 +6,7 @@ import {
   buildDeliveryTrackingUrl,
   generateDeliveryTrackingToken,
   getDeliveryStatusLabel,
+  resolveDeliveryCompanyLabel,
 } from "@/app/lib/delivery-tracking";
 import { sendDeliveryTrackingSms } from "@/app/lib/notifications";
 
@@ -16,6 +17,7 @@ type LivraisonRow = {
   statut: string | null;
   tracking_token: string | null;
   tracking_enabled: boolean | null;
+  company_context: string | null;
 };
 
 export async function POST(
@@ -47,7 +49,9 @@ export async function POST(
     const supabase = createAdminSupabaseClient();
     const { data: livraison, error: livraisonError } = await supabase
       .from("livraisons_planifiees")
-      .select("id, client, client_phone, statut, tracking_token, tracking_enabled")
+      .select(
+        "id, client, client_phone, statut, tracking_token, tracking_enabled, company_context"
+      )
       .eq("id", Number(id))
       .maybeSingle<LivraisonRow>();
 
@@ -98,6 +102,7 @@ export async function POST(
         phone: updated.client_phone,
         trackingUrl,
         statusLabel: getDeliveryStatusLabel("en_cours"),
+        companyLabel: resolveDeliveryCompanyLabel(livraison.company_context),
       });
 
       if (sms.sent) {

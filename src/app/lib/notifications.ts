@@ -75,6 +75,7 @@ type DeliveryTrackingSmsPayload = {
   phone: string;
   trackingUrl: string;
   statusLabel: string;
+  companyLabel: string;
 };
 
 type DirectionSmsResult = {
@@ -1082,10 +1083,15 @@ export async function sendDeliveryTrackingSms(
     } as const;
   }
 
+  const salutation = payload.clientName?.trim()
+    ? `Bonjour ${payload.clientName.trim()}`
+    : "Bonjour";
+  const smsText = `${salutation}, votre livraison est ${payload.statusLabel.toLowerCase()} avec ${payload.companyLabel}. Suivi en direct : ${payload.trackingUrl}`;
+
   const body = new URLSearchParams({
     To: payload.phone,
     From: fromNumber,
-    Body: `Bonjour ${payload.clientName || ""}, votre livraison est ${payload.statusLabel.toLowerCase()}. Suivi en direct : ${payload.trackingUrl}`.trim(),
+    Body: smsText,
   });
 
   const response = await fetch(
