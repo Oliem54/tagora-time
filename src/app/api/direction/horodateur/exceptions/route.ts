@@ -3,7 +3,11 @@ import {
   listPendingExceptionsForDirection,
   processPendingExceptionReminders,
 } from "@/app/lib/horodateur-v1/service";
-import { buildHorodateurErrorResponse, requireDirectionHorodateurAccess } from "@/app/api/horodateur/_shared";
+import {
+  buildHorodateurErrorResponse,
+  normalizeEventForApi,
+  requireDirectionHorodateurAccess,
+} from "@/app/api/horodateur/_shared";
 
 export async function GET(req: NextRequest) {
   try {
@@ -27,20 +31,23 @@ export async function GET(req: NextRequest) {
               item.direction_reminder_email_notified_at ?? null,
             direction_reminder_sms_notified_at:
               item.direction_reminder_sms_notified_at ?? null,
-            event: item.event
-              ? {
-                  id: item.event.id,
-                  employee_id: item.event.employee_id,
-                  event_type: item.event.event_type,
-                  occurredAt: item.event.occurredAt,
-                  status: item.event.status,
-                  notes: item.event.notes,
-                }
-              : null,
+            event: normalizeEventForApi(
+              item.event
+                ? {
+                    ...item.event,
+                    occurred_at: item.event.occurredAt,
+                    note: item.event.notes,
+                    work_date: null,
+                    week_start_date: null,
+                  }
+                : null
+            ),
           }))
         : [],
     });
   } catch (error) {
-    return buildHorodateurErrorResponse(error);
+    return buildHorodateurErrorResponse(error, {
+      route: "/api/direction/horodateur/exceptions",
+    });
   }
 }

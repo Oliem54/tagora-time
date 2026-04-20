@@ -1,10 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createAdminSupabaseClient } from "@/app/lib/supabase/admin";
 import {
   parseNumericCoordinate,
   requireAuthenticatedUser,
   resolveCompanyContext,
 } from "@/app/lib/timeclock-api.server";
+import {
+  createEmployeePunch,
+  getEmployeeDashboardSnapshotByAuthUserId,
+} from "@/app/lib/horodateur-v1/service";
+import {
+  legacyErrorResponse,
+  mapPunchResultToLegacyEvent,
+  normalizeLegacyNote,
+} from "../_legacy-wrapper";
 
 export async function POST(req: NextRequest) {
   try {
@@ -27,6 +35,7 @@ export async function POST(req: NextRequest) {
     const latitude = parseNumericCoordinate(body.latitude);
     const longitude = parseNumericCoordinate(body.longitude);
     const companyContext = resolveCompanyContext(auth.user, body.company_context);
+    const note = normalizeLegacyNote(body.notes);
 
     if (latitude == null || longitude == null) {
       return NextResponse.json(
@@ -35,55 +44,40 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const supabase = createAdminSupabaseClient();
-    const { data: latestEvent } = await supabase
-      .from("horodateur_events")
-      .select("id, event_type")
-      .eq("user_id", auth.user.id)
-      .order("occurred_at", { ascending: false })
-      .limit(1)
-      .maybeSingle<{ id: string; event_type: string }>();
-
-    if (!latestEvent || latestEvent.event_type === "quart_fin") {
+    const snapshot = await getEmployeeDashboardSnapshotByAuthUserId(auth.user.id);
+    const currentState = snapshot.currentState?.current_state ?? "hors_quart";
+    if (
+      currentState !== "en_quart" &&
+      currentState !== "en_pause" &&
+      currentState !== "en_diner"
+    ) {
       return NextResponse.json(
         { error: "Aucun quart actif a fermer." },
         { status: 409 }
       );
     }
 
-    const { data: punchEvent, error } = await supabase
-      .from("horodateur_events")
-      .insert([
-        {
-          user_id: auth.user.id,
-          event_type: "quart_fin",
-          company_context: companyContext,
-          source_module: "timeclock_api",
-          notes: String(body.notes ?? "").trim() || null,
-          metadata: {
-            latitude,
-            longitude,
-            closed_from_event_id: latestEvent.id,
-          },
+    const result = await createEmployeePunch({
+      actorUserId: auth.user.id,
+      eventType: "punch_out",
+      note,
+      companyContext,
+    });
+
+    return NextResponse.json({
+      success: true,
+      punch_event: mapPunchResultToLegacyEvent(result, {
+        companyContext,
+        metadata: {
+          latitude,
+          longitude,
         },
-      ])
-      .select("id, event_type, occurred_at, company_context, metadata")
-      .single();
-
-    if (error) {
-      throw error;
-    }
-
-    return NextResponse.json({ success: true, punch_event: punchEvent });
+      }),
+      exception: result.exception,
+      current_state: result.currentState,
+      shift: result.shift,
+    });
   } catch (error) {
-    return NextResponse.json(
-      {
-        error:
-          error instanceof Error
-            ? error.message
-            : "Erreur lors du pointage de sortie.",
-      },
-      { status: 500 }
-    );
+    return legacyErrorResponse(error, "Erreur lors du pointage de sortie.");
   }
 }

@@ -1,7 +1,73 @@
 import { NextRequest, NextResponse } from "next/server";
 import { listDirectionLiveBoard } from "@/app/lib/horodateur-v1/service";
-import { requireDirectionHorodateurAccess } from "@/app/api/horodateur/_shared";
+import {
+  buildHorodateurErrorResponse,
+  requireDirectionHorodateurAccess,
+} from "@/app/api/horodateur/_shared";
 import { devInfo, logError } from "@/app/lib/logger";
+
+const STATUS_ORDER: Record<string, number> = {
+  en_pause: 0,
+  en_diner: 1,
+  en_quart: 2,
+  en_anomalie: 3,
+  hors_quart: 4,
+  termine: 5,
+};
+
+function toNumberOrZero(value: unknown) {
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+function mapLiveBoardRow(item: Record<string, unknown>) {
+  const currentState =
+    typeof item.currentState === "string" && item.currentState.trim()
+      ? item.currentState
+      : "hors_quart";
+  const hasOpenException = Boolean(item.hasOpenException);
+  const weeklyTargetMinutes = toNumberOrZero(item.weeklyTargetMinutes);
+  const weeklyProgressMinutes = toNumberOrZero(item.weeklyProgressMinutes);
+  const minutesWorkedToday = toNumberOrZero(item.workedMinutes);
+  const minutesPauseToday = toNumberOrZero(item.pauseMinutes);
+  const employeeId = Number(item.employeeId);
+
+  return {
+    ...item,
+    employeeId: Number.isFinite(employeeId) ? employeeId : null,
+    employee_id: Number.isFinite(employeeId) ? employeeId : null,
+    status: currentState,
+    currentState,
+    currentEventType:
+      typeof item.lastEventType === "string" && item.lastEventType.trim()
+        ? item.lastEventType
+        : null,
+    startedAt:
+      typeof item.shiftStartAt === "string" && item.shiftStartAt.trim()
+        ? item.shiftStartAt
+        : null,
+    minutesWorkedToday,
+    minutesPauseToday,
+    weeklyProgressMinutes,
+    weeklyTargetMinutes,
+    activeExceptionCount: hasOpenException ? 1 : 0,
+    alertFlags: {
+      hasOpenException,
+      weeklyOvertime:
+        weeklyTargetMinutes > 0 && weeklyProgressMinutes > weeklyTargetMinutes,
+      missingSchedule: !item.scheduledStart || !item.scheduledEnd,
+    },
+    phone:
+      typeof item.phoneNumber === "string" && item.phoneNumber.trim()
+        ? item.phoneNumber
+        : null,
+    phoneNumber:
+      typeof item.phoneNumber === "string" && item.phoneNumber.trim()
+        ? item.phoneNumber
+        : null,
+    email:
+      typeof item.email === "string" && item.email.trim() ? item.email : null,
+  };
+}
 
 export async function GET(req: NextRequest) {
   try {
@@ -22,15 +88,38 @@ export async function GET(req: NextRequest) {
     });
 
     const board = await listDirectionLiveBoard();
+    const normalizedBoard = Array.isArray(board)
+      ? board
+          .map((item) => mapLiveBoardRow(item as Record<string, unknown>))
+          .sort((a, b) => {
+            if (a.alertFlags.hasOpenException !== b.alertFlags.hasOpenException) {
+              return a.alertFlags.hasOpenException ? -1 : 1;
+            }
+            const orderA = STATUS_ORDER[a.currentState] ?? 99;
+            const orderB = STATUS_ORDER[b.currentState] ?? 99;
+            if (orderA !== orderB) {
+              return orderA - orderB;
+            }
+            const nameA = typeof a.employeeName === "string" ? a.employeeName : "";
+            const nameB = typeof b.employeeName === "string" ? b.employeeName : "";
+            return nameA.localeCompare(nameB, "fr-CA");
+          })
+      : [];
+
+    const groupedCounts = normalizedBoard.reduce<Record<string, number>>((acc, row) => {
+      acc[row.currentState] = (acc[row.currentState] ?? 0) + 1;
+      return acc;
+    }, {});
 
     devInfo("horodateur-live", "success response", {
       route: "/api/direction/horodateur/live",
-      boardCount: Array.isArray(board) ? board.length : 0,
+      boardCount: normalizedBoard.length,
     });
 
     return NextResponse.json({
       success: true,
-      board: Array.isArray(board) ? board : [],
+      board: normalizedBoard,
+      grouped: groupedCounts,
       ...(process.env.NODE_ENV !== "production"
         ? {
             debug: auth.debug,
@@ -38,64 +127,13 @@ export async function GET(req: NextRequest) {
         : {}),
     });
   } catch (error) {
-    const isDev = process.env.NODE_ENV !== "production";
-    const errorLike =
-      error && typeof error === "object"
-        ? (error as {
-            message?: unknown;
-            code?: unknown;
-            details?: unknown;
-            hint?: unknown;
-            stack?: unknown;
-          })
-        : null;
-
-    const message =
-      error instanceof Error
-        ? error.message
-        : typeof errorLike?.message === "string" && errorLike.message.trim()
-          ? errorLike.message
-          : "Erreur serveur horodateur live.";
-    const code =
-      typeof errorLike?.code === "string" && errorLike.code.trim()
-        ? errorLike.code
-        : null;
-    const details =
-      typeof errorLike?.details === "string" && errorLike.details.trim()
-        ? errorLike.details
-        : null;
-    const hint =
-      typeof errorLike?.hint === "string" && errorLike.hint.trim()
-        ? errorLike.hint
-        : null;
-    const stack =
-      error instanceof Error
-        ? error.stack ?? null
-        : typeof errorLike?.stack === "string" && errorLike.stack.trim()
-          ? errorLike.stack
-          : null;
-
     logError("horodateur-live", "route failure", {
       route: "/api/direction/horodateur/live",
-      message,
-      code,
-      details,
-      hint,
-      stack,
       raw: error,
     });
 
-    return NextResponse.json(
-      {
-        ok: false,
-        route: "/api/direction/horodateur/live",
-        error: message,
-        code,
-        details,
-        hint,
-        ...(isDev && stack ? { stack } : {}),
-      },
-      { status: 500 }
-    );
+    return buildHorodateurErrorResponse(error, {
+      route: "/api/direction/horodateur/live",
+    });
   }
 }

@@ -42,6 +42,7 @@ import {
   HORODATEUR_PHASE1_WEEKLY_TARGET_HOURS,
   resolveCompanyContextForShift,
   resolveShiftStatus,
+  toCanonicalEventType,
 } from "./rules";
 import {
   HorodateurPhase1Error,
@@ -55,7 +56,6 @@ import type {
   HorodateurPhase1EmployeeDashboardSnapshot,
   HorodateurPhase1EmployeeProfile,
   HorodateurPhase1EventRecord,
-  HorodateurPhase1EventType,
   HorodateurPhase1ExceptionRecord,
   HorodateurPhase1ExceptionType,
   HorodateurPhase1InsertEventInput,
@@ -65,6 +65,8 @@ import type {
 
 const HORODATEUR_DEFAULT_LATENESS_TOLERANCE_MINUTES = 5;
 const TORONTO_TIMEZONE = "America/Toronto";
+const SHIFT_RECOMPUTE_DEFAULT_MAX_BREAK_MINUTES = 120;
+const SHIFT_RECOMPUTE_DEFAULT_MAX_MEAL_MINUTES = 180;
 
 function ensureEmployeeActive(employee: HorodateurPhase1EmployeeProfile) {
   if (!employee.active) {
@@ -662,9 +664,17 @@ export async function recomputeCurrentState(employeeId: number) {
   let activeShiftStartEventId: string | null = null;
   let activePauseStartEventId: string | null = null;
   let activeDinnerStartEventId: string | null = null;
+  let hasSequenceAnomaly = false;
 
   for (const event of approvedEvents) {
-    if (event.event_type === "quart_debut") {
+    const canonicalEventType = toCanonicalEventType(event.event_type);
+
+    if (!canonicalEventType) {
+      hasSequenceAnomaly = true;
+      continue;
+    }
+
+    if (canonicalEventType === "punch_in") {
       currentState = "en_quart";
       activeShiftStartEventId = event.id;
       activePauseStartEventId = null;
@@ -672,31 +682,54 @@ export async function recomputeCurrentState(employeeId: number) {
       continue;
     }
 
-    if (event.event_type === "pause_debut" && currentState === "en_quart") {
-      currentState = "en_pause";
-      activePauseStartEventId = event.id;
+    if (canonicalEventType === "break_start") {
+      if (currentState === "en_quart") {
+        currentState = "en_pause";
+        activePauseStartEventId = event.id;
+      } else {
+        hasSequenceAnomaly = true;
+      }
       continue;
     }
 
-    if (event.event_type === "pause_fin" && currentState === "en_pause") {
-      currentState = "en_quart";
-      activePauseStartEventId = null;
+    if (canonicalEventType === "break_end") {
+      if (currentState === "en_pause") {
+        currentState = "en_quart";
+        activePauseStartEventId = null;
+      } else {
+        hasSequenceAnomaly = true;
+      }
       continue;
     }
 
-    if (event.event_type === "dinner_debut" && currentState === "en_quart") {
-      currentState = "en_diner";
-      activeDinnerStartEventId = event.id;
+    if (canonicalEventType === "meal_start") {
+      if (currentState === "en_quart") {
+        currentState = "en_diner";
+        activeDinnerStartEventId = event.id;
+      } else {
+        hasSequenceAnomaly = true;
+      }
       continue;
     }
 
-    if (event.event_type === "dinner_fin" && currentState === "en_diner") {
-      currentState = "en_quart";
-      activeDinnerStartEventId = null;
+    if (canonicalEventType === "meal_end") {
+      if (currentState === "en_diner") {
+        currentState = "en_quart";
+        activeDinnerStartEventId = null;
+      } else {
+        hasSequenceAnomaly = true;
+      }
       continue;
     }
 
-    if (event.event_type === "quart_fin") {
+    if (canonicalEventType === "punch_out") {
+      if (
+        currentState !== "en_quart" &&
+        currentState !== "en_pause" &&
+        currentState !== "en_diner"
+      ) {
+        hasSequenceAnomaly = true;
+      }
       currentState = "termine";
       activeShiftStartEventId = null;
       activePauseStartEventId = null;
@@ -729,8 +762,26 @@ export async function recomputeCurrentState(employeeId: number) {
     last_event_type: lastEvent?.event_type ?? null,
     last_event_at: getEventOccurredAt(lastEvent),
     company_context: activeShift?.company_context ?? null,
-    has_open_exception: pendingExceptionsCount > 0,
+    has_open_exception: pendingExceptionsCount > 0 || hasSequenceAnomaly,
   });
+}
+
+function isQuarterActiveState(state: HorodateurPhase1StateKind) {
+  return state === "en_quart" || state === "en_pause" || state === "en_diner";
+}
+
+function resolveBreakLimitMinutes(employee: HorodateurPhase1EmployeeProfile) {
+  return Math.max(
+    SHIFT_RECOMPUTE_DEFAULT_MAX_BREAK_MINUTES,
+    Math.max(1, employee.pauseMinutes || 0) * 3
+  );
+}
+
+function resolveMealLimitMinutes(employee: HorodateurPhase1EmployeeProfile) {
+  return Math.max(
+    SHIFT_RECOMPUTE_DEFAULT_MAX_MEAL_MINUTES,
+    Math.max(1, employee.lunchMinutes || 0) * 3
+  );
 }
 
 export async function recomputeShiftForDate(
@@ -746,11 +797,31 @@ export async function recomputeShiftForDate(
   const allExceptions = await listExceptionsForShift({ employeeId, workDate });
   const existingShift = await getShiftByEmployeeAndWorkDate(employeeId, workDate);
 
+  const orderedEvents = approvedEvents
+    .slice()
+    .sort((left, right) => {
+      const leftAt = getEventOccurredAt(left);
+      const rightAt = getEventOccurredAt(right);
+      if (!leftAt && !rightAt) {
+        return 0;
+      }
+      if (!leftAt) {
+        return -1;
+      }
+      if (!rightAt) {
+        return 1;
+      }
+      return new Date(leftAt).getTime() - new Date(rightAt).getTime();
+    });
+  const lastOccurredAt =
+    getEventOccurredAt(orderedEvents[orderedEvents.length - 1]) ?? null;
+
   let shiftStartAt: string | null = null;
   let shiftEndAt: string | null = null;
   let workSegmentStartAt: string | null = null;
   let pauseStartAt: string | null = null;
   let dinnerStartAt: string | null = null;
+  let terrainStartAt: string | null = null;
   let paidBreakMinutes = 0;
   let unpaidBreakMinutes = 0;
   let unpaidLunchMinutes = 0;
@@ -758,28 +829,34 @@ export async function recomputeShiftForDate(
   const anomalies: string[] = [];
   let state: HorodateurPhase1StateKind = "hors_quart";
 
-  for (const event of approvedEvents) {
+  for (const event of orderedEvents) {
     const eventOccurredAt = getEventOccurredAt(event);
+    const canonicalEventType = toCanonicalEventType(event.event_type);
 
     if (!eventOccurredAt) {
-      anomalies.push(`Evenement ${event.event_type} sans event_time exploitable.`);
+      anomalies.push(`Evenement ${event.event_type} sans horodatage exploitable.`);
       continue;
     }
 
-    if (event.event_type === "quart_debut") {
+    if (!canonicalEventType) {
+      anomalies.push(`Evenement ${event.event_type} non reconnu.`);
+      continue;
+    }
+
+    if (canonicalEventType === "punch_in") {
       if (!shiftStartAt) {
         shiftStartAt = eventOccurredAt;
         workSegmentStartAt = eventOccurredAt;
         state = "en_quart";
       } else {
-        anomalies.push("Deux debuts de quart approuves sur la meme journee.");
+        anomalies.push("Double punch_in detecte (overlap / missing_punch_out).");
       }
       continue;
     }
 
-    if (event.event_type === "pause_debut") {
+    if (canonicalEventType === "break_start") {
       if (state !== "en_quart" || !workSegmentStartAt) {
-        anomalies.push("Pause approuvee dans une sequence invalide.");
+        anomalies.push("break_start sans quart actif.");
       } else {
         workedMinutes += diffMinutes(workSegmentStartAt, eventOccurredAt);
         workSegmentStartAt = null;
@@ -789,15 +866,18 @@ export async function recomputeShiftForDate(
       continue;
     }
 
-    if (event.event_type === "pause_fin") {
+    if (canonicalEventType === "break_end") {
       if (state !== "en_pause" || !pauseStartAt) {
-        anomalies.push("Fin de pause approuvee sans pause active.");
+        anomalies.push("break_end sans break_start.");
       } else {
         const duration = diffMinutes(pauseStartAt, eventOccurredAt);
         if (employee.pausePaid) {
           paidBreakMinutes += duration;
         } else {
           unpaidBreakMinutes += duration;
+        }
+        if (duration > resolveBreakLimitMinutes(employee)) {
+          anomalies.push("Pause excessive detectee.");
         }
         workSegmentStartAt = eventOccurredAt;
         pauseStartAt = null;
@@ -806,9 +886,9 @@ export async function recomputeShiftForDate(
       continue;
     }
 
-    if (event.event_type === "dinner_debut") {
+    if (canonicalEventType === "meal_start") {
       if (state !== "en_quart" || !workSegmentStartAt) {
-        anomalies.push("Diner approuve dans une sequence invalide.");
+        anomalies.push("meal_start sans quart actif.");
       } else {
         workedMinutes += diffMinutes(workSegmentStartAt, eventOccurredAt);
         workSegmentStartAt = null;
@@ -818,13 +898,16 @@ export async function recomputeShiftForDate(
       continue;
     }
 
-    if (event.event_type === "dinner_fin") {
+    if (canonicalEventType === "meal_end") {
       if (state !== "en_diner" || !dinnerStartAt) {
-        anomalies.push("Fin de diner approuvee sans diner actif.");
+        anomalies.push("meal_end sans meal_start.");
       } else {
         const duration = diffMinutes(dinnerStartAt, eventOccurredAt);
         if (!employee.lunchPaid) {
           unpaidLunchMinutes += duration;
+        }
+        if (duration > resolveMealLimitMinutes(employee)) {
+          anomalies.push("Pause repas excessive detectee.");
         }
         workSegmentStartAt = eventOccurredAt;
         dinnerStartAt = null;
@@ -833,25 +916,73 @@ export async function recomputeShiftForDate(
       continue;
     }
 
-    if (event.event_type === "quart_fin") {
+    if (canonicalEventType === "terrain_start") {
+      if (!isQuarterActiveState(state)) {
+        anomalies.push("terrain_start hors quart actif.");
+      }
+      if (terrainStartAt) {
+        anomalies.push("terrain_start en chevauchement.");
+      } else {
+        terrainStartAt = eventOccurredAt;
+      }
+      continue;
+    }
+
+    if (canonicalEventType === "terrain_end") {
+      if (!terrainStartAt) {
+        anomalies.push("terrain_end sans terrain_start.");
+      } else {
+        terrainStartAt = null;
+      }
+      continue;
+    }
+
+    if (canonicalEventType === "manual_correction") {
+      anomalies.push("Correction manuelle detectee (review recommandee).");
+      continue;
+    }
+
+    if (canonicalEventType === "retroactive_entry") {
+      anomalies.push("Entree retroactive detectee (review recommandee).");
+      continue;
+    }
+
+    if (canonicalEventType === "punch_out") {
+      if (!shiftStartAt) {
+        anomalies.push("punch_out sans punch_in.");
+        state = "termine";
+        continue;
+      }
       shiftEndAt = eventOccurredAt;
 
       if (state === "en_quart" && workSegmentStartAt) {
         workedMinutes += diffMinutes(workSegmentStartAt, eventOccurredAt);
       } else if (state === "en_pause") {
-        anomalies.push("Fin de quart approuvee pendant une pause.");
+        const duration = pauseStartAt ? diffMinutes(pauseStartAt, eventOccurredAt) : 0;
+        if (employee.pausePaid) {
+          paidBreakMinutes += duration;
+        } else {
+          unpaidBreakMinutes += duration;
+        }
+        anomalies.push("punch_out pendant pause active (missing break_end).");
       } else if (state === "en_diner") {
-        anomalies.push("Fin de quart approuvee pendant un diner.");
+        const duration = dinnerStartAt ? diffMinutes(dinnerStartAt, eventOccurredAt) : 0;
+        if (!employee.lunchPaid) {
+          unpaidLunchMinutes += duration;
+        }
+        anomalies.push("punch_out pendant diner actif (missing meal_end).");
       }
 
       workSegmentStartAt = null;
       pauseStartAt = null;
       dinnerStartAt = null;
+      terrainStartAt = null;
       state = "termine";
+      continue;
     }
   }
 
-  if (!shiftStartAt && approvedEvents.length > 0) {
+  if (!shiftStartAt && orderedEvents.length > 0) {
     anomalies.push("Aucun debut de quart approuve n a ete trouve.");
   }
 
@@ -861,6 +992,14 @@ export async function recomputeShiftForDate(
 
   if (dinnerStartAt) {
     anomalies.push("Diner ouvert non termine.");
+  }
+
+  if (terrainStartAt) {
+    anomalies.push("Incoherence terrain: terrain_start sans terrain_end.");
+  }
+
+  if (shiftStartAt && !shiftEndAt) {
+    anomalies.push("Quart incomplet: missing_punch_out.");
   }
 
   const pendingExceptions = allExceptions.filter(
@@ -879,7 +1018,9 @@ export async function recomputeShiftForDate(
     0
   );
   const grossMinutes =
-    shiftStartAt && shiftEndAt ? diffMinutes(shiftStartAt, shiftEndAt) : 0;
+    shiftStartAt && (shiftEndAt ?? lastOccurredAt)
+      ? diffMinutes(shiftStartAt, shiftEndAt ?? (lastOccurredAt as string))
+      : 0;
   const payableMinutes = Math.max(
     0,
     workedMinutes - unpaidBreakMinutes - unpaidLunchMinutes + approvedExceptionMinutes
@@ -933,7 +1074,7 @@ export async function recomputeShiftForDate(
 
 export async function createEmployeePunch(options: {
   actorUserId: string;
-  eventType: HorodateurPhase1EventType;
+  eventType: HorodateurPhase1InsertEventInput["eventType"];
   occurredAt?: string;
   note?: string | null;
   companyContext?: AccountRequestCompany | null;
@@ -1017,7 +1158,7 @@ export async function createEmployeePunch(options: {
 export async function createDirectionPunch(options: {
   actorUserId: string;
   employeeId: number;
-  eventType: HorodateurPhase1EventType;
+  eventType: HorodateurPhase1InsertEventInput["eventType"];
   occurredAt?: string;
   note: string;
   companyContext?: AccountRequestCompany | null;
@@ -1231,7 +1372,7 @@ export async function getEmployeeHistoryByAuthUserId(options: {
       work_date: event.work_date,
       week_start_date: event.week_start_date,
       is_manual_correction: event.is_manual_correction,
-      notes: event.note ?? null,
+      notes: event.notes ?? event.note ?? null,
       metadata: {},
       livraison_id: null,
       dossier_id: null,
@@ -1314,7 +1455,10 @@ export async function listPendingExceptionsForDirection() {
             event_type: eventMap.get(item.source_event_id)!.event_type,
             occurredAt: getEventOccurredAt(eventMap.get(item.source_event_id)!),
             status: eventMap.get(item.source_event_id)!.status,
-            notes: eventMap.get(item.source_event_id)!.note ?? null,
+            notes:
+              eventMap.get(item.source_event_id)!.notes ??
+              eventMap.get(item.source_event_id)!.note ??
+              null,
           }
         : null,
     employee: employeeMap.get(item.employee_id) ?? null,

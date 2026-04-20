@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getEmployeeHistoryByAuthUserId } from "@/app/lib/horodateur-v1/service";
-import { buildHorodateurErrorResponse, requireEmployeeHorodateurAccess } from "../../_shared";
+import {
+  buildHorodateurErrorResponse,
+  buildHorodateurValidationErrorResponse,
+  parseOptionalWorkDate,
+  requireEmployeeHorodateurAccess,
+} from "../../_shared";
 
 export async function GET(req: NextRequest) {
   try {
@@ -10,10 +15,19 @@ export async function GET(req: NextRequest) {
       return auth.response;
     }
 
-    const workDate = req.nextUrl.searchParams.get("workDate") ?? undefined;
+    const workDateInput = req.nextUrl.searchParams.get("workDate");
+    const parsedWorkDate = parseOptionalWorkDate(workDateInput);
+    if (!parsedWorkDate.ok) {
+      return buildHorodateurValidationErrorResponse({
+        error: parsedWorkDate.error,
+        code: parsedWorkDate.code,
+        route: "/api/horodateur/me/history",
+      });
+    }
+
     const history = await getEmployeeHistoryByAuthUserId({
       authUserId: auth.user.id,
-      workDate,
+      workDate: parsedWorkDate.value,
     });
 
     return NextResponse.json({
@@ -21,10 +35,18 @@ export async function GET(req: NextRequest) {
       employee: history.employee,
       workDate: history.workDate,
       shift: history.shift,
-      events: history.events,
+      events: Array.isArray(history.events)
+        ? history.events.map((event) => ({
+            ...event,
+            notes: event.notes ?? event.note ?? null,
+            note: event.note ?? event.notes ?? null,
+          }))
+        : [],
       exceptions: history.exceptions,
     });
   } catch (error) {
-    return buildHorodateurErrorResponse(error);
+    return buildHorodateurErrorResponse(error, {
+      route: "/api/horodateur/me/history",
+    });
   }
 }
