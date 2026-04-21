@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import { motion } from "framer-motion";
 import {
   AlertTriangle,
@@ -189,6 +189,13 @@ export default function DirectionDashboardClient({
   const router = useRouter();
   const { user, loading, hasPermission } = useCurrentAccess();
 
+  useEffect(() => {
+    if (loading || user) {
+      return;
+    }
+    router.replace("/direction/login");
+  }, [loading, user, router]);
+
   const visibleModules = useMemo(
     () => MODULES.filter((item) => (item.permission ? hasPermission(item.permission) : true)),
     [hasPermission]
@@ -227,7 +234,6 @@ export default function DirectionDashboardClient({
   }
 
   if (!user) {
-    router.push("/direction/login");
     return null;
   }
 

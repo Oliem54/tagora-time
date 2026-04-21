@@ -6,7 +6,7 @@
     "contentKey": "mailer_templates_invite_content",
     "htmlFile": "invite.html",
     "textFile": "invite.txt",
-    "subject": "Activation de votre acces - TAGORA Time"
+    "subject": "TAGORA Time — Activation de votre accès"
   },
   {
     "slug": "recovery",
@@ -15,7 +15,7 @@
     "contentKey": "mailer_templates_recovery_content",
     "htmlFile": "recovery.html",
     "textFile": "recovery.txt",
-    "subject": "Reinitialisation du mot de passe - TAGORA Time"
+    "subject": "TAGORA Time — Réinitialisation du mot de passe"
   },
   {
     "slug": "confirmation",
@@ -24,7 +24,7 @@
     "contentKey": "mailer_templates_confirmation_content",
     "htmlFile": "confirmation.html",
     "textFile": "confirmation.txt",
-    "subject": "Confirmez votre courriel TAGORA Time"
+    "subject": "TAGORA Time — Confirmez votre adresse courriel"
   },
   {
     "slug": "password-changed-notification",
@@ -34,7 +34,7 @@
     "enabledKey": "mailer_notifications_password_changed_enabled",
     "htmlFile": "password-changed-notification.html",
     "textFile": "password-changed-notification.txt",
-    "subject": "Votre mot de passe TAGORA Time a ete modifie"
+    "subject": "TAGORA Time — Mot de passe modifié"
   },
   {
     "slug": "email-changed-notification",
@@ -44,6 +44,6 @@
     "enabledKey": "mailer_notifications_email_changed_enabled",
     "htmlFile": "email-changed-notification.html",
     "textFile": "email-changed-notification.txt",
-    "subject": "Votre courriel TAGORA Time a ete modifie"
+    "subject": "TAGORA Time — Adresse courriel modifiée"
   }
 ]

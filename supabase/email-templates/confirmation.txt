@@ -1,13 +1,14 @@
-TAGORA Time - Confirmation de courriel
+TAGORA Time — Confirmez votre adresse courriel
 
 Bonjour{{ if .Data.full_name }} {{ .Data.full_name }}{{ end }},
 
 Vous recevez ce courriel pour confirmer votre adresse courriel dans TAGORA Time.
 
-Utilisez le lien securise ci-dessous pour valider votre adresse :
+Ouvrez ce lien sécurisé pour finaliser la vérification :
 {{ .ConfirmationURL }}
 
-Si vous n attendiez pas cette demande, vous pouvez ignorer ce courriel.
+Si vous n’attendiez pas cette demande, vous pouvez ignorer ce courriel.
 
-TAGORA Time
-Oliem Solutions
+---
+TAGORA Time — Oliem Solutions
+Courriel officiel de validation d’accès

@@ -2,6 +2,7 @@ import "server-only";
 
 import { createAdminSupabaseClient } from "@/app/lib/supabase/admin";
 import type {
+  HorodateurCanonicalEventType,
   HorodateurDirectionAlertConfigRecord,
   HorodateurPhase1CurrentStateRecord,
   HorodateurPhase1EmployeeProfile,
@@ -11,13 +12,15 @@ import type {
   HorodateurLatenessNotificationRecord,
   HorodateurPhase1ShiftRecord,
 } from "./types";
+import { HORODATEUR_CANONICAL_TO_LEGACY_EVENT_TYPE } from "./types";
 
 type ChauffeurProfileRow = {
   id: number;
   auth_user_id: string | null;
   nom: string | null;
   courriel: string | null;
-  phone_number: string | null;
+  telephone?: string | null;
+  phone_number?: string | null;
   actif: boolean | null;
   primary_company: HorodateurPhase1EmployeeProfile["primaryCompany"];
   schedule_start: string | null;
@@ -30,13 +33,36 @@ type ChauffeurProfileRow = {
   lunch_paid: boolean | null;
   lunch_minutes: number | null;
   expected_breaks_count: number | null;
-  horodateur_tolerance_before_start_minutes: number | null;
-  horodateur_tolerance_after_end_minutes: number | null;
-  horodateur_max_shift_minutes: number | null;
+  horodateur_tolerance_before_start_minutes?: number | null;
+  horodateur_tolerance_after_end_minutes?: number | null;
+  horodateur_max_shift_minutes?: number | null;
   sms_alert_quart_debut: boolean | null;
 };
 
-const CHAUFFEUR_PHASE1_SELECT = `
+type EventRow = Record<string, unknown>;
+
+const CHAUFFEUR_PHASE1_SELECT_CANONICAL = `
+  id,
+  auth_user_id,
+  nom,
+  courriel,
+  telephone,
+  actif,
+  primary_company,
+  schedule_start,
+  schedule_end,
+  scheduled_work_days,
+  planned_weekly_hours,
+  pause_minutes,
+  break_1_minutes,
+  break_1_paid,
+  lunch_paid,
+  lunch_minutes,
+  expected_breaks_count,
+  sms_alert_quart_debut
+`;
+
+const CHAUFFEUR_PHASE1_SELECT_LEGACY_PHONE = `
   id,
   auth_user_id,
   nom,
@@ -54,11 +80,90 @@ const CHAUFFEUR_PHASE1_SELECT = `
   lunch_paid,
   lunch_minutes,
   expected_breaks_count,
-  horodateur_tolerance_before_start_minutes,
-  horodateur_tolerance_after_end_minutes,
-  horodateur_max_shift_minutes,
   sms_alert_quart_debut
 `;
+
+function readErrorText(error: unknown) {
+  if (!error || typeof error !== "object") {
+    return "";
+  }
+
+  const message =
+    typeof (error as { message?: unknown }).message === "string"
+      ? (error as { message: string }).message
+      : "";
+  const details =
+    typeof (error as { details?: unknown }).details === "string"
+      ? (error as { details: string }).details
+      : "";
+  const hint =
+    typeof (error as { hint?: unknown }).hint === "string"
+      ? (error as { hint: string }).hint
+      : "";
+
+  return `${message} ${details} ${hint}`.toLowerCase();
+}
+
+function isMissingColumnError(error: unknown, columnName: string) {
+  if (!error || typeof error !== "object") {
+    return false;
+  }
+
+  const code =
+    typeof (error as { code?: unknown }).code === "string"
+      ? (error as { code: string }).code
+      : "";
+  const text = readErrorText(error);
+
+  return code === "42703" && text.includes(columnName.toLowerCase());
+}
+
+function isCanonicalEventType(value: string): value is HorodateurCanonicalEventType {
+  return value in HORODATEUR_CANONICAL_TO_LEGACY_EVENT_TYPE;
+}
+
+function toStoredLegacyEventType(
+  value: HorodateurPhase1InsertEventInput["eventType"]
+): HorodateurPhase1EventRecord["event_type"] {
+  const eventType = String(value);
+  return isCanonicalEventType(eventType)
+    ? HORODATEUR_CANONICAL_TO_LEGACY_EVENT_TYPE[eventType]
+    : (eventType as HorodateurPhase1EventRecord["event_type"]);
+}
+
+function normalizeEventRow(
+  row: EventRow,
+  fallbackEmployeeId?: number
+): HorodateurPhase1EventRecord {
+  const rawOccurredAt =
+    typeof row.occurred_at === "string"
+      ? row.occurred_at
+      : typeof row.event_time === "string"
+        ? row.event_time
+        : null;
+  const rawNotes =
+    typeof row.notes === "string"
+      ? row.notes
+      : typeof row.note === "string"
+        ? row.note
+        : null;
+  const employeeIdValue =
+    typeof row.employee_id === "number"
+      ? row.employee_id
+      : typeof fallbackEmployeeId === "number"
+        ? fallbackEmployeeId
+        : 0;
+
+  return {
+    ...(row as unknown as HorodateurPhase1EventRecord),
+    employee_id: employeeIdValue,
+    event_type: String(row.event_type ?? "") as HorodateurPhase1EventRecord["event_type"],
+    occurred_at: rawOccurredAt,
+    event_time: rawOccurredAt,
+    notes: rawNotes,
+    note: rawNotes,
+  };
+}
 
 function mapProfile(row: ChauffeurProfileRow): HorodateurPhase1EmployeeProfile {
   return {
@@ -66,7 +171,7 @@ function mapProfile(row: ChauffeurProfileRow): HorodateurPhase1EmployeeProfile {
     authUserId: row.auth_user_id,
     fullName: row.nom,
     email: row.courriel,
-    phoneNumber: row.phone_number,
+    phoneNumber: row.telephone ?? row.phone_number ?? null,
     active: row.actif !== false,
     primaryCompany: row.primary_company,
     scheduleStart: row.schedule_start,
@@ -86,13 +191,38 @@ function mapProfile(row: ChauffeurProfileRow): HorodateurPhase1EmployeeProfile {
   };
 }
 
-export async function getEmployeeByAuthUserId(authUserId: string) {
+async function getEmployeeAuthUserIdByEmployeeId(employeeId: number) {
   const supabase = createAdminSupabaseClient();
   const { data, error } = await supabase
     .from("chauffeurs")
-    .select(CHAUFFEUR_PHASE1_SELECT)
+    .select("auth_user_id")
+    .eq("id", employeeId)
+    .maybeSingle<{ auth_user_id: string | null }>();
+
+  if (error) {
+    throw error;
+  }
+
+  return data?.auth_user_id ?? null;
+}
+
+export async function getEmployeeByAuthUserId(authUserId: string) {
+  const supabase = createAdminSupabaseClient();
+  let { data, error } = await supabase
+    .from("chauffeurs")
+    .select(CHAUFFEUR_PHASE1_SELECT_CANONICAL)
     .eq("auth_user_id", authUserId)
     .maybeSingle<ChauffeurProfileRow>();
+
+  if (error && isMissingColumnError(error, "telephone")) {
+    const fallback = await supabase
+      .from("chauffeurs")
+      .select(CHAUFFEUR_PHASE1_SELECT_LEGACY_PHONE)
+      .eq("auth_user_id", authUserId)
+      .maybeSingle<ChauffeurProfileRow>();
+    data = fallback.data ?? null;
+    error = fallback.error ?? null;
+  }
 
   if (error) {
     throw error;
@@ -103,11 +233,21 @@ export async function getEmployeeByAuthUserId(authUserId: string) {
 
 export async function getEmployeeById(employeeId: number) {
   const supabase = createAdminSupabaseClient();
-  const { data, error } = await supabase
+  let { data, error } = await supabase
     .from("chauffeurs")
-    .select(CHAUFFEUR_PHASE1_SELECT)
+    .select(CHAUFFEUR_PHASE1_SELECT_CANONICAL)
     .eq("id", employeeId)
     .maybeSingle<ChauffeurProfileRow>();
+
+  if (error && isMissingColumnError(error, "telephone")) {
+    const fallback = await supabase
+      .from("chauffeurs")
+      .select(CHAUFFEUR_PHASE1_SELECT_LEGACY_PHONE)
+      .eq("id", employeeId)
+      .maybeSingle<ChauffeurProfileRow>();
+    data = fallback.data ?? null;
+    error = fallback.error ?? null;
+  }
 
   if (error) {
     throw error;
@@ -118,12 +258,23 @@ export async function getEmployeeById(employeeId: number) {
 
 export async function listActiveEmployees() {
   const supabase = createAdminSupabaseClient();
-  const { data, error } = await supabase
+  let { data, error } = await supabase
     .from("chauffeurs")
-    .select(CHAUFFEUR_PHASE1_SELECT)
+    .select(CHAUFFEUR_PHASE1_SELECT_CANONICAL)
     .eq("actif", true)
     .order("nom", { ascending: true })
     .returns<ChauffeurProfileRow[]>();
+
+  if (error && isMissingColumnError(error, "telephone")) {
+    const fallback = await supabase
+      .from("chauffeurs")
+      .select(CHAUFFEUR_PHASE1_SELECT_LEGACY_PHONE)
+      .eq("actif", true)
+      .order("nom", { ascending: true })
+      .returns<ChauffeurProfileRow[]>();
+    data = fallback.data ?? null;
+    error = fallback.error ?? null;
+  }
 
   if (error) {
     throw error;
@@ -156,8 +307,7 @@ export async function listEventsForEmployee(options: {
   let query = supabase
     .from("horodateur_events")
     .select("*")
-    .eq("employee_id", options.employeeId)
-    .order("event_time", { ascending: true });
+    .eq("employee_id", options.employeeId);
 
   if (options.workDate) {
     query = query.eq("work_date", options.workDate);
@@ -167,13 +317,55 @@ export async function listEventsForEmployee(options: {
     query = query.in("status", options.statuses);
   }
 
-  const { data, error } = await query.returns<HorodateurPhase1EventRecord[]>();
+  let { data, error } = await query
+    .order("occurred_at", { ascending: true })
+    .returns<EventRow[]>();
+
+  if (error && isMissingColumnError(error, "occurred_at")) {
+    const fallback = await query
+      .order("event_time", { ascending: true })
+      .returns<EventRow[]>();
+    data = fallback.data ?? null;
+    error = fallback.error ?? null;
+  }
+
+  if (error && isMissingColumnError(error, "employee_id")) {
+    const authUserId = await getEmployeeAuthUserIdByEmployeeId(options.employeeId);
+
+    if (!authUserId) {
+      return [];
+    }
+
+    let legacyQuery = supabase
+      .from("horodateur_events")
+      .select("*")
+      .eq("user_id", authUserId);
+
+    if (options.workDate) {
+      legacyQuery = legacyQuery.eq("work_date", options.workDate);
+    }
+
+    if (options.statuses && options.statuses.length > 0) {
+      legacyQuery = legacyQuery.in("status", options.statuses);
+    }
+
+    let legacyResult = await legacyQuery
+      .order("occurred_at", { ascending: true })
+      .returns<EventRow[]>();
+    if (legacyResult.error && isMissingColumnError(legacyResult.error, "occurred_at")) {
+      legacyResult = await legacyQuery
+        .order("event_time", { ascending: true })
+        .returns<EventRow[]>();
+    }
+    data = legacyResult.data ?? null;
+    error = legacyResult.error ?? null;
+  }
 
   if (error) {
     throw error;
   }
 
-  return data ?? [];
+  return (data ?? []).map((row) => normalizeEventRow(row, options.employeeId));
 }
 
 export async function getEventById(eventId: string) {
@@ -182,26 +374,27 @@ export async function getEventById(eventId: string) {
     .from("horodateur_events")
     .select("*")
     .eq("id", eventId)
-    .maybeSingle<HorodateurPhase1EventRecord>();
+    .maybeSingle<EventRow>();
 
   if (error) {
     throw error;
   }
 
-  return data ?? null;
+  return data ? normalizeEventRow(data) : null;
 }
 
 export async function insertEvent(input: HorodateurPhase1InsertEventInput) {
   const supabase = createAdminSupabaseClient();
-  const payload = {
+  const eventType = toStoredLegacyEventType(input.eventType);
+  const payload: Record<string, unknown> = {
     user_id: input.userId,
     employee_id: input.employeeId,
-    event_time: input.occurredAt,
-    event_type: input.eventType,
+    occurred_at: input.occurredAt,
+    event_type: eventType,
     actor_user_id: input.actorUserId,
     actor_role: input.actorRole,
     source_kind: input.sourceKind,
-    note: input.note ?? null,
+    notes: input.note ?? null,
     related_event_id: input.relatedEventId ?? null,
     is_manual_correction: input.isManualCorrection ?? false,
     status: input.status,
@@ -212,17 +405,55 @@ export async function insertEvent(input: HorodateurPhase1InsertEventInput) {
     week_start_date: input.weekStartDate,
   };
 
-  const { data, error } = await supabase
-    .from("horodateur_events")
-    .insert(payload)
-    .select("*")
-    .single<HorodateurPhase1EventRecord>();
+  for (let attempt = 0; attempt < 7; attempt += 1) {
+    const { data, error } = await supabase
+      .from("horodateur_events")
+      .insert(payload)
+      .select("*")
+      .single<EventRow>();
 
-  if (error) {
+    if (!error) {
+      return normalizeEventRow(data, input.employeeId);
+    }
+
+    if (isMissingColumnError(error, "occurred_at") && "occurred_at" in payload) {
+      payload.event_time = payload.occurred_at;
+      delete payload.occurred_at;
+      continue;
+    }
+
+    if (isMissingColumnError(error, "event_time") && "event_time" in payload) {
+      payload.occurred_at = payload.event_time;
+      delete payload.event_time;
+      continue;
+    }
+
+    if (isMissingColumnError(error, "notes") && "notes" in payload) {
+      payload.note = payload.notes;
+      delete payload.notes;
+      continue;
+    }
+
+    if (isMissingColumnError(error, "note") && "note" in payload) {
+      payload.notes = payload.note;
+      delete payload.note;
+      continue;
+    }
+
+    if (isMissingColumnError(error, "employee_id") && "employee_id" in payload) {
+      delete payload.employee_id;
+      continue;
+    }
+
+    if (isMissingColumnError(error, "user_id") && "user_id" in payload) {
+      delete payload.user_id;
+      continue;
+    }
+
     throw error;
   }
 
-  return data;
+  throw new Error("Impossible d inserer l evenement horodateur.");
 }
 
 export async function insertException(input: {
@@ -588,13 +819,13 @@ export async function updateEventReviewStatus(input: {
     .update(payload)
     .eq("id", input.eventId)
     .select("*")
-    .single<HorodateurPhase1EventRecord>();
+    .single<EventRow>();
 
   if (error) {
     throw error;
   }
 
-  return data;
+  return normalizeEventRow(data);
 }
 
 export async function upsertCurrentState(

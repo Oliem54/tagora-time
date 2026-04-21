@@ -3,7 +3,13 @@ import {
   getWeeklyProjection,
   refuseHorodateurException,
 } from "@/app/lib/horodateur-v1/service";
-import { buildHorodateurErrorResponse, requireDirectionHorodateurAccess } from "@/app/api/horodateur/_shared";
+import {
+  buildHorodateurErrorResponse,
+  buildHorodateurValidationErrorResponse,
+  normalizeEventForApi,
+  normalizeNonEmptyString,
+  requireDirectionHorodateurAccess,
+} from "@/app/api/horodateur/_shared";
 
 export async function POST(
   req: NextRequest,
@@ -17,14 +23,22 @@ export async function POST(
     }
 
     const { id } = await params;
-    const body = (await req.json()) as {
+    const body = (await req.json().catch(() => ({}))) as {
       reviewNote?: unknown;
     };
+    const reviewNote = normalizeNonEmptyString(body.reviewNote);
+    if (!reviewNote) {
+      return buildHorodateurValidationErrorResponse({
+        error: "reviewNote est obligatoire pour un refus.",
+        code: "missing_review_note",
+        route: "/api/direction/horodateur/exceptions/[id]/refuse",
+      });
+    }
 
     const result = await refuseHorodateurException({
       actorUserId: auth.user.id,
       exceptionId: id,
-      reviewNote: typeof body.reviewNote === "string" ? body.reviewNote : "",
+      reviewNote,
     });
 
     const weeklyProjection = await getWeeklyProjection(result.exception.employee_id);
@@ -32,20 +46,12 @@ export async function POST(
     return NextResponse.json({
       success: true,
       ...result,
-      event: {
-        id: result.event.id,
-        employee_id: result.event.employee_id,
-        event_type: result.event.event_type,
-        occurredAt: result.event.event_time ?? result.event.created_at ?? null,
-        status: result.event.status,
-        notes: result.event.note,
-        work_date: result.event.work_date,
-        week_start_date: result.event.week_start_date,
-        created_at: result.event.created_at,
-      },
+      event: normalizeEventForApi(result.event),
       weeklyProjection,
     });
   } catch (error) {
-    return buildHorodateurErrorResponse(error);
+    return buildHorodateurErrorResponse(error, {
+      route: "/api/direction/horodateur/exceptions/[id]/refuse",
+    });
   }
 }

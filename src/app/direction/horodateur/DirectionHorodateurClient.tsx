@@ -23,10 +23,22 @@ import { normalizePhoneNumber } from "@/app/lib/timeclock-api.client";
 
 type LiveRow = {
   employeeId: number;
+  employee_id?: number | null;
   fullName: string | null;
   email: string | null;
+  phone?: string | null;
+  phoneNumber?: string | null;
   primaryCompany: "oliem_solutions" | "titan_produits_industriels" | null;
   currentState: string;
+  status?: string | null;
+  currentEventType?: string | null;
+  startedAt?: string | null;
+  activeExceptionCount?: number;
+  alertFlags?: {
+    hasOpenException?: boolean;
+    weeklyOvertime?: boolean;
+    missingSchedule?: boolean;
+  } | null;
   lastEventAt: string | null;
   lastEventType: string | null;
   todayShift: {
@@ -64,7 +76,11 @@ type PendingException = {
   } | null;
   event: {
     event_type: string;
-    occurredAt: string | null;
+    occurredAt?: string | null;
+    occurred_at?: string | null;
+    event_time?: string | null;
+    notes?: string | null;
+    note?: string | null;
   } | null;
 };
 
@@ -119,12 +135,12 @@ type DirectionMutationPayload = {
 };
 
 const DIRECTION_EVENT_TYPES = [
-  "quart_debut",
-  "pause_debut",
-  "pause_fin",
-  "dinner_debut",
-  "dinner_fin",
-  "quart_fin",
+  "punch_in",
+  "break_start",
+  "break_end",
+  "meal_start",
+  "meal_end",
+  "punch_out",
 ] as const;
 
 function formatDateTime(value: string | null | undefined) {
@@ -248,6 +264,188 @@ function normalizePhoneList(values: string[]) {
   );
 }
 
+function resolveOccurredAt(value: {
+  occurredAt?: string | null;
+  occurred_at?: string | null;
+  event_time?: string | null;
+}) {
+  return value.occurredAt ?? value.occurred_at ?? value.event_time ?? null;
+}
+
+function getRowState(row: LiveRow) {
+  return row.currentState || row.status || "hors_quart";
+}
+
+function normalizeLiveRow(raw: unknown): LiveRow {
+  const row = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
+  const employeeIdValue = Number(row.employeeId ?? row.employee_id);
+  const employeeId = Number.isFinite(employeeIdValue) && employeeIdValue > 0 ? employeeIdValue : 0;
+  const currentState =
+    typeof row.currentState === "string"
+      ? row.currentState
+      : typeof row.status === "string"
+        ? row.status
+        : "hors_quart";
+  const todayShift =
+    row.todayShift && typeof row.todayShift === "object"
+      ? (row.todayShift as LiveRow["todayShift"])
+      : row.shift && typeof row.shift === "object"
+        ? (row.shift as LiveRow["todayShift"])
+        : null;
+  const activeExceptionCount =
+    typeof row.activeExceptionCount === "number"
+      ? row.activeExceptionCount
+      : typeof row.openExceptionCount === "number"
+        ? row.openExceptionCount
+        : 0;
+  const alertFlags =
+    row.alertFlags && typeof row.alertFlags === "object"
+      ? (row.alertFlags as LiveRow["alertFlags"])
+      : null;
+
+  return {
+    employeeId,
+    employee_id: employeeId || null,
+    fullName: typeof row.fullName === "string" ? row.fullName : null,
+    email: typeof row.email === "string" ? row.email : null,
+    phone: typeof row.phone === "string" ? row.phone : typeof row.phoneNumber === "string" ? row.phoneNumber : null,
+    phoneNumber:
+      typeof row.phoneNumber === "string" ? row.phoneNumber : typeof row.phone === "string" ? row.phone : null,
+    primaryCompany:
+      row.primaryCompany === "oliem_solutions" || row.primaryCompany === "titan_produits_industriels"
+        ? row.primaryCompany
+        : null,
+    currentState,
+    status: typeof row.status === "string" ? row.status : currentState,
+    currentEventType:
+      typeof row.currentEventType === "string"
+        ? row.currentEventType
+        : typeof row.lastEventType === "string"
+          ? row.lastEventType
+          : null,
+    startedAt:
+      typeof row.startedAt === "string"
+        ? row.startedAt
+        : todayShift?.shift_start_at ?? null,
+    activeExceptionCount,
+    alertFlags,
+    lastEventAt:
+      typeof row.lastEventAt === "string"
+        ? row.lastEventAt
+        : typeof row.last_event_at === "string"
+          ? row.last_event_at
+          : null,
+    lastEventType:
+      typeof row.lastEventType === "string"
+        ? row.lastEventType
+        : typeof row.currentEventType === "string"
+          ? row.currentEventType
+          : typeof row.last_event_type === "string"
+            ? row.last_event_type
+            : null,
+    todayShift,
+    weekWorkedMinutes:
+      typeof row.weekWorkedMinutes === "number"
+        ? row.weekWorkedMinutes
+        : typeof row.weeklyProgressMinutes === "number"
+          ? row.weeklyProgressMinutes
+          : 0,
+    weekTargetMinutes:
+      typeof row.weekTargetMinutes === "number"
+        ? row.weekTargetMinutes
+        : typeof row.weeklyTargetMinutes === "number"
+          ? row.weeklyTargetMinutes
+          : 40 * 60,
+    weekRemainingMinutes:
+      typeof row.weekRemainingMinutes === "number"
+        ? row.weekRemainingMinutes
+        : 0,
+    projectedOverflowMinutes:
+      typeof row.projectedOverflowMinutes === "number"
+        ? row.projectedOverflowMinutes
+        : 0,
+    hasOpenException:
+      Boolean(row.hasOpenException) ||
+      Boolean(alertFlags?.hasOpenException) ||
+      activeExceptionCount > 0,
+  };
+}
+
+function normalizePendingException(raw: unknown): PendingException | null {
+  const item = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : null;
+  if (!item) {
+    return null;
+  }
+
+  return {
+    id: typeof item.id === "string" ? item.id : crypto.randomUUID(),
+    employee_id: Number(item.employee_id ?? item.employeeId) || 0,
+    exception_type: typeof item.exception_type === "string" ? item.exception_type : "unknown",
+    reason_label: typeof item.reason_label === "string" ? item.reason_label : "Exception",
+    details: typeof item.details === "string" ? item.details : null,
+    impact_minutes: typeof item.impact_minutes === "number" ? item.impact_minutes : 0,
+    status: typeof item.status === "string" ? item.status : "en_attente",
+    direction_email_notified_at:
+      typeof item.direction_email_notified_at === "string"
+        ? item.direction_email_notified_at
+        : null,
+    direction_sms_notified_at:
+      typeof item.direction_sms_notified_at === "string"
+        ? item.direction_sms_notified_at
+        : null,
+    direction_reminder_email_notified_at:
+      typeof item.direction_reminder_email_notified_at === "string"
+        ? item.direction_reminder_email_notified_at
+        : null,
+    direction_reminder_sms_notified_at:
+      typeof item.direction_reminder_sms_notified_at === "string"
+        ? item.direction_reminder_sms_notified_at
+        : null,
+    employee:
+      item.employee && typeof item.employee === "object"
+        ? {
+            employeeId:
+              Number(
+                (item.employee as Record<string, unknown>).employeeId ??
+                  (item.employee as Record<string, unknown>).employee_id
+              ) || 0,
+            fullName:
+              typeof (item.employee as Record<string, unknown>).fullName === "string"
+                ? ((item.employee as Record<string, unknown>).fullName as string)
+                : null,
+            email:
+              typeof (item.employee as Record<string, unknown>).email === "string"
+                ? ((item.employee as Record<string, unknown>).email as string)
+                : null,
+          }
+        : null,
+    event:
+      item.event && typeof item.event === "object"
+        ? {
+            event_type:
+              typeof (item.event as Record<string, unknown>).event_type === "string"
+                ? ((item.event as Record<string, unknown>).event_type as string)
+                : "unknown",
+            occurredAt: resolveOccurredAt(item.event as Record<string, unknown>),
+            occurred_at: resolveOccurredAt(item.event as Record<string, unknown>),
+            event_time: resolveOccurredAt(item.event as Record<string, unknown>),
+            notes:
+              typeof (item.event as Record<string, unknown>).notes === "string"
+                ? ((item.event as Record<string, unknown>).notes as string)
+                : typeof (item.event as Record<string, unknown>).note === "string"
+                  ? ((item.event as Record<string, unknown>).note as string)
+                  : null,
+            note:
+              typeof (item.event as Record<string, unknown>).note === "string"
+                ? ((item.event as Record<string, unknown>).note as string)
+                : typeof (item.event as Record<string, unknown>).notes === "string"
+                  ? ((item.event as Record<string, unknown>).notes as string)
+                  : null,
+          }
+        : null,
+  };
+}
+
 export default function DirectionHorodateurPage() {
   const { loading: accessLoading, hasPermission } = useCurrentAccess();
   const canUseTerrain = hasPermission("terrain");
@@ -261,7 +459,7 @@ export default function DirectionHorodateurPage() {
   const [exceptions, setExceptions] = useState<PendingException[]>([]);
   const [selectedEmployeeId, setSelectedEmployeeId] = useState("");
   const [selectedEventType, setSelectedEventType] =
-    useState<(typeof DIRECTION_EVENT_TYPES)[number]>("quart_debut");
+    useState<(typeof DIRECTION_EVENT_TYPES)[number]>("punch_in");
   const [note, setNote] = useState("");
   const [liveFilter, setLiveFilter] = useState<LiveFilter>("tous");
   const [config, setConfig] = useState<AlertConfig>({
@@ -273,9 +471,9 @@ export default function DirectionHorodateurPage() {
   });
 
   const counts = useMemo(() => {
-    const active = board.filter((row) => row.currentState === "en_quart").length;
+    const active = board.filter((row) => getRowState(row) === "en_quart").length;
     const paused = board.filter(
-      (row) => row.currentState === "en_pause" || row.currentState === "en_diner"
+      (row) => getRowState(row) === "en_pause" || getRowState(row) === "en_diner"
     ).length;
     const pending = exceptions.length;
 
@@ -296,7 +494,7 @@ export default function DirectionHorodateurPage() {
     [config.direction_emails]
   );
   const globalMetrics = useMemo(() => {
-    const employeesInShift = board.filter((row) => row.currentState === "en_quart").length;
+    const employeesInShift = board.filter((row) => getRowState(row) === "en_quart").length;
     const totalTodayMinutes = board.reduce(
       (sum, row) => sum + Math.max(0, row.todayShift?.payable_minutes ?? 0),
       0
@@ -326,11 +524,13 @@ export default function DirectionHorodateurPage() {
   const filteredBoard = useMemo(() => {
     switch (liveFilter) {
       case "en_quart":
-        return board.filter((row) => row.currentState === "en_quart");
+        return board.filter((row) => getRowState(row) === "en_quart");
       case "en_attente":
         return board.filter((row) => row.todayShift?.status === "en_attente");
       case "exceptions":
-        return board.filter((row) => row.hasOpenException);
+        return board.filter(
+          (row) => row.hasOpenException || (row.activeExceptionCount ?? 0) > 0
+        );
       default:
         return board;
     }
@@ -418,7 +618,11 @@ export default function DirectionHorodateurPage() {
         });
 
         if (result.live.ok) {
-          setBoard(Array.isArray(result.live.payload.board) ? result.live.payload.board : []);
+          setBoard(
+            Array.isArray(result.live.payload.board)
+              ? result.live.payload.board.map(normalizeLiveRow)
+              : []
+          );
         } else {
           setBoard([]);
         }
@@ -427,6 +631,8 @@ export default function DirectionHorodateurPage() {
           setExceptions(
             Array.isArray(result.exceptions.payload.exceptions)
               ? result.exceptions.payload.exceptions
+                  .map(normalizePendingException)
+                  .filter((item): item is PendingException => item != null)
               : []
           );
         } else {
@@ -529,16 +735,39 @@ export default function DirectionHorodateurPage() {
     setBoard((current) =>
       current.map((row) => {
         if (row.employeeId !== employeeId) {
-          return row;
+          if ((row.employee_id ?? null) !== employeeId) {
+            return row;
+          }
         }
+
+        const currentStateValue =
+          payload.currentState?.current_state ??
+          payload.currentState?.status ??
+          row.currentState;
+        const openExceptionCount = row.activeExceptionCount ?? 0;
+        const hasOpenException =
+          payload.currentState?.has_open_exception ??
+          (row.hasOpenException || openExceptionCount > 0);
 
         return {
           ...row,
-          currentState: payload.currentState?.current_state ?? row.currentState,
+          currentState: currentStateValue,
+          status: currentStateValue,
+          currentEventType:
+            payload.currentState?.currentEventType ??
+            payload.currentState?.last_event_type ??
+            row.currentEventType,
+          startedAt: payload.currentState?.startedAt ?? row.startedAt,
           lastEventAt: payload.currentState?.last_event_at ?? row.lastEventAt,
-          lastEventType: payload.currentState?.last_event_type ?? row.lastEventType,
-          hasOpenException:
-            payload.currentState?.has_open_exception ?? row.hasOpenException,
+          lastEventType:
+            payload.currentState?.last_event_type ??
+            payload.currentState?.currentEventType ??
+            row.lastEventType,
+          hasOpenException,
+          activeExceptionCount:
+            hasOpenException && openExceptionCount === 0
+              ? 1
+              : row.activeExceptionCount,
           todayShift: payload.shift ?? row.todayShift,
           weekWorkedMinutes:
             payload.weeklyProjection?.workedMinutes ?? row.weekWorkedMinutes,
@@ -682,7 +911,7 @@ export default function DirectionHorodateurPage() {
 
       if (payload.exception) {
         const selectedRow =
-          board.find((row) => row.employeeId === employeeId) ?? null;
+          board.find((row) => row.employeeId === employeeId || row.employee_id === employeeId) ?? null;
 
         setExceptions((current) => [
           {
@@ -704,7 +933,9 @@ export default function DirectionHorodateurPage() {
                 event: payload.event
                   ? {
                       event_type: payload.event.event_type,
-                      occurredAt: payload.event.occurredAt,
+                      occurredAt: resolveOccurredAt(payload.event),
+                      occurred_at: resolveOccurredAt(payload.event),
+                      event_time: resolveOccurredAt(payload.event),
                     }
                   : null,
           },
@@ -1061,7 +1292,7 @@ export default function DirectionHorodateurPage() {
                       </strong>
                       <span className="ui-text-muted">
                         {item.event
-                          ? `${item.event.event_type} - ${formatDateTime(item.event.occurredAt)}`
+                          ? `${item.event.event_type} - ${formatDateTime(resolveOccurredAt(item.event))}`
                           : "Evenement lie"}
                       </span>
                     </div>
@@ -1175,9 +1406,9 @@ export default function DirectionHorodateurPage() {
           >
             {[
               ["tous", `Tous (${board.length})`],
-              ["en_quart", `En quart (${board.filter((row) => row.currentState === "en_quart").length})`],
+              ["en_quart", `En quart (${board.filter((row) => getRowState(row) === "en_quart").length})`],
               ["en_attente", `En attente (${board.filter((row) => row.todayShift?.status === "en_attente").length})`],
-              ["exceptions", `Exceptions (${board.filter((row) => row.hasOpenException).length})`],
+              ["exceptions", `Exceptions (${board.filter((row) => row.hasOpenException || (row.activeExceptionCount ?? 0) > 0).length})`],
             ].map(([value, label]) => {
               const active = liveFilter === value;
 
@@ -1227,32 +1458,34 @@ export default function DirectionHorodateurPage() {
                 </thead>
                 <tbody>
                   {filteredBoard.map((row) => {
-                    const rowExceptionCount = exceptions.filter(
-                      (item) => item.employee_id === row.employeeId
-                    ).length;
+                    const rowExceptionCount = Math.max(
+                      exceptions.filter((item) => item.employee_id === (row.employeeId || row.employee_id || 0)).length,
+                      row.activeExceptionCount ?? 0,
+                      row.alertFlags?.hasOpenException ? 1 : 0
+                    );
 
                     return (
                       <tr key={row.employeeId}>
                         <td style={tdStyle}>
                           <div className="ui-stack-xs">
                             <strong style={{ fontSize: 14 }}>
-                              {row.fullName || row.email || `#${row.employeeId}`}
+                              {row.fullName || row.email || row.phone || `#${row.employeeId}`}
                             </strong>
-                            <span className="ui-text-muted">{row.email || "-"}</span>
+                            <span className="ui-text-muted">{row.email || row.phone || "-"}</span>
                           </div>
                         </td>
                         <td style={tdStyle}>{getCompanyLabel(row.primaryCompany)}</td>
                         <td style={tdStyle}>
                           <StatusBadge
-                            label={getStateLabel(row.currentState)}
-                            tone={getStateTone(row.currentState)}
+                            label={getStateLabel(getRowState(row))}
+                            tone={getStateTone(getRowState(row))}
                           />
                         </td>
                         <td style={tdStyle}>
                           <div className="ui-stack-xs">
                             <span>{formatDateTime(row.lastEventAt)}</span>
                             <span className="ui-text-muted">
-                              {row.lastEventType ?? "-"}
+                              {row.currentEventType ?? row.lastEventType ?? "-"}
                             </span>
                           </div>
                         </td>
@@ -1260,7 +1493,7 @@ export default function DirectionHorodateurPage() {
                           <div className="ui-stack-xs">
                             <span>{formatMinutes(row.todayShift?.payable_minutes ?? 0)}</span>
                             <span className="ui-text-muted">
-                              Debut: {formatDateTime(row.todayShift?.shift_start_at ?? null)}
+                              Debut: {formatDateTime(row.startedAt ?? row.todayShift?.shift_start_at ?? null)}
                             </span>
                           </div>
                         </td>

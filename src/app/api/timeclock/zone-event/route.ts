@@ -5,6 +5,15 @@ import {
   requireAuthenticatedUser,
   resolveCompanyContext,
 } from "@/app/lib/timeclock-api.server";
+import { createEmployeePunch } from "@/app/lib/horodateur-v1/service";
+import {
+  eventOccurredAt,
+  legacyErrorResponse,
+  mapPunchResultToLegacyEvent,
+  parseOptionalOccurredAt,
+  toCanonicalEventFromLegacyZone,
+  toLegacyZoneEvent,
+} from "../_legacy-wrapper";
 
 export async function POST(req: NextRequest) {
   try {
@@ -23,19 +32,17 @@ export async function POST(req: NextRequest) {
       longitude?: unknown;
       recorded_at?: unknown;
       company_context?: unknown;
+      notes?: unknown;
     };
 
-    const eventType =
-      body.event === "zone_exit" ? "zone_exit" : body.event === "zone_entry" ? "zone_entry" : null;
+    const eventType = body.event === "zone_exit" || body.event === "zone_entry" ? body.event : null;
     const latitude = parseNumericCoordinate(body.latitude);
     const longitude = parseNumericCoordinate(body.longitude);
-    const recordedAt =
-      typeof body.recorded_at === "string" && body.recorded_at
-        ? body.recorded_at
-        : new Date().toISOString();
+    const occurredAt = parseOptionalOccurredAt(body.recorded_at) ?? new Date().toISOString();
     const companyContext = resolveCompanyContext(auth.user, body.company_context);
+    const canonicalEventType = toCanonicalEventFromLegacyZone(eventType);
 
-    if (!eventType) {
+    if (!eventType || !canonicalEventType) {
       return NextResponse.json({ error: "Evenement de zone invalide." }, { status: 400 });
     }
 
@@ -46,34 +53,35 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const supabase = createAdminSupabaseClient();
-    const { data: zoneEvent, error } = await supabase
-      .from("horodateur_events")
-      .insert([
-        {
-          user_id: auth.user.id,
-          event_type: eventType,
-          occurred_at: recordedAt,
-          company_context: companyContext,
-          source_module: "zone_detector",
-          metadata: {
-            latitude,
-            longitude,
-          },
-        },
-      ])
-      .select("id, event_type, occurred_at, metadata")
-      .single();
-
-    if (error) {
-      throw error;
-    }
+    const result = await createEmployeePunch({
+      actorUserId: auth.user.id,
+      eventType: canonicalEventType,
+      occurredAt,
+      note:
+        typeof body.notes === "string" && body.notes.trim()
+          ? body.notes.trim()
+          : null,
+      companyContext,
+    });
+    const punchEvent = mapPunchResultToLegacyEvent(result, {
+      companyContext,
+      metadata: {
+        latitude,
+        longitude,
+      },
+    });
+    const zoneEvent = {
+      ...punchEvent,
+      event_type: toLegacyZoneEvent(result.event.event_type) ?? eventType,
+      occurred_at: eventOccurredAt(result.event),
+    };
 
     const message =
       eventType === "zone_entry"
         ? "Viens-tu travailler ?"
         : "As-tu fini de travailler ou pars-tu sur le terrain ?";
 
+    const supabase = createAdminSupabaseClient();
     await supabase.from("sms_alerts_log").insert([
       {
         user_id: auth.user.id,
@@ -96,16 +104,11 @@ export async function POST(req: NextRequest) {
       success: true,
       zone_event: zoneEvent,
       follow_up_message: message,
+      exception: result.exception,
+      current_state: result.currentState,
+      shift: result.shift,
     });
   } catch (error) {
-    return NextResponse.json(
-      {
-        error:
-          error instanceof Error
-            ? error.message
-            : "Erreur lors de l evenement de zone.",
-      },
-      { status: 500 }
-    );
+    return legacyErrorResponse(error, "Erreur lors de l evenement de zone.");
   }
 }

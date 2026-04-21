@@ -3,7 +3,13 @@ import {
   approveHorodateurException,
   getWeeklyProjection,
 } from "@/app/lib/horodateur-v1/service";
-import { buildHorodateurErrorResponse, requireDirectionHorodateurAccess } from "@/app/api/horodateur/_shared";
+import {
+  buildHorodateurErrorResponse,
+  normalizeEventForApi,
+  normalizeNonEmptyString,
+  parseOptionalApprovedMinutes,
+  requireDirectionHorodateurAccess,
+} from "@/app/api/horodateur/_shared";
 
 export async function POST(
   req: NextRequest,
@@ -17,26 +23,30 @@ export async function POST(
     }
 
     const { id } = await params;
-    const body = (await req.json()) as {
+    const body = (await req.json().catch(() => ({}))) as {
       reviewNote?: unknown;
       approvedMinutes?: unknown;
     };
 
-    const approvedMinutes =
-      typeof body.approvedMinutes === "number"
-        ? body.approvedMinutes
-        : typeof body.approvedMinutes === "string" && body.approvedMinutes.trim()
-          ? Number(body.approvedMinutes)
-          : null;
+    const approvedMinutesValidation = parseOptionalApprovedMinutes(body.approvedMinutes);
+    if (!approvedMinutesValidation.ok) {
+      return NextResponse.json(
+        {
+          success: false,
+          ok: false,
+          error: approvedMinutesValidation.error,
+          code: approvedMinutesValidation.code,
+          route: "/api/direction/horodateur/exceptions/[id]/approve",
+        },
+        { status: 400 }
+      );
+    }
 
     const result = await approveHorodateurException({
       actorUserId: auth.user.id,
       exceptionId: id,
-      reviewNote: typeof body.reviewNote === "string" ? body.reviewNote : null,
-      approvedMinutes:
-        approvedMinutes != null && Number.isFinite(approvedMinutes)
-          ? approvedMinutes
-          : null,
+      reviewNote: normalizeNonEmptyString(body.reviewNote),
+      approvedMinutes: approvedMinutesValidation.value,
     });
 
     const weeklyProjection = await getWeeklyProjection(result.exception.employee_id);
@@ -44,20 +54,12 @@ export async function POST(
     return NextResponse.json({
       success: true,
       ...result,
-      event: {
-        id: result.event.id,
-        employee_id: result.event.employee_id,
-        event_type: result.event.event_type,
-        occurredAt: result.event.event_time ?? result.event.created_at ?? null,
-        status: result.event.status,
-        notes: result.event.note,
-        work_date: result.event.work_date,
-        week_start_date: result.event.week_start_date,
-        created_at: result.event.created_at,
-      },
+      event: normalizeEventForApi(result.event),
       weeklyProjection,
     });
   } catch (error) {
-    return buildHorodateurErrorResponse(error);
+    return buildHorodateurErrorResponse(error, {
+      route: "/api/direction/horodateur/exceptions/[id]/approve",
+    });
   }
 }

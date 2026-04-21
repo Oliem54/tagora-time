@@ -19,7 +19,9 @@ export async function GET(req: NextRequest) {
     const config = await getHorodateurDirectionAlertConfig();
     return NextResponse.json({ success: true, config });
   } catch (error) {
-    return buildHorodateurErrorResponse(error);
+    return buildHorodateurErrorResponse(error, {
+      route: "/api/direction/horodateur/notifications/config",
+    });
   }
 }
 
@@ -52,6 +54,8 @@ export async function PUT(req: NextRequest) {
 
     return NextResponse.json({ success: true, config });
   } catch (error) {
-    return buildHorodateurErrorResponse(error);
+    return buildHorodateurErrorResponse(error, {
+      route: "/api/direction/horodateur/notifications/config",
+    });
   }
 }

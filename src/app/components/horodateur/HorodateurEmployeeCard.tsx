@@ -16,15 +16,20 @@ type HorodateurEmployeeCardProps = {
 type DashboardSnapshot = {
   employee: {
     employeeId: number;
+    employee_id?: number | null;
     fullName: string | null;
     email: string | null;
     primaryCompany: "oliem_solutions" | "titan_produits_industriels" | null;
   };
   currentState: {
-    current_state: string;
-    last_event_at: string | null;
-    last_event_type: string | null;
-    has_open_exception: boolean;
+    current_state?: string | null;
+    status?: string | null;
+    last_event_at?: string | null;
+    last_event_type?: string | null;
+    currentEventType?: string | null;
+    startedAt?: string | null;
+    has_open_exception?: boolean;
+    activeExceptionCount?: number;
   };
   shift: {
     work_date: string;
@@ -61,6 +66,54 @@ type PunchResponse = DashboardSnapshot & {
     id: string;
   } | null;
 };
+
+function normalizeDashboardSnapshot(payload: Partial<DashboardSnapshot> | undefined) {
+  const employee = payload?.employee ?? {};
+  const currentState = payload?.currentState ?? {};
+  const shift = payload?.shift;
+  const weeklyProjection = payload?.weeklyProjection ?? {};
+
+  return {
+    employee: {
+      employeeId:
+        Number(employee.employeeId ?? employee.employee_id) > 0
+          ? Number(employee.employeeId ?? employee.employee_id)
+          : 0,
+      employee_id:
+        Number(employee.employee_id ?? employee.employeeId) > 0
+          ? Number(employee.employee_id ?? employee.employeeId)
+          : null,
+      fullName: employee.fullName ?? null,
+      email: employee.email ?? null,
+      primaryCompany: employee.primaryCompany ?? null,
+    },
+    currentState: {
+      current_state: currentState.current_state ?? currentState.status ?? "hors_quart",
+      status: currentState.status ?? currentState.current_state ?? "hors_quart",
+      last_event_at: currentState.last_event_at ?? null,
+      last_event_type: currentState.last_event_type ?? currentState.currentEventType ?? null,
+      currentEventType: currentState.currentEventType ?? currentState.last_event_type ?? null,
+      startedAt: currentState.startedAt ?? null,
+      has_open_exception: Boolean(
+        currentState.has_open_exception ?? currentState.activeExceptionCount
+      ),
+      activeExceptionCount:
+        typeof currentState.activeExceptionCount === "number"
+          ? currentState.activeExceptionCount
+          : undefined,
+    },
+    shift: shift ?? null,
+    weeklyProjection: {
+      workedMinutes: weeklyProjection.workedMinutes ?? 0,
+      targetMinutes: weeklyProjection.targetMinutes ?? 40 * 60,
+      remainingMinutes: weeklyProjection.remainingMinutes ?? 40 * 60,
+      projectedOverflowMinutes: weeklyProjection.projectedOverflowMinutes ?? 0,
+    },
+    pendingExceptions: Array.isArray(payload?.pendingExceptions)
+      ? payload.pendingExceptions
+      : [],
+  } satisfies DashboardSnapshot;
+}
 
 function formatMinutes(totalMinutes: number) {
   const safeMinutes = Math.max(0, totalMinutes || 0);
@@ -149,30 +202,7 @@ export default function HorodateurEmployeeCard({
         throw new Error(payload?.error ?? "Impossible de charger l horodateur.");
       }
 
-      setSnapshot({
-        employee: payload?.employee ?? {
-          employeeId: 0,
-          fullName: null,
-          email: null,
-          primaryCompany: null,
-        },
-        currentState: payload?.currentState ?? {
-          current_state: "hors_quart",
-          last_event_at: null,
-          last_event_type: null,
-          has_open_exception: false,
-        },
-        shift: payload?.shift ?? null,
-        weeklyProjection: payload?.weeklyProjection ?? {
-          workedMinutes: 0,
-          targetMinutes: 40 * 60,
-          remainingMinutes: 40 * 60,
-          projectedOverflowMinutes: 0,
-        },
-        pendingExceptions: Array.isArray(payload?.pendingExceptions)
-          ? payload.pendingExceptions
-          : [],
-      });
+      setSnapshot(normalizeDashboardSnapshot(payload));
     } catch (loadError) {
       setError(
         loadError instanceof Error ? loadError.message : "Erreur de chargement."
@@ -186,17 +216,20 @@ export default function HorodateurEmployeeCard({
     void loadSnapshot();
   }, [loadSnapshot]);
 
-  const currentState = snapshot?.currentState.current_state ?? "hors_quart";
+  const currentState =
+    snapshot?.currentState.current_state ??
+    snapshot?.currentState.status ??
+    "hors_quart";
   const principalAction =
     currentState === "en_quart" ||
     currentState === "en_pause" ||
     currentState === "en_diner"
       ? {
-          eventType: "quart_fin",
+          eventType: "punch_out",
           label: "Punch sortie",
         }
       : {
-          eventType: "quart_debut",
+          eventType: "punch_in",
           label: "Punch entree",
         };
 
@@ -244,30 +277,7 @@ export default function HorodateurEmployeeCard({
         throw new Error(payload?.error ?? "Impossible d enregistrer le pointage.");
       }
 
-      setSnapshot({
-        employee: payload?.employee ?? snapshot?.employee ?? {
-          employeeId: 0,
-          fullName: null,
-          email: null,
-          primaryCompany: null,
-        },
-        currentState: payload?.currentState ?? {
-          current_state: "hors_quart",
-          last_event_at: null,
-          last_event_type: null,
-          has_open_exception: false,
-        },
-        shift: payload?.shift ?? null,
-        weeklyProjection: payload?.weeklyProjection ?? {
-          workedMinutes: 0,
-          targetMinutes: 40 * 60,
-          remainingMinutes: 40 * 60,
-          projectedOverflowMinutes: 0,
-        },
-        pendingExceptions: Array.isArray(payload?.pendingExceptions)
-          ? payload.pendingExceptions
-          : [],
-      });
+      setSnapshot(normalizeDashboardSnapshot(payload ?? snapshot ?? undefined));
 
       setMessage(
         payload?.exception
@@ -474,7 +484,7 @@ export default function HorodateurEmployeeCard({
           </PrimaryButton>
 
           <SecondaryButton
-            onClick={() => void submitPunch("pause_debut")}
+            onClick={() => void submitPunch("break_start")}
             disabled={submitting || actionDisabled.pauseStart}
             style={{ justifyContent: "space-between" }}
           >
@@ -483,7 +493,7 @@ export default function HorodateurEmployeeCard({
           </SecondaryButton>
 
           <SecondaryButton
-            onClick={() => void submitPunch("pause_fin")}
+            onClick={() => void submitPunch("break_end")}
             disabled={submitting || actionDisabled.pauseEnd}
             style={{ justifyContent: "space-between" }}
           >
@@ -492,7 +502,7 @@ export default function HorodateurEmployeeCard({
           </SecondaryButton>
 
           <SecondaryButton
-            onClick={() => void submitPunch("dinner_debut")}
+            onClick={() => void submitPunch("meal_start")}
             disabled={submitting || actionDisabled.dinnerStart}
             style={{ justifyContent: "space-between" }}
           >
@@ -501,7 +511,7 @@ export default function HorodateurEmployeeCard({
           </SecondaryButton>
 
           <SecondaryButton
-            onClick={() => void submitPunch("dinner_fin")}
+            onClick={() => void submitPunch("meal_end")}
             disabled={submitting || actionDisabled.dinnerEnd}
             style={{ justifyContent: "space-between" }}
           >

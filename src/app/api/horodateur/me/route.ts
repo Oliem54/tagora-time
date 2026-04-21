@@ -15,8 +15,15 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
       success: true,
       snapshot,
+      employee: snapshot.employee,
+      currentState: snapshot.currentState,
+      shift: snapshot.todayShift,
+      weeklyProjection: snapshot.weeklyProjection,
+      pendingExceptions: snapshot.pendingExceptions,
     });
   } catch (error) {
-    return buildHorodateurErrorResponse(error);
+    return buildHorodateurErrorResponse(error, {
+      route: "/api/horodateur/me",
+    });
   }
 }

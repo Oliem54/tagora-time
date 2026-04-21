@@ -17,6 +17,38 @@ export const HORODATEUR_PHASE1_EVENT_TYPES = [
 export type HorodateurPhase1EventType =
   (typeof HORODATEUR_PHASE1_EVENT_TYPES)[number];
 
+export const HORODATEUR_CANONICAL_EVENT_TYPES = [
+  "punch_in",
+  "break_start",
+  "break_end",
+  "meal_start",
+  "meal_end",
+  "terrain_start",
+  "terrain_end",
+  "punch_out",
+  "manual_correction",
+  "retroactive_entry",
+] as const;
+
+export type HorodateurCanonicalEventType =
+  (typeof HORODATEUR_CANONICAL_EVENT_TYPES)[number];
+
+export const HORODATEUR_CANONICAL_TO_LEGACY_EVENT_TYPE: Record<
+  HorodateurCanonicalEventType,
+  HorodateurPhase1EventType
+> = {
+  punch_in: "quart_debut",
+  break_start: "pause_debut",
+  break_end: "pause_fin",
+  meal_start: "dinner_debut",
+  meal_end: "dinner_fin",
+  terrain_start: "sortie_depart",
+  terrain_end: "sortie_retour",
+  punch_out: "quart_fin",
+  manual_correction: "correction",
+  retroactive_entry: "exception",
+};
+
 export const HORODATEUR_PHASE1_ACTOR_ROLES = [
   "employe",
   "direction",
@@ -117,7 +149,10 @@ export type HorodateurPhase1EventRecord = {
   user_id?: string | null;
   employee_id: number;
   event_type: HorodateurPhase1EventType;
-  event_time: string | null;
+  // Canonical DB column.
+  occurred_at: string | null;
+  // Legacy compatibility alias kept during transition.
+  event_time?: string | null;
   actor_user_id?: string | null;
   actor_role?: HorodateurPhase1ActorRole;
   source_kind?: HorodateurPhase1SourceKind;
@@ -133,6 +168,9 @@ export type HorodateurPhase1EventRecord = {
   work_date: string | null;
   week_start_date: string | null;
   is_manual_correction?: boolean;
+  // Canonical DB column.
+  notes?: string | null;
+  // Legacy compatibility alias kept during transition.
   note?: string | null;
   created_at?: string;
 };
@@ -295,7 +333,7 @@ export type HorodateurPhase1InsertEventInput = {
   occurredAt: string;
   workDate: string;
   weekStartDate: string;
-  eventType: HorodateurPhase1EventType;
+  eventType: HorodateurPhase1EventType | HorodateurCanonicalEventType;
   actorUserId: string | null;
   actorRole: HorodateurPhase1ActorRole;
   sourceKind: HorodateurPhase1SourceKind;

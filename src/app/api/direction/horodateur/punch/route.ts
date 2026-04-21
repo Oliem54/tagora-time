@@ -3,7 +3,17 @@ import {
   createDirectionPunch,
   getWeeklyProjection,
 } from "@/app/lib/horodateur-v1/service";
-import { buildHorodateurErrorResponse, isHorodateurPhase1EventType, isHorodateurPhase1ExceptionType, requireDirectionHorodateurAccess } from "@/app/api/horodateur/_shared";
+import {
+  buildHorodateurErrorResponse,
+  buildHorodateurValidationErrorResponse,
+  isHorodateurEventType,
+  isHorodateurPhase1ExceptionType,
+  normalizeDirectionCompanyContext,
+  normalizeEventForApi,
+  normalizeNonEmptyString,
+  parseOptionalIsoDateTime,
+  requireDirectionHorodateurAccess,
+} from "@/app/api/horodateur/_shared";
 
 export async function POST(req: NextRequest) {
   try {
@@ -26,32 +36,48 @@ export async function POST(req: NextRequest) {
 
     const employeeId = Number(body.employeeId);
 
-    if (!Number.isFinite(employeeId)) {
-      return NextResponse.json({ error: "employeeId invalide." }, { status: 400 });
+    if (!Number.isFinite(employeeId) || employeeId <= 0) {
+      return buildHorodateurValidationErrorResponse({
+        error: "employeeId invalide.",
+        code: "invalid_employee_id",
+        route: "/api/direction/horodateur/punch",
+      });
     }
 
-    if (!isHorodateurPhase1EventType(body.eventType)) {
-      return NextResponse.json({ error: "Type d evenement invalide." }, { status: 400 });
+    if (!isHorodateurEventType(body.eventType)) {
+      return buildHorodateurValidationErrorResponse({
+        error: "Type d evenement invalide.",
+        code: "invalid_event_type",
+        route: "/api/direction/horodateur/punch",
+      });
+    }
+
+    const note = normalizeNonEmptyString(body.note);
+    if (!note) {
+      return buildHorodateurValidationErrorResponse({
+        error: "note est obligatoire pour une action direction.",
+        code: "missing_note",
+        route: "/api/direction/horodateur/punch",
+      });
+    }
+
+    const occurredAtValidation = parseOptionalIsoDateTime(body.occurredAt);
+    if (!occurredAtValidation.ok) {
+      return buildHorodateurValidationErrorResponse({
+        error: occurredAtValidation.error,
+        code: occurredAtValidation.code,
+        route: "/api/direction/horodateur/punch",
+      });
     }
 
     const result = await createDirectionPunch({
       actorUserId: auth.user.id,
       employeeId,
       eventType: body.eventType,
-      occurredAt:
-        typeof body.occurredAt === "string" && body.occurredAt.trim()
-          ? body.occurredAt
-          : undefined,
-      note: typeof body.note === "string" ? body.note : "",
-      companyContext:
-        body.companyContext === "oliem_solutions" ||
-        body.companyContext === "titan_produits_industriels"
-          ? body.companyContext
-          : null,
-      relatedEventId:
-        typeof body.relatedEventId === "string" && body.relatedEventId.trim()
-          ? body.relatedEventId
-          : null,
+      occurredAt: occurredAtValidation.value,
+      note,
+      companyContext: normalizeDirectionCompanyContext(body.companyContext),
+      relatedEventId: normalizeNonEmptyString(body.relatedEventId),
       forcedExceptionType: isHorodateurPhase1ExceptionType(body.forcedExceptionType)
         ? body.forcedExceptionType
         : null,
@@ -62,20 +88,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       success: true,
       ...result,
-      event: {
-        id: result.event.id,
-        employee_id: result.event.employee_id,
-        event_type: result.event.event_type,
-        occurredAt: result.event.event_time ?? result.event.created_at ?? null,
-        status: result.event.status,
-        notes: result.event.note,
-        work_date: result.event.work_date,
-        week_start_date: result.event.week_start_date,
-        created_at: result.event.created_at,
-      },
+      event: normalizeEventForApi(result.event),
       weeklyProjection,
     });
   } catch (error) {
-    return buildHorodateurErrorResponse(error);
+    return buildHorodateurErrorResponse(error, {
+      route: "/api/direction/horodateur/punch",
+    });
   }
 }

@@ -117,9 +117,9 @@ type HorodateurLatenessNotificationPayload = {
 const DIRECTION_ALERT_LOG_PREFIX = "[direction-alert]";
 const DEFAULT_DIRECTION_ALERT_TIMEZONE = "America/Toronto";
 const AUTHORIZATION_REQUEST_TYPE_LABELS: Record<string, string> = {
-  early_start: "Debut de quart hors horaire",
+  early_start: "Début de quart hors horaire",
   out_of_zone_punch: "Pointage hors zone",
-  lunch_shift_change: "Modification de pause ou diner",
+  lunch_shift_change: "Modification de pause ou dîner",
   manual_punch_override: "Correction manuelle de pointage",
   time_extension: "Prolongement de temps",
 };
@@ -271,49 +271,61 @@ function buildManagementUrl(pathOrUrl: string | null | undefined) {
   return `${baseUrl}${normalizedPath}`;
 }
 
+function getTagoraTransactionalLogoUrl() {
+  const baseUrl = process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "");
+  return baseUrl ? `${baseUrl}/logo.png` : null;
+}
+
 function buildDirectionAlertText(payload: DirectionAlertPayload) {
   const lines = [
-    "Alerte direction - TAGORA Time",
+    "TAGORA Time — Alerte direction",
     "",
-    `Type d alerte: ${payload.alertType}`,
-    `Classification: ${payload.classification}`,
-    `Resume: ${payload.summary}`,
+    payload.subject,
     "",
-    `${payload.requesterLabel ?? "Demandeur"}: ${payload.requesterName ?? "-"}`,
-    `Courriel: ${payload.requesterEmail ?? "-"}`,
-    `Telephone: ${payload.requesterPhone ?? "-"}`,
-    `Compagnie: ${
+    `Résumé : ${payload.summary}`,
+    "",
+    `Type d’alerte : ${payload.alertType}`,
+    `Classification : ${payload.classification}`,
+    `${payload.requesterLabel ?? "Demandeur"} : ${payload.requesterName ?? "-"}`,
+    `Courriel : ${payload.requesterEmail ?? "-"}`,
+    `Téléphone : ${payload.requesterPhone ?? "-"}`,
+    `Compagnie : ${
       typeof payload.company === "string"
         ? getCompanyLabel(payload.company as AccountRequestCompany)
         : "-"
     }`,
-    `Date et heure: ${formatAlertDateTime(payload.requestedAt)}`,
-    `Identifiant: ${payload.requestId ?? "-"}`,
+    `Date et heure : ${formatAlertDateTime(payload.requestedAt)}`,
+    `Identifiant : ${payload.requestId ?? "-"}`,
     "",
-    "Details:",
+    "Détails :",
   ];
 
   for (const [label, rawValue] of Object.entries(payload.details ?? {})) {
-    lines.push(`- ${label}: ${formatDetailValue(rawValue)}`);
+    lines.push(`- ${label} : ${formatDetailValue(rawValue)}`);
   }
 
   if (payload.managementUrl) {
     lines.push("");
-    lines.push(
-      `${payload.managementLabel ?? "Lien de gestion"}: ${payload.managementUrl}`
-    );
+    lines.push(`${payload.managementLabel ?? "Lien de gestion"} :`);
+    lines.push(payload.managementUrl);
   }
+
+  lines.push("");
+  lines.push("---");
+  lines.push("TAGORA Time — Oliem Solutions");
 
   return lines.join("\n");
 }
 
 function buildDirectionAlertHtml(payload: DirectionAlertPayload) {
+  const logoUrl = getTagoraTransactionalLogoUrl();
+
   const rows = [
-    ["Type d alerte", payload.alertType],
+    ["Type d’alerte", payload.alertType],
     ["Classification", payload.classification],
     [payload.requesterLabel ?? "Demandeur", payload.requesterName ?? "-"],
     ["Courriel", payload.requesterEmail ?? "-"],
-    ["Telephone", payload.requesterPhone ?? "-"],
+    ["Téléphone", payload.requesterPhone ?? "-"],
     [
       "Compagnie",
       typeof payload.company === "string"
@@ -326,8 +338,8 @@ function buildDirectionAlertHtml(payload: DirectionAlertPayload) {
     .map(
       ([label, value]) => `
         <tr>
-          <td style="padding:10px 12px;border:1px solid #dbe4f0;background:#f8fafc;font-weight:700;">${escapeHtml(String(label))}</td>
-          <td style="padding:10px 12px;border:1px solid #dbe4f0;">${escapeHtml(String(value ?? "-"))}</td>
+          <td width="38%" valign="top" style="padding:10px 12px;border:1px solid #e2e8f0;background-color:#f8fafc;font-family:Arial,Helvetica,sans-serif;font-size:14px;font-weight:700;color:#0f172a;">${escapeHtml(String(label))}</td>
+          <td valign="top" style="padding:10px 12px;border:1px solid #e2e8f0;font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.5;color:#334155;">${escapeHtml(String(value ?? "-"))}</td>
         </tr>
       `
     )
@@ -337,8 +349,8 @@ function buildDirectionAlertHtml(payload: DirectionAlertPayload) {
     .map(
       ([label, rawValue]) => `
         <tr>
-          <td style="padding:10px 12px;border:1px solid #dbe4f0;background:#f8fafc;font-weight:700;">${escapeHtml(label)}</td>
-          <td style="padding:10px 12px;border:1px solid #dbe4f0;white-space:pre-wrap;">${escapeHtml(
+          <td width="38%" valign="top" style="padding:10px 12px;border:1px solid #e2e8f0;background-color:#f8fafc;font-family:Arial,Helvetica,sans-serif;font-size:14px;font-weight:700;color:#0f172a;">${escapeHtml(label)}</td>
+          <td valign="top" style="padding:10px 12px;border:1px solid #e2e8f0;font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.5;color:#334155;white-space:pre-wrap;">${escapeHtml(
             formatDetailValue(rawValue)
           )}</td>
         </tr>
@@ -346,45 +358,103 @@ function buildDirectionAlertHtml(payload: DirectionAlertPayload) {
     )
     .join("");
 
-  return `
-    <div style="font-family:Arial,sans-serif;background:#f3f6fb;padding:24px;color:#0f172a;">
-      <div style="max-width:760px;margin:0 auto;background:#ffffff;border:1px solid #dbe4f0;border-radius:16px;overflow:hidden;">
-        <div style="padding:24px 28px;background:#0f2948;color:#ffffff;">
-          <div style="font-size:12px;letter-spacing:0.08em;text-transform:uppercase;opacity:0.85;">TAGORA Time</div>
-          <h1 style="margin:10px 0 0;font-size:24px;line-height:1.3;">${escapeHtml(
-            payload.subject
-          )}</h1>
-        </div>
-        <div style="padding:24px 28px;">
-          <p style="margin:0 0 18px;font-size:15px;line-height:1.6;">${escapeHtml(
-            payload.summary
-          )}</p>
-          <table style="width:100%;border-collapse:collapse;margin:0 0 22px;">
-            <tbody>${rows}</tbody>
+  const managementUrl = payload.managementUrl;
+  const managementLabel = escapeHtml(payload.managementLabel ?? "Ouvrir la page de gestion");
+  const ctaRows = managementUrl
+    ? `
+            <tr>
+              <td style="padding:20px 28px 8px 28px;">
+                <table role="presentation" cellspacing="0" cellpadding="0" border="0" style="border-collapse:collapse;">
+                  <tr>
+                    <td bgcolor="#1d4ed8" style="background-color:#1d4ed8;border-radius:8px;">
+                      <a href="${escapeHtml(managementUrl)}" target="_blank" rel="noopener" style="display:inline-block;padding:14px 26px;font-family:Arial,Helvetica,sans-serif;font-size:15px;font-weight:700;line-height:1.2;color:#ffffff;text-decoration:none;border:1px solid #1d4ed8;border-radius:8px;">${managementLabel}</a>
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:0 28px 24px 28px;">
+                <p style="margin:0 0 8px 0;font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:1.5;color:#475569;">Si le bouton ne fonctionne pas, copiez-collez ce lien :</p>
+                <div style="font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:1.55;word-break:break-all;overflow-wrap:anywhere;color:#0f172a;background-color:#f8fafc;border:1px solid #cbd5e1;border-radius:8px;padding:12px 14px;">${escapeHtml(managementUrl)}</div>
+              </td>
+            </tr>`
+    : "";
+
+  const logoCell = logoUrl
+    ? `<td valign="top" width="132" style="padding:0 20px 0 0;">
+                        <img src="${escapeHtml(logoUrl)}" alt="TAGORA Time" width="112" height="auto" border="0" style="display:block;max-width:112px;height:auto;border:0;outline:none;text-decoration:none;" />
+                      </td>`
+    : "";
+
+  const titleCellStyle = logoUrl ? "padding:0;" : "padding:0;width:100%;";
+
+  return `<!DOCTYPE html>
+<html lang="fr">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+    <meta charset="utf-8" />
+    <title>${escapeHtml(payload.subject)}</title>
+  </head>
+  <body style="margin:0;padding:0;background-color:#f1f5f9;font-family:Arial,Helvetica,sans-serif;color:#0f172a;">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="border-collapse:collapse;background-color:#f1f5f9;">
+      <tr>
+        <td align="center" bgcolor="#f1f5f9" style="padding:28px 16px;background-color:#f1f5f9;">
+          <table role="presentation" width="600" cellspacing="0" cellpadding="0" border="0" style="border-collapse:collapse;max-width:600px;width:100%;background-color:#ffffff;border:1px solid #e2e8f0;">
+            <tr>
+              <td bgcolor="#1e3a5f" style="background-color:#1e3a5f;padding:24px 28px;">
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="border-collapse:collapse;">
+                  <tr>
+                    ${logoCell}
+                    <td valign="middle" style="${titleCellStyle}">
+                      <div style="font-family:Arial,Helvetica,sans-serif;font-size:11px;line-height:1.4;font-weight:700;letter-spacing:0.14em;text-transform:uppercase;color:#cbd5e1;margin:0 0 8px 0;">TAGORA Time — Direction</div>
+                      <div style="font-family:Arial,Helvetica,sans-serif;font-size:20px;line-height:1.3;font-weight:700;color:#ffffff;margin:0;">${escapeHtml(payload.subject)}</div>
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:24px 28px 8px 28px;">
+                <p style="margin:0;font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.65;color:#334155;">${escapeHtml(payload.summary)}</p>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:8px 28px 8px 28px;">
+                <p style="margin:0 0 10px 0;font-family:Arial,Helvetica,sans-serif;font-size:14px;font-weight:700;color:#0f172a;">Synthèse</p>
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="border-collapse:collapse;width:100%;">
+                  <tbody>${rows}</tbody>
+                </table>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:16px 28px 8px 28px;">
+                <p style="margin:0 0 10px 0;font-family:Arial,Helvetica,sans-serif;font-size:14px;font-weight:700;color:#0f172a;">Détails complets</p>
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="border-collapse:collapse;width:100%;">
+                  <tbody>${
+                    detailRows ||
+                    `<tr>
+                    <td colspan="2" style="padding:10px 12px;border:1px solid #e2e8f0;font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#475569;">Aucun détail supplémentaire.</td>
+                  </tr>`
+                  }</tbody>
+                </table>
+              </td>
+            </tr>
+            ${ctaRows}
           </table>
-          <h2 style="margin:0 0 12px;font-size:18px;">Details complets</h2>
-          <table style="width:100%;border-collapse:collapse;">
-            <tbody>${detailRows || `
-              <tr>
-                <td style="padding:10px 12px;border:1px solid #dbe4f0;">Aucun detail supplementaire.</td>
-              </tr>
-            `}</tbody>
+          <table role="presentation" width="600" cellspacing="0" cellpadding="0" border="0" style="border-collapse:collapse;max-width:600px;width:100%;">
+            <tr>
+              <td align="center" bgcolor="#f1f5f9" style="padding:18px 12px 0 12px;background-color:#f1f5f9;">
+                <p style="margin:0;font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:1.6;color:#64748b;">TAGORA Time — Oliem Solutions</p>
+                <p style="margin:6px 0 0 0;font-family:Arial,Helvetica,sans-serif;font-size:11px;line-height:1.5;color:#64748b;">Courriel transactionnel — ne pas répondre directement à cette adresse</p>
+              </td>
+            </tr>
           </table>
-          ${
-            payload.managementUrl
-              ? `
-                <div style="margin-top:22px;">
-                  <a href="${escapeHtml(payload.managementUrl)}" style="display:inline-block;background:#0f2948;color:#ffffff;text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:700;">
-                    ${escapeHtml(payload.managementLabel ?? "Ouvrir la page de gestion")}
-                  </a>
-                </div>
-              `
-              : ""
-          }
-        </div>
-      </div>
-    </div>
-  `;
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>`;
 }
 
 export async function sendDirectionAlert(
@@ -764,37 +834,39 @@ export async function notifyDirectionOfHorodateurException(
   const managementUrl = payload.managementUrl ?? "/direction/horodateur";
   const formattedOccurredAt = formatAlertDateTime(payload.occurredAt);
   const formattedRequestedAt = formatAlertDateTime(payload.requestedAt);
-  const reminderPrefix = payload.isReminder ? "Rappel - " : "";
+  const emailSubject = payload.isReminder
+    ? "TAGORA Time — Rappel : exception horodateur à traiter"
+    : "TAGORA Time — Exception horodateur à traiter";
 
   const emailResult = await sendDirectionAlert({
     alertType: "horodateur_exception",
     classification: "direction_action_required",
-    subject: `${reminderPrefix}Exception horodateur en attente - TAGORA Time`,
+    subject: emailSubject,
     summary:
       payload.isReminder
-        ? "Une exception horodateur est toujours en attente d approbation et requiert un suivi de la direction."
-        : "Une exception horodateur est en attente d approbation et requiert une intervention rapide de la direction.",
-    requesterLabel: "Employe",
+        ? "Une exception horodateur est toujours en attente d’approbation et requiert un suivi de la direction."
+        : "Une exception horodateur est en attente d’approbation et requiert une intervention rapide de la direction.",
+    requesterLabel: "Employé",
     requesterName: payload.employeeName,
     requesterEmail: payload.employeeEmail,
     requestedAt: payload.requestedAt,
     requestId: payload.exceptionId,
     managementUrl,
-    managementLabel: "Ouvrir l horodateur direction",
+    managementLabel: "Ouvrir l’horodateur direction",
     details: {
-      Employe: payload.employeeName,
+      Employé: payload.employeeName,
       Courriel: payload.employeeEmail,
-      "Type d exception": payload.exceptionType,
+      "Type d’exception": payload.exceptionType,
       Motif: payload.reasonLabel,
-        "Heure de l evenement": formattedOccurredAt,
-        "Heure de creation": formattedRequestedAt,
-        "Identifiant de l exception": payload.exceptionId,
-        "Type d envoi": payload.isReminder ? "Rappel" : "Notification initiale",
-      },
-    }, {
-      enabled: payload.emailEnabled,
-      recipients: payload.recipientEmails,
-    });
+      "Heure de l’événement": formattedOccurredAt,
+      "Heure de création": formattedRequestedAt,
+      "Identifiant de l’exception": payload.exceptionId,
+      "Type d’envoi": payload.isReminder ? "Rappel" : "Notification initiale",
+    },
+  }, {
+    enabled: payload.emailEnabled,
+    recipients: payload.recipientEmails,
+  });
 
   const smsResult = await sendDirectionSmsAlert({
     body: [
@@ -827,22 +899,22 @@ export async function notifyHorodateurLateness(
     {
       alertType: "horodateur_lateness",
       classification: "direction_action_required",
-      subject: "Retard horodateur detecte - TAGORA Time",
+      subject: "TAGORA Time — Retard horodateur signalé",
       summary:
-        "Un employe n a pas commence son quart a l heure prevue et requiert un suivi rapide de la direction.",
-      requesterLabel: "Employe",
+        "Un employé n’a pas commencé son quart à l’heure prévue et requiert un suivi rapide de la direction.",
+      requesterLabel: "Employé",
       requesterName: payload.employeeName,
       requesterPhone: payload.employeePhone,
       requestedAt: payload.detectedAt,
       requestId: `${payload.employeeName ?? "employe"}-${payload.scheduledStartAt}`,
       managementUrl,
-      managementLabel: "Ouvrir l horodateur direction",
+      managementLabel: "Ouvrir l’horodateur direction",
       details: {
-        Employe: payload.employeeName,
-        Telephone: payload.employeePhone,
-        "Heure prevue": formattedScheduledStart,
+        Employé: payload.employeeName,
+        Téléphone: payload.employeePhone,
+        "Heure prévue": formattedScheduledStart,
         "Heure actuelle": formattedDetectedAt,
-        "Type d alerte": "Retard employe",
+        "Type d’alerte": "Retard employé",
       },
     },
     {
@@ -900,9 +972,9 @@ export async function notifyDirectionOfAccountRequest(
   return sendDirectionAlert({
     alertType: "account_request",
     classification: "direction_action_required",
-    subject: "Nouvelle demande de compte - TAGORA Time",
+    subject: "TAGORA Time — Nouvelle demande de compte",
     summary:
-      "Une nouvelle demande de compte a ete enregistree et requiert une intervention de la direction.",
+      "Une nouvelle demande de compte a été enregistrée et requiert une intervention de la direction.",
     requesterLabel: "Demandeur",
     requesterName: payload.fullName,
     requesterEmail: payload.email,
@@ -913,15 +985,15 @@ export async function notifyDirectionOfAccountRequest(
     managementUrl: payload.managementUrl ?? "/direction/demandes-comptes",
     managementLabel: "Ouvrir les demandes de comptes",
     details: {
-      Prenom: firstName,
+      Prénom: firstName,
       Nom: lastName,
       Courriel: payload.email,
-      Telephone: payload.phone,
+      Téléphone: payload.phone,
       Compagnie: getCompanyLabel(payload.company),
       "Poste ou role demande":
-        payload.requestedRole === "direction" ? "Direction" : "Employe",
+        payload.requestedRole === "direction" ? "Direction" : "Employé",
       "Portail source":
-        payload.portalSource === "direction" ? "Direction" : "Employe",
+        payload.portalSource === "direction" ? "Direction" : "Employé",
       "Permissions demandees":
         payload.requestedPermissions.length > 0
           ? payload.requestedPermissions.join(", ")
@@ -940,17 +1012,17 @@ function getAuthorizationRequestPresentation(requestType: string) {
   if (requestType === "time_extension") {
     return {
       label,
-      subject: "Nouvelle demande de prolongement de temps - TAGORA Time",
+      subject: "TAGORA Time — Demande de prolongement de temps",
       summary:
-        "Un employe a soumis une demande de prolongement de temps qui requiert une approbation de la direction.",
+        "Un employé a soumis une demande de prolongement de temps qui requiert une approbation de la direction.",
     };
   }
 
   return {
     label,
-    subject: "Nouvelle demande d autorisation - TAGORA Time",
+    subject: "TAGORA Time — Demande d’autorisation",
     summary:
-      "Une demande necessitant une validation ou une intervention de la direction a ete enregistree.",
+      "Une demande nécessitant une validation ou une intervention de la direction a été enregistrée.",
   };
 }
 
@@ -960,11 +1032,11 @@ function normalizeAuthorizationRequestDetails(
 ) {
   const baseEntries = Object.entries(requestedValue).map(([key, value]) => {
     if (key === "planned_start" || key === "start_time" || key === "heure_debut") {
-      return ["Heure de debut prevue", value] as const;
+      return ["Heure de début prévue", value] as const;
     }
 
     if (key === "planned_end" || key === "end_time" || key === "heure_fin") {
-      return ["Heure de fin prevue", value] as const;
+      return ["Heure de fin prévue", value] as const;
     }
 
     if (
@@ -972,19 +1044,19 @@ function normalizeAuthorizationRequestDetails(
       key === "additional_duration" ||
       key === "duration_requested"
     ) {
-      return ["Duree supplementaire demandee", value] as const;
+      return ["Durée supplémentaire demandée", value] as const;
     }
 
     if (key === "task" || key === "task_name") {
-      return ["Tache liee", value] as const;
+      return ["Tâche liée", value] as const;
     }
 
     if (key === "delivery_id" || key === "livraison_id") {
-      return ["Livraison liee", value] as const;
+      return ["Livraison liée", value] as const;
     }
 
     if (key === "dossier_id") {
-      return ["Dossier lie", value] as const;
+      return ["Dossier lié", value] as const;
     }
 
     if (key === "date") {
@@ -996,11 +1068,11 @@ function normalizeAuthorizationRequestDetails(
     }
 
     if (key === "device_type") {
-      return ["Type d appareil", value] as const;
+      return ["Type d’appareil", value] as const;
     }
 
     if (key === "qr_token_present") {
-      return ["Jeton QR present", value] as const;
+      return ["Jeton QR présent", value] as const;
     }
 
     if (key === "latitude") {
@@ -1017,9 +1089,9 @@ function normalizeAuthorizationRequestDetails(
   if (baseEntries.length === 0 && requestType === "time_extension") {
     return {
       Date: "-",
-      "Heure de debut prevue": "-",
-      "Heure de fin prevue": "-",
-      "Duree supplementaire demandee": "-",
+      "Heure de début prévue": "-",
+      "Heure de fin prévue": "-",
+      "Durée supplémentaire demandée": "-",
     };
   }
 
@@ -1039,7 +1111,7 @@ export async function notifyDirectionOfAuthorizationRequest(
     classification: "direction_action_required",
     subject: presentation.subject,
     summary: presentation.summary,
-    requesterLabel: "Employe",
+    requesterLabel: "Employé",
     requesterName: payload.requesterName,
     requesterEmail: payload.requesterEmail,
     requesterPhone: payload.requesterPhone,
@@ -1050,9 +1122,9 @@ export async function notifyDirectionOfAuthorizationRequest(
     managementLabel: "Ouvrir la supervision direction",
     details: {
       "Type de demande": presentation.label,
-      Employe: payload.requesterName,
+      Employé: payload.requesterName,
       Courriel: payload.requesterEmail,
-      Telephone: payload.requesterPhone,
+      Téléphone: payload.requesterPhone,
       Compagnie:
         typeof payload.company === "string"
           ? getCompanyLabel(payload.company as AccountRequestCompany)
