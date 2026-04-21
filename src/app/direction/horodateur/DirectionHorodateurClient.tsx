@@ -747,8 +747,7 @@ export default function DirectionHorodateurPage() {
         const openExceptionCount = row.activeExceptionCount ?? 0;
         const hasOpenException =
           payload.currentState?.has_open_exception ??
-          row.hasOpenException ||
-          openExceptionCount > 0;
+          (row.hasOpenException || openExceptionCount > 0);
 
         return {
           ...row,

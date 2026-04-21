@@ -1231,6 +1231,14 @@ export async function createDirectionPunch(options: {
         `Correction direction pour ${employee.fullName ?? `#${employee.employeeId}`}`,
       details: classification.details ?? normalizedNote,
     });
+
+    if (exception) {
+      exception = await notifyDirectionOfPendingException({
+        employee,
+        exception,
+        event,
+      });
+    }
   }
 
   const shift = await recomputeShiftForDate(

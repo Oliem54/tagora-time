@@ -1,10 +1,14 @@
-TAGORA Time - Activation de votre acces
+TAGORA Time — Activation de votre accès
 
 Bonjour,
 
-Un compte TAGORA Time a ete cree pour vous.
+Un accès TAGORA Time vous a été attribué. La plateforme permet la gestion des opérations, du terrain et des ressources.
 
-Activez votre acces ici :
+Activez votre compte et définissez votre mot de passe via ce lien sécurisé :
 {{ .ConfirmationURL }}
 
-TAGORA Time - Oliem Solutions
+Si vous n’attendiez pas cet accès, vous pouvez ignorer ce courriel.
+
+---
+TAGORA Time — Oliem Solutions
+Plateforme de gestion interne
