@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { type FormEvent, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ArrowUpRight, BadgeCheck, Clock3, FileStack, Waypoints } from "lucide-react";
 import FeedbackMessage from "@/app/components/FeedbackMessage";
@@ -42,111 +42,120 @@ export default function LoginPage() {
   const [messageType, setMessageType] = useState<"success" | "error" | null>(
     searchParams.get("reset") === "ok" ? "success" : null
   );
+  const [submitting, setSubmitting] = useState(false);
 
-  const handleLogin = async () => {
+  const handleLogin = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (submitting) return;
+    setSubmitting(true);
+
     setMessage("");
     setMessageType(null);
 
-    if (process.env.NODE_ENV === "development") {
-      const d = getSupabaseBrowserLoginDebug();
-      console.info("[employe-login] env", {
-        hasUrl: d.hasUrl,
-        hasResolvedKey: d.hasResolvedKey,
-        hasAnonKey: d.hasAnonKey,
-        hasPublishableKey: d.hasPublishableKey,
-        host: d.host,
-      });
-    }
-
-    let signInResult: Awaited<
-      ReturnType<typeof supabase.auth.signInWithPassword>
-    >;
-
     try {
-      signInResult = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      });
-    } catch (caught) {
-      const err = caught instanceof Error ? caught : new Error(String(caught));
       if (process.env.NODE_ENV === "development") {
-        console.info("[employe-login] signIn threw", {
-          name: err.name,
-          message: err.message,
+        const d = getSupabaseBrowserLoginDebug();
+        console.info("[employe-login] env", {
+          hasUrl: d.hasUrl,
+          hasResolvedKey: d.hasResolvedKey,
+          hasAnonKey: d.hasAnonKey,
+          hasPublishableKey: d.hasPublishableKey,
+          host: d.host,
         });
       }
-      setMessage(err.message || "Erreur reseau (connexion Supabase impossible).");
-      setMessageType("error");
-      return;
-    }
 
-    const { error } = signInResult;
-
-    if (error) {
-      if (process.env.NODE_ENV === "development") {
-        console.info("[employe-login] signIn error", {
-          name: error.name,
-          message: error.message,
-        });
-      }
-      setMessage(error.message);
-      setMessageType("error");
-      return;
-    }
-
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
-
-    if (session?.access_token) {
-      writeBrowserSessionCookie(session.access_token);
-      devInfo(
-        "auth-cookie",
-        "login cookie written",
-        buildAppSessionCookieWriteDebug(
-          session.access_token,
-          window.location.protocol === "https:"
-        )
-      );
+      let signInResult: Awaited<
+        ReturnType<typeof supabase.auth.signInWithPassword>
+      >;
 
       try {
-        const syncResponse = await fetch("/api/account-requests/sync-activation", {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${session.access_token}`,
-          },
+        signInResult = await supabase.auth.signInWithPassword({
+          email,
+          password,
         });
-        const syncPayload = await syncResponse.json().catch(() => null);
-        devInfo("auth-cookie", "sync-activation response", syncPayload);
-      } catch {
-        // Le hook d acces refera la synchronisation sur le dashboard.
+      } catch (caught) {
+        const err = caught instanceof Error ? caught : new Error(String(caught));
+        if (process.env.NODE_ENV === "development") {
+          console.info("[employe-login] signIn threw", {
+            name: err.name,
+            message: err.message,
+          });
+        }
+        setMessage(err.message || "Erreur reseau (connexion Supabase impossible).");
+        setMessageType("error");
+        return;
       }
+
+      const { error } = signInResult;
+
+      if (error) {
+        if (process.env.NODE_ENV === "development") {
+          console.info("[employe-login] signIn error", {
+            name: error.name,
+            message: error.message,
+          });
+        }
+        setMessage(error.message);
+        setMessageType("error");
+        return;
+      }
+
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      if (session?.access_token) {
+        writeBrowserSessionCookie(session.access_token);
+        devInfo(
+          "auth-cookie",
+          "login cookie written",
+          buildAppSessionCookieWriteDebug(
+            session.access_token,
+            window.location.protocol === "https:"
+          )
+        );
+
+        try {
+          const syncResponse = await fetch("/api/account-requests/sync-activation", {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${session.access_token}`,
+            },
+          });
+          const syncPayload = await syncResponse.json().catch(() => null);
+          devInfo("auth-cookie", "sync-activation response", syncPayload);
+        } catch {
+          // Le hook d acces refera la synchronisation sur le dashboard.
+        }
+      }
+
+      const { data: userData } = await supabase.auth.getUser();
+      const role = getUserRole(userData.user);
+
+      if (!role) {
+        await supabase.auth.signOut();
+        setMessage("Aucun role n'est defini sur ce compte Supabase.");
+        setMessageType("error");
+        return;
+      }
+
+      if (role !== "employe") {
+        await supabase.auth.signOut();
+        setMessage("Ce compte n'a pas acces au portail employe.");
+        setMessageType("error");
+        return;
+      }
+
+      setMessage("Connexion reussie.");
+      setMessageType("success");
+      router.replace(
+        hasPasswordChangeRequired(userData.user)
+          ? getPasswordChangePathForRole(role)
+          : getHomePathForRole(role)
+      );
+    } finally {
+      setSubmitting(false);
     }
-
-    const { data: userData } = await supabase.auth.getUser();
-    const role = getUserRole(userData.user);
-
-    if (!role) {
-      await supabase.auth.signOut();
-      setMessage("Aucun role n'est defini sur ce compte Supabase.");
-      setMessageType("error");
-      return;
-    }
-
-    if (role !== "employe") {
-      await supabase.auth.signOut();
-      setMessage("Ce compte n'a pas acces au portail employe.");
-      setMessageType("error");
-      return;
-    }
-
-    setMessage("Connexion reussie.");
-    setMessageType("success");
-    router.replace(
-      hasPasswordChangeRequired(userData.user)
-        ? getPasswordChangePathForRole(role)
-        : getHomePathForRole(role)
-    );
   };
 
   return (
@@ -199,52 +208,58 @@ export default function LoginPage() {
           </SectionCard>
 
           <AppCard className="ui-auth-panel ui-auth-form-card">
-            <div className="ui-stack-sm">
-              <span className="ui-eyebrow">Authentification</span>
-              <h2 className="ui-section-card-title">Se connecter</h2>
-              <p className="ui-text-muted" style={{ margin: 0, lineHeight: 1.7 }}>
-                Tableau de bord et operations.
-              </p>
-            </div>
+            <form className="ui-stack-md" onSubmit={handleLogin}>
+              <div className="ui-stack-sm">
+                <span className="ui-eyebrow">Authentification</span>
+                <h2 className="ui-section-card-title">Se connecter</h2>
+                <p className="ui-text-muted" style={{ margin: 0, lineHeight: 1.7 }}>
+                  Tableau de bord et operations.
+                </p>
+              </div>
 
-            <FeedbackMessage message={message} type={messageType} />
+              <FeedbackMessage message={message} type={messageType} />
 
-            <div className="tagora-form-grid">
-              <FormField label="Adresse courriel">
-                <input
-                  className="tagora-input"
-                  placeholder="votre@courriel.com"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                />
-              </FormField>
+              <div className="tagora-form-grid">
+                <FormField label="Adresse courriel">
+                  <input
+                    className="tagora-input"
+                    placeholder="votre@courriel.com"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                  />
+                </FormField>
 
-              <FormField label="Mot de passe">
-                <input
-                  className="tagora-input"
-                  placeholder="Votre mot de passe"
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                />
-              </FormField>
-            </div>
+                <FormField label="Mot de passe">
+                  <input
+                    className="tagora-input"
+                    placeholder="Votre mot de passe"
+                    type="password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                  />
+                </FormField>
+              </div>
 
-            <div style={{ display: "flex", justifyContent: "flex-end" }}>
-              <Link
-                href={`/reinitialiser-mot-de-passe?role=employe${
-                  email ? `&email=${encodeURIComponent(email)}` : ""
-                }`}
-                className="ui-text-muted"
-              >
-                Mot de passe oublie ?
-              </Link>
-            </div>
+              <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                <Link
+                  href={`/reinitialiser-mot-de-passe?role=employe${
+                    email ? `&email=${encodeURIComponent(email)}` : ""
+                  }`}
+                  className="ui-text-muted"
+                >
+                  Mot de passe oublie ?
+                </Link>
+              </div>
 
-            <div className="tagora-actions">
-              <PrimaryButton onClick={handleLogin}>Entrer</PrimaryButton>
-              <SecondaryButton onClick={() => router.push("/")}>Voir</SecondaryButton>
-            </div>
+              <div className="tagora-actions">
+                <PrimaryButton type="submit" disabled={submitting}>
+                  {submitting ? "Connexion..." : "Entrer"}
+                </PrimaryButton>
+                <SecondaryButton type="button" onClick={() => router.push("/")}>
+                  Voir
+                </SecondaryButton>
+              </div>
+            </form>
 
             <AppCard tone="muted" className="ui-stack-sm">
               <span className="ui-eyebrow">Acces</span>

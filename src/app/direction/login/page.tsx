@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { type FormEvent, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ArrowUpRight, BriefcaseBusiness, ShieldCheck, UsersRound, Waypoints } from "lucide-react";
 import FeedbackMessage from "@/app/components/FeedbackMessage";
@@ -49,6 +49,7 @@ export default function DirectionLoginPage() {
   > | null>(null);
   const [signInThrow, setSignInThrow] = useState<{ name: string; message: string } | null>(null);
   const [authApiErr, setAuthApiErr] = useState<{ name: string; message: string } | null>(null);
+  const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     if (!isDev) {
@@ -77,101 +78,108 @@ export default function DirectionLoginPage() {
     };
   }, []);
 
-  const handleLogin = async () => {
+  const handleLogin = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (submitting) return;
+    setSubmitting(true);
+
     setMessage("");
     setMessageType(null);
     setSignInThrow(null);
     setAuthApiErr(null);
 
-    if (isDev) {
-      const d = getSupabaseBrowserLoginDebug();
-      setDebugEnv({
-        ...d,
-        localOrigin: window.location.origin,
-        localPort: window.location.port || "(port par defaut)",
-      });
-      const probe = await probeSupabaseAuthSettingsReachable();
-      setProbeResult(probe);
-    }
-
-    let signInResult: Awaited<
-      ReturnType<typeof supabase.auth.signInWithPassword>
-    >;
-
     try {
-      signInResult = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      });
-    } catch (caught) {
-      const err = caught instanceof Error ? caught : new Error(String(caught));
       if (isDev) {
-        setSignInThrow({ name: err.name, message: err.message });
+        const d = getSupabaseBrowserLoginDebug();
+        setDebugEnv({
+          ...d,
+          localOrigin: window.location.origin,
+          localPort: window.location.port || "(port par defaut)",
+        });
+        const probe = await probeSupabaseAuthSettingsReachable();
+        setProbeResult(probe);
       }
-      setMessage(err.message || "Erreur reseau (connexion Supabase impossible).");
-      setMessageType("error");
-      return;
-    }
-
-    const { error } = signInResult;
-
-    if (error) {
-      if (isDev) {
-        setAuthApiErr({ name: error.name, message: error.message });
-      }
-      setMessage(error.message);
-      setMessageType("error");
-      return;
-    }
-
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
-
-    if (session?.access_token) {
-      writeBrowserSessionCookie(session.access_token);
-      console.info(
-        "[auth-cookie] login cookie written",
-        buildAppSessionCookieWriteDebug(
-          session.access_token,
-          window.location.protocol === "https:"
-        )
-      );
+      let signInResult: Awaited<
+        ReturnType<typeof supabase.auth.signInWithPassword>
+      >;
 
       try {
-        const syncResponse = await fetch("/api/account-requests/sync-activation", {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${session.access_token}`,
-          },
+        signInResult = await supabase.auth.signInWithPassword({
+          email,
+          password,
         });
-        const syncPayload = await syncResponse.json().catch(() => null);
-        console.info("[auth-cookie] sync-activation response", syncPayload);
-      } catch {
-        // Le hook d acces refera la synchronisation sur le dashboard.
+      } catch (caught) {
+        const err = caught instanceof Error ? caught : new Error(String(caught));
+        if (isDev) {
+          setSignInThrow({ name: err.name, message: err.message });
+        }
+        setMessage(err.message || "Erreur reseau (connexion Supabase impossible).");
+        setMessageType("error");
+        return;
       }
+
+      const { error } = signInResult;
+
+      if (error) {
+        if (isDev) {
+          setAuthApiErr({ name: error.name, message: error.message });
+        }
+        setMessage(error.message);
+        setMessageType("error");
+        return;
+      }
+
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      if (session?.access_token) {
+        writeBrowserSessionCookie(session.access_token);
+        console.info(
+          "[auth-cookie] login cookie written",
+          buildAppSessionCookieWriteDebug(
+            session.access_token,
+            window.location.protocol === "https:"
+          )
+        );
+
+        try {
+          const syncResponse = await fetch("/api/account-requests/sync-activation", {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${session.access_token}`,
+            },
+          });
+          const syncPayload = await syncResponse.json().catch(() => null);
+          console.info("[auth-cookie] sync-activation response", syncPayload);
+        } catch {
+          // Le hook d acces refera la synchronisation sur le dashboard.
+        }
+      }
+
+      const { data: userData } = await supabase.auth.getUser();
+      const role = getUserRole(userData.user);
+
+      if (!role) {
+        await supabase.auth.signOut();
+        setMessage("Aucun role n'est defini sur ce compte Supabase.");
+        setMessageType("error");
+        return;
+      }
+
+      if (role !== "direction") {
+        await supabase.auth.signOut();
+        setMessage("Ce compte n'a pas acces au portail direction.");
+        setMessageType("error");
+        return;
+      }
+
+      setMessage("Connexion reussie.");
+      setMessageType("success");
+      router.replace(getHomePathForRole(role));
+    } finally {
+      setSubmitting(false);
     }
-
-    const { data: userData } = await supabase.auth.getUser();
-    const role = getUserRole(userData.user);
-
-    if (!role) {
-      await supabase.auth.signOut();
-      setMessage("Aucun role n'est defini sur ce compte Supabase.");
-      setMessageType("error");
-      return;
-    }
-
-    if (role !== "direction") {
-      await supabase.auth.signOut();
-      setMessage("Ce compte n'a pas acces au portail direction.");
-      setMessageType("error");
-      return;
-    }
-
-    setMessage("Connexion reussie.");
-    setMessageType("success");
-    router.replace(getHomePathForRole(role));
   };
 
   return (
@@ -223,6 +231,7 @@ export default function DirectionLoginPage() {
           </SectionCard>
 
           <AppCard className="ui-auth-panel ui-auth-form-card">
+            <form className="ui-stack-md" onSubmit={handleLogin}>
             <div className="ui-stack-sm">
               <span className="ui-eyebrow">Authentification</span>
               <h2 className="ui-section-card-title">Se connecter</h2>
@@ -266,8 +275,10 @@ export default function DirectionLoginPage() {
             </div>
 
             <div className="tagora-actions">
-              <PrimaryButton onClick={handleLogin}>Entrer</PrimaryButton>
-              <SecondaryButton onClick={() => router.push("/")}>Voir</SecondaryButton>
+              <PrimaryButton type="submit" disabled={submitting}>
+                {submitting ? "Connexion..." : "Entrer"}
+              </PrimaryButton>
+              <SecondaryButton type="button" onClick={() => router.push("/")}>Voir</SecondaryButton>
             </div>
 
             {isDev && (
@@ -365,6 +376,7 @@ export default function DirectionLoginPage() {
                 </div>
               </div>
             )}
+            </form>
 
             <AppCard tone="muted" className="ui-stack-sm">
               <span className="ui-eyebrow">Acces</span>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { type FormEvent, useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "../../lib/supabase/client";
 import { useCurrentAccess } from "../../hooks/useCurrentAccess";
@@ -294,6 +294,16 @@ export default function EmployeLivraisonsPage() {
     await chargerLivraisons();
   };
 
+  const handleDemarrerSubmit = (event: FormEvent<HTMLFormElement>, livraison: Livraison) => {
+    event.preventDefault();
+    void handleDemarrer(livraison);
+  };
+
+  const handleLivreeSubmit = (event: FormEvent<HTMLFormElement>, livraison: Livraison) => {
+    event.preventDefault();
+    void handleLivree(livraison);
+  };
+
   if (accessLoading || loading) {
     return (
       <main className="tagora-app-shell">
@@ -409,7 +419,10 @@ export default function EmployeLivraisonsPage() {
                     </AppCard>
 
                     {livraison.statut === "planifiee" ? (
-                      <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "end" }}>
+                      <form
+                        onSubmit={(event) => handleDemarrerSubmit(event, livraison)}
+                        style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "end" }}
+                      >
                         <div style={{ minWidth: 220 }}>
                           <FormField label="KM depart">
                             <input
@@ -427,16 +440,19 @@ export default function EmployeLivraisonsPage() {
                           </FormField>
                         </div>
                         <PrimaryButton
-                          onClick={() => handleDemarrer(livraison)}
+                          type="submit"
                           disabled={savingId === livraison.id}
                         >
                           {savingId === livraison.id ? "Demarrer..." : "Demarrer"}
                         </PrimaryButton>
-                      </div>
+                      </form>
                     ) : null}
 
                     {livraison.statut === "en_cours" ? (
-                      <div className="ui-stack-sm">
+                      <form
+                        className="ui-stack-sm"
+                        onSubmit={(event) => handleLivreeSubmit(event, livraison)}
+                      >
                         <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "end" }}>
                           <div style={{ minWidth: 220 }}>
                             <FormField label="KM arrivee">
@@ -455,7 +471,7 @@ export default function EmployeLivraisonsPage() {
                             </FormField>
                           </div>
                           <PrimaryButton
-                            onClick={() => handleLivree(livraison)}
+                            type="submit"
                             disabled={savingId === livraison.id}
                           >
                             {savingId === livraison.id ? "Marquer livree..." : "Marquer livree"}
@@ -504,6 +520,11 @@ export default function EmployeLivraisonsPage() {
                                 type="text"
                                 placeholder="Nom du contact"
                                 value={proofAcknowledgedByValues[livraison.id] || ""}
+                                onKeyDown={(event) => {
+                                  if (event.key === "Enter") {
+                                    event.preventDefault();
+                                  }
+                                }}
                                 onChange={(e) =>
                                   setProofAcknowledgedByValues((prev) => ({
                                     ...prev,
@@ -573,7 +594,7 @@ export default function EmployeLivraisonsPage() {
                             </FormField>
                           </div>
                         ) : null}
-                      </div>
+                      </form>
                     ) : null}
                   </AppCard>
                 );

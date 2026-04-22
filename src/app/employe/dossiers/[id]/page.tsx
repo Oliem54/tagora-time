@@ -1,6 +1,6 @@
 "use client";
 
-import { ChangeEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { type ChangeEvent, type FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import { useParams, useRouter } from "next/navigation";
 import { supabase } from "../../../lib/supabase/client";
@@ -163,7 +163,9 @@ export default function DossierPage() {
     void init();
   }, [accessLoading, canUseDocuments, canUseDossiers, dossierId, fetchDossier, fetchNotes, fetchPhotos, router, userId]);
 
-  const handleAddNote = async () => {
+  const handleAddNote = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+
     if (!user) {
       router.push("/employe/login");
       return;
@@ -348,7 +350,7 @@ export default function DossierPage() {
         {canUseDocuments ? (
           <div className="ui-grid-2" style={{ alignItems: "start" }}>
             <SectionCard title="Notes" subtitle="Notes du dossier.">
-              <div className="ui-stack-md">
+              <form className="ui-stack-md" onSubmit={handleAddNote}>
                 <FormField label="Nouvelle note">
                   <textarea
                     placeholder="Ecrire une note terrain..."
@@ -358,7 +360,7 @@ export default function DossierPage() {
                   />
                 </FormField>
                 <div>
-                  <PrimaryButton onClick={handleAddNote}>Creer</PrimaryButton>
+                  <PrimaryButton type="submit">Creer</PrimaryButton>
                 </div>
                 {notes.length === 0 ? (
                   <AppCard tone="muted">
@@ -376,7 +378,7 @@ export default function DossierPage() {
                     ))}
                   </div>
                 )}
-              </div>
+              </form>
             </SectionCard>
 
             <SectionCard title="Medias" subtitle="Photos et videos.">

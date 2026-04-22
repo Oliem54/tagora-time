@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { type FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useCurrentAccess } from "@/app/hooks/useCurrentAccess";
 import { supabase } from "../../../lib/supabase/client";
@@ -19,7 +19,9 @@ export default function NewDossierPage() {
   const [description, setDescription] = useState("");
   const [saving, setSaving] = useState(false);
 
-  const handleSubmit = async () => {
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+
     if (!nom.trim()) {
       alert("Entre un nom de dossier");
       return;
@@ -90,7 +92,7 @@ export default function NewDossierPage() {
           title="Creer un dossier"
           subtitle="Informations principales."
         >
-          <div className="ui-stack-md" style={{ maxWidth: 920 }}>
+          <form className="ui-stack-md" style={{ maxWidth: 920 }} onSubmit={handleSubmit}>
             <FormField label="Nom du dossier">
               <input
                 placeholder="Nom du dossier"
@@ -120,14 +122,14 @@ export default function NewDossierPage() {
             </FormField>
 
             <div style={{ display: "flex", gap: "var(--ui-space-3)", flexWrap: "wrap" }}>
-              <PrimaryButton onClick={handleSubmit} disabled={saving}>
+              <PrimaryButton type="submit" disabled={saving}>
                 {saving ? "Creation..." : "Creer"}
               </PrimaryButton>
-              <SecondaryButton onClick={() => router.push("/employe/dashboard")}>
+              <SecondaryButton type="button" onClick={() => router.push("/employe/dashboard")}>
                 Retour
               </SecondaryButton>
             </div>
-          </div>
+          </form>
         </SectionCard>
       </div>
     </main>
