@@ -4,15 +4,13 @@ import Link from "next/link";
 import { ChangeEvent, useMemo, useState } from "react";
 import HeaderTagora from "@/app/components/HeaderTagora";
 
-const dossierTypes = [
-  "Choisir un type",
-  "Livraison",
-  "Ramassage",
-  "Dommage a la livraison",
-  "Dommage avant ramassage",
-  "Etat du vehicule",
-  "Document signe",
-  "Autre",
+const interventionTypes = [
+  { value: "", label: "Choisir un type" },
+  { value: "livraison", label: "Livraison" },
+  { value: "ramassage", label: "Ramassage" },
+  { value: "incident", label: "Incident / dommage" },
+  { value: "depense", label: "Depense employe" },
+  { value: "note_interne", label: "Note interne liee a mission" },
 ];
 
 const confirmationTypes = [
@@ -31,6 +29,16 @@ const confirmationResults = [
 ];
 
 export default function NewTerrainFolderPage() {
+  const [typeIntervention, setTypeIntervention] = useState("");
+  const [client, setClient] = useState("");
+  const [referenceLiee, setReferenceLiee] = useState("");
+  const [contactNom, setContactNom] = useState("");
+  const [dateHeure, setDateHeure] = useState("");
+  const [kmDepart, setKmDepart] = useState("");
+  const [kmArrivee, setKmArrivee] = useState("");
+  const [incidentUrgence, setIncidentUrgence] = useState("moyenne");
+  const [depenseMontant, setDepenseMontant] = useState("");
+  const [depenseCategorie, setDepenseCategorie] = useState("");
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [audioFile, setAudioFile] = useState<File | null>(null);
 
@@ -54,17 +62,17 @@ export default function NewTerrainFolderPage() {
     <main className="tagora-app-shell">
       <div className="tagora-app-content" style={{ maxWidth: 1400 }}>
         <HeaderTagora
-          title="Ajouter un dossier terrain"
-          subtitle="Creez un dossier propre, documente et coherent avec le reste de l'application."
+          title="Nouvelle intervention"
+          subtitle="Choisissez le type puis completez les preuves operationnelles."
         />
 
         <div className="tagora-split">
           <section className="tagora-panel">
             <div style={{ display: "flex", justifyContent: "space-between", gap: 16, flexWrap: "wrap", alignItems: "center", marginBottom: 20 }}>
               <div>
-                <h2 className="section-title" style={{ marginBottom: 10 }}>Informations du dossier</h2>
+                <h2 className="section-title" style={{ marginBottom: 10 }}>Informations de l intervention</h2>
                 <p className="tagora-note">
-                  Renseignez le client, la reference, le type de dossier et les pieces justificatives a joindre.
+                  Renseignez le client, la reference liee, puis les preuves selon le type.
                 </p>
               </div>
 
@@ -77,29 +85,134 @@ export default function NewTerrainFolderPage() {
             </div>
 
             <form className="tagora-form-grid">
-              <div className="tagora-form-grid-2">
-                <div>
-                  <label className="tagora-field-label">Client</label>
-                  <input type="text" placeholder="Nom du client" className="tagora-input" />
-                </div>
-
-                <div>
-                  <label className="tagora-field-label">Reference obligatoire</label>
-                  <input type="text" placeholder="Ex: RAM-1038" className="tagora-input" />
-                </div>
-              </div>
-
               <div>
-                <label className="tagora-field-label">Type de dossier</label>
-                <select className="tagora-select">
-                  {dossierTypes.map((type) => (
-                    <option key={type}>{type}</option>
+                <label className="tagora-field-label">Type d intervention</label>
+                <select
+                  className="tagora-select"
+                  value={typeIntervention}
+                  onChange={(event) => setTypeIntervention(event.target.value)}
+                >
+                  {interventionTypes.map((type) => (
+                    <option key={type.value || "empty"} value={type.value}>
+                      {type.label}
+                    </option>
                   ))}
                 </select>
               </div>
 
+              <div className="tagora-form-grid-2">
+                <div>
+                  <label className="tagora-field-label">Client</label>
+                  <input
+                    type="text"
+                    placeholder="Nom du client"
+                    className="tagora-input"
+                    value={client}
+                    onChange={(event) => setClient(event.target.value)}
+                  />
+                </div>
+
+                <div>
+                  <label className="tagora-field-label">Reference liee</label>
+                  <input
+                    type="text"
+                    placeholder="Ex: LIV-2026-041"
+                    className="tagora-input"
+                    value={referenceLiee}
+                    onChange={(event) => setReferenceLiee(event.target.value)}
+                  />
+                </div>
+              </div>
+
+              {(typeIntervention === "livraison" || typeIntervention === "ramassage") ? (
+                <>
+                  <div className="tagora-form-grid-2">
+                    <div>
+                      <label className="tagora-field-label">Nom du contact</label>
+                      <input
+                        type="text"
+                        placeholder="Nom du contact"
+                        className="tagora-input"
+                        value={contactNom}
+                        onChange={(event) => setContactNom(event.target.value)}
+                      />
+                    </div>
+                    <div>
+                      <label className="tagora-field-label">Date / heure</label>
+                      <input
+                        type="datetime-local"
+                        className="tagora-input"
+                        value={dateHeure}
+                        onChange={(event) => setDateHeure(event.target.value)}
+                      />
+                    </div>
+                  </div>
+                  <div className="tagora-form-grid-2">
+                    <div>
+                      <label className="tagora-field-label">KM depart</label>
+                      <input
+                        type="number"
+                        className="tagora-input"
+                        value={kmDepart}
+                        onChange={(event) => setKmDepart(event.target.value)}
+                      />
+                    </div>
+                    <div>
+                      <label className="tagora-field-label">KM arrivee</label>
+                      <input
+                        type="number"
+                        className="tagora-input"
+                        value={kmArrivee}
+                        onChange={(event) => setKmArrivee(event.target.value)}
+                      />
+                    </div>
+                  </div>
+                </>
+              ) : null}
+
+              {typeIntervention === "incident" ? (
+                <div>
+                  <label className="tagora-field-label">Niveau d urgence</label>
+                  <select
+                    className="tagora-select"
+                    value={incidentUrgence}
+                    onChange={(event) => setIncidentUrgence(event.target.value)}
+                  >
+                    <option value="faible">Faible</option>
+                    <option value="moyenne">Moyenne</option>
+                    <option value="elevee">Elevee</option>
+                    <option value="critique">Critique</option>
+                  </select>
+                </div>
+              ) : null}
+
+              {typeIntervention === "depense" ? (
+                <div className="tagora-form-grid-2">
+                  <div>
+                    <label className="tagora-field-label">Montant</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      className="tagora-input"
+                      value={depenseMontant}
+                      onChange={(event) => setDepenseMontant(event.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <label className="tagora-field-label">Categorie</label>
+                    <input
+                      type="text"
+                      placeholder="Ex: Carburant"
+                      className="tagora-input"
+                      value={depenseCategorie}
+                      onChange={(event) => setDepenseCategorie(event.target.value)}
+                    />
+                  </div>
+                </div>
+              ) : null}
+
               <div>
-                <label className="tagora-field-label">Commentaire</label>
+                <label className="tagora-field-label">Notes operationnelles</label>
                 <textarea
                   rows={5}
                   placeholder="Ajoutez un commentaire ou une note importante"
@@ -120,7 +233,7 @@ export default function NewTerrainFolderPage() {
                 <div style={{ marginBottom: 12 }}>
                   <h2 className="section-title" style={{ fontSize: 20, marginBottom: 10 }}>Confirmation vocale</h2>
                   <p className="tagora-note">
-                    Utilisez cette option pour confirmer verbalement une livraison ou un ramassage avec le client.
+                    Preuve audio operationnelle du client (pas de biometrie vocale).
                   </p>
                 </div>
 
@@ -135,11 +248,11 @@ export default function NewTerrainFolderPage() {
                   </div>
 
                   <div>
-                    <label className="tagora-field-label">Texte suggere au livreur</label>
+                    <label className="tagora-field-label">Texte suggere a lire</label>
                     <textarea
                       rows={8}
                       readOnly
-                      value={`Bonjour, nous sommes le [date], il est [heure]. Je confirme la livraison ou le ramassage au nom de [compagnie]. Pour nos dossiers, j'aimerais enregistrer votre confirmation pour la reference [reference]. Est-ce que vous acceptez d'etre enregistre ?\n\nJe soussigne(e), [nom du client], confirme avoir recu ou remis les items lies a la reference [reference], en date du [date] a [heure]. Mes commentaires sont les suivants : [commentaire].`}
+                      value={`Bonjour, nous sommes le [date], il est [heure]. Je confirme l intervention reference [reference]. Est-ce que vous acceptez d etre enregistre ?\n\nJe soussigne(e), [nom du client], confirme l operation [type] a [date/heure]. Commentaire : [note].`}
                       className="tagora-textarea"
                     />
                   </div>
@@ -174,11 +287,11 @@ export default function NewTerrainFolderPage() {
 
               <div className="tagora-actions">
                 <button type="submit" className="tagora-dark-action rounded-xl px-6 py-4 text-base font-semibold transition">
-                  Creer
+                  Creer l intervention
                 </button>
 
                 <button type="button" className="tagora-dark-outline-action rounded-xl border px-6 py-4 text-base font-semibold transition">
-                  Acceder
+                  Ouvrir
                 </button>
               </div>
             </form>
