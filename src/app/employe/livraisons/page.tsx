@@ -33,6 +33,7 @@ type Livraison = {
   km_arrivee: number | null;
   temps_total: string | null;
   dossier_id: number | null;
+  type_operation?: string | null;
   company_context?: AccountRequestCompany | null;
   company?: AccountRequestCompany | null;
   compagnie?: AccountRequestCompany | null;
@@ -48,28 +49,22 @@ function formatDateTime(dateString: string | null) {
   return d.toLocaleString("fr-CA");
 }
 
-function calculerTempsTotal(departIso: string, retourIso: string) {
-  const depart = new Date(departIso).getTime();
-  const retour = new Date(retourIso).getTime();
-  const diffMs = retour - depart;
-
-  if (diffMs <= 0) return "0 min";
-
-  const totalMinutes = Math.floor(diffMs / 1000 / 60);
-  const heures = Math.floor(totalMinutes / 60);
-  const minutes = totalMinutes % 60;
-
-  if (heures > 0) {
-    return `${heures}h ${minutes}min`;
-  }
-
-  return `${minutes} min`;
-}
-
 function getStatusTone(statut: string | null) {
   if (statut === "livree") return "success" as const;
   if (statut === "en_cours") return "warning" as const;
   return "default" as const;
+}
+
+function getTypeOperationLabel(typeOperation: string | null | undefined) {
+  if (typeOperation === "livraison_client") return "Livraison client";
+  if (typeOperation === "ramassage_client") return "Ramassage client";
+  return "-";
+}
+
+function getProofNoteLabel(typeOperation: string | null | undefined) {
+  if (typeOperation === "livraison_client") return "Note de remise";
+  if (typeOperation === "ramassage_client") return "Note de ramassage";
+  return "Note operation";
 }
 
 function getTodayLocalDate() {
@@ -90,6 +85,22 @@ export default function EmployeLivraisonsPage() {
   const [feedback, setFeedback] = useState("");
   const [kmDepartValues, setKmDepartValues] = useState<Record<number, string>>({});
   const [kmArriveeValues, setKmArriveeValues] = useState<Record<number, string>>({});
+  const [proofNoteValues, setProofNoteValues] = useState<Record<number, string>>({});
+  const [proofAcknowledgedValues, setProofAcknowledgedValues] = useState<
+    Record<number, boolean>
+  >({});
+  const [proofAcknowledgedByValues, setProofAcknowledgedByValues] = useState<
+    Record<number, string>
+  >({});
+  const [incidentEnabledValues, setIncidentEnabledValues] = useState<
+    Record<number, boolean>
+  >({});
+  const [incidentCategoryValues, setIncidentCategoryValues] = useState<
+    Record<number, string>
+  >({});
+  const [incidentDescriptionValues, setIncidentDescriptionValues] = useState<
+    Record<number, string>
+  >({});
 
   const dateDuJour = getTodayLocalDate();
   const canUseLivraisons = hasPermission("livraisons");
@@ -213,29 +224,71 @@ export default function EmployeLivraisonsPage() {
       return;
     }
 
-    const heureLivree = new Date().toISOString();
-    const tempsTotal =
-      livraison.heure_depart_reelle
-        ? calculerTempsTotal(livraison.heure_depart_reelle, heureLivree)
-        : null;
+    const proofNote = (proofNoteValues[livraison.id] || "").trim();
+    const proofAcknowledged = Boolean(proofAcknowledgedValues[livraison.id]);
+    const proofAcknowledgedBy = (proofAcknowledgedByValues[livraison.id] || "").trim();
+    const shouldSaveProof =
+      proofNote.length > 0 || proofAcknowledged || proofAcknowledgedBy.length > 0;
+
+    const incidentEnabled = Boolean(incidentEnabledValues[livraison.id]);
+    const incidentCategory = (incidentCategoryValues[livraison.id] || "").trim() || "autre";
+    const incidentDescription = (incidentDescriptionValues[livraison.id] || "").trim();
 
     setSavingId(livraison.id);
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
 
-    const { error } = await supabase
-      .from("livraisons_planifiees")
-      .update({
-        statut: "livree",
-        heure_livree: heureLivree,
-        km_arrivee: kmArriveeNumber,
-        temps_total: tempsTotal,
-      })
-      .eq("id", livraison.id);
+    const response = await fetch(`/api/livraisons/${livraison.id}/livrer`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(session?.access_token
+          ? { Authorization: `Bearer ${session.access_token}` }
+          : {}),
+      },
+      body: JSON.stringify({
+        kmArrivee: kmArriveeNumber,
+        proof: shouldSaveProof
+          ? {
+              note: proofNote,
+              acknowledged: proofAcknowledged,
+              acknowledgedBy: proofAcknowledgedBy || null,
+            }
+          : null,
+        incident: incidentEnabled
+          ? {
+              category: incidentCategory,
+              description: incidentDescription || null,
+            }
+          : null,
+      }),
+    });
+
+    const result = (await response.json()) as {
+      error?: string;
+      proofSaved?: boolean;
+      incidentSaved?: boolean;
+    };
 
     setSavingId(null);
 
-    if (error) {
-      setFeedback("Erreur livraison : " + error.message);
+    if (!response.ok) {
+      setFeedback("Erreur livraison : " + (result.error || "Action refusee."));
       return;
+    }
+
+    setProofNoteValues((prev) => ({ ...prev, [livraison.id]: "" }));
+    setProofAcknowledgedValues((prev) => ({ ...prev, [livraison.id]: false }));
+    setProofAcknowledgedByValues((prev) => ({ ...prev, [livraison.id]: "" }));
+    setIncidentEnabledValues((prev) => ({ ...prev, [livraison.id]: false }));
+    setIncidentCategoryValues((prev) => ({ ...prev, [livraison.id]: "" }));
+    setIncidentDescriptionValues((prev) => ({ ...prev, [livraison.id]: "" }));
+
+    if (result.proofSaved || result.incidentSaved) {
+      setFeedback("Livraison marquee livree. Preuve/incident enregistres.");
+    } else {
+      setFeedback("Livraison marquee livree.");
     }
 
     await chargerLivraisons();
@@ -338,6 +391,10 @@ export default function EmployeLivraisonsPage() {
                       <InfoRow label="Chauffeur" value={livraison.chauffeur || "-"} />
                       <InfoRow label="Vehicule" value={livraison.vehicule || "-"} />
                       <InfoRow label="Ordre arret" value={String(livraison.ordre_arret ?? "-")} />
+                      <InfoRow
+                        label="Type operation"
+                        value={getTypeOperationLabel(livraison.type_operation)}
+                      />
                     </div>
 
                     <AppCard tone="muted">
@@ -379,29 +436,143 @@ export default function EmployeLivraisonsPage() {
                     ) : null}
 
                     {livraison.statut === "en_cours" ? (
-                      <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "end" }}>
-                        <div style={{ minWidth: 220 }}>
-                          <FormField label="KM arrivee">
+                      <div className="ui-stack-sm">
+                        <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "end" }}>
+                          <div style={{ minWidth: 220 }}>
+                            <FormField label="KM arrivee">
+                              <input
+                                type="number"
+                                placeholder="KM arrivee"
+                                value={kmArriveeValues[livraison.id] || ""}
+                                onChange={(e) =>
+                                  setKmArriveeValues((prev) => ({
+                                    ...prev,
+                                    [livraison.id]: e.target.value,
+                                  }))
+                                }
+                                className="tagora-input"
+                              />
+                            </FormField>
+                          </div>
+                          <PrimaryButton
+                            onClick={() => handleLivree(livraison)}
+                            disabled={savingId === livraison.id}
+                          >
+                            {savingId === livraison.id ? "Marquer livree..." : "Marquer livree"}
+                          </PrimaryButton>
+                        </div>
+
+                        <FormField label={getProofNoteLabel(livraison.type_operation)}>
+                          <textarea
+                            rows={2}
+                            placeholder="Ajouter une note courte"
+                            value={proofNoteValues[livraison.id] || ""}
+                            onChange={(e) =>
+                              setProofNoteValues((prev) => ({
+                                ...prev,
+                                [livraison.id]: e.target.value,
+                              }))
+                            }
+                            className="tagora-input"
+                          />
+                        </FormField>
+
+                        <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "end" }}>
+                          <label
+                            style={{
+                              display: "inline-flex",
+                              alignItems: "center",
+                              gap: 8,
+                              fontWeight: 600,
+                            }}
+                          >
                             <input
-                              type="number"
-                              placeholder="KM arrivee"
-                              value={kmArriveeValues[livraison.id] || ""}
+                              type="checkbox"
+                              checked={Boolean(proofAcknowledgedValues[livraison.id])}
                               onChange={(e) =>
-                                setKmArriveeValues((prev) => ({
+                                setProofAcknowledgedValues((prev) => ({
                                   ...prev,
-                                  [livraison.id]: e.target.value,
+                                  [livraison.id]: e.target.checked,
                                 }))
                               }
-                              className="tagora-input"
                             />
-                          </FormField>
+                            Confirmation verbale recue
+                          </label>
+                          <div style={{ minWidth: 220 }}>
+                            <FormField label="Nom du contact (optionnel)">
+                              <input
+                                type="text"
+                                placeholder="Nom du contact"
+                                value={proofAcknowledgedByValues[livraison.id] || ""}
+                                onChange={(e) =>
+                                  setProofAcknowledgedByValues((prev) => ({
+                                    ...prev,
+                                    [livraison.id]: e.target.value,
+                                  }))
+                                }
+                                className="tagora-input"
+                              />
+                            </FormField>
+                          </div>
                         </div>
-                        <PrimaryButton
-                          onClick={() => handleLivree(livraison)}
-                          disabled={savingId === livraison.id}
+
+                        <label
+                          style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: 8,
+                            fontWeight: 600,
+                          }}
                         >
-                          {savingId === livraison.id ? "Marquer livree..." : "Marquer livree"}
-                        </PrimaryButton>
+                          <input
+                            type="checkbox"
+                            checked={Boolean(incidentEnabledValues[livraison.id])}
+                            onChange={(e) =>
+                              setIncidentEnabledValues((prev) => ({
+                                ...prev,
+                                [livraison.id]: e.target.checked,
+                              }))
+                            }
+                          />
+                          Signaler un incident
+                        </label>
+
+                        {incidentEnabledValues[livraison.id] ? (
+                          <div className="ui-stack-xs">
+                            <div style={{ minWidth: 220 }}>
+                              <FormField label="Categorie incident">
+                                <select
+                                  value={incidentCategoryValues[livraison.id] || "autre"}
+                                  onChange={(e) =>
+                                    setIncidentCategoryValues((prev) => ({
+                                      ...prev,
+                                      [livraison.id]: e.target.value,
+                                    }))
+                                  }
+                                  className="tagora-input"
+                                >
+                                  <option value="dommage">Dommage</option>
+                                  <option value="piece_manquante">Piece manquante</option>
+                                  <option value="autre">Autre</option>
+                                </select>
+                              </FormField>
+                            </div>
+                            <FormField label="Description incident">
+                              <textarea
+                                rows={2}
+                                placeholder="Description courte"
+                                value={incidentDescriptionValues[livraison.id] || ""}
+                                onChange={(e) =>
+                                  setIncidentDescriptionValues((prev) => ({
+                                    ...prev,
+                                    [livraison.id]: e.target.value,
+                                  }))
+                                }
+                                className="tagora-input"
+                              />
+                            </FormField>
+                          </div>
+                        ) : null}
                       </div>
                     ) : null}
                   </AppCard>
