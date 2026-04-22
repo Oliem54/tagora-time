@@ -35,7 +35,7 @@ const SEGMENT_LABELS: Record<string, string> = {
   horodateur: "Horodateur",
   documents: "Documents",
   profil: "Profil",
-  dossiers: "Dossiers",
+  dossiers: "Interventions",
   "mot-de-passe": "Mot de passe",
   demandes: "Demandes",
   "demandes-comptes": "Demandes de comptes",
@@ -76,7 +76,7 @@ function getSegmentLabel(
 ) {
   if (/^\d+$/.test(segment)) {
     if (previousSegment === "employes") return "Fiche employe";
-    if (previousSegment === "dossiers") return "Dossier";
+    if (previousSegment === "dossiers") return "Intervention";
     return "Detail";
   }
 
