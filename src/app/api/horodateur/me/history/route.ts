@@ -38,8 +38,8 @@ export async function GET(req: NextRequest) {
       events: Array.isArray(history.events)
         ? history.events.map((event) => ({
             ...event,
-            notes: event.notes ?? event.note ?? null,
-            note: event.note ?? event.notes ?? null,
+            notes: event.notes ?? null,
+            note: event.notes ?? null,
           }))
         : [],
       exceptions: history.exceptions,

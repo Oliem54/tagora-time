@@ -68,10 +68,12 @@ type PunchResponse = DashboardSnapshot & {
 };
 
 function normalizeDashboardSnapshot(payload: Partial<DashboardSnapshot> | undefined) {
-  const employee = payload?.employee ?? {};
-  const currentState = payload?.currentState ?? {};
+  const employee = (payload?.employee ?? {}) as Partial<DashboardSnapshot["employee"]>;
+  const currentState = (payload?.currentState ?? {}) as Partial<DashboardSnapshot["currentState"]>;
   const shift = payload?.shift;
-  const weeklyProjection = payload?.weeklyProjection ?? {};
+  const weeklyProjection = (payload?.weeklyProjection ?? {}) as Partial<
+    DashboardSnapshot["weeklyProjection"]
+  >;
 
   return {
     employee: {

@@ -66,6 +66,10 @@ function mapLiveBoardRow(item: Record<string, unknown>) {
         : null,
     email:
       typeof item.email === "string" && item.email.trim() ? item.email : null,
+    fullName:
+      typeof item.fullName === "string" && item.fullName.trim()
+        ? item.fullName
+        : null,
   };
 }
 
@@ -100,8 +104,8 @@ export async function GET(req: NextRequest) {
             if (orderA !== orderB) {
               return orderA - orderB;
             }
-            const nameA = typeof a.employeeName === "string" ? a.employeeName : "";
-            const nameB = typeof b.employeeName === "string" ? b.employeeName : "";
+            const nameA = typeof a.fullName === "string" ? a.fullName : "";
+            const nameB = typeof b.fullName === "string" ? b.fullName : "";
             return nameA.localeCompare(nameB, "fr-CA");
           })
       : [];
