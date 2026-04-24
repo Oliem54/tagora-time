@@ -1,4 +1,4 @@
-import { createClient } from "@supabase/supabase-js";
+import { createClient, type AuthError } from "@supabase/supabase-js";
 
 /** CRLF / espaces dans .env.local peuvent corrompre l’URL → Failed to fetch. */
 function trimEnv(value: string | undefined): string {
@@ -18,6 +18,33 @@ if (!supabaseUrl || !supabaseResolvedKey) {
 }
 
 export const supabase = createClient(supabaseUrl, supabaseResolvedKey);
+
+/**
+ * GoTrue renvoie ce cas quand le refresh_token en localStorage n’existe plus côté serveur
+ * (session révoquée, autre projet, reset DB, stockage partiellement corrompu).
+ * Sans purge locale, chaque getSession/getUser retente le refresh et réaffiche l’erreur.
+ */
+export function isInvalidStoredRefreshTokenError(
+  error: AuthError | null | undefined
+): boolean {
+  if (!error) return false;
+  const code = (error.code ?? "").toLowerCase();
+  if (code === "refresh_token_not_found") return true;
+  const msg = (error.message ?? "").toLowerCase();
+  return (
+    msg.includes("refresh token not found") ||
+    (msg.includes("invalid refresh token") && msg.includes("not found"))
+  );
+}
+
+/** Retourne true si une session locale invalide a été effacée. */
+export async function clearLocalAuthIfRefreshTokenDead(
+  error: AuthError | null | undefined
+): Promise<boolean> {
+  if (!isInvalidStoredRefreshTokenError(error)) return false;
+  await supabase.auth.signOut({ scope: "local" });
+  return true;
+}
 
 /** Dev uniquement : pas de clé, uniquement indicateurs et host. */
 export function getSupabaseBrowserLoginDebug() {

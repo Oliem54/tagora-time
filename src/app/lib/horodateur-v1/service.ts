@@ -124,6 +124,19 @@ function parseEnvList(rawValue: string | undefined) {
   return normalizeConfigList((rawValue ?? "").split(","));
 }
 
+/** shortOffset peut donner "GMT-4" → "-4" ; `Date` exige un décalage ±HH:mm. */
+function normalizeIsoTimezoneOffset(raw: string): string {
+  const s = raw.trim();
+  const m = s.match(/^([+-])(\d{1,2})(?::(\d{2}))?$/);
+  if (!m) {
+    return "-04:00";
+  }
+  const sign = m[1];
+  const hh = m[2].padStart(2, "0");
+  const mm = (m[3] ?? "00").padStart(2, "0");
+  return `${sign}${hh}:${mm}`;
+}
+
 function formatDatePartsInToronto(value: Date) {
   const formatter = new Intl.DateTimeFormat("en-CA", {
     timeZone: TORONTO_TIMEZONE,
@@ -147,7 +160,9 @@ function formatDatePartsInToronto(value: Date) {
     hour: map.hour,
     minute: map.minute,
     second: map.second,
-    offset: map.timeZoneName?.replace("GMT", "") || "-04:00",
+    offset: normalizeIsoTimezoneOffset(
+      map.timeZoneName?.replace("GMT", "").trim() || "-04:00"
+    ),
   };
 }
 

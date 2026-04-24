@@ -133,12 +133,17 @@ function formatAlertDateTime(value: string | null | undefined) {
     return "-";
   }
 
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return "-";
+  }
+
   return new Intl.DateTimeFormat("fr-CA", {
     dateStyle: "medium",
     timeStyle: "short",
     timeZone:
       process.env.DIRECTION_ALERT_TIMEZONE ?? DEFAULT_DIRECTION_ALERT_TIMEZONE,
-  }).format(new Date(value));
+  }).format(parsed);
 }
 
 function escapeHtml(value: string) {
