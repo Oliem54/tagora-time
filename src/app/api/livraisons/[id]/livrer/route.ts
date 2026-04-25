@@ -168,7 +168,7 @@ export async function POST(
     }
 
     if (shouldSaveIncident && incidentCategory) {
-      const { error: incidentError } = await supabase
+      const { data: incidentRow, error: incidentError } = await supabase
         .from("delivery_incidents")
         .insert({
           livraison_id: livraison.id,
@@ -178,10 +178,29 @@ export async function POST(
           requires_sav: false,
           status: "open",
           detected_by: user.id,
-        });
+        })
+        .select("id")
+        .single();
 
       if (incidentError) {
         throw incidentError;
+      }
+
+      if (incidentRow?.id) {
+        const { error: serviceCaseError } = await supabase.from("service_cases").insert({
+          livraison_id: livraison.id,
+          incident_id: incidentRow.id,
+          status: "draft",
+          summary:
+            incidentDescription ||
+            `Incident ${incidentCategory} sur livraison #${livraison.id}`,
+          created_by: user.id,
+          odoo_sync_status: "pending",
+        });
+
+        if (serviceCaseError) {
+          throw serviceCaseError;
+        }
       }
 
       incidentSaved = true;

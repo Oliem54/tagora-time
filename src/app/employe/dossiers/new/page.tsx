@@ -61,36 +61,42 @@ export default function NewDossierPage() {
 
   useEffect(() => {
     if (!isOperationType || !typeOperationFilter) {
-      setOperations([]);
-      setSelectedOperationId("");
-      return;
+      const resetTimer = window.setTimeout(() => {
+        setOperations([]);
+        setSelectedOperationId("");
+      }, 0);
+      return () => {
+        window.clearTimeout(resetTimer);
+      };
     }
 
     let cancelled = false;
-    async function loadOperations() {
-      setOperationsLoading(true);
-      const { data, error } = await supabase
-        .from("livraisons_planifiees")
-        .select(
-          "id, client, date_livraison, heure_prevue, vehicule, km_depart, km_arrivee, type_operation, statut"
-        )
-        .eq("type_operation", typeOperationFilter)
-        .in("statut", ["planifiee", "en_cours"])
-        .order("date_livraison", { ascending: false })
-        .order("heure_prevue", { ascending: false });
+    const loadTimer = window.setTimeout(() => {
+      void (async () => {
+        setOperationsLoading(true);
+        const { data, error } = await supabase
+          .from("livraisons_planifiees")
+          .select(
+            "id, client, date_livraison, heure_prevue, vehicule, km_depart, km_arrivee, type_operation, statut"
+          )
+          .eq("type_operation", typeOperationFilter)
+          .in("statut", ["planifiee", "en_cours"])
+          .order("date_livraison", { ascending: false })
+          .order("heure_prevue", { ascending: false });
 
-      if (!cancelled) {
-        if (error) {
-          setOperations([]);
-        } else {
-          setOperations((data as typeof operations) || []);
+        if (!cancelled) {
+          if (error) {
+            setOperations([]);
+          } else {
+            setOperations((data as typeof operations) || []);
+          }
+          setOperationsLoading(false);
         }
-        setOperationsLoading(false);
-      }
-    }
+      })();
+    }, 0);
 
-    void loadOperations();
     return () => {
+      window.clearTimeout(loadTimer);
       cancelled = true;
     };
   }, [isOperationType, typeOperationFilter]);
@@ -99,24 +105,28 @@ export default function NewDossierPage() {
     if (!selectedOperationId || !isOperationType) return;
     const operation = operations.find((item) => String(item.id) === selectedOperationId);
     if (!operation) return;
-
-    if (!nom.trim()) {
-      const prefix = typeIntervention === "livraison" ? "LIV" : "RAM";
-      setNom(`${prefix}-${operation.id}`);
-    }
-    if (!client.trim() && operation.client) {
-      setClient(operation.client);
-    }
-    if (!kmDepart.trim() && operation.km_depart != null) {
-      setKmDepart(String(operation.km_depart));
-    }
-    if (!kmArrivee.trim() && operation.km_arrivee != null) {
-      setKmArrivee(String(operation.km_arrivee));
-    }
-    if (!dateHeure.trim() && operation.date_livraison) {
-      const heure = (operation.heure_prevue || "00:00").slice(0, 5);
-      setDateHeure(`${operation.date_livraison}T${heure}`);
-    }
+    const hydrateTimer = window.setTimeout(() => {
+      if (!nom.trim()) {
+        const prefix = typeIntervention === "livraison" ? "LIV" : "RAM";
+        setNom(`${prefix}-${operation.id}`);
+      }
+      if (!client.trim() && operation.client) {
+        setClient(operation.client);
+      }
+      if (!kmDepart.trim() && operation.km_depart != null) {
+        setKmDepart(String(operation.km_depart));
+      }
+      if (!kmArrivee.trim() && operation.km_arrivee != null) {
+        setKmArrivee(String(operation.km_arrivee));
+      }
+      if (!dateHeure.trim() && operation.date_livraison) {
+        const heure = (operation.heure_prevue || "00:00").slice(0, 5);
+        setDateHeure(`${operation.date_livraison}T${heure}`);
+      }
+    }, 0);
+    return () => {
+      window.clearTimeout(hydrateTimer);
+    };
   }, [
     selectedOperationId,
     isOperationType,

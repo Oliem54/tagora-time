@@ -16,6 +16,7 @@ import InfoRow from "@/app/components/ui/InfoRow";
 import FormField from "@/app/components/ui/FormField";
 import PrimaryButton from "@/app/components/ui/PrimaryButton";
 import StatusBadge from "@/app/components/ui/StatusBadge";
+import OperationProofsPanel, { type ModuleSource } from "@/app/components/proofs/OperationProofsPanel";
 
 type Livraison = {
   id: number;
@@ -65,6 +66,10 @@ function getProofNoteLabel(typeOperation: string | null | undefined) {
   if (typeOperation === "livraison_client") return "Note de remise";
   if (typeOperation === "ramassage_client") return "Note de ramassage";
   return "Note operation";
+}
+
+function getProofModuleSource(typeOperation: string | null | undefined): ModuleSource {
+  return typeOperation === "ramassage_client" ? "ramassage" : "livraison";
 }
 
 function getTodayLocalDate() {
@@ -449,51 +454,95 @@ export default function EmployeLivraisonsPage() {
                     ) : null}
 
                     {livraison.statut === "en_cours" ? (
-                      <form
-                        className="ui-stack-sm"
-                        onSubmit={(event) => handleLivreeSubmit(event, livraison)}
-                      >
-                        <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "end" }}>
-                          <div style={{ minWidth: 220 }}>
-                            <FormField label="KM arrivee">
+                      <div className="ui-stack-sm">
+                        <form
+                          className="ui-stack-sm"
+                          onSubmit={(event) => handleLivreeSubmit(event, livraison)}
+                        >
+                          <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "end" }}>
+                            <div style={{ minWidth: 220 }}>
+                              <FormField label="KM arrivee">
+                                <input
+                                  type="number"
+                                  placeholder="KM arrivee"
+                                  value={kmArriveeValues[livraison.id] || ""}
+                                  onChange={(e) =>
+                                    setKmArriveeValues((prev) => ({
+                                      ...prev,
+                                      [livraison.id]: e.target.value,
+                                    }))
+                                  }
+                                  className="tagora-input"
+                                />
+                              </FormField>
+                            </div>
+                            <PrimaryButton
+                              type="submit"
+                              disabled={savingId === livraison.id}
+                            >
+                              {savingId === livraison.id ? "Marquer livree..." : "Marquer livree"}
+                            </PrimaryButton>
+                          </div>
+
+                          <FormField label={getProofNoteLabel(livraison.type_operation)}>
+                            <textarea
+                              rows={2}
+                              placeholder="Ajouter une note courte"
+                              value={proofNoteValues[livraison.id] || ""}
+                              onChange={(e) =>
+                                setProofNoteValues((prev) => ({
+                                  ...prev,
+                                  [livraison.id]: e.target.value,
+                                }))
+                              }
+                              className="tagora-input"
+                            />
+                          </FormField>
+
+                          <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "end" }}>
+                            <label
+                              style={{
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: 8,
+                                fontWeight: 600,
+                              }}
+                            >
                               <input
-                                type="number"
-                                placeholder="KM arrivee"
-                                value={kmArriveeValues[livraison.id] || ""}
+                                type="checkbox"
+                                checked={Boolean(proofAcknowledgedValues[livraison.id])}
                                 onChange={(e) =>
-                                  setKmArriveeValues((prev) => ({
+                                  setProofAcknowledgedValues((prev) => ({
                                     ...prev,
-                                    [livraison.id]: e.target.value,
+                                    [livraison.id]: e.target.checked,
                                   }))
                                 }
-                                className="tagora-input"
                               />
-                            </FormField>
+                              Confirmation verbale recue
+                            </label>
+                            <div style={{ minWidth: 220 }}>
+                              <FormField label="Nom du contact (optionnel)">
+                                <input
+                                  type="text"
+                                  placeholder="Nom du contact"
+                                  value={proofAcknowledgedByValues[livraison.id] || ""}
+                                  onKeyDown={(event) => {
+                                    if (event.key === "Enter") {
+                                      event.preventDefault();
+                                    }
+                                  }}
+                                  onChange={(e) =>
+                                    setProofAcknowledgedByValues((prev) => ({
+                                      ...prev,
+                                      [livraison.id]: e.target.value,
+                                    }))
+                                  }
+                                  className="tagora-input"
+                                />
+                              </FormField>
+                            </div>
                           </div>
-                          <PrimaryButton
-                            type="submit"
-                            disabled={savingId === livraison.id}
-                          >
-                            {savingId === livraison.id ? "Marquer livree..." : "Marquer livree"}
-                          </PrimaryButton>
-                        </div>
 
-                        <FormField label={getProofNoteLabel(livraison.type_operation)}>
-                          <textarea
-                            rows={2}
-                            placeholder="Ajouter une note courte"
-                            value={proofNoteValues[livraison.id] || ""}
-                            onChange={(e) =>
-                              setProofNoteValues((prev) => ({
-                                ...prev,
-                                [livraison.id]: e.target.value,
-                              }))
-                            }
-                            className="tagora-input"
-                          />
-                        </FormField>
-
-                        <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "end" }}>
                           <label
                             style={{
                               display: "inline-flex",
@@ -504,97 +553,66 @@ export default function EmployeLivraisonsPage() {
                           >
                             <input
                               type="checkbox"
-                              checked={Boolean(proofAcknowledgedValues[livraison.id])}
+                              checked={Boolean(incidentEnabledValues[livraison.id])}
                               onChange={(e) =>
-                                setProofAcknowledgedValues((prev) => ({
+                                setIncidentEnabledValues((prev) => ({
                                   ...prev,
                                   [livraison.id]: e.target.checked,
                                 }))
                               }
                             />
-                            Confirmation verbale recue
+                            Signaler un incident
                           </label>
-                          <div style={{ minWidth: 220 }}>
-                            <FormField label="Nom du contact (optionnel)">
-                              <input
-                                type="text"
-                                placeholder="Nom du contact"
-                                value={proofAcknowledgedByValues[livraison.id] || ""}
-                                onKeyDown={(event) => {
-                                  if (event.key === "Enter") {
-                                    event.preventDefault();
-                                  }
-                                }}
-                                onChange={(e) =>
-                                  setProofAcknowledgedByValues((prev) => ({
-                                    ...prev,
-                                    [livraison.id]: e.target.value,
-                                  }))
-                                }
-                                className="tagora-input"
-                              />
-                            </FormField>
-                          </div>
-                        </div>
 
-                        <label
-                          style={{
-                            display: "inline-flex",
-                            alignItems: "center",
-                            gap: 8,
-                            fontWeight: 600,
-                          }}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={Boolean(incidentEnabledValues[livraison.id])}
-                            onChange={(e) =>
-                              setIncidentEnabledValues((prev) => ({
-                                ...prev,
-                                [livraison.id]: e.target.checked,
-                              }))
-                            }
-                          />
-                          Signaler un incident
-                        </label>
-
-                        {incidentEnabledValues[livraison.id] ? (
-                          <div className="ui-stack-xs">
-                            <div style={{ minWidth: 220 }}>
-                              <FormField label="Categorie incident">
-                                <select
-                                  value={incidentCategoryValues[livraison.id] || "autre"}
+                          {incidentEnabledValues[livraison.id] ? (
+                            <div className="ui-stack-xs">
+                              <div style={{ minWidth: 220 }}>
+                                <FormField label="Categorie incident">
+                                  <select
+                                    value={incidentCategoryValues[livraison.id] || "autre"}
+                                    onChange={(e) =>
+                                      setIncidentCategoryValues((prev) => ({
+                                        ...prev,
+                                        [livraison.id]: e.target.value,
+                                      }))
+                                    }
+                                    className="tagora-input"
+                                  >
+                                    <option value="dommage">Dommage</option>
+                                    <option value="piece_manquante">Piece manquante</option>
+                                    <option value="autre">Autre</option>
+                                  </select>
+                                </FormField>
+                              </div>
+                              <FormField label="Description incident">
+                                <textarea
+                                  rows={2}
+                                  placeholder="Description courte"
+                                  value={incidentDescriptionValues[livraison.id] || ""}
                                   onChange={(e) =>
-                                    setIncidentCategoryValues((prev) => ({
+                                    setIncidentDescriptionValues((prev) => ({
                                       ...prev,
                                       [livraison.id]: e.target.value,
                                     }))
                                   }
                                   className="tagora-input"
-                                >
-                                  <option value="dommage">Dommage</option>
-                                  <option value="piece_manquante">Piece manquante</option>
-                                  <option value="autre">Autre</option>
-                                </select>
+                                />
                               </FormField>
                             </div>
-                            <FormField label="Description incident">
-                              <textarea
-                                rows={2}
-                                placeholder="Description courte"
-                                value={incidentDescriptionValues[livraison.id] || ""}
-                                onChange={(e) =>
-                                  setIncidentDescriptionValues((prev) => ({
-                                    ...prev,
-                                    [livraison.id]: e.target.value,
-                                  }))
-                                }
-                                className="tagora-input"
-                              />
-                            </FormField>
-                          </div>
-                        ) : null}
-                      </form>
+                          ) : null}
+                        </form>
+                        <OperationProofsPanel
+                          moduleSource={getProofModuleSource(livraison.type_operation)}
+                          sourceId={livraison.id}
+                          categorieParDefaut={
+                            livraison.type_operation === "ramassage_client"
+                              ? "preuve_ramassage"
+                              : "preuve_livraison"
+                          }
+                          titre="Preuves de livraison / ramassage"
+                          commentairePlaceholder="Commentaire preuve livraison"
+                        />
+                      </div>
                     ) : null}
                   </AppCard>
                 );

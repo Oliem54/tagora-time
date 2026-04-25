@@ -7,6 +7,7 @@ import FeedbackMessage from "@/app/components/FeedbackMessage";
 import AccessNotice from "@/app/components/AccessNotice";
 import { supabase } from "@/app/lib/supabase/client";
 import { useCurrentAccess } from "@/app/hooks/useCurrentAccess";
+import OperationProofsPanel from "@/app/components/proofs/OperationProofsPanel";
 import {
   ACCOUNT_REQUEST_COMPANIES,
   getCompanyLabel,
@@ -84,7 +85,7 @@ export default function Page() {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [linkedDataNotice, setLinkedDataNotice] = useState("");
-  const [viewMode, setViewMode] = useState<"liste" | "calendrier">("liste");
+  const [viewMode, setViewMode] = useState<"liste" | "calendrier">("calendrier");
   const [calendarDate, setCalendarDate] = useState(new Date());
 
   const [filtre, setFiltre] = useState({
@@ -460,7 +461,7 @@ export default function Page() {
   if (accessLoading || (!blocked && loading)) {
     return (
       <main className="page-container">
-        <HeaderTagora title="Livraisons" subtitle="Chargement" />
+        <HeaderTagora title="Livraison & ramassage" subtitle="Chargement" />
         <AccessNotice description="Chargement en cours." />
       </main>
     );
@@ -473,15 +474,99 @@ export default function Page() {
   if (blocked) {
     return (
       <main className="page-container">
-        <HeaderTagora title="Livraisons" subtitle="Acces requis" />
+        <HeaderTagora title="Livraison & ramassage" subtitle="Acces requis" />
         <AccessNotice description="Acces requis." />
       </main>
     );
   }
 
+  const navButtonBase: React.CSSProperties = {
+    minHeight: 40,
+    padding: "10px 16px",
+    borderRadius: 10,
+    border: "1px solid #0f2948",
+    fontSize: 13,
+    fontWeight: 700,
+    lineHeight: 1,
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    textDecoration: "none",
+    whiteSpace: "nowrap",
+    transition: "all 140ms ease",
+  };
+
+  const actionButtonBase: React.CSSProperties = {
+    minHeight: 40,
+    padding: "10px 16px",
+    borderRadius: 10,
+    border: "1px solid #0f2948",
+    fontSize: 13,
+    fontWeight: 700,
+    lineHeight: 1,
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    whiteSpace: "nowrap",
+    cursor: "pointer",
+    transition: "all 140ms ease",
+  };
+
+  const getButtonTone = (active: boolean) =>
+    active
+      ? { background: "#0f2948", color: "#ffffff" }
+      : { background: "#ffffff", color: "#0f2948" };
+
   return (
     <main className="page-container">
-      <HeaderTagora title="Livraisons" subtitle="Planification" />
+      <HeaderTagora title="Livraison & ramassage" subtitle="Planification" />
+      <div style={{ marginTop: 12, display: "grid", gap: 10 }}>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <Link
+            href="/direction/livraisons"
+            aria-current="page"
+            style={{ ...navButtonBase, ...getButtonTone(true) }}
+          >
+            Livraisons
+          </Link>
+          <Link
+            href="/direction/ramassages"
+            style={{ ...navButtonBase, ...getButtonTone(false) }}
+          >
+            Ramassages
+          </Link>
+        </div>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <button
+            onClick={() => {
+              resetForm();
+              clearMessage();
+              setShowCreateForm(true);
+            }}
+            style={{ ...actionButtonBase, ...getButtonTone(showCreateForm) }}
+          >
+            Creer
+          </button>
+          <button
+            onClick={() => setViewMode("liste")}
+            style={{ ...actionButtonBase, ...getButtonTone(viewMode === "liste") }}
+          >
+            Liste
+          </button>
+          <button
+            onClick={() => setViewMode("calendrier")}
+            style={{ ...actionButtonBase, ...getButtonTone(viewMode === "calendrier") }}
+          >
+            Calendrier
+          </button>
+          <button
+            onClick={() => void fetchData()}
+            style={{ ...actionButtonBase, ...getButtonTone(false) }}
+          >
+            Actualiser
+          </button>
+        </div>
+      </div>
 
       <FeedbackMessage message={message} type={messageType} />
       {linkedDataNotice ? (
@@ -611,57 +696,21 @@ export default function Page() {
               <button type="button" className="tagora-dark-outline-action" onClick={resetForm}>Annuler</button>
             </div>
           </form>
+          <div style={{ marginTop: 16 }}>
+            <OperationProofsPanel
+              moduleSource="livraison"
+              sourceId={editingId}
+              categorieParDefaut="preuve_livraison_direction"
+              titre="Preuves livraison"
+              commentairePlaceholder="Commentaire direction"
+            />
+          </div>
         </section>
       ) : null}
 
       <section className="tagora-panel" style={{ marginTop: 24 }}>
           <div style={{ display: "flex", justifyContent: "space-between", gap: 16, flexWrap: "wrap", alignItems: "center", marginBottom: 18 }}>
             <h2 className="section-title" style={{ marginBottom: 0 }}>Livraisons planifiees</h2>
-            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-              <button
-                onClick={() => {
-                  resetForm();
-                  clearMessage();
-                  setShowCreateForm(true);
-                }}
-                className="tagora-dark-action"
-              >
-                Creer
-              </button>
-              <button
-                onClick={() => setViewMode("liste")}
-                style={{
-                  padding: "8px 16px",
-                  borderRadius: 8,
-                  border: "1px solid #0f2948",
-                  background: viewMode === "liste" ? "#0f2948" : "transparent",
-                  color: viewMode === "liste" ? "#fff" : "#0f2948",
-                  cursor: "pointer",
-                  fontSize: 13,
-                  fontWeight: 600,
-                  transition: "all 140ms ease",
-                }}
-              >
-                Liste
-              </button>
-              <button
-                onClick={() => setViewMode("calendrier")}
-                style={{
-                  padding: "8px 16px",
-                  borderRadius: 8,
-                  border: "1px solid #0f2948",
-                  background: viewMode === "calendrier" ? "#0f2948" : "transparent",
-                  color: viewMode === "calendrier" ? "#fff" : "#0f2948",
-                  cursor: "pointer",
-                  fontSize: 13,
-                  fontWeight: 600,
-                  transition: "all 140ms ease",
-                }}
-              >
-                Calendrier
-              </button>
-              <button onClick={() => void fetchData()} className="tagora-dark-outline-action">Actualiser</button>
-            </div>
           </div>
 
           {viewMode === "liste" ? (

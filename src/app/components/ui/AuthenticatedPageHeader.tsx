@@ -16,7 +16,7 @@ type AuthenticatedPageHeaderProps = Omit<
 
 export default function AuthenticatedPageHeader({
   showUserIdentity = true,
-  showNavigation = false,
+  showNavigation = true,
   navigation,
   ...props
 }: AuthenticatedPageHeaderProps) {

@@ -303,6 +303,10 @@ export default function EmployeeProfilePageClient({
     setMessageType(null);
   }
 
+  function activateEditing() {
+    setIsEditing(true);
+  }
+
   async function handleSave() {
     if (!form.nom.trim()) {
       setMessage("Le nom est obligatoire.");
@@ -395,7 +399,11 @@ export default function EmployeeProfilePageClient({
         <button
           type="button"
           className="tagora-dark-action"
-          onClick={() => setIsEditing(true)}
+          onPointerUp={(event) => {
+            event.preventDefault();
+            activateEditing();
+          }}
+          onClick={activateEditing}
           disabled={loading || saving || deleting}
         >
           Modifier
@@ -1199,11 +1207,55 @@ export default function EmployeeProfilePageClient({
 
               <AccordionSection
                 title="Alertes SMS"
-                description="Activez ou coupez chaque alerte."
+                description="Activez ou coupez les alertes SMS et les destinataires direction."
                 open={openSection === "alertes_sms"}
                 onToggle={() => setOpenSection("alertes_sms")}
               >
                 <div className="ui-stack-sm">
+                  <div className="tagora-panel-muted" style={{ display: "grid", gap: 12, padding: 16 }}>
+                    <label className="account-requests-permission-option">
+                      <input
+                        type="checkbox"
+                        checked={form.alert_email_enabled}
+                        disabled={!isEditing}
+                        onChange={(event) =>
+                          setForm((current) => ({
+                            ...current,
+                            alert_email_enabled: event.target.checked,
+                          }))
+                        }
+                      />
+                      <span>Recevoir alertes courriel</span>
+                    </label>
+                    <label className="account-requests-permission-option">
+                      <input
+                        type="checkbox"
+                        checked={form.alert_sms_enabled}
+                        disabled={!isEditing}
+                        onChange={(event) =>
+                          setForm((current) => ({
+                            ...current,
+                            alert_sms_enabled: event.target.checked,
+                          }))
+                        }
+                      />
+                      <span>Recevoir alertes texto</span>
+                    </label>
+                    <label className="account-requests-permission-option">
+                      <input
+                        type="checkbox"
+                        checked={form.is_direction_alert_recipient}
+                        disabled={!isEditing}
+                        onChange={(event) =>
+                          setForm((current) => ({
+                            ...current,
+                            is_direction_alert_recipient: event.target.checked,
+                          }))
+                        }
+                      />
+                      <span>Alerte direction</span>
+                    </label>
+                  </div>
                   {[
                     ["sms_alert_depart_terrain", "Depart terrain"],
                     ["sms_alert_arrivee_terrain", "Arrivee terrain"],
@@ -1264,7 +1316,11 @@ export default function EmployeeProfilePageClient({
                     <button
                       type="button"
                       className="tagora-dark-action"
-                      onClick={() => setIsEditing(true)}
+                      onPointerUp={(event) => {
+                        event.preventDefault();
+                        activateEditing();
+                      }}
+                      onClick={activateEditing}
                       disabled={saving || deleting}
                     >
                       Modifier
