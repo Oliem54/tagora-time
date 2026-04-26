@@ -629,18 +629,25 @@ export default function DirectionRamassagesPage() {
                       background: day ? "#fff" : "#f8fafc",
                     }}
                   >
-                    {day ? <div style={{ fontWeight: 700, marginBottom: 6 }}>{day}</div> : null}
+                    {day ? (
+                      <Link
+                        href={`/direction/livraisons/jour?date=${isoDate}`}
+                        className="tagora-dark-outline-action"
+                        style={{ width: "fit-content", padding: "2px 8px", marginBottom: 6 }}
+                      >
+                        {day}
+                      </Link>
+                    ) : null}
                     <div style={{ display: "grid", gap: 4 }}>
                       {entries.slice(0, 3).map((entry) => (
-                        <button
+                        <Link
                           key={entry.id}
-                          type="button"
-                          onClick={() => setSelectedId(entry.id)}
+                          href={`/direction/livraisons/jour?date=${isoDate}`}
                           className="tagora-dark-outline-action"
                           style={{ textAlign: "left", padding: "4px 8px", fontSize: 11 }}
                         >
                           {String(entry.item.client || `#${entry.id}`)}
-                        </button>
+                        </Link>
                       ))}
                       {entries.length > 3 ? (
                         <span className="ui-text-muted" style={{ fontSize: 11 }}>

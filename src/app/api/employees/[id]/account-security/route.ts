@@ -54,11 +54,11 @@ function normalizeRole(value: unknown): AppRole | null {
     return "employe";
   }
 
-  if (
-    normalized === "direction" ||
-    normalized === "admin" ||
-    normalized === "manager"
-  ) {
+  if (normalized === "admin") {
+    return "admin";
+  }
+
+  if (normalized === "direction" || normalized === "manager") {
     return "direction";
   }
 
@@ -391,7 +391,7 @@ export async function GET(
   try {
     const { user, role } = await getStrictDirectionRequestUser(req);
 
-    if (!user || role !== "direction") {
+    if (!user || (role !== "direction" && role !== "admin")) {
       return NextResponse.json({ error: "Acces refuse." }, { status: 403 });
     }
 
@@ -412,6 +412,14 @@ export async function GET(
     }
 
     const authUser = await resolveAuthUser(employee);
+    const targetRole = getUserRole(authUser);
+
+    if (role === "direction" && targetRole === "admin") {
+      return NextResponse.json(
+        { error: "Profil admin reserve aux comptes admin." },
+        { status: 403 }
+      );
+    }
 
     return NextResponse.json({
       security: buildAccountSecuritySnapshot(employee, authUser),
@@ -436,7 +444,7 @@ export async function POST(
   try {
     const { user, role } = await getStrictDirectionRequestUser(req);
 
-    if (!user || role !== "direction") {
+    if (!user || (role !== "direction" && role !== "admin")) {
       return NextResponse.json({ error: "Acces refuse." }, { status: 403 });
     }
 
@@ -464,6 +472,14 @@ export async function POST(
     }
 
     let authUser = await resolveAuthUser(employee);
+    const targetRole = getUserRole(authUser);
+
+    if (role === "direction" && targetRole === "admin") {
+      return NextResponse.json(
+        { error: "Profil admin reserve aux comptes admin." },
+        { status: 403 }
+      );
+    }
     const email = normalizeEmail(authUser?.email ?? employee.courriel);
     const adminSupabase = createAdminSupabaseClient();
     const publicSupabase = createPublicServerSupabaseClient();

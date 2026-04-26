@@ -1,4 +1,5 @@
 import type { User } from "@supabase/supabase-js";
+import { getUserRole } from "@/app/lib/auth/roles";
 
 export const APP_PERMISSION_DEFINITIONS = [
   {
@@ -84,6 +85,9 @@ export function hasUserPermission(
   user: User | null | undefined,
   permission: AppPermission
 ) {
+  if (getUserRole(user) === "admin") {
+    return true;
+  }
   return getUserPermissions(user).includes(permission);
 }
 

@@ -65,7 +65,7 @@ export async function requireDirectionUser(
 ) {
   const { user, role } = await getStrictDirectionRequestUser(req);
 
-  if (!user || role !== "direction") {
+  if (!user || (role !== "direction" && role !== "admin")) {
     return {
       ok: false as const,
       response: { error: "Acces refuse.", status: 403 },

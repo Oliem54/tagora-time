@@ -16,8 +16,15 @@ export const IMPROVEMENT_PRIORITY_OPTIONS = [
   "Elevee",
 ] as const;
 
-export const IMPROVEMENT_DEFAULT_STATUS = "nouveau" as const;
+export const IMPROVEMENT_STATUS_OPTIONS = [
+  "en_attente",
+  "en_traitement",
+  "traitee",
+  "supprimee",
+] as const;
+
+export const IMPROVEMENT_DEFAULT_STATUS = "en_attente" as const;
 
 export type ImprovementModule = (typeof IMPROVEMENT_MODULE_OPTIONS)[number];
 export type ImprovementPriority = (typeof IMPROVEMENT_PRIORITY_OPTIONS)[number];
-export type ImprovementStatus = typeof IMPROVEMENT_DEFAULT_STATUS;
+export type ImprovementStatus = (typeof IMPROVEMENT_STATUS_OPTIONS)[number];

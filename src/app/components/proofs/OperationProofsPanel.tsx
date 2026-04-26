@@ -39,6 +39,7 @@ type Props = {
   categorieParDefaut: string;
   titre?: string;
   commentairePlaceholder?: string;
+  compact?: boolean;
 };
 
 function formatProofDate(value: string | null | undefined) {
@@ -58,6 +59,7 @@ export default function OperationProofsPanel({
   categorieParDefaut,
   titre = "Preuves",
   commentairePlaceholder = "Commentaire optionnel",
+  compact = false,
 }: Props) {
   const sourceIdText = String(sourceId);
   const [proofs, setProofs] = useState<OperationProofRow[]>([]);
@@ -242,14 +244,6 @@ export default function OperationProofsPanel({
   };
 
   const startVoiceRecording = async () => {
-    console.log("CLICK startVoiceRecording");
-    setFeedback("CLICK startVoiceRecording");
-    console.log("[OperationProofsPanel] startVoiceRecording", {
-      recordingSupported,
-      isSecureContext: secureContext,
-      hasGetUserMedia,
-      hasMediaRecorder,
-    });
     setFeedback("Tentative ouverture micro...");
 
     if (!recordingSupported) {
@@ -423,8 +417,8 @@ export default function OperationProofsPanel({
   };
 
   return (
-    <div className="ui-stack-md">
-      <AppCard className="ui-stack-sm">
+    <div className={compact ? "ui-stack-sm" : "ui-stack-md"}>
+      <AppCard className={compact ? "ui-stack-xs" : "ui-stack-sm"} tone={compact ? "muted" : "default"}>
         <div className="ui-eyebrow">{titre}</div>
         <FormField label="Commentaire optionnel">
           <input
@@ -435,7 +429,7 @@ export default function OperationProofsPanel({
             className="tagora-input"
           />
         </FormField>
-        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", gap: compact ? 8 : 10, flexWrap: "wrap" }}>
           <PrimaryButton type="button" onClick={saveTextNote} disabled={uploading}>
             Enregistrer une note
           </PrimaryButton>
@@ -448,26 +442,23 @@ export default function OperationProofsPanel({
             className="tagora-input"
           />
         </FormField>
-        <AppCard tone="muted" className="ui-stack-sm">
+        <AppCard tone="muted" className={compact ? "ui-stack-xs" : "ui-stack-sm"}>
           <div className="ui-eyebrow">2) Enregistrer un vocal</div>
           <div
             style={{
               display: "flex",
-              gap: 10,
+              gap: compact ? 8 : 10,
               flexWrap: "wrap",
               position: "relative",
               zIndex: 20,
               pointerEvents: "auto",
               touchAction: "manipulation",
-              border: "2px solid red",
-              background: "#fff8f8",
-              padding: 8,
+              padding: compact ? 0 : 4,
               borderRadius: 10,
             }}
           >
             <button
               type="button"
-              onPointerDown={() => setFeedback("POINTERDOWN start")}
               onPointerUp={(event) => {
                 event.preventDefault();
                 void startVoiceRecording();
@@ -504,12 +495,12 @@ export default function OperationProofsPanel({
             <div className="ui-text-muted">Micro non supporte sur ce navigateur.</div>
           ) : null}
         </AppCard>
-        <AppCard tone="muted" className="ui-stack-sm">
+        <AppCard tone="muted" className={compact ? "ui-stack-xs" : "ui-stack-sm"}>
           <div className="ui-eyebrow">3) Signature client</div>
           <canvas
             ref={signatureCanvasRef}
             width={760}
-            height={220}
+            height={compact ? 170 : 220}
             onPointerDown={startSignature}
             onPointerMove={moveSignature}
             onPointerUp={endSignature}
@@ -517,7 +508,7 @@ export default function OperationProofsPanel({
             style={{
               width: "100%",
               maxWidth: "100%",
-              height: 220,
+              height: compact ? 170 : 220,
               border: "1px solid #cbd5e1",
               borderRadius: 12,
               background: "#fff",
@@ -539,7 +530,7 @@ export default function OperationProofsPanel({
         {feedback ? <div className="ui-text-muted">{feedback}</div> : null}
       </AppCard>
 
-      <AppCard className="ui-stack-sm">
+      <AppCard className={compact ? "ui-stack-xs" : "ui-stack-sm"} tone={compact ? "muted" : "default"}>
         <div className="ui-eyebrow">Preuves existantes</div>
         {loading ? (
           <div className="ui-text-muted">Chargement...</div>

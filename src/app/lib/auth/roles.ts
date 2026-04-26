@@ -1,6 +1,6 @@
 import type { User } from "@supabase/supabase-js";
 
-export type AppRole = "employe" | "direction";
+export type AppRole = "employe" | "direction" | "admin";
 
 function normalizeRole(value: unknown): AppRole | null {
   if (typeof value !== "string") return null;
@@ -11,7 +11,11 @@ function normalizeRole(value: unknown): AppRole | null {
     return "employe";
   }
 
-  if (role === "direction" || role === "admin" || role === "manager") {
+  if (role === "admin") {
+    return "admin";
+  }
+
+  if (role === "direction" || role === "manager") {
     return "direction";
   }
 
@@ -28,15 +32,13 @@ export function getUserRole(user: User | null | undefined): AppRole | null {
 }
 
 export function getHomePathForRole(role: AppRole): string {
-  return role === "direction" ? "/direction/dashboard" : "/employe/dashboard";
+  return role === "employe" ? "/employe/dashboard" : "/direction/dashboard";
 }
 
 export function getLoginPathForRole(role: AppRole): string {
-  return role === "direction" ? "/direction/login" : "/employe/login";
+  return role === "employe" ? "/employe/login" : "/direction/login";
 }
 
 export function getPasswordChangePathForRole(role: AppRole): string {
-  return role === "direction"
-    ? "/direction/login"
-    : "/employe/mot-de-passe";
+  return role === "employe" ? "/employe/mot-de-passe" : "/direction/login";
 }

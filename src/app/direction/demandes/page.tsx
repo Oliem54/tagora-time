@@ -43,6 +43,7 @@ const permissionLabelByValue = new Map(
 type SupportedPermission = (typeof accountRequestPermissionOptions)[number]["value"];
 
 function formatRole(role: AppRole) {
+  if (role === "admin") return "Admin";
   return role === "direction" ? "Direction" : "Employe";
 }
 

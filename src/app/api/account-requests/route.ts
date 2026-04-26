@@ -300,7 +300,7 @@ export async function GET(req: NextRequest) {
 
     const { user, role } = await getStrictDirectionRequestUser(req);
 
-    if (!user || role !== "direction") {
+    if (!user || (role !== "direction" && role !== "admin")) {
       return NextResponse.json({ error: "Acces refuse." }, { status: 403 });
     }
 

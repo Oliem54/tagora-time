@@ -73,7 +73,10 @@ export default function AuthGate({
         return;
       }
 
-      if (role !== areaRole) {
+      const roleMatchesArea =
+        role === areaRole || (areaRole === "direction" && role === "admin");
+
+      if (!roleMatchesArea) {
         router.replace(getHomePathForRole(role));
         return;
       }

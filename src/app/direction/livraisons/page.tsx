@@ -629,8 +629,8 @@ export default function Page() {
               </select>
             </label>
             <label className="tagora-field">
-              <span className="tagora-label">Dossier</span>
-              <select value={newForm.dossier_id} onChange={(e) => setNewForm({ ...newForm, dossier_id: e.target.value })} className="tagora-input" required>
+              <span className="tagora-label">Dossier (optionnel)</span>
+              <select value={newForm.dossier_id} onChange={(e) => setNewForm({ ...newForm, dossier_id: e.target.value })} className="tagora-input">
                 <option value="">Choisir un dossier</option>
                 {dossiers.map((dossier) => <option key={String(dossier.id)} value={String(dossier.id)}>{String(getDossierLabel(dossier))}</option>)}
               </select>
@@ -822,14 +822,20 @@ export default function Page() {
                         overflow: "hidden",
                       }}
                     >
-                      {day && (
-                        <div style={{ fontWeight: 700, fontSize: 14, color: "#0f2948", marginBottom: 6 }}>{day}</div>
-                      )}
+                      {day ? (
+                        <Link
+                          href={`/direction/livraisons/jour?date=${dateStr}`}
+                          className="tagora-dark-outline-action"
+                          style={{ width: "fit-content", padding: "2px 8px", marginBottom: 6 }}
+                        >
+                          {day}
+                        </Link>
+                      ) : null}
                       <div style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, overflow: "auto" }}>
                         {datumsForDay.slice(0, 3).map((item) => (
-                          <button
+                          <Link
                             key={item.id}
-                            onClick={() => handleEdit(item)}
+                            href={`/direction/livraisons/jour?date=${dateStr}`}
                             style={{
                               padding: "3px 6px",
                               borderRadius: 4,
@@ -844,12 +850,11 @@ export default function Page() {
                               overflow: "hidden",
                               textOverflow: "ellipsis",
                               transition: "opacity 140ms ease",
+                              display: "block",
                             }}
-                            onMouseEnter={(e) => (e.currentTarget.style.opacity = "0.8")}
-                            onMouseLeave={(e) => (e.currentTarget.style.opacity = "1")}
                           >
                             {getLivraisonClient(item, getDossierById(item.dossier_id)) || `#${item.id}`} {item.heure_prevue ? `@ ${item.heure_prevue}` : ""}
-                          </button>
+                          </Link>
                         ))}
                         {datumsForDay.length > 3 && (
                           <div style={{ color: "#64748b", fontSize: 10, fontWeight: 600 }}>+{datumsForDay.length - 3} autre(s)</div>

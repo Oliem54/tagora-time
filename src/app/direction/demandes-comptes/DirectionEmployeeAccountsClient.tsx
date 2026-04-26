@@ -42,6 +42,7 @@ type ActionConfig = {
 const fallbackPermissions = [...accountRequestPermissionOptions];
 
 function formatRole(role: RequestRole | null | undefined) {
+  if (role === "admin") return "Admin";
   if (role === "direction") return "Direction";
   if (role === "employe") return "Employe";
   return "Non defini";

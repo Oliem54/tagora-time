@@ -3,7 +3,7 @@
 import Image from "next/image";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowUpRight, Clock3, FileStack, Lightbulb, ShieldCheck, Truck, Waypoints } from "lucide-react";
+import { ArrowUpRight, Clock3, FileStack, ShieldCheck, Truck, Waypoints } from "lucide-react";
 import { useCurrentAccess } from "@/app/hooks/useCurrentAccess";
 import { supabase } from "../../lib/supabase/client";
 import AuthenticatedPageHeader from "@/app/components/ui/AuthenticatedPageHeader";
@@ -329,8 +329,8 @@ export default function EmployeDashboardPage() {
             />
             {canUseLivraisons ? (
               <ModuleTile
-                title="Livraisons"
-                description="Suivi."
+                title="Livraison & ramassage"
+                description="Suivi a venir."
                 icon={<Truck size={24} strokeWidth={2.1} />}
                 accent="linear-gradient(135deg, rgba(59,130,246,0.16) 0%, rgba(15,41,72,0.08) 100%)"
                 action={
@@ -363,18 +363,6 @@ export default function EmployeDashboardPage() {
               action={
                 <SecondaryButton onClick={() => router.push("/employe/profil")} style={{ width: "100%", justifyContent: "space-between" }}>
                   <span>Gerer</span>
-                  <ArrowUpRight size={16} />
-                </SecondaryButton>
-              }
-            />
-            <ModuleTile
-              title="Ameliorations"
-              description="Retours."
-              icon={<Lightbulb size={24} strokeWidth={2.1} />}
-              accent="linear-gradient(135deg, rgba(236,72,153,0.16) 0%, rgba(15,41,72,0.08) 100%)"
-              action={
-                <SecondaryButton onClick={() => router.push("/ameliorations")} style={{ width: "100%", justifyContent: "space-between" }}>
-                  <span>Acceder</span>
                   <ArrowUpRight size={16} />
                 </SecondaryButton>
               }

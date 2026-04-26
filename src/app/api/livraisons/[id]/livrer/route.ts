@@ -54,7 +54,7 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { user } = await getAuthenticatedRequestUser(req);
+    const { user, role } = await getAuthenticatedRequestUser(req);
 
     if (!user) {
       return NextResponse.json({ error: "Authentification requise." }, { status: 401 });
@@ -62,6 +62,13 @@ export async function POST(
 
     if (!hasUserPermission(user, "livraisons")) {
       return NextResponse.json({ error: "Acces refuse." }, { status: 403 });
+    }
+
+    if (role === "employe") {
+      return NextResponse.json(
+        { error: "Action de gestion reservee a la direction/admin." },
+        { status: 403 }
+      );
     }
 
     const { id } = await params;

@@ -1,4 +1,25 @@
 @import "tailwindcss";
+@import "leaflet/dist/leaflet.css";
+
+.day-ops-layout {
+  display: grid;
+  grid-template-columns: minmax(340px, 380px) minmax(0, 1fr);
+  gap: 12px;
+  width: 100%;
+  min-width: 0;
+  align-items: start;
+}
+
+.day-ops-layout > * {
+  min-width: 0;
+  width: 100%;
+}
+
+@media (max-width: 1120px) {
+  .day-ops-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
 
 :root {
   --tagora-yellow: #F4D10B;

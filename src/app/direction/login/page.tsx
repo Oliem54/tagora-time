@@ -167,7 +167,7 @@ export default function DirectionLoginPage() {
         return;
       }
 
-      if (role !== "direction") {
+      if (role !== "direction" && role !== "admin") {
         await supabase.auth.signOut();
         setMessage("Ce compte n'a pas acces au portail direction.");
         setMessageType("error");

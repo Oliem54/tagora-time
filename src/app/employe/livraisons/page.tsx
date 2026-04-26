@@ -1,6 +1,7 @@
 "use client";
 
 import { type FormEvent, useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { supabase } from "../../lib/supabase/client";
 import { useCurrentAccess } from "../../hooks/useCurrentAccess";
@@ -50,9 +51,26 @@ function formatDateTime(dateString: string | null) {
   return d.toLocaleString("fr-CA");
 }
 
-function getStatusTone(statut: string | null) {
-  if (statut === "livree") return "success" as const;
-  if (statut === "en_cours") return "warning" as const;
+function normalizeOperationStatus(raw: string | null | undefined) {
+  const value = (raw || "").trim().toLowerCase();
+  if (value === "en_cours") return "en_cours" as const;
+  if (value === "livree" || value === "ramassee" || value === "ramasse") return "terminee" as const;
+  if (value === "pret_a_ramasser") return "prioritaire" as const;
+  return "planifiee" as const;
+}
+
+function getOperationStatusLabel(raw: string | null | undefined, operationView: "livraisons" | "ramassages") {
+  const status = normalizeOperationStatus(raw);
+  if (status === "en_cours") return "En cours";
+  if (status === "terminee") return operationView === "ramassages" ? "Ramasse" : "Livree";
+  if (status === "prioritaire") return "Pret a ramasser";
+  return "Planifie";
+}
+
+function getOperationStatusTone(raw: string | null | undefined) {
+  const status = normalizeOperationStatus(raw);
+  if (status === "terminee") return "success" as const;
+  if (status === "en_cours") return "warning" as const;
   return "default" as const;
 }
 
@@ -78,6 +96,10 @@ function getTodayLocalDate() {
   const month = `${now.getMonth() + 1}`.padStart(2, "0");
   const day = `${now.getDate()}`.padStart(2, "0");
   return `${year}-${month}-${day}`;
+}
+
+function monthLabel(date: Date) {
+  return new Intl.DateTimeFormat("fr-CA", { month: "long", year: "numeric" }).format(date);
 }
 
 export default function EmployeLivraisonsPage() {
@@ -106,16 +128,26 @@ export default function EmployeLivraisonsPage() {
   const [incidentDescriptionValues, setIncidentDescriptionValues] = useState<
     Record<number, string>
   >({});
+  const [operationView, setOperationView] = useState<"livraisons" | "ramassages">(
+    "livraisons"
+  );
+  const [viewMode, setViewMode] = useState<"liste" | "calendrier">("calendrier");
+  const [calendarDate, setCalendarDate] = useState(new Date());
+  const [statusFilter, setStatusFilter] = useState<
+    "" | "planifiee" | "prioritaire" | "en_cours" | "terminee" | "en_retard"
+  >("");
 
   const dateDuJour = getTodayLocalDate();
   const canUseLivraisons = hasPermission("livraisons");
+  const canManagePlanning = false;
 
   const chargerLivraisons = useCallback(async () => {
     const { data, error } = await supabase
       .from("livraisons_planifiees")
       .select("*")
-      .eq("date_livraison", dateDuJour)
+      .gte("date_livraison", dateDuJour)
       .order("ordre_arret", { ascending: true })
+      .order("date_livraison", { ascending: true })
       .order("id", { ascending: true });
 
     if (error) {
@@ -148,9 +180,97 @@ export default function EmployeLivraisonsPage() {
   }, [accessLoading, canUseLivraisons, chargerLivraisons, router, user]);
 
   const total = livraisons.length;
-  const planifiees = livraisons.filter((l) => l.statut === "planifiee").length;
-  const enCours = livraisons.filter((l) => l.statut === "en_cours").length;
-  const livrees = livraisons.filter((l) => l.statut === "livree").length;
+  const livraisonsFiltrees = livraisons.filter((item) =>
+    operationView === "ramassages"
+      ? item.type_operation === "ramassage_client"
+      : item.type_operation !== "ramassage_client"
+  );
+  const totalFiltres = livraisonsFiltrees.length;
+  const planifiees = livraisonsFiltrees.filter(
+    (l) => normalizeOperationStatus(l.statut) === "planifiee"
+  ).length;
+  const enCours = livraisonsFiltrees.filter(
+    (l) => normalizeOperationStatus(l.statut) === "en_cours"
+  ).length;
+  const terminees = livraisonsFiltrees.filter(
+    (l) => normalizeOperationStatus(l.statut) === "terminee"
+  ).length;
+  const prioritaires = livraisonsFiltrees.filter(
+    (l) => normalizeOperationStatus(l.statut) === "prioritaire"
+  ).length;
+  const enRetard = livraisonsFiltrees.filter(
+    (l) =>
+      Boolean(l.date_livraison) &&
+      String(l.date_livraison) < dateDuJour &&
+      normalizeOperationStatus(l.statut) !== "terminee"
+  ).length;
+  const listOrdered = [...livraisonsFiltrees].sort((a, b) => {
+    const aOverdue =
+      Boolean(a.date_livraison) &&
+      String(a.date_livraison) < dateDuJour &&
+      normalizeOperationStatus(a.statut) !== "terminee";
+    const bOverdue =
+      Boolean(b.date_livraison) &&
+      String(b.date_livraison) < dateDuJour &&
+      normalizeOperationStatus(b.statut) !== "terminee";
+    if (aOverdue !== bOverdue) return aOverdue ? -1 : 1;
+
+    const getPriority = (raw: string | null) => {
+      const status = normalizeOperationStatus(raw);
+      if (status === "prioritaire") return 0;
+      if (status === "planifiee") return 1;
+      if (status === "en_cours") return 2;
+      return 3;
+    };
+    const deltaPriority = getPriority(a.statut) - getPriority(b.statut);
+    if (deltaPriority !== 0) return deltaPriority;
+    return String(a.date_livraison || "").localeCompare(String(b.date_livraison || ""));
+  });
+  const filteredOrdered = listOrdered.filter((item) => {
+    if (!statusFilter) return true;
+    const isOverdue =
+      Boolean(item.date_livraison) &&
+      String(item.date_livraison) < dateDuJour &&
+      normalizeOperationStatus(item.statut) !== "terminee";
+    if (statusFilter === "en_retard") return isOverdue;
+    return normalizeOperationStatus(item.statut) === statusFilter;
+  });
+  const navButtonBase: React.CSSProperties = {
+    minHeight: 40,
+    padding: "10px 16px",
+    borderRadius: 10,
+    border: "1px solid #0f2948",
+    fontSize: 13,
+    fontWeight: 700,
+    lineHeight: 1,
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    whiteSpace: "nowrap",
+    cursor: "pointer",
+    transition: "all 140ms ease",
+  };
+  const getButtonTone = (active: boolean): React.CSSProperties =>
+    active
+      ? { background: "#0f2948", color: "#ffffff" }
+      : { background: "#ffffff", color: "#0f2948" };
+  const getDaysForMonth = () => {
+    const year = calendarDate.getFullYear();
+    const month = calendarDate.getMonth();
+    const first = new Date(year, month, 1);
+    const last = new Date(year, month + 1, 0);
+    const days: (number | null)[] = [];
+    const offset = (first.getDay() + 6) % 7;
+    for (let i = 0; i < offset; i += 1) days.push(null);
+    for (let day = 1; day <= last.getDate(); day += 1) days.push(day);
+    return days;
+  };
+  const getDateIsoForDay = (day: number) => {
+    const year = calendarDate.getFullYear();
+    const month = `${calendarDate.getMonth() + 1}`.padStart(2, "0");
+    const d = `${day}`.padStart(2, "0");
+    return `${year}-${month}-${d}`;
+  };
 
   const handleDemarrer = async (livraison: Livraison) => {
     const kmDepart = kmDepartValues[livraison.id];
@@ -313,7 +433,7 @@ export default function EmployeLivraisonsPage() {
     return (
       <main className="tagora-app-shell">
         <div className="tagora-app-content">
-          <AuthenticatedPageHeader title="Tournee" />
+          <AuthenticatedPageHeader title="Livraison & ramassage" />
           <SectionCard title="Chargement" subtitle="Acces en cours." />
         </div>
       </main>
@@ -324,7 +444,7 @@ export default function EmployeLivraisonsPage() {
     return (
       <main className="tagora-app-shell">
         <div className="tagora-app-content">
-          <AuthenticatedPageHeader title="Tournee" />
+          <AuthenticatedPageHeader title="Livraison & ramassage" />
           <SectionCard title="Module masque" subtitle="Acces requis." />
         </div>
       </main>
@@ -334,40 +454,220 @@ export default function EmployeLivraisonsPage() {
   return (
     <main className="tagora-app-shell">
       <div className="tagora-app-content ui-stack-lg">
-        <AuthenticatedPageHeader
-          title="Tournee"
-        />
+        <AuthenticatedPageHeader title="Livraison & ramassage" />
+
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <button
+            type="button"
+            onPointerUp={(event) => {
+              event.preventDefault();
+              setOperationView("livraisons");
+            }}
+            onClick={() => setOperationView("livraisons")}
+            style={{ ...navButtonBase, ...getButtonTone(operationView === "livraisons") }}
+          >
+            Livraisons
+          </button>
+          <button
+            type="button"
+            onPointerUp={(event) => {
+              event.preventDefault();
+              setOperationView("ramassages");
+            }}
+            onClick={() => setOperationView("ramassages")}
+            style={{ ...navButtonBase, ...getButtonTone(operationView === "ramassages") }}
+          >
+            Ramassages
+          </button>
+          <button
+            type="button"
+            onPointerUp={(event) => {
+              event.preventDefault();
+              setViewMode("liste");
+            }}
+            onClick={() => setViewMode("liste")}
+            style={{ ...navButtonBase, ...getButtonTone(viewMode === "liste") }}
+          >
+            Liste
+          </button>
+          <button
+            type="button"
+            onPointerUp={(event) => {
+              event.preventDefault();
+              setViewMode("calendrier");
+            }}
+            onClick={() => setViewMode("calendrier")}
+            style={{ ...navButtonBase, ...getButtonTone(viewMode === "calendrier") }}
+          >
+            Calendrier
+          </button>
+        </div>
 
         {feedback ? <SectionCard title="Action" subtitle={feedback} tone="muted" /> : null}
 
         <div className="ui-grid-auto">
-          <StatCard label="Total" value={total} />
+          <StatCard label="Total a venir" value={total} />
+          <StatCard
+            label={operationView === "ramassages" ? "Ramassages" : "Livraisons"}
+            value={totalFiltres}
+          />
           <StatCard label="Planifiees" value={planifiees} />
+          <StatCard label="Prioritaires" value={prioritaires} />
           <StatCard label="En cours" value={enCours} tone="warning" />
-          <StatCard label="Livrees" value={livrees} tone="success" />
+          <StatCard
+            label={operationView === "ramassages" ? "Ramasses" : "Livrees"}
+            value={terminees}
+            tone="success"
+          />
+          <StatCard label="En retard" value={enRetard} tone="warning" />
         </div>
 
         <SectionCard
-          title="Livraisons"
-          subtitle="Suivi et actions."
+          title={operationView === "ramassages" ? "Ramassages a venir" : "Livraisons a venir"}
+          subtitle="Consultation et documentation."
           actions={<PrimaryButton onClick={chargerLivraisons}>Actualiser</PrimaryButton>}
         >
-          {livraisons.length === 0 ? (
-            <AppCard tone="muted">
-              <p className="ui-text-muted" style={{ margin: 0 }}>
-                Aucune livraison.
-              </p>
-            </AppCard>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
+            <select
+              value={statusFilter}
+              onChange={(e) =>
+                setStatusFilter(
+                  e.target.value as "" | "planifiee" | "prioritaire" | "en_cours" | "terminee" | "en_retard"
+                )
+              }
+              className="tagora-input"
+              style={{ maxWidth: 240 }}
+            >
+              <option value="">Tous les statuts</option>
+              <option value="planifiee">Planifie</option>
+              <option value="prioritaire">Prioritaire</option>
+              <option value="en_cours">En cours</option>
+              <option value="terminee">{operationView === "ramassages" ? "Ramasse" : "Livree"}</option>
+              <option value="en_retard">En retard</option>
+            </select>
+          </div>
+          {viewMode === "calendrier" ? (
+            <div className="ui-stack-sm">
+              {filteredOrdered.length === 0 ? (
+                <AppCard tone="muted">
+                  <p className="ui-text-muted" style={{ margin: 0 }}>
+                    {operationView === "ramassages"
+                      ? "Aucun ramassage a venir."
+                      : "Aucune livraison a venir."}
+                  </p>
+                </AppCard>
+              ) : null}
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+                <button
+                  type="button"
+                  className="tagora-dark-outline-action"
+                  onClick={() =>
+                    setCalendarDate(
+                      new Date(calendarDate.getFullYear(), calendarDate.getMonth() - 1, 1)
+                    )
+                  }
+                >
+                  ← Mois prec
+                </button>
+                <strong style={{ textTransform: "capitalize" }}>{monthLabel(calendarDate)}</strong>
+                <button
+                  type="button"
+                  className="tagora-dark-outline-action"
+                  onClick={() =>
+                    setCalendarDate(
+                      new Date(calendarDate.getFullYear(), calendarDate.getMonth() + 1, 1)
+                    )
+                  }
+                >
+                  Mois suiv →
+                </button>
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 8, marginBottom: 8 }}>
+                {["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"].map((day) => (
+                  <div key={day} style={{ textAlign: "center", fontWeight: 700, fontSize: 12 }}>
+                    {day}
+                  </div>
+                ))}
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 8 }}>
+                {getDaysForMonth().map((day, index) => {
+                  const isoDate = day ? getDateIsoForDay(day) : "";
+                  const entries = day
+                    ? filteredOrdered.filter((entry) => String(entry.date_livraison || "") === isoDate)
+                    : [];
+                  return (
+                    <div
+                      key={`${isoDate}-${index}`}
+                      style={{
+                        minHeight: 110,
+                        border: "1px solid #e5e7eb",
+                        borderRadius: 10,
+                        padding: 8,
+                        background: day ? "#fff" : "#f8fafc",
+                      }}
+                    >
+                      {day ? (
+                        <Link
+                          href={`/employe/livraisons/jour?date=${isoDate}`}
+                          className="tagora-dark-outline-action"
+                          style={{ width: "fit-content", padding: "2px 8px", marginBottom: 6 }}
+                        >
+                          {day}
+                        </Link>
+                      ) : null}
+                      <div style={{ display: "grid", gap: 4 }}>
+                        {entries.slice(0, 3).map((entry) => (
+                          <Link
+                            key={entry.id}
+                            href={`/employe/livraisons/jour?date=${isoDate}`}
+                            className="tagora-dark-outline-action"
+                            style={{ textAlign: "left", padding: "4px 8px", fontSize: 11 }}
+                          >
+                            {String(entry.client || `#${entry.id}`)}
+                          </Link>
+                        ))}
+                        {entries.length > 3 ? (
+                          <span className="ui-text-muted" style={{ fontSize: 11 }}>
+                            +{entries.length - 3} autre(s)
+                          </span>
+                        ) : null}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
           ) : (
             <div className="ui-stack-md">
-              {livraisons.map((livraison) => {
+              {filteredOrdered.length === 0 ? (
+                <AppCard tone="muted">
+                  <p className="ui-text-muted" style={{ margin: 0 }}>
+                    {operationView === "ramassages"
+                      ? "Aucun ramassage a venir."
+                      : "Aucune livraison a venir."}
+                  </p>
+                </AppCard>
+              ) : null}
+              {filteredOrdered.map((livraison, index) => {
                 const distance =
                   livraison.km_depart != null && livraison.km_arrivee != null
                     ? livraison.km_arrivee - livraison.km_depart
                     : null;
+                const isOverdue =
+                  Boolean(livraison.date_livraison) &&
+                  String(livraison.date_livraison) < dateDuJour &&
+                  normalizeOperationStatus(livraison.statut) !== "terminee";
+                const normalizedStatus = normalizeOperationStatus(livraison.statut);
 
                 return (
-                  <AppCard key={livraison.id} className="ui-stack-md">
+                  <AppCard
+                    key={livraison.id}
+                    className="ui-stack-md"
+                    style={{
+                      border: isOverdue ? "1px solid #ef4444" : undefined,
+                      background: isOverdue ? "rgba(254, 242, 242, 0.95)" : undefined,
+                    }}
+                  >
                     <div
                       style={{
                         display: "flex",
@@ -378,7 +678,11 @@ export default function EmployeLivraisonsPage() {
                       }}
                     >
                       <div className="ui-stack-xs">
-                        <span className="ui-eyebrow">Livraison</span>
+                        <span className="ui-eyebrow">
+                          {livraison.type_operation === "ramassage_client"
+                            ? "Ramassage"
+                            : "Livraison"}
+                        </span>
                         <div
                           style={{
                             fontSize: 28,
@@ -390,10 +694,40 @@ export default function EmployeLivraisonsPage() {
                           {livraison.client || "Sans client"}
                         </div>
                       </div>
-                      <StatusBadge
-                        label={livraison.statut || "-"}
-                        tone={getStatusTone(livraison.statut)}
-                      />
+                      <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                        {isOverdue ? (
+                          <span
+                            style={{
+                              fontSize: 11,
+                              fontWeight: 700,
+                              color: "#b91c1c",
+                              border: "1px solid #b91c1c",
+                              borderRadius: 999,
+                              padding: "2px 8px",
+                            }}
+                          >
+                            RETARD
+                          </span>
+                        ) : null}
+                        {normalizedStatus === "prioritaire" ? (
+                          <span
+                            style={{
+                              fontSize: 11,
+                              fontWeight: 700,
+                              color: "#0f2948",
+                              border: "1px solid #0f2948",
+                              borderRadius: 999,
+                              padding: "2px 8px",
+                            }}
+                          >
+                            PRIORITE
+                          </span>
+                        ) : null}
+                        <StatusBadge
+                          label={getOperationStatusLabel(livraison.statut, operationView)}
+                          tone={getOperationStatusTone(livraison.statut)}
+                        />
+                      </div>
                     </div>
 
                     <div className="ui-grid-3">
@@ -412,6 +746,10 @@ export default function EmployeLivraisonsPage() {
                       />
                     </div>
 
+                    <div className="ui-text-muted" style={{ fontWeight: 600 }}>
+                      Ordre de passage: {index + 1}
+                    </div>
+
                     <AppCard tone="muted">
                       <div className="ui-grid-3">
                         <InfoRow label="Depart reel" value={formatDateTime(livraison.heure_depart_reelle)} compact />
@@ -423,7 +761,7 @@ export default function EmployeLivraisonsPage() {
                       </div>
                     </AppCard>
 
-                    {livraison.statut === "planifiee" ? (
+                    {canManagePlanning && livraison.statut === "planifiee" ? (
                       <form
                         onSubmit={(event) => handleDemarrerSubmit(event, livraison)}
                         style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "end" }}
@@ -453,7 +791,7 @@ export default function EmployeLivraisonsPage() {
                       </form>
                     ) : null}
 
-                    {livraison.statut === "en_cours" ? (
+                    {canManagePlanning && livraison.statut === "en_cours" ? (
                       <div className="ui-stack-sm">
                         <form
                           className="ui-stack-sm"
@@ -601,19 +939,19 @@ export default function EmployeLivraisonsPage() {
                             </div>
                           ) : null}
                         </form>
-                        <OperationProofsPanel
-                          moduleSource={getProofModuleSource(livraison.type_operation)}
-                          sourceId={livraison.id}
-                          categorieParDefaut={
-                            livraison.type_operation === "ramassage_client"
-                              ? "preuve_ramassage"
-                              : "preuve_livraison"
-                          }
-                          titre="Preuves de livraison / ramassage"
-                          commentairePlaceholder="Commentaire preuve livraison"
-                        />
                       </div>
                     ) : null}
+                    <OperationProofsPanel
+                      moduleSource={getProofModuleSource(livraison.type_operation)}
+                      sourceId={livraison.id}
+                      categorieParDefaut={
+                        livraison.type_operation === "ramassage_client"
+                          ? "preuve_ramassage"
+                          : "preuve_livraison"
+                      }
+                      titre="Preuves de livraison / ramassage"
+                      commentairePlaceholder="Commentaire preuve livraison"
+                    />
                   </AppCard>
                 );
               })}

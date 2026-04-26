@@ -326,7 +326,7 @@ export async function requireDirectionHorodateurAccess(req: NextRequest) {
   const user = authenticated.user ?? directionResolution.user;
   const role = authenticated.role;
   const authSource = authenticated.authSource ?? directionResolution.debug.authSource;
-  const hasDirectionAccess = role === "direction";
+  const hasDirectionAccess = role === "direction" || role === "admin";
   const hasTerrainPermission = hasUserPermission(authenticated.user, "terrain");
   const isDev = process.env.NODE_ENV !== "production";
   const cookieValue = getCookieToken(req);
