@@ -3,7 +3,7 @@
 
 .day-ops-layout {
   display: grid;
-  grid-template-columns: minmax(340px, 380px) minmax(0, 1fr);
+  grid-template-columns: minmax(320px, 360px) minmax(0, 1fr);
   gap: 12px;
   width: 100%;
   min-width: 0;
@@ -13,6 +13,52 @@
 .day-ops-layout > * {
   min-width: 0;
   width: 100%;
+}
+
+.day-ops-left-col {
+  width: 100%;
+  min-width: 0;
+  max-width: 360px;
+  overflow: hidden;
+}
+
+.day-ops-right-col {
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.day-ops-map-panel {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.day-ops-map-wrap {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  border-radius: 14px;
+}
+
+.day-ops-leaflet-map {
+  width: 100%;
+  max-width: 100%;
+}
+
+.day-ops-leaflet-map .leaflet-container,
+.day-ops-leaflet-map .leaflet-pane,
+.day-ops-leaflet-map .leaflet-map-pane {
+  max-width: 100%;
+}
+
+.day-ops-compact-btn {
+  min-height: 32px;
+  padding: 6px 10px;
+  font-size: 12px;
+  border-radius: 10px;
 }
 
 @media (max-width: 1120px) {

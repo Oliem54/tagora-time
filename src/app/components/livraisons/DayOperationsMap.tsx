@@ -2,6 +2,8 @@
 
 import { MapContainer, Marker, Polyline, Popup, TileLayer, Tooltip } from "react-leaflet";
 import L from "leaflet";
+import { useEffect } from "react";
+import { useMap } from "react-leaflet";
 
 export type DayOperationMapPoint = {
   id: number;
@@ -26,6 +28,29 @@ type Props = {
   returnOrigin: OriginPoint | null;
 };
 
+function EnsureLeafletResize() {
+  const map = useMap();
+
+  useEffect(() => {
+    let active = true;
+    const tick = () => {
+      if (!active) return;
+      map.invalidateSize();
+    };
+    const raf = requestAnimationFrame(tick);
+    const t1 = window.setTimeout(tick, 120);
+    const t2 = window.setTimeout(tick, 400);
+    return () => {
+      active = false;
+      cancelAnimationFrame(raf);
+      window.clearTimeout(t1);
+      window.clearTimeout(t2);
+    };
+  }, [map]);
+
+  return null;
+}
+
 function buildNumberedIcon(order: number, type: "livraison" | "ramassage", active: boolean) {
   const background = type === "ramassage" ? "#0f2948" : "#2563eb";
   const ring = active ? "#f59e0b" : "#ffffff";
@@ -45,22 +70,20 @@ export default function DayOperationsMap({
   returnOrigin,
 }: Props) {
   const routePath = [
-    ...points
+    ...[...points]
       .sort((a, b) => a.order - b.order)
       .map((point) => [point.latitude, point.longitude] as [number, number]),
   ];
 
-  if (points.length === 0) {
-    return (
-      <div className="tagora-panel-muted">
-        <p className="ui-text-muted" style={{ margin: 0 }}>
-          Aucun point geolocalisable pour cette journee.
-        </p>
-      </div>
-    );
-  }
-
-  const center = [points[0].latitude, points[0].longitude] as [number, number];
+  const center = (
+    points[0]
+      ? [points[0].latitude, points[0].longitude]
+      : origin
+        ? [origin.latitude, origin.longitude]
+        : returnOrigin
+          ? [returnOrigin.latitude, returnOrigin.longitude]
+          : [46.8139, -71.2082]
+  ) as [number, number];
   const bounds = points.map((point) => [point.latitude, point.longitude]) as [
     number,
     number
@@ -73,15 +96,25 @@ export default function DayOperationsMap({
     bounds.push([returnOrigin.latitude, returnOrigin.longitude]);
     routePath.push([returnOrigin.latitude, returnOrigin.longitude]);
   }
+  const boundsOrUndefined = bounds.length > 0 ? bounds : undefined;
 
   return (
     <MapContainer
+      className="day-ops-leaflet-map"
       center={center}
       zoom={11}
-      style={{ height: 520, width: "100%", borderRadius: 14, overflow: "hidden" }}
-      bounds={bounds}
+      style={{
+        height: 500,
+        width: "100%",
+        maxWidth: "100%",
+        display: "block",
+        borderRadius: 14,
+        overflow: "hidden",
+      }}
+      bounds={boundsOrUndefined}
       scrollWheelZoom
     >
+      <EnsureLeafletResize />
       <TileLayer
         attribution='&copy; OpenStreetMap contributors &copy; CARTO'
         url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
@@ -139,6 +172,15 @@ export default function DayOperationsMap({
       ))}
       {routePath.length > 1 ? (
         <Polyline positions={routePath} pathOptions={{ color: "#0f2948", weight: 3, opacity: 0.65 }} />
+      ) : null}
+      {points.length === 0 ? (
+        <Marker position={center}>
+          <Popup>
+            <div style={{ fontSize: 13 }}>
+              Aucun point geolocalisable pour cette journee.
+            </div>
+          </Popup>
+        </Marker>
       ) : null}
     </MapContainer>
   );

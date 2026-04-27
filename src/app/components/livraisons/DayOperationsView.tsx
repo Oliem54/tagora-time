@@ -768,11 +768,13 @@ export default function DayOperationsView({ area }: Props) {
 
       <div className="day-ops-layout" style={{ marginTop: 12 }}>
         <section
-          className="tagora-panel ui-stack-sm"
+          className="tagora-panel ui-stack-sm day-ops-left-col"
           style={{
             width: "100%",
             minWidth: 0,
             boxSizing: "border-box",
+            padding: 14,
+            gap: 8,
           }}
         >
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
@@ -781,7 +783,7 @@ export default function DayOperationsView({ area }: Props) {
             </h2>
             <Link
               href={area === "direction" ? "/direction/livraisons" : "/employe/livraisons"}
-              className="tagora-dark-outline-action"
+              className="tagora-dark-outline-action day-ops-compact-btn"
             >
               Retour calendrier
             </Link>
@@ -795,15 +797,18 @@ export default function DayOperationsView({ area }: Props) {
             <AppCard
                 tone="muted"
                 style={{
+                  padding: 10,
                   border: "1px solid #16a34a",
                   background: "rgba(240, 253, 244, 0.9)",
                 }}
               >
                 <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
-                  <div style={{ display: "grid", gap: 4 }}>
-                    <strong>#0 DEPOT OLIEM</strong>
-                    <span className="ui-text-muted">Point de depart</span>
-                    <span className="ui-text-muted">{origin?.label ?? "Oliem Solutions"}</span>
+                  <div style={{ display: "grid", gap: 2, minWidth: 0 }}>
+                    <strong style={{ fontSize: 13 }}>#0 DEPOT OLIEM</strong>
+                    <span className="ui-text-muted" style={{ fontSize: 12 }}>Point de depart</span>
+                    <span className="ui-text-muted" style={{ fontSize: 12, overflowWrap: "anywhere" }}>
+                      {origin?.label ?? "Oliem Solutions"}
+                    </span>
                   </div>
                   <StatusBadge label="DEPART" tone="success" />
                 </div>
@@ -826,37 +831,42 @@ export default function DayOperationsView({ area }: Props) {
                     }
                     setDraggingId(null);
                   }}
-                  className="tagora-dark-outline-action"
+                  className="tagora-dark-outline-action day-ops-compact-btn"
                   onClick={() => {
                     setSelectedId(stop.id);
                     setShowDetail(true);
                   }}
                   style={{
+                    minHeight: 62,
+                    padding: "8px 10px",
                     textAlign: "left",
                     justifyContent: "space-between",
                     borderColor: selected?.id === stop.id ? "#0f2948" : undefined,
                     background: selected?.id === stop.id ? "#f8fafc" : "#fff",
+                    width: "100%",
+                    maxWidth: "100%",
+                    overflow: "hidden",
                   }}
                 >
-                  <div style={{ display: "grid", gap: 4 }}>
-                    <strong>
+                  <div style={{ display: "grid", gap: 2, minWidth: 0 }}>
+                    <strong style={{ fontSize: 12, lineHeight: 1.2, overflowWrap: "anywhere" }}>
                       #{index + 1} {stop.client}
                     </strong>
-                    <span className="ui-text-muted">
+                    <span className="ui-text-muted" style={{ fontSize: 11 }}>
                       {stop.type === "ramassage" ? "Ramassage" : "Livraison"} · {stop.time}
                     </span>
-                    <span className="ui-text-muted">
+                    <span className="ui-text-muted" style={{ fontSize: 11, overflowWrap: "anywhere" }}>
                       {stop.fullAddress || stop.address || "Adresse non renseignee"}
                     </span>
                     {!stop.hasReliableAddress ? (
-                      <span className="ui-text-muted" style={{ color: "#b45309", fontWeight: 700 }}>
+                      <span className="ui-text-muted" style={{ color: "#b45309", fontWeight: 700, fontSize: 11 }}>
                         Adresse incomplete pour geocodage fiable.
                       </span>
                     ) : null}
                   </div>
-                  <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                  <div style={{ display: "flex", gap: 6, alignItems: "center", flexShrink: 0 }}>
                     {stop.isOverdue ? (
-                      <span style={{ fontSize: 11, fontWeight: 700, color: "#b91c1c" }}>RETARD</span>
+                      <span style={{ fontSize: 10, fontWeight: 700, color: "#b91c1c" }}>RETARD</span>
                     ) : null}
                     <StatusBadge label={stop.statusText} tone={stop.statusTone} />
                   </div>
@@ -865,15 +875,18 @@ export default function DayOperationsView({ area }: Props) {
               <AppCard
                 tone="muted"
                 style={{
+                  padding: 10,
                   border: "1px solid #b45309",
                   background: "rgba(255, 247, 237, 0.95)",
                 }}
               >
                 <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
-                  <div style={{ display: "grid", gap: 4 }}>
-                    <strong>#{orderedStopIds.length + 1} RETOUR</strong>
-                    <span className="ui-text-muted">Point de retour</span>
-                    <span className="ui-text-muted">{returnOrigin?.label ?? origin?.label ?? "Oliem Solutions"}</span>
+                  <div style={{ display: "grid", gap: 2, minWidth: 0 }}>
+                    <strong style={{ fontSize: 13 }}>#{orderedStopIds.length + 1} RETOUR</strong>
+                    <span className="ui-text-muted" style={{ fontSize: 12 }}>Point de retour</span>
+                    <span className="ui-text-muted" style={{ fontSize: 12, overflowWrap: "anywhere" }}>
+                      {returnOrigin?.label ?? origin?.label ?? "Oliem Solutions"}
+                    </span>
                   </div>
                   <StatusBadge label="RETOUR" tone="warning" />
                 </div>
@@ -883,21 +896,26 @@ export default function DayOperationsView({ area }: Props) {
         </section>
 
         <section
-          className="ui-stack-md"
+          className="ui-stack-md day-ops-right-col"
           style={{
             width: "100%",
             minWidth: 0,
             boxSizing: "border-box",
+            display: "grid",
+            gridTemplateRows: "auto auto auto",
+            gap: 14,
+            alignContent: "start",
           }}
         >
           <section
-            className="tagora-panel"
+            className="tagora-panel day-ops-map-panel"
             style={{
-              padding: 14,
+              padding: 16,
               minWidth: 0,
               boxSizing: "border-box",
-              border: "1px solid #d9e4f2",
-              boxShadow: "0 8px 20px rgba(15, 41, 72, 0.08)",
+              border: "1px solid #cddbee",
+              boxShadow: "0 14px 30px rgba(15, 41, 72, 0.12)",
+              background: "#ffffff",
             }}
           >
             <h2 className="section-title" style={{ marginBottom: 10 }}>
@@ -916,7 +934,7 @@ export default function DayOperationsView({ area }: Props) {
               </label>
               <button
                 type="button"
-                className="tagora-dark-outline-action"
+                className="tagora-dark-outline-action day-ops-compact-btn"
                 onClick={() => void updateOriginFromAddress()}
                 disabled={originUpdating}
               >
@@ -936,7 +954,7 @@ export default function DayOperationsView({ area }: Props) {
               </label>
               <button
                 type="button"
-                className="tagora-dark-outline-action"
+                className="tagora-dark-outline-action day-ops-compact-btn"
                 onClick={() => void updateReturnFromAddress()}
                 disabled={returnUpdating}
               >
@@ -952,16 +970,27 @@ export default function DayOperationsView({ area }: Props) {
                 Origine non definie.
               </p>
             )}
-            <DayOperationsMap
-              points={mapPoints}
-              selectedId={selected?.id ?? null}
-              onSelect={(id) => setSelectedId(id)}
-              origin={origin}
-              returnOrigin={returnOrigin}
-            />
+            <div className="day-ops-map-wrap">
+              <DayOperationsMap
+                points={mapPoints}
+                selectedId={selected?.id ?? null}
+                onSelect={(id) => setSelectedId(id)}
+                origin={origin}
+                returnOrigin={returnOrigin}
+              />
+            </div>
           </section>
 
-          <section className="tagora-panel ui-stack-sm" style={{ padding: 14, minWidth: 0, boxSizing: "border-box" }}>
+          <section
+            className="tagora-panel ui-stack-sm"
+            style={{
+              padding: 14,
+              minWidth: 0,
+              boxSizing: "border-box",
+              border: "1px solid #d9e4f2",
+              boxShadow: "0 8px 18px rgba(15, 41, 72, 0.08)",
+            }}
+          >
             <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
               <h2 className="section-title" style={{ marginBottom: 0 }}>
                 Suggestion de route
@@ -969,7 +998,7 @@ export default function DayOperationsView({ area }: Props) {
               {canManageOrder ? (
                 <button
                   type="button"
-                  className="tagora-dark-action"
+                  className="tagora-dark-action day-ops-compact-btn"
                   disabled={routeApplying || routeSummary.suggestedOrder.length === 0}
                   onClick={() => void applySuggestedOrder()}
                 >
@@ -1014,7 +1043,16 @@ export default function DayOperationsView({ area }: Props) {
           </section>
 
           {selected ? (
-            <section className="tagora-panel ui-stack-xs" style={{ padding: 14, minWidth: 0, boxSizing: "border-box" }}>
+            <section
+              className="tagora-panel ui-stack-xs"
+              style={{
+                padding: 14,
+                minWidth: 0,
+                boxSizing: "border-box",
+                border: "1px solid #e2e8f0",
+                boxShadow: "0 4px 12px rgba(15, 41, 72, 0.05)",
+              }}
+            >
               <div
                 style={{
                   display: "flex",
@@ -1037,7 +1075,7 @@ export default function DayOperationsView({ area }: Props) {
                 </div>
                 <button
                   type="button"
-                  className="tagora-dark-outline-action"
+                  className="tagora-dark-outline-action day-ops-compact-btn"
                   onClick={() => setShowDetail((prev) => !prev)}
                 >
                   {showDetail ? "Masquer" : "Afficher"}
@@ -1080,7 +1118,7 @@ export default function DayOperationsView({ area }: Props) {
                     <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
                       <button
                         type="button"
-                        className="tagora-dark-outline-action"
+                        className="tagora-dark-outline-action day-ops-compact-btn"
                         onClick={() => {
                           setIsEditingStop((prev) => !prev);
                           setStopFormMessage("");
@@ -1200,7 +1238,7 @@ export default function DayOperationsView({ area }: Props) {
                       <div style={{ display: "flex", justifyContent: "flex-end" }}>
                         <button
                           type="button"
-                          className="tagora-dark-action"
+                          className="tagora-dark-action day-ops-compact-btn"
                           disabled={savingStop}
                           onClick={() => void saveStopInline()}
                         >
