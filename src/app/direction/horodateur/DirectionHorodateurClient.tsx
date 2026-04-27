@@ -111,10 +111,13 @@ type RouteDebugPayload = {
 
 type DirectionMutationPayload = {
   currentState?: {
-    current_state: string;
+    current_state?: string;
+    status?: string | null;
     last_event_at: string | null;
     last_event_type: string | null;
     has_open_exception: boolean;
+    currentEventType?: string | null;
+    startedAt?: string | null;
   };
   shift?: LiveRow["todayShift"];
   weeklyProjection?: WeeklyProjectionPayload;

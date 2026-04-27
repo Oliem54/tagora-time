@@ -46,18 +46,18 @@ export function getRequestAccessToken(req: NextRequest) {
   };
 }
 
-function normalizeAppRole(value: unknown): "direction" | "employe" | null {
+function normalizeAppRole(value: unknown): "direction" | "employe" | "admin" | null {
   if (typeof value !== "string") {
     return null;
   }
 
   const normalized = value.trim().toLowerCase();
 
-  if (
-    normalized === "direction" ||
-    normalized === "admin" ||
-    normalized === "manager"
-  ) {
+  if (normalized === "admin") {
+    return "admin";
+  }
+
+  if (normalized === "direction" || normalized === "manager") {
     return "direction";
   }
 
@@ -74,7 +74,7 @@ function normalizeAppRole(value: unknown): "direction" | "employe" | null {
 
 export function extractRoleFromUser(
   user: User | null | undefined
-): "direction" | "employe" | null {
+): "direction" | "employe" | "admin" | null {
   if (!user) {
     return null;
   }
@@ -226,7 +226,10 @@ export async function resolveDirectionRequestUser(req: NextRequest) {
   const directionConfirmed =
     jwtRole === "direction" ||
     tokenRole === "direction" ||
-    adminRole === "direction";
+    adminRole === "direction" ||
+    jwtRole === "admin" ||
+    tokenRole === "admin" ||
+    adminRole === "admin";
 
   const roleMismatch =
     new Set([jwtRole, tokenRole, adminRole].filter(Boolean)).size > 1;
@@ -256,9 +259,14 @@ export async function resolveDirectionRequestUser(req: NextRequest) {
     };
   }
 
+  const resolvedRole =
+    adminRole === "admin" || tokenRole === "admin" || jwtRole === "admin"
+      ? ("admin" as const)
+      : ("direction" as const);
+
   return {
     user: adminUser ?? tokenUser,
-    role: "direction" as const,
+    role: resolvedRole,
     debug: {
       apiBlockReason: null,
       authSource: accessToken.source,

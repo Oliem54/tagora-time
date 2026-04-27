@@ -17,7 +17,7 @@ export default function HeaderTagora({
       actions={actions}
       compact={compact ?? true}
       showUserIdentity={showUserIdentity}
-      showNavigation={showNavigation ?? false}
+      showNavigation={showNavigation ?? true}
       className="tagora-header"
     />
   );

@@ -58,6 +58,9 @@ export type EmployeProfile = {
   sms_alert_dinner_fin: boolean | null;
   sms_alert_quart_debut: boolean | null;
   sms_alert_quart_fin: boolean | null;
+  alert_email_enabled: boolean | null;
+  alert_sms_enabled: boolean | null;
+  is_direction_alert_recipient: boolean | null;
 };
 
 export type EmployeFormState = {
@@ -106,6 +109,9 @@ export type EmployeFormState = {
   sms_alert_dinner_fin: boolean;
   sms_alert_quart_debut: boolean;
   sms_alert_quart_fin: boolean;
+  alert_email_enabled: boolean;
+  alert_sms_enabled: boolean;
+  is_direction_alert_recipient: boolean;
 };
 
 export const employeeWorkDays = [
@@ -183,6 +189,9 @@ export function buildEmployeForm(
     sms_alert_dinner_fin: profile?.sms_alert_dinner_fin ?? true,
     sms_alert_quart_debut: profile?.sms_alert_quart_debut ?? true,
     sms_alert_quart_fin: profile?.sms_alert_quart_fin ?? true,
+    alert_email_enabled: profile?.alert_email_enabled ?? true,
+    alert_sms_enabled: profile?.alert_sms_enabled ?? true,
+    is_direction_alert_recipient: profile?.is_direction_alert_recipient ?? false,
   };
 }
 
@@ -311,6 +320,9 @@ export function buildEmployePayload(form: EmployeFormState) {
     sms_alert_dinner_fin: form.sms_alert_dinner_fin,
     sms_alert_quart_debut: form.sms_alert_quart_debut,
     sms_alert_quart_fin: form.sms_alert_quart_fin,
+    alert_email_enabled: form.alert_email_enabled,
+    alert_sms_enabled: form.alert_sms_enabled,
+    is_direction_alert_recipient: form.is_direction_alert_recipient,
   };
 }
 

@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import type { ReactNode } from "react";
 
 export const metadata: Metadata = {
-  title: "Nouveau dossier",
-  description: "Creation de dossier Tagora.",
+  title: "Nouvelle intervention",
+  description: "Creation d intervention Tagora.",
 };
 
 export default function EmployeDossiersNewLayout({

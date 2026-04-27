@@ -2,7 +2,10 @@
 
 import { ReactNode, useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { supabase } from "@/app/lib/supabase/client";
+import {
+  clearLocalAuthIfRefreshTokenDead,
+  supabase,
+} from "@/app/lib/supabase/client";
 import {
   getRequiredPermissionForPath,
   hasUserPermission,
@@ -42,7 +45,10 @@ export default function AuthGate({
 
     async function evaluateAccess() {
       setMissingPermission(null);
-      const { data } = await supabase.auth.getUser();
+      let { data, error: userError } = await supabase.auth.getUser();
+      if (await clearLocalAuthIfRefreshTokenDead(userError)) {
+        ({ data, error: userError } = await supabase.auth.getUser());
+      }
       const user = data.user;
       const role = getUserRole(user);
 
@@ -67,7 +73,10 @@ export default function AuthGate({
         return;
       }
 
-      if (role !== areaRole) {
+      const roleMatchesArea =
+        role === areaRole || (areaRole === "direction" && role === "admin");
+
+      if (!roleMatchesArea) {
         router.replace(getHomePathForRole(role));
         return;
       }

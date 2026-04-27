@@ -29,10 +29,10 @@ type NoteRow = {
 
 type DocumentRow = {
   id: number;
-  reference: string;
+  referenceLiee: string;
   client: string;
   type: string;
-  date: string;
+  dateHeure: string;
   statut: string;
   statutColor: string;
   statutBg: string;
@@ -50,6 +50,26 @@ function getStatusPresentation(status: string) {
   }
 
   return { color: "#1d4ed8", background: "#dbeafe" };
+}
+
+function getInterventionType(description: string | null) {
+  const normalized = (description || "").trim().toLowerCase();
+  if (!normalized) return "Intervention";
+  if (normalized.includes("livraison")) return "Livraison";
+  if (normalized.includes("ramassage")) return "Ramassage";
+  if (normalized.includes("incident") || normalized.includes("dommage")) {
+    return "Incident / dommage";
+  }
+  if (normalized.includes("depense")) return "Depense employe";
+  if (normalized.includes("note")) return "Note interne";
+  return "Intervention";
+}
+
+function formatDateTime(value: string | null | undefined) {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "-";
+  return date.toLocaleString("fr-CA");
 }
 
 export default function EmployeDocumentsPage() {
@@ -124,10 +144,10 @@ export default function EmployeDocumentsPage() {
 
           return {
             id: item.id,
-            reference: item.nom || `Dossier #${item.id}`,
+            referenceLiee: item.nom || `#${item.id}`,
             client: item.client || "-",
-            type: item.description || "Document terrain",
-            date: item.created_at?.slice(0, 10) || "-",
+            type: getInterventionType(item.description),
+            dateHeure: formatDateTime(item.created_at),
             statut: status,
             statutColor: statusPresentation.color,
             statutBg: statusPresentation.background,
@@ -158,8 +178,8 @@ export default function EmployeDocumentsPage() {
     <main className="tagora-app-shell">
       <div className="tagora-app-content" style={{ maxWidth: 1400 }}>
         <HeaderTagora
-          title="Documents"
-          subtitle="Liste."
+          title="Mes interventions"
+          subtitle="Liste des interventions."
         />
 
         {!hasPermission("documents") && !accessLoading ? (
@@ -169,7 +189,7 @@ export default function EmployeDocumentsPage() {
             <div className="tagora-panel">
               <div style={{ display: "flex", justifyContent: "space-between", gap: 16, flexWrap: "wrap", alignItems: "center", marginBottom: 18 }}>
                 <div>
-                  <h2 className="section-title" style={{ marginBottom: 8 }}>Documents</h2>
+                  <h2 className="section-title" style={{ marginBottom: 8 }}>Mes interventions</h2>
                   <p className="tagora-note">{rows.length} element{rows.length > 1 ? "s" : ""}</p>
                 </div>
 
@@ -178,7 +198,7 @@ export default function EmployeDocumentsPage() {
                     href="/employe/documents/new"
                     className="tagora-dark-action rounded-xl px-6 py-3 text-center text-base font-semibold transition"
                   >
-                    Creer
+                    Nouvelle intervention
                   </Link>
 
                   <Link
@@ -194,30 +214,30 @@ export default function EmployeDocumentsPage() {
                 <p className="tagora-note">Chargement...</p>
               ) : rows.length === 0 ? (
                 <div className="tagora-panel-muted">
-                  <p className="tagora-note">Aucun document.</p>
+                  <p className="tagora-note">Aucune intervention.</p>
                 </div>
               ) : (
                 <div style={{ overflowX: "auto" }}>
                   <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 760 }}>
                     <thead>
                       <tr style={{ background: "#f8fafc" }}>
-                        <th style={tableHeadStyle}>Reference</th>
+                        <th style={tableHeadStyle}>Reference liee</th>
                         <th style={tableHeadStyle}>Client</th>
                         <th style={tableHeadStyle}>Type</th>
-                        <th style={tableHeadStyle}>Date</th>
-                        <th style={tableHeadStyle}>Pieces</th>
+                        <th style={tableHeadStyle}>Date / heure</th>
+                        <th style={tableHeadStyle}>Preuves presentes</th>
                         <th style={tableHeadStyle}>Statut</th>
                       </tr>
                     </thead>
                     <tbody>
                       {rows.map((row) => (
                         <tr key={row.id}>
-                          <td style={tableCellStyle}>{row.reference}</td>
+                          <td style={tableCellStyle}>{row.referenceLiee}</td>
                           <td style={tableCellStyle}>{row.client}</td>
                           <td style={tableCellStyle}>{row.type}</td>
-                          <td style={tableCellStyle}>{row.date}</td>
+                          <td style={tableCellStyle}>{row.dateHeure}</td>
                           <td style={tableCellStyle}>
-                            {row.mediaCount} media, {row.notesCount} note{row.notesCount > 1 ? "s" : ""}
+                            Photos/Fichiers: {row.mediaCount} • Notes: {row.notesCount}
                           </td>
                           <td style={tableCellStyle}>
                             <span

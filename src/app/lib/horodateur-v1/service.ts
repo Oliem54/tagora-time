@@ -19,6 +19,7 @@ import {
   insertEvent,
   insertException,
   listActiveEmployees,
+  listDirectionAlertRecipients,
   listEventsForEmployee,
   listExceptionsForEmployeeWorkDate,
   listExceptionsForShift,
@@ -124,6 +125,40 @@ function parseEnvList(rawValue: string | undefined) {
   return normalizeConfigList((rawValue ?? "").split(","));
 }
 
+async function resolveDirectionRecipients(config: HorodateurDirectionAlertConfigRecord) {
+  const employeeRecipients = await listDirectionAlertRecipients();
+  const directionEmails = normalizeConfigList([
+    ...config.direction_emails,
+    ...employeeRecipients
+      .filter((item) => item.alertEmailEnabled)
+      .map((item) => item.email ?? ""),
+  ]);
+  const directionSmsNumbers = normalizeConfigList([
+    ...config.direction_sms_numbers,
+    ...employeeRecipients
+      .filter((item) => item.alertSmsEnabled)
+      .map((item) => item.phoneNumber ?? ""),
+  ]);
+
+  return {
+    directionEmails,
+    directionSmsNumbers,
+  };
+}
+
+/** shortOffset peut donner "GMT-4" → "-4" ; `Date` exige un décalage ±HH:mm. */
+function normalizeIsoTimezoneOffset(raw: string): string {
+  const s = raw.trim();
+  const m = s.match(/^([+-])(\d{1,2})(?::(\d{2}))?$/);
+  if (!m) {
+    return "-04:00";
+  }
+  const sign = m[1];
+  const hh = m[2].padStart(2, "0");
+  const mm = (m[3] ?? "00").padStart(2, "0");
+  return `${sign}${hh}:${mm}`;
+}
+
 function formatDatePartsInToronto(value: Date) {
   const formatter = new Intl.DateTimeFormat("en-CA", {
     timeZone: TORONTO_TIMEZONE,
@@ -147,7 +182,9 @@ function formatDatePartsInToronto(value: Date) {
     hour: map.hour,
     minute: map.minute,
     second: map.second,
-    offset: map.timeZoneName?.replace("GMT", "") || "-04:00",
+    offset: normalizeIsoTimezoneOffset(
+      map.timeZoneName?.replace("GMT", "").trim() || "-04:00"
+    ),
   };
 }
 
@@ -323,6 +360,7 @@ async function notifyDirectionOfPendingException(options: {
   event: HorodateurPhase1EventRecord;
 }) {
   const config = await getHorodateurDirectionAlertConfig();
+  const recipients = await resolveDirectionRecipients(config);
 
   if (
     options.exception.status !== "en_attente" ||
@@ -344,8 +382,8 @@ async function notifyDirectionOfPendingException(options: {
         managementUrl: "/direction/horodateur",
         emailEnabled: config.email_enabled,
         smsEnabled: config.sms_enabled,
-        recipientEmails: config.direction_emails,
-        recipientSmsNumbers: config.direction_sms_numbers,
+        recipientEmails: recipients.directionEmails,
+        recipientSmsNumbers: recipients.directionSmsNumbers,
       });
 
     const nowIso = new Date().toISOString();
@@ -389,6 +427,7 @@ function getReminderReferenceTime(exception: HorodateurPhase1ExceptionRecord) {
 
 export async function processPendingExceptionReminders() {
   const config = await getHorodateurDirectionAlertConfig();
+  const recipients = await resolveDirectionRecipients(config);
   const pendingExceptions = await listPendingExceptionsForDirection();
   const now = Date.now();
   const processed: Array<{
@@ -434,8 +473,8 @@ export async function processPendingExceptionReminders() {
       managementUrl: "/direction/horodateur",
       emailEnabled: config.email_enabled && !emailAlreadyReminded,
       smsEnabled: config.sms_enabled && !smsAlreadyReminded,
-      recipientEmails: config.direction_emails,
-      recipientSmsNumbers: config.direction_sms_numbers,
+      recipientEmails: recipients.directionEmails,
+      recipientSmsNumbers: recipients.directionSmsNumbers,
       isReminder: true,
     });
 
@@ -504,6 +543,7 @@ export async function processLateEmployeeNotifications() {
   const { workDate, weekday } = getTodayWorkDateAndDay(now);
   const currentMinutes = getTorontoCurrentMinutes(now);
   const config = await getHorodateurDirectionAlertConfig();
+  const recipients = await resolveDirectionRecipients(config);
   const employees = await listActiveEmployees();
   const processed: Array<{
     employeeId: number;
@@ -595,6 +635,7 @@ export async function processLateEmployeeNotifications() {
     const shouldSendDirectionSms =
       config.sms_enabled && !notification.late_direction_sms_notified_at;
     const shouldSendEmployeeSms =
+      employee.alertSmsEnabled !== false &&
       employee.smsAlertQuartDebut !== false &&
       !notification.late_employee_sms_notified_at;
 
@@ -615,8 +656,8 @@ export async function processLateEmployeeNotifications() {
       emailEnabled: shouldSendDirectionEmail,
       smsEnabled: shouldSendDirectionSms,
       employeeSmsEnabled: shouldSendEmployeeSms,
-      recipientEmails: config.direction_emails,
-      recipientSmsNumbers: config.direction_sms_numbers,
+      recipientEmails: recipients.directionEmails,
+      recipientSmsNumbers: recipients.directionSmsNumbers,
     });
 
     const nowIso = new Date().toISOString();

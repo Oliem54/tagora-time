@@ -66,6 +66,17 @@ type PositionSummary = {
   vehicleLabel: string | null;
 };
 
+function isMissingRelationError(error: unknown) {
+  if (!error || typeof error !== "object") return false;
+  const record = error as Record<string, unknown>;
+  const code = typeof record.code === "string" ? record.code : "";
+  const message = typeof record.message === "string" ? record.message.toLowerCase() : "";
+  const details = typeof record.details === "string" ? record.details.toLowerCase() : "";
+  const hint = typeof record.hint === "string" ? record.hint.toLowerCase() : "";
+  const text = `${message} ${details} ${hint}`;
+  return code === "42P01" || text.includes("does not exist") || text.includes("relation");
+}
+
 function todayIso() {
   return new Date().toISOString().slice(0, 10);
 }
@@ -184,7 +195,16 @@ export default function DirectionTerrainPage() {
 
       if (fallbackRes.error) {
         setGpsPositions([]);
-        setErrorMessage("Le cockpit terrain ne trouve ni la vue direction_terrain_positions ni la table gps_positions.");
+        const primaryError =
+          gpsRes.status === "fulfilled" ? gpsRes.value.error : gpsRes.reason;
+        const missingPrimary = isMissingRelationError(primaryError);
+        const missingFallback = isMissingRelationError(fallbackRes.error);
+
+        if (missingPrimary && missingFallback) {
+          setErrorMessage("Module GPS non configure: la vue direction_terrain_positions et la table gps_positions sont absentes.");
+        } else {
+          setErrorMessage("Aucune donnee terrain disponible pour le moment.");
+        }
       } else {
         setGpsPositions((fallbackRes.data ?? []).map((row) => normalizeGps({ ...(row as Record<string, unknown>), source_kind: "gps", source_label: "Flux GPS natif" })));
         setDataSourceNotice("Le cockpit lit actuellement gps_positions uniquement.");
@@ -439,7 +459,7 @@ export default function DirectionTerrainPage() {
         <SectionCard title="Liens" subtitle="Modules lies.">
           <div className="ui-grid-auto">
             <AppCard tone="muted"><Link href="/direction/sorties-terrain"><div className="ui-stack-xs"><strong>Sorties terrain</strong><span className="ui-text-muted">Voir</span></div></Link></AppCard>
-            <AppCard tone="muted"><Link href="/direction/livraisons"><div className="ui-stack-xs"><strong>Livraisons</strong><span className="ui-text-muted">Voir</span></div></Link></AppCard>
+            <AppCard tone="muted"><Link href="/direction/livraisons"><div className="ui-stack-xs"><strong>Livraison & ramassage</strong><span className="ui-text-muted">Voir</span></div></Link></AppCard>
             <AppCard tone="muted"><Link href="/direction/horodateur"><div className="ui-stack-xs"><strong>Horodateur</strong><span className="ui-text-muted">Voir</span></div></Link></AppCard>
             <AppCard tone="muted"><Link href="/direction/temps-titan"><div className="ui-stack-xs"><strong>Temps Titan</strong><span className="ui-text-muted">Voir</span></div></Link></AppCard>
           </div>

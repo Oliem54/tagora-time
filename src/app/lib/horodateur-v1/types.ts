@@ -142,6 +142,9 @@ export type HorodateurPhase1EmployeeProfile = {
   toleranceAfterEndMinutes: number;
   maxShiftMinutes: number;
   smsAlertQuartDebut: boolean;
+  alertEmailEnabled: boolean;
+  alertSmsEnabled: boolean;
+  isDirectionAlertRecipient: boolean;
 };
 
 export type HorodateurPhase1EventRecord = {
@@ -320,7 +323,7 @@ export type HorodateurPhase1ClassifyInput = {
   employee: HorodateurPhase1EmployeeProfile;
   currentState: HorodateurPhase1CurrentStateRecord | null;
   latestApprovedEvents: HorodateurPhase1EventRecord[];
-  eventType: HorodateurPhase1EventType;
+  eventType: HorodateurPhase1EventType | HorodateurCanonicalEventType;
   occurredAt: string;
   actorRole: HorodateurPhase1ActorRole;
   note?: string | null;

@@ -37,6 +37,9 @@ type ChauffeurProfileRow = {
   horodateur_tolerance_after_end_minutes?: number | null;
   horodateur_max_shift_minutes?: number | null;
   sms_alert_quart_debut: boolean | null;
+  alert_email_enabled?: boolean | null;
+  alert_sms_enabled?: boolean | null;
+  is_direction_alert_recipient?: boolean | null;
 };
 
 type EventRow = Record<string, unknown>;
@@ -59,7 +62,10 @@ const CHAUFFEUR_PHASE1_SELECT_CANONICAL = `
   lunch_paid,
   lunch_minutes,
   expected_breaks_count,
-  sms_alert_quart_debut
+  sms_alert_quart_debut,
+  alert_email_enabled,
+  alert_sms_enabled,
+  is_direction_alert_recipient
 `;
 
 const CHAUFFEUR_PHASE1_SELECT_LEGACY_PHONE = `
@@ -80,7 +86,10 @@ const CHAUFFEUR_PHASE1_SELECT_LEGACY_PHONE = `
   lunch_paid,
   lunch_minutes,
   expected_breaks_count,
-  sms_alert_quart_debut
+  sms_alert_quart_debut,
+  alert_email_enabled,
+  alert_sms_enabled,
+  is_direction_alert_recipient
 `;
 
 function readErrorText(error: unknown) {
@@ -188,7 +197,39 @@ function mapProfile(row: ChauffeurProfileRow): HorodateurPhase1EmployeeProfile {
     toleranceAfterEndMinutes: row.horodateur_tolerance_after_end_minutes ?? 0,
     maxShiftMinutes: row.horodateur_max_shift_minutes ?? 720,
     smsAlertQuartDebut: row.sms_alert_quart_debut !== false,
+    alertEmailEnabled: row.alert_email_enabled !== false,
+    alertSmsEnabled: row.alert_sms_enabled !== false,
+    isDirectionAlertRecipient: row.is_direction_alert_recipient === true,
   };
+}
+
+export async function listDirectionAlertRecipients() {
+  const supabase = createAdminSupabaseClient();
+  let { data, error } = await supabase
+    .from("chauffeurs")
+    .select(CHAUFFEUR_PHASE1_SELECT_CANONICAL)
+    .eq("actif", true)
+    .eq("is_direction_alert_recipient", true)
+    .order("nom", { ascending: true })
+    .returns<ChauffeurProfileRow[]>();
+
+  if (error && isMissingColumnError(error, "telephone")) {
+    const fallback = await supabase
+      .from("chauffeurs")
+      .select(CHAUFFEUR_PHASE1_SELECT_LEGACY_PHONE)
+      .eq("actif", true)
+      .eq("is_direction_alert_recipient", true)
+      .order("nom", { ascending: true })
+      .returns<ChauffeurProfileRow[]>();
+    data = fallback.data ?? null;
+    error = fallback.error ?? null;
+  }
+
+  if (error) {
+    throw error;
+  }
+
+  return (data ?? []).map(mapProfile);
 }
 
 async function getEmployeeAuthUserIdByEmployeeId(employeeId: number) {

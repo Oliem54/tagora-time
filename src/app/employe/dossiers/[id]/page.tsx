@@ -1,6 +1,6 @@
 "use client";
 
-import { ChangeEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { type FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import { useParams, useRouter } from "next/navigation";
 import { supabase } from "../../../lib/supabase/client";
@@ -13,6 +13,7 @@ import InfoRow from "@/app/components/ui/InfoRow";
 import FormField from "@/app/components/ui/FormField";
 import PrimaryButton from "@/app/components/ui/PrimaryButton";
 import SecondaryButton from "@/app/components/ui/SecondaryButton";
+import OperationProofsPanel, { type ModuleSource } from "@/app/components/proofs/OperationProofsPanel";
 
 type Note = {
   id: number;
@@ -23,6 +24,11 @@ type Note = {
 type Photo = {
   id: number;
   image_url: string;
+  proof_type?: string | null;
+  proof_name?: string | null;
+  linked_record_type?: string | null;
+  linked_record_id?: number | null;
+  created_at?: string | null;
 };
 
 type Dossier = {
@@ -35,6 +41,18 @@ type Dossier = {
   nb_fichiers: number | null;
 };
 
+type InterventionMetadata = {
+  typeIntervention: string;
+  referenceLiee: string;
+  contactNom: string;
+  dateHeure: string;
+  kmDepart: string;
+  kmArrivee: string;
+  linkedOperationId: string;
+};
+
+type LegacyProofType = "document" | "voice_recording" | "client_signature";
+
 function isVideo(url: string) {
   const lower = url.toLowerCase();
   return (
@@ -44,6 +62,79 @@ function isVideo(url: string) {
     lower.endsWith(".avi") ||
     lower.endsWith(".mkv")
   );
+}
+
+function isAudio(url: string) {
+  const lower = url.toLowerCase();
+  return (
+    lower.endsWith(".mp3") ||
+    lower.endsWith(".wav") ||
+    lower.endsWith(".m4a") ||
+    lower.endsWith(".aac") ||
+    lower.endsWith(".ogg") ||
+    lower.endsWith(".webm") ||
+    lower.endsWith(".caf")
+  );
+}
+
+function getAudioProofLabel(url: string) {
+  const lower = url.toLowerCase();
+  if (lower.includes("voice-note-")) return "Note vocale employe";
+  if (lower.includes("voice-recording-")) return "Note vocale employe";
+  if (lower.includes("client-confirmation-")) return "Confirmation vocale client";
+  return "Preuve audio";
+}
+
+function parseInterventionMetadata(dossier: Dossier | null): InterventionMetadata {
+  const defaultReference = dossier?.nom || (dossier ? `#${dossier.id}` : "-");
+  const metadata: InterventionMetadata = {
+    typeIntervention: "Intervention",
+    referenceLiee: defaultReference,
+    contactNom: "-",
+    dateHeure: "-",
+    kmDepart: "-",
+    kmArrivee: "-",
+    linkedOperationId: "-",
+  };
+
+  const description = dossier?.description || "";
+  description.split("\n").forEach((line) => {
+    const [rawKey, ...rawValueParts] = line.split(":");
+    if (!rawKey || rawValueParts.length === 0) return;
+    const key = rawKey.trim().toLowerCase();
+    const value = rawValueParts.join(":").trim() || "-";
+
+    if (key === "type_intervention") {
+      if (value === "livraison") metadata.typeIntervention = "Livraison";
+      else if (value === "ramassage") metadata.typeIntervention = "Ramassage";
+      else if (value === "incident") metadata.typeIntervention = "Incident / dommage";
+      else if (value === "depense") metadata.typeIntervention = "Depense employe";
+      else if (value === "note_interne") metadata.typeIntervention = "Note interne liee a mission";
+    }
+    if (key === "reference_liee") metadata.referenceLiee = value;
+    if (key === "contact_nom") metadata.contactNom = value;
+    if (key === "date_heure") metadata.dateHeure = value;
+    if (key === "km_depart") metadata.kmDepart = value;
+    if (key === "km_arrivee") metadata.kmArrivee = value;
+    if (key === "livraison_id") metadata.linkedOperationId = value;
+  });
+
+  return metadata;
+}
+
+function getProofType(photo: Photo): LegacyProofType {
+  const proofType = (photo.proof_type || "").toLowerCase();
+  if (proofType === "voice_recording") return "voice_recording";
+  if (proofType === "client_signature") return "client_signature";
+  if (proofType === "document") return "document";
+  const url = photo.image_url.toLowerCase();
+  if (isAudio(url)) return "voice_recording";
+  if (url.includes("client-signature-")) return "client_signature";
+  return "document";
+}
+
+function getProofName(photo: Photo) {
+  return photo.proof_name || `preuve-${photo.id}`;
 }
 
 export default function DossierPage() {
@@ -58,7 +149,6 @@ export default function DossierPage() {
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [dossier, setDossier] = useState<Dossier | null>(null);
   const [loading, setLoading] = useState(true);
-  const [uploading, setUploading] = useState(false);
   const [feedback, setFeedback] = useState("");
   const [documentsNotice, setDocumentsNotice] = useState("");
 
@@ -66,9 +156,25 @@ export default function DossierPage() {
   const canUseDossiers = hasPermission("dossiers");
 
   const dossierTitle = useMemo(() => {
-    if (!dossier) return `Dossier #${dossierId}`;
-    return dossier.nom || dossier.client || `Dossier #${dossierId}`;
+    if (!dossier) return `Intervention #${dossierId}`;
+    return dossier.nom || dossier.client || `Intervention #${dossierId}`;
   }, [dossier, dossierId]);
+  const interventionMetadata = useMemo(
+    () => parseInterventionMetadata(dossier),
+    [dossier]
+  );
+  const proofModuleSource = useMemo<ModuleSource>(() => {
+    if (interventionMetadata.typeIntervention === "Livraison") return "livraison";
+    if (interventionMetadata.typeIntervention === "Ramassage") return "ramassage";
+    return "dossier";
+  }, [interventionMetadata.typeIntervention]);
+  const proofSourceId = useMemo(() => {
+    const linked = Number(interventionMetadata.linkedOperationId);
+    if (Number.isFinite(linked) && linked > 0 && proofModuleSource !== "dossier") {
+      return String(linked);
+    }
+    return String(dossierId);
+  }, [dossierId, interventionMetadata.linkedOperationId, proofModuleSource]);
 
   const fetchDossier = useCallback(async () => {
     const { data, error } = await supabase
@@ -79,7 +185,7 @@ export default function DossierPage() {
 
     if (error) {
       setFeedback(
-        "Ce dossier n est pas accessible avec votre session actuelle ou n existe plus."
+        "Cette intervention n est pas accessible avec votre session actuelle ou n existe plus."
       );
       setDossier(null);
       return false;
@@ -99,7 +205,7 @@ export default function DossierPage() {
     if (error) {
       setNotes([]);
       setDocumentsNotice(
-        "Les notes et fichiers de ce dossier sont limites sur votre compte."
+        "Les notes et fichiers de cette intervention sont limites sur votre compte."
       );
       return;
     }
@@ -117,7 +223,7 @@ export default function DossierPage() {
     if (error) {
       setPhotos([]);
       setDocumentsNotice(
-        "Les notes et fichiers de ce dossier sont limites sur votre compte."
+        "Les notes et fichiers de cette intervention sont limites sur votre compte."
       );
       return;
     }
@@ -152,7 +258,7 @@ export default function DossierPage() {
         setPhotos([]);
         if (!canUseDocuments) {
           setDocumentsNotice(
-            "La permission documents n est pas active sur votre compte. Les notes et medias sont masques, mais le dossier reste consultable."
+            "La permission documents n est pas active sur votre compte. Les notes et medias sont masques, mais l intervention reste consultable."
           );
         }
       }
@@ -163,7 +269,9 @@ export default function DossierPage() {
     void init();
   }, [accessLoading, canUseDocuments, canUseDossiers, dossierId, fetchDossier, fetchNotes, fetchPhotos, router, userId]);
 
-  const handleAddNote = async () => {
+  const handleAddNote = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+
     if (!user) {
       router.push("/employe/login");
       return;
@@ -202,69 +310,6 @@ export default function DossierPage() {
     await fetchNotes();
   };
 
-  const handleUploadPhoto = async (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file || !user) return;
-
-    setUploading(true);
-    setFeedback("");
-
-    const fileExt = file.name.split(".").pop();
-    const fileName = `${Date.now()}-${Math.random().toString(36).slice(2)}.${fileExt}`;
-    const filePath = `dossier-${dossierId}/${fileName}`;
-
-    const { error: uploadError } = await supabase.storage
-      .from("photos-dossiers")
-      .upload(filePath, file);
-
-    if (uploadError) {
-      setFeedback(
-        "Impossible d envoyer ce fichier. Verifie la permission documents et l acces au stockage."
-      );
-      setUploading(false);
-      return;
-    }
-
-    const { data: publicUrlData } = supabase.storage
-      .from("photos-dossiers")
-      .getPublicUrl(filePath);
-
-    const imageUrl = publicUrlData.publicUrl;
-
-    const { error: insertError } = await supabase.from("photos_dossier").insert([
-      {
-        dossier_id: dossierId,
-        image_url: imageUrl,
-        user_id: user.id,
-      },
-    ]);
-
-    if (insertError) {
-      setFeedback(
-        "Le fichier a ete envoye mais son enregistrement a echoue. Verifie les droits documents."
-      );
-      setUploading(false);
-      return;
-    }
-
-    const uploadedVideo = isVideo(imageUrl);
-
-    await supabase
-      .from("dossiers")
-      .update({
-        nb_photos: uploadedVideo
-          ? dossier?.nb_photos || 0
-          : (dossier?.nb_photos || 0) + 1,
-        nb_fichiers: (dossier?.nb_fichiers || 0) + 1,
-      })
-      .eq("id", dossierId);
-
-    await fetchDossier();
-    await fetchPhotos();
-    setUploading(false);
-    event.target.value = "";
-  };
-
   const handleDeletePhoto = async (photoId: number, imageUrl: string) => {
     const confirmation = window.confirm("Supprimer ce fichier ?");
     if (!confirmation) return;
@@ -277,11 +322,13 @@ export default function DossierPage() {
     }
 
     const deletedVideo = isVideo(imageUrl);
+    const deletedAudio = isAudio(imageUrl);
 
     await supabase
       .from("dossiers")
       .update({
         nb_photos: deletedVideo
+          || deletedAudio
           ? dossier?.nb_photos || 0
           : Math.max((dossier?.nb_photos || 0) - 1, 0),
         nb_fichiers: Math.max((dossier?.nb_fichiers || 0) - 1, 0),
@@ -296,7 +343,7 @@ export default function DossierPage() {
     return (
       <main className="tagora-app-shell">
         <div className="tagora-app-content">
-          <AuthenticatedPageHeader title={`Dossier #${dossierId}`} subtitle="Notes et medias." />
+          <AuthenticatedPageHeader title={`Intervention #${dossierId}`} subtitle="Preuves et notes." />
           <SectionCard title="Chargement" subtitle="Acces en cours." />
         </div>
       </main>
@@ -307,7 +354,7 @@ export default function DossierPage() {
     return (
       <main className="tagora-app-shell">
         <div className="tagora-app-content">
-          <AuthenticatedPageHeader title={`Dossier #${dossierId}`} subtitle="Notes et medias." />
+          <AuthenticatedPageHeader title={`Intervention #${dossierId}`} subtitle="Preuves et notes." />
           <SectionCard title="Acces bloque" subtitle="Permission requise." />
         </div>
       </main>
@@ -319,8 +366,13 @@ export default function DossierPage() {
       <div className="tagora-app-content ui-stack-lg">
         <AuthenticatedPageHeader
           title={dossierTitle}
-          subtitle="Notes et medias."
+          subtitle="Preuves et notes."
         />
+        <div>
+          <SecondaryButton type="button" onClick={() => router.push("/employe/dashboard")}>
+            Retour
+          </SecondaryButton>
+        </div>
 
         {feedback ? <SectionCard title="Action" subtitle={feedback} tone="muted" /> : null}
         {documentsNotice ? <SectionCard title="Acces partiel" subtitle={documentsNotice} tone="muted" /> : null}
@@ -331,12 +383,18 @@ export default function DossierPage() {
           <StatCard label="Fichiers" value={dossier?.nb_fichiers || 0} />
         </div>
 
-        <SectionCard title="Resume" subtitle="Informations principales.">
+        <SectionCard title="Resume intervention" subtitle="Informations operationnelles.">
           {dossier ? (
             <div className="ui-grid-3">
-              <InfoRow label="Nom" value={dossier.nom || `Dossier #${dossier.id}`} />
+              <InfoRow label="Type" value={interventionMetadata.typeIntervention} />
+              <InfoRow label="Reference liee" value={interventionMetadata.referenceLiee} />
               <InfoRow label="Client" value={dossier.client || "-"} />
-              <InfoRow label="Description" value={dossier.description || "-"} />
+              <InfoRow label="Date / heure" value={interventionMetadata.dateHeure} />
+              <InfoRow label="Contact" value={interventionMetadata.contactNom} />
+              <InfoRow
+                label="KM depart / arrivee"
+                value={`${interventionMetadata.kmDepart} / ${interventionMetadata.kmArrivee}`}
+              />
             </div>
           ) : (
             <AppCard tone="muted">
@@ -345,10 +403,36 @@ export default function DossierPage() {
           )}
         </SectionCard>
 
-        {canUseDocuments ? (
+        <SectionCard title="Preuves operationnelles" subtitle="Etat des preuves de l intervention.">
+          <div className="ui-grid-2">
+            <InfoRow label="Photos / fichiers" value={String(dossier?.nb_fichiers || 0)} compact />
+            <InfoRow label="Notes" value={String(dossier?.nb_notes || 0)} compact />
+            <InfoRow
+              label="Signature mobile"
+              value={photos.some((photo) => getProofType(photo) === "client_signature") ? "Renseignee" : "Non renseignee"}
+              compact
+            />
+            <InfoRow
+              label="Confirmation vocale"
+              value={photos.some((photo) => getProofType(photo) === "voice_recording") ? "Renseignee" : "Non renseignee"}
+              compact
+            />
+          </div>
+          <div style={{ marginTop: "var(--ui-space-4)" }}>
+            <OperationProofsPanel
+              moduleSource={proofModuleSource}
+              sourceId={proofSourceId}
+              categorieParDefaut="dossier_terrain"
+              titre="Gestion des preuves"
+              commentairePlaceholder="Commentaire preuve intervention"
+            />
+          </div>
+        </SectionCard>
+
+        {canUseDossiers ? (
           <div className="ui-grid-2" style={{ alignItems: "start" }}>
-            <SectionCard title="Notes" subtitle="Notes du dossier.">
-              <div className="ui-stack-md">
+            <SectionCard title="Notes" subtitle="Notes de l intervention.">
+              <form className="ui-stack-md" onSubmit={handleAddNote}>
                 <FormField label="Nouvelle note">
                   <textarea
                     placeholder="Ecrire une note terrain..."
@@ -358,7 +442,7 @@ export default function DossierPage() {
                   />
                 </FormField>
                 <div>
-                  <PrimaryButton onClick={handleAddNote}>Creer</PrimaryButton>
+                  <PrimaryButton type="submit">Creer</PrimaryButton>
                 </div>
                 {notes.length === 0 ? (
                   <AppCard tone="muted">
@@ -376,7 +460,7 @@ export default function DossierPage() {
                     ))}
                   </div>
                 )}
-              </div>
+              </form>
             </SectionCard>
 
             <SectionCard title="Medias" subtitle="Photos et videos.">
@@ -385,10 +469,11 @@ export default function DossierPage() {
                   <InfoRow label="Maximum" value="15 fichiers" compact />
                   <InfoRow label="Occupation" value={`${dossier?.nb_fichiers || 0}/15`} compact />
                 </div>
-                <FormField label="Ajouter un fichier" hint="Images et videos acceptees.">
-                  <input type="file" accept="image/*,video/*" onChange={handleUploadPhoto} className="tagora-input" />
-                </FormField>
-                {uploading ? <div className="ui-text-muted">Upload en cours...</div> : null}
+                <AppCard tone="muted">
+                  <p className="ui-text-muted" style={{ margin: 0 }}>
+                    Historique media legacy. Les nouveaux ajouts passent par la section &quot;Gestion des preuves&quot;.
+                  </p>
+                </AppCard>
                 {photos.length === 0 ? (
                   <AppCard tone="muted">
                     <p className="ui-text-muted" style={{ margin: 0 }}>Aucun fichier.</p>
@@ -403,6 +488,19 @@ export default function DossierPage() {
                   >
                     {photos.map((photo) => (
                       <AppCard key={photo.id} className="ui-stack-sm">
+                        <div className="ui-stack-xs">
+                          <div className="ui-eyebrow">
+                            {getProofType(photo) === "client_signature"
+                              ? "Signature client"
+                              : getProofType(photo) === "voice_recording"
+                                ? "Vocal"
+                                : "Document"}
+                          </div>
+                          <div style={{ fontWeight: 600, wordBreak: "break-word" }}>{getProofName(photo)}</div>
+                          <div className="ui-text-muted">
+                            {photo.created_at ? new Date(photo.created_at).toLocaleString("fr-CA") : "-"}
+                          </div>
+                        </div>
                         <div
                           style={{
                             width: "100%",
@@ -419,10 +517,24 @@ export default function DossierPage() {
                               controls
                               style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
                             />
+                          ) : isAudio(photo.image_url) ? (
+                            <div className="ui-stack-xs" style={{ padding: 12 }}>
+                              <div className="ui-eyebrow">{getAudioProofLabel(photo.image_url)}</div>
+                              <audio src={photo.image_url} controls style={{ width: "100%" }} />
+                            </div>
                           ) : (
-                            <Image src={photo.image_url} alt="Photo dossier" fill sizes="200px" style={{ objectFit: "cover" }} />
+                            <Image src={photo.image_url} alt="Photo intervention" fill sizes="200px" style={{ objectFit: "cover" }} />
                           )}
                         </div>
+                        <a
+                          href={photo.image_url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="tagora-dark-outline-action"
+                          style={{ textAlign: "center", padding: "10px 12px", borderRadius: 10, textDecoration: "none" }}
+                        >
+                          Ouvrir / telecharger
+                        </a>
                         <SecondaryButton onClick={() => handleDeletePhoto(photo.id, photo.image_url)}>
                           Supprimer
                         </SecondaryButton>

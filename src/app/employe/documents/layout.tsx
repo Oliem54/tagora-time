@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import type { ReactNode } from "react";
 
 export const metadata: Metadata = {
-  title: "Documents employe",
-  description: "Documents employe Tagora.",
+  title: "Interventions employe",
+  description: "Interventions employe Tagora.",
 };
 
 export default function EmployeDocumentsLayout({

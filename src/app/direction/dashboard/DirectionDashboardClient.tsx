@@ -81,8 +81,8 @@ const MODULE_GROUPS: ModuleGroup[] = [
 const MODULES: ModuleDefinition[] = [
   {
     href: "/direction/livraisons",
-    label: "Livraisons",
-    description: "Planification et suivi.",
+    label: "Livraison & ramassage",
+    description: "Planification livraisons et ramassages.",
     permission: "livraisons",
     group: "operations",
     icon: Truck,

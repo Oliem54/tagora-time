@@ -1,4 +1,71 @@
 @import "tailwindcss";
+@import "leaflet/dist/leaflet.css";
+
+.day-ops-layout {
+  display: grid;
+  grid-template-columns: minmax(320px, 360px) minmax(0, 1fr);
+  gap: 12px;
+  width: 100%;
+  min-width: 0;
+  align-items: start;
+}
+
+.day-ops-layout > * {
+  min-width: 0;
+  width: 100%;
+}
+
+.day-ops-left-col {
+  width: 100%;
+  min-width: 0;
+  max-width: 360px;
+  overflow: hidden;
+}
+
+.day-ops-right-col {
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.day-ops-map-panel {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.day-ops-map-wrap {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  border-radius: 14px;
+}
+
+.day-ops-leaflet-map {
+  width: 100%;
+  max-width: 100%;
+}
+
+.day-ops-leaflet-map .leaflet-container,
+.day-ops-leaflet-map .leaflet-pane,
+.day-ops-leaflet-map .leaflet-map-pane {
+  max-width: 100%;
+}
+
+.day-ops-compact-btn {
+  min-height: 32px;
+  padding: 6px 10px;
+  font-size: 12px;
+  border-radius: 10px;
+}
+
+@media (max-width: 1120px) {
+  .day-ops-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
 
 :root {
   --tagora-yellow: #F4D10B;
@@ -848,13 +915,13 @@ select {
   align-items: center;
   justify-content: flex-start;
   gap: var(--ui-space-8);
-  min-height: 220px;
-  padding: var(--ui-space-7) var(--ui-space-8);
+  min-height: 168px;
+  padding: var(--ui-space-6) var(--ui-space-7);
   border-radius: var(--ui-radius-xl);
   color: #ffffff;
-  background: linear-gradient(135deg, #14315a 0%, #173868 42%, #2b5387 100%);
+  background: linear-gradient(135deg, #102a50 0%, #17345f 55%, #264a7d 100%);
   border: 1px solid rgba(255, 255, 255, 0.06);
-  box-shadow: 0 16px 36px rgba(20, 42, 78, 0.18);
+  box-shadow: 0 12px 30px rgba(20, 42, 78, 0.16);
 }
 
 .ui-page-header::before {
@@ -868,15 +935,15 @@ select {
 }
 
 .ui-page-header-compact {
-  min-height: 164px;
-  padding-top: 18px;
-  padding-bottom: 18px;
+  min-height: 152px;
+  padding-top: 14px;
+  padding-bottom: 14px;
 }
 
 .ui-page-header-logo {
   position: relative;
   z-index: 1;
-  width: 260px;
+  width: 212px;
   flex-shrink: 0;
 }
 
@@ -893,63 +960,35 @@ select {
   z-index: 1;
   flex: 1;
   min-width: 0;
+  display: grid;
+  gap: 8px;
 }
 
 .ui-page-header-title {
-  margin: 0 0 var(--ui-space-2) 0;
-  font-size: 34px;
+  margin: 0;
+  font-size: 30px;
   font-weight: 800;
-  line-height: 1.08;
+  line-height: 1.1;
   letter-spacing: -0.02em;
 }
 
 .ui-page-header-subtitle {
   margin: 0;
-  max-width: 760px;
-  font-size: 15px;
-  line-height: 1.45;
-  color: rgba(255, 255, 255, 0.82);
+  max-width: 580px;
+  font-size: 13px;
+  line-height: 1.35;
+  color: rgba(255, 255, 255, 0.76);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .ui-page-header-navigation {
-  margin-top: 18px;
+  margin-top: 6px;
 }
 
 .tagora-page-navigation {
-  display: grid;
-  gap: 14px;
-}
-
-.tagora-page-navigation-breadcrumbs {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
-  min-height: 24px;
-  font-size: 14px;
-  font-weight: 700;
-  color: rgba(255, 255, 255, 0.92);
-}
-
-.tagora-page-navigation-crumb {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-}
-
-.tagora-page-navigation-separator {
-  color: rgba(191, 219, 254, 0.72);
-  flex: 0 0 auto;
-}
-
-.tagora-page-navigation-link {
-  color: rgba(224, 231, 255, 0.92);
-  transition: color 140ms ease;
-}
-
-.tagora-page-navigation-link:hover {
-  color: #ffffff;
+  display: block;
 }
 
 .tagora-page-navigation-actions {
@@ -2148,11 +2187,12 @@ select {
   }
 
   .ui-page-header-title {
-    font-size: 30px;
+    font-size: 25px;
   }
 
   .ui-page-header-subtitle {
-    font-size: 16px;
+    font-size: 12px;
+    white-space: normal;
   }
 
   .tagora-page-navigation-actions {

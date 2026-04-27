@@ -133,12 +133,17 @@ function formatAlertDateTime(value: string | null | undefined) {
     return "-";
   }
 
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return "-";
+  }
+
   return new Intl.DateTimeFormat("fr-CA", {
     dateStyle: "medium",
     timeStyle: "short",
     timeZone:
       process.env.DIRECTION_ALERT_TIMEZONE ?? DEFAULT_DIRECTION_ALERT_TIMEZONE,
-  }).format(new Date(value));
+  }).format(parsed);
 }
 
 function escapeHtml(value: string) {
@@ -570,6 +575,9 @@ export async function sendDirectionAlert(
     recipients: validRecipients,
   });
 
+  let resendHttpStatus: number | null = null;
+  let resendResponseBody: string | null = null;
+
   try {
     const response = await fetch("https://api.resend.com/emails", {
       method: "POST",
@@ -607,6 +615,8 @@ export async function sendDirectionAlert(
     }
 
     if (!response.ok) {
+      resendHttpStatus = response.status;
+      resendResponseBody = rawBody;
       throw new Error(
         `Resend email failed (${response.status} ${response.statusText}): ${
           rawBody || "empty response body"
@@ -632,14 +642,42 @@ export async function sendDirectionAlert(
       providerMessageId,
     };
   } catch (error) {
-    console.error(DIRECTION_ALERT_LOG_PREFIX, "send_failure", {
-      alertType: payload.alertType,
-      requestId: payload.requestId ?? null,
+    const errRecord = error as Record<string, unknown> & {
+      statusCode?: unknown;
+      status?: unknown;
+      response?: unknown;
+    };
+    const message =
+      error instanceof Error ? error.message : String(errRecord.message ?? error);
+    const stack = error instanceof Error ? error.stack ?? null : null;
+    const statusCode =
+      resendHttpStatus ??
+      (typeof errRecord.statusCode === "number" ? errRecord.statusCode : null) ??
+      (typeof errRecord.status === "number" ? errRecord.status : null);
+    const status =
+      typeof errRecord.status === "number" && errRecord.status !== statusCode
+        ? errRecord.status
+        : statusCode;
+    let providerResponse: unknown =
+      errRecord.response ?? errRecord.body ?? errRecord.data ?? null;
+    if (resendResponseBody) {
+      try {
+        providerResponse = JSON.parse(resendResponseBody) as unknown;
+      } catch {
+        providerResponse = resendResponseBody;
+      }
+    }
+
+    const details = {
+      message,
+      statusCode,
+      status,
+      providerResponse,
       recipients: validRecipients,
-      invalidRecipients,
-      errorMessage: error instanceof Error ? error.message : String(error),
-      stack: error instanceof Error ? error.stack : null,
-    });
+    };
+    console.error(
+      `${DIRECTION_ALERT_LOG_PREFIX} send_failure ${JSON.stringify(details)}`
+    );
 
     return {
       ok: false,

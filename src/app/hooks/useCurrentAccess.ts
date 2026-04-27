@@ -2,7 +2,10 @@
 
 import { useEffect, useState } from "react";
 import type { User } from "@supabase/supabase-js";
-import { supabase } from "@/app/lib/supabase/client";
+import {
+  clearLocalAuthIfRefreshTokenDead,
+  supabase,
+} from "@/app/lib/supabase/client";
 import { AppRole, getUserRole } from "@/app/lib/auth/roles";
 import {
   AppPermission,
@@ -39,9 +42,16 @@ export function useCurrentAccess() {
     let cancelled = false;
 
     async function syncAccountActivation() {
-      const {
+      let {
         data: { session },
+        error: sessionError,
       } = await supabase.auth.getSession();
+      if (await clearLocalAuthIfRefreshTokenDead(sessionError)) {
+        ({
+          data: { session },
+          error: sessionError,
+        } = await supabase.auth.getSession());
+      }
 
       const token = session?.access_token;
 
@@ -76,7 +86,10 @@ export function useCurrentAccess() {
     async function loadAccess() {
       await syncAccountActivation();
 
-      const { data } = await supabase.auth.getUser();
+      let { data, error: userError } = await supabase.auth.getUser();
+      if (await clearLocalAuthIfRefreshTokenDead(userError)) {
+        ({ data, error: userError } = await supabase.auth.getUser());
+      }
       const user = data.user;
 
       if (!user) {

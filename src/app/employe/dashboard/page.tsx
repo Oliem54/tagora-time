@@ -3,7 +3,7 @@
 import Image from "next/image";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowUpRight, Clock3, FileStack, Lightbulb, ShieldCheck, Truck, Waypoints } from "lucide-react";
+import { ArrowUpRight, Clock3, FileStack, ShieldCheck, Truck, Waypoints } from "lucide-react";
 import { useCurrentAccess } from "@/app/hooks/useCurrentAccess";
 import { supabase } from "../../lib/supabase/client";
 import AuthenticatedPageHeader from "@/app/components/ui/AuthenticatedPageHeader";
@@ -32,6 +32,9 @@ type DossierCard = {
   client: string;
   description: string;
   statut: string;
+  createdAt: string | null;
+  typeLabel: string;
+  referenceLiee: string;
   notesCount: number;
   fichiersCount: number;
   photosCount: number;
@@ -74,6 +77,30 @@ function getStatutStyle(statut: string) {
   };
 }
 
+function normalizeStatut(value: string) {
+  return value.trim().toLowerCase();
+}
+
+function getTypeInterventionLabel(description: string) {
+  const normalized = description.trim().toLowerCase();
+  if (!normalized) return "Intervention";
+  if (normalized.includes("livraison")) return "Livraison";
+  if (normalized.includes("ramassage")) return "Ramassage";
+  if (normalized.includes("incident") || normalized.includes("dommage")) {
+    return "Incident / dommage";
+  }
+  if (normalized.includes("depense")) return "Depense employe";
+  if (normalized.includes("note")) return "Note interne";
+  return "Intervention";
+}
+
+function formatDateTime(value: string | null) {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "-";
+  return date.toLocaleString("fr-CA");
+}
+
 export default function EmployeDashboardPage() {
   const router = useRouter();
   const { user, loading: accessLoading, hasPermission } = useCurrentAccess();
@@ -103,7 +130,7 @@ export default function EmployeDashboardPage() {
 
       const { data: dossiersData, error: dossiersError } = await supabase
         .from("dossiers")
-        .select("id, nom, client, description, statut")
+        .select("id, nom, client, description, statut, created_at")
         .eq("user_id", userId)
         .order("id", { ascending: false });
 
@@ -183,6 +210,9 @@ export default function EmployeDashboardPage() {
           client: dossier.client || "-",
           description: dossier.description || "-",
           statut: dossier.statut || "Nouveau",
+          createdAt: dossier.created_at || null,
+          typeLabel: getTypeInterventionLabel(dossier.description || ""),
+          referenceLiee: dossier.nom || `#${dossier.id}`,
           notesCount: notesByDossier[dossier.id] || 0,
           fichiersCount: medias.length,
           photosCount: photos.length,
@@ -299,8 +329,8 @@ export default function EmployeDashboardPage() {
             />
             {canUseLivraisons ? (
               <ModuleTile
-                title="Livraisons"
-                description="Suivi."
+                title="Livraison & ramassage"
+                description="Suivi a venir."
                 icon={<Truck size={24} strokeWidth={2.1} />}
                 accent="linear-gradient(135deg, rgba(59,130,246,0.16) 0%, rgba(15,41,72,0.08) 100%)"
                 action={
@@ -313,13 +343,13 @@ export default function EmployeDashboardPage() {
             ) : null}
             {canUseDossiers ? (
               <ModuleTile
-                title="Nouveau dossier"
+                title="Nouvelle intervention"
                 description="Creation."
                 icon={<FileStack size={24} strokeWidth={2.1} />}
                 accent="linear-gradient(135deg, rgba(99,102,241,0.18) 0%, rgba(15,41,72,0.08) 100%)"
                 action={
                   <PrimaryButton onClick={() => router.push("/employe/dossiers/new")} style={{ width: "100%", justifyContent: "space-between" }}>
-                    <span>Creer</span>
+                    <span>Nouvelle intervention</span>
                     <ArrowUpRight size={16} />
                   </PrimaryButton>
                 }
@@ -337,18 +367,6 @@ export default function EmployeDashboardPage() {
                 </SecondaryButton>
               }
             />
-            <ModuleTile
-              title="Ameliorations"
-              description="Retours."
-              icon={<Lightbulb size={24} strokeWidth={2.1} />}
-              accent="linear-gradient(135deg, rgba(236,72,153,0.16) 0%, rgba(15,41,72,0.08) 100%)"
-              action={
-                <SecondaryButton onClick={() => router.push("/ameliorations")} style={{ width: "100%", justifyContent: "space-between" }}>
-                  <span>Acceder</span>
-                  <ArrowUpRight size={16} />
-                </SecondaryButton>
-              }
-            />
           </div>
         </SectionCard>
 
@@ -356,7 +374,7 @@ export default function EmployeDashboardPage() {
           <HorodateurEmployeeCard enabled={canUseTerrain} />
         </SectionCard>
 
-        <SectionCard title="Mes dossiers" subtitle="Dossiers terrain.">
+        <SectionCard title="Mes interventions" subtitle="Interventions terrain.">
           {!canUseDossiers ? (
             <AppCard tone="muted">
               <p className="ui-text-muted" style={{ margin: 0 }}>
@@ -373,14 +391,14 @@ export default function EmployeDashboardPage() {
                   color: "var(--ui-color-text)",
                 }}
               >
-                Aucun dossier pour le moment
+                Aucune intervention pour le moment
               </div>
               <p className="ui-text-muted" style={{ margin: 0 }}>
-                Creez un dossier.
+                Creez une intervention.
               </p>
               <div style={{ display: "flex", justifyContent: "center" }}>
                 <PrimaryButton onClick={() => router.push("/employe/dossiers/new")}>
-                  Creer
+                  Nouvelle intervention
                 </PrimaryButton>
               </div>
             </AppCard>
@@ -420,7 +438,7 @@ export default function EmployeDashboardPage() {
                       }}
                     >
                       <div className="ui-stack-xs">
-                        <span className="ui-eyebrow">Dossier</span>
+                        <span className="ui-eyebrow">Intervention</span>
                         <h3
                           style={{
                             margin: 0,
@@ -450,15 +468,17 @@ export default function EmployeDashboardPage() {
                         {dossier.statut}
                       </span>
                     </div>
+                    <InfoRow label="Type" value={dossier.typeLabel} />
                     <InfoRow label="Client" value={dossier.client} />
-                    <InfoRow label="Description" value={dossier.description} />
+                    <InfoRow label="Reference liee" value={dossier.referenceLiee} />
+                    <InfoRow label="Date / heure" value={formatDateTime(dossier.createdAt)} />
                   </div>
 
                   <AppCard tone="muted" className="ui-stack-sm">
-                    <span className="ui-eyebrow">Resume du dossier</span>
+                    <span className="ui-eyebrow">Preuves presentes</span>
                     <div className="ui-grid-2">
                       <InfoRow label="Notes" value={String(dossier.notesCount)} compact />
-                      <InfoRow label="Fichiers joints" value={String(dossier.fichiersCount)} compact />
+                      <InfoRow label="Fichiers" value={String(dossier.fichiersCount)} compact />
                       <InfoRow label="Photos" value={String(dossier.photosCount)} compact />
                       <InfoRow label="Videos" value={String(dossier.videosCount)} compact />
                     </div>
@@ -495,11 +515,13 @@ export default function EmployeDashboardPage() {
                     }}
                   >
                     <PrimaryButton onClick={() => router.push(`/employe/dossiers/${dossier.id}`)}>
-                      Acceder
+                      Ouvrir
                     </PrimaryButton>
-                    <button onClick={() => handleDelete(dossier.id)} className="tagora-btn-danger">
-                      Supprimer
-                    </button>
+                    {normalizeStatut(dossier.statut) === "nouveau" ? (
+                      <button onClick={() => handleDelete(dossier.id)} className="tagora-btn-danger">
+                        Supprimer
+                      </button>
+                    ) : null}
                   </div>
 
                   <select

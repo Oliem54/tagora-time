@@ -13,6 +13,10 @@ export default function AuthenticatedImprovementsFab() {
     return null;
   }
 
+  if (role !== "admin") {
+    return null;
+  }
+
   if (
     hiddenMarketingPaths.includes(pathname) ||
     pathname === "/ameliorations" ||
