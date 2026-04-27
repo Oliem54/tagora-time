@@ -102,7 +102,7 @@ const MODULES: ModuleDefinition[] = [
   {
     href: "/direction/sorties-terrain",
     label: "Sorties terrain",
-    description: "Kilometres et temps.",
+    description: "Kilomètres et temps.",
     permission: "terrain",
     group: "operations",
     icon: Route,
@@ -122,7 +122,7 @@ const MODULES: ModuleDefinition[] = [
   {
     href: "/direction/documents",
     label: "Documents",
-    description: "Dossiers et pieces.",
+    description: "Dossiers et pièces.",
     permission: "documents",
     group: "gestion",
     icon: Files,
@@ -132,7 +132,7 @@ const MODULES: ModuleDefinition[] = [
   {
     href: "/direction/ressources",
     label: "Ressources",
-    description: "Employes et flotte.",
+    description: "Employés et flotte.",
     permission: "ressources",
     group: "gestion",
     icon: BriefcaseBusiness,
@@ -253,7 +253,7 @@ export default function DirectionDashboardClient({
                 alignItems: "center",
               }}
             >
-              <SecondaryButton onClick={handleLogout}>Se deconnecter</SecondaryButton>
+              <SecondaryButton onClick={handleLogout}>Se déconnecter</SecondaryButton>
             </div>
           }
         />

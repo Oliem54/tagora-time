@@ -9,6 +9,7 @@ type PageHeaderProps = {
   navigation?: ReactNode;
   actions?: ReactNode;
   userIdentity?: string | null;
+  userRoleLabel?: string | null;
   logoSrc?: string;
   logoAlt?: string;
   className?: string;
@@ -21,6 +22,7 @@ export default function PageHeader({
   navigation,
   actions,
   userIdentity,
+  userRoleLabel,
   logoSrc = "/logo.png",
   logoAlt = "Logo TAGORA",
   className,
@@ -62,7 +64,9 @@ export default function PageHeader({
 
       {actions || userIdentity ? (
         <div className="ui-page-header-actions">
-          {userIdentity ? <UserIdentityBadge value={userIdentity} /> : null}
+          {userIdentity ? (
+            <UserIdentityBadge value={userIdentity} roleLabel={userRoleLabel} />
+          ) : null}
           {actions}
         </div>
       ) : null}

@@ -11,6 +11,7 @@ import StatusBadge from "@/app/components/ui/StatusBadge";
 import OperationProofsPanel from "@/app/components/proofs/OperationProofsPanel";
 import { supabase } from "@/app/lib/supabase/client";
 import { useCurrentAccess } from "@/app/hooks/useCurrentAccess";
+import { getOperationCoordinates } from "@/app/lib/livraisons/coordinates";
 
 const DayOperationsMap = dynamic(() => import("./DayOperationsMap"), { ssr: false });
 
@@ -28,27 +29,57 @@ type StopEditForm = {
   commentaire_operationnel: string;
 };
 
+type CoordinateDebugRow = {
+  id: number;
+  client: string;
+  adresse: string;
+  keys: string;
+  latDetected: number | null;
+  lngDetected: number | null;
+  source: string | null;
+  latField: string | number | null | undefined;
+  lngField: string | number | null | undefined;
+  latitudeField: string | number | null | undefined;
+  longitudeField: string | number | null | undefined;
+};
+
 type Props = {
   area: "direction" | "employe";
 };
 
-function toRad(value: number) {
-  return (value * Math.PI) / 180;
-}
+type SuggestedStop = {
+  id: string;
+  ordre: number;
+  nom: string;
+  type: "livraison" | "ramassage";
+  adresse: string;
+  lat: number;
+  lng: number;
+  distanceDepuisPrecedentKm: number;
+  tempsConduiteDepuisPrecedentMinutes: number;
+  tempsServiceMinutes: number;
+  arriveeEstimee: string;
+  departEstime: string;
+};
 
-function haversineKm(a: GeocodedPoint, b: GeocodedPoint) {
-  const earthKm = 6371;
-  const dLat = toRad(b.latitude - a.latitude);
-  const dLon = toRad(b.longitude - a.longitude);
-  const x =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos(toRad(a.latitude)) *
-      Math.cos(toRad(b.latitude)) *
-      Math.sin(dLon / 2) *
-      Math.sin(dLon / 2);
-  const c = 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x));
-  return earthKm * c;
-}
+type RouteSuggestionMetrics = {
+  ordreSuggere: SuggestedStop[];
+  distanceRoutiereTotaleKm: number;
+  tempsConduiteTotalMinutes: number;
+  tempsServiceTotalMinutes: number;
+  tempsJourneeTotalMinutes: number;
+  retourEstime: string;
+  orderIds: string[];
+  routeGeometryLatLng: Array<[number, number]>;
+};
+
+type RouteSuggestionResponse = {
+  warnings?: {
+    stopsSansCoordonnees?: Array<{ id: string; nom: string; adresse: string }>;
+  };
+  current: RouteSuggestionMetrics;
+  suggested: RouteSuggestionMetrics;
+};
 
 function formatDateLabel(isoDate: string) {
   const date = new Date(`${isoDate}T00:00:00`);
@@ -249,6 +280,8 @@ export default function DayOperationsView({ area }: Props) {
   const [returnUpdating, setReturnUpdating] = useState(false);
   const [routeApplying, setRouteApplying] = useState(false);
   const [routeMessage, setRouteMessage] = useState("");
+  const [routeLoading, setRouteLoading] = useState(false);
+  const [routeSuggestion, setRouteSuggestion] = useState<RouteSuggestionResponse | null>(null);
   const [showDetail, setShowDetail] = useState(false);
   const [draggingId, setDraggingId] = useState<number | null>(null);
   const [orderedStopIds, setOrderedStopIds] = useState<number[]>([]);
@@ -454,10 +487,9 @@ export default function DayOperationsView({ area }: Props) {
       let changed = false;
       for (const stop of stops) {
         if (!Number.isFinite(stop.id)) continue;
-        const rowLatitude = parseNumericOrNull(getFieldString(stop.row, ["latitude", "lat"]));
-        const rowLongitude = parseNumericOrNull(getFieldString(stop.row, ["longitude", "lng", "lon"]));
-        if (rowLatitude != null && rowLongitude != null) {
-          nextGeo[stop.id] = { latitude: rowLatitude, longitude: rowLongitude };
+        const coords = getOperationCoordinates(stop.row);
+        if (coords.lat != null && coords.lng != null) {
+          nextGeo[stop.id] = { latitude: coords.lat, longitude: coords.lng };
           changed = true;
           continue;
         }
@@ -482,9 +514,9 @@ export default function DayOperationsView({ area }: Props) {
       .filter((stop): stop is NonNullable<typeof stop> => Boolean(stop));
     return ordered
       .filter((stop) => Boolean(geoById[stop.id]))
-      .map((stop) => ({
+      .map((stop, index) => ({
         id: stop.id,
-        order: stop.order,
+        order: index + 1,
         label: stop.client,
         type: stop.type,
         latitude: geoById[stop.id].latitude,
@@ -523,76 +555,127 @@ export default function DayOperationsView({ area }: Props) {
     setStopFormMessage("");
   }, [selected]);
 
-  const routeSummary = useMemo(() => {
-    const byId = new Map(stops.map((stop) => [stop.id, stop]));
-    const orderedStops = orderedStopIds
-      .map((id) => byId.get(id))
-      .filter((stop): stop is NonNullable<typeof stop> => Boolean(stop));
-    const orderedPoints = orderedStops
-      .filter((stop) => geoById[stop.id])
-      .map((stop) => ({ id: stop.id, ...geoById[stop.id] }));
-    const withOrigin = [
-      ...(origin == null ? [] : [{ id: -1, latitude: origin.latitude, longitude: origin.longitude }]),
-      ...orderedPoints,
-      ...(returnOrigin == null
-        ? []
-        : [{ id: -2, latitude: returnOrigin.latitude, longitude: returnOrigin.longitude }]),
-    ];
-    if (orderedPoints.length < 2) {
-      return {
-        currentKm: 0,
-        suggestedKm: 0,
-        suggestedOrder: [] as number[],
-        currentOrder: [] as number[],
-      };
-    }
-    const distanceForOrder = (points: Array<{ id: number; latitude: number; longitude: number }>) =>
-      points.slice(1).reduce((sum, point, index) => sum + haversineKm(points[index], point), 0);
+  useEffect(() => {
+    async function loadRouteSuggestion() {
+      if (!origin || !returnOrigin) {
+        setRouteSuggestion(null);
+        return;
+      }
+      const byId = new Map(stops.map((stop) => [stop.id, stop]));
+      const orderedStops = orderedStopIds
+        .map((id) => byId.get(id))
+        .filter((stop): stop is NonNullable<typeof stop> => Boolean(stop));
+      if (orderedStops.length === 0) {
+        setRouteSuggestion(null);
+        return;
+      }
 
-    const currentKm = distanceForOrder(withOrigin);
-
-    const remaining = [...orderedPoints];
-    const suggested: Array<{ id: number; latitude: number; longitude: number }> = [];
-    let current =
-      origin == null
-        ? remaining.shift()
-        : { id: -1, latitude: origin.latitude, longitude: origin.longitude };
-    if (!current) {
-      return {
-        currentKm: 0,
-        suggestedKm: 0,
-        suggestedOrder: [] as number[],
-        currentOrder: [] as number[],
-      };
-    }
-    if (origin == null) suggested.push(current);
-    while (remaining.length > 0) {
-      let bestIdx = 0;
-      let bestDist = Number.POSITIVE_INFINITY;
-      remaining.forEach((candidate, idx) => {
-        const d = haversineKm(current!, candidate);
-        if (d < bestDist) {
-          bestDist = d;
-          bestIdx = idx;
-        }
+      const debugRows: CoordinateDebugRow[] = orderedStops.map((stop) => {
+        const coords = getOperationCoordinates(stop.row);
+        return {
+          id: stop.id,
+          client: stop.client,
+          adresse: stop.fullAddress || stop.address || "",
+          keys: Object.keys(stop.row || {}).sort().join(", "),
+          latDetected: coords.lat,
+          lngDetected: coords.lng,
+          source: coords.source,
+          latField: stop.row.lat as string | number | null | undefined,
+          lngField: stop.row.lng as string | number | null | undefined,
+          latitudeField: stop.row.latitude as string | number | null | undefined,
+          longitudeField: stop.row.longitude as string | number | null | undefined,
+        };
       });
-      current = remaining.splice(bestIdx, 1)[0];
-      suggested.push(current);
+      console.table(debugRows);
+
+      const payload = {
+        depart: {
+          label: origin.label,
+          lat: origin.latitude,
+          lng: origin.longitude,
+        },
+        retour: {
+          label: returnOrigin.label,
+          lat: returnOrigin.latitude,
+          lng: returnOrigin.longitude,
+        },
+        stops: orderedStops.map((stop) => {
+          const coords = getOperationCoordinates(stop.row);
+          return {
+            id: String(stop.id),
+            nom: stop.client,
+            type: stop.type,
+            adresse: stop.fullAddress || stop.address || "",
+            lat: coords.lat ?? geoById[stop.id]?.latitude ?? null,
+            lng: coords.lng ?? geoById[stop.id]?.longitude ?? null,
+            heurePlanifiee: stop.time,
+          };
+        }),
+        currentOrderIds: orderedStops.map((stop) => String(stop.id)),
+        serviceMinutesParStop: 30,
+        heureDepart: "08:00",
+      };
+
+      setRouteLoading(true);
+      try {
+        const response = await fetch("/api/livraisons/route-suggestion", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        const data = (await response.json().catch(() => ({}))) as RouteSuggestionResponse & {
+          message?: string;
+          details?: string;
+        };
+        if (!response.ok) {
+          setRouteSuggestion(null);
+          setRouteMessage(
+            data.message ||
+              "Suggestion routiere indisponible pour le moment (OSRM ou donnees invalides)."
+          );
+          return;
+        }
+        const resolvedCoords: Record<number, GeocodedPoint> = {};
+        const allResolvedStops = [...(data.current?.ordreSuggere ?? []), ...(data.suggested?.ordreSuggere ?? [])];
+        allResolvedStops.forEach((stop) => {
+          const id = Number(stop.id);
+          if (!Number.isFinite(id)) return;
+          if (!Number.isFinite(stop.lat) || !Number.isFinite(stop.lng)) return;
+          resolvedCoords[id] = { latitude: stop.lat, longitude: stop.lng };
+        });
+        if (Object.keys(resolvedCoords).length > 0) {
+          setGeoById((current) => ({ ...current, ...resolvedCoords }));
+        }
+        setRouteSuggestion(data);
+        setRouteMessage("");
+      } catch {
+        setRouteSuggestion(null);
+        setRouteMessage("Suggestion routiere indisponible pour le moment (erreur reseau).");
+      } finally {
+        setRouteLoading(false);
+      }
     }
-    const suggestedKm = distanceForOrder([
-      ...(origin == null ? [] : [{ id: -1, latitude: origin.latitude, longitude: origin.longitude }]),
-      ...suggested,
-      ...(returnOrigin == null
-        ? []
-        : [{ id: -2, latitude: returnOrigin.latitude, longitude: returnOrigin.longitude }]),
-    ]);
-    return {
-      currentKm,
-      suggestedKm,
-      suggestedOrder: suggested.map((point) => point.id),
-      currentOrder: orderedStops.map((point) => point.id),
-    };
+    void loadRouteSuggestion();
   }, [geoById, orderedStopIds, origin, returnOrigin, stops]);
+
+  const routeSummary = useMemo(() => {
+    const current = routeSuggestion?.current;
+    const suggested = routeSuggestion?.suggested;
+    return {
+      currentKm: current?.distanceRoutiereTotaleKm ?? 0,
+      suggestedKm: suggested?.distanceRoutiereTotaleKm ?? 0,
+      currentDriveMinutes: current?.tempsConduiteTotalMinutes ?? 0,
+      suggestedDriveMinutes: suggested?.tempsConduiteTotalMinutes ?? 0,
+      serviceMinutes: suggested?.tempsServiceTotalMinutes ?? 0,
+      totalMinutes: suggested?.tempsJourneeTotalMinutes ?? 0,
+      retourEstime: suggested?.retourEstime ?? "--:--",
+      suggestedOrder: (suggested?.orderIds ?? []).map((id) => Number(id)).filter(Number.isFinite),
+      currentOrder: (current?.orderIds ?? []).map((id) => Number(id)).filter(Number.isFinite),
+      routeGeometryLatLng: current?.routeGeometryLatLng ?? [],
+      detailedSuggestedStops: suggested?.ordreSuggere ?? [],
+      missingStops: routeSuggestion?.warnings?.stopsSansCoordonnees ?? [],
+    };
+  }, [routeSuggestion]);
 
   async function persistManualOrder(ids: number[]) {
     for (let i = 0; i < ids.length; i += 1) {
@@ -625,9 +708,11 @@ export default function DayOperationsView({ area }: Props) {
     if (!canManageOrder || routeSummary.suggestedOrder.length === 0) return;
     setRouteApplying(true);
     setRouteMessage("");
-    setOrderedStopIds(routeSummary.suggestedOrder);
-    for (let i = 0; i < routeSummary.suggestedOrder.length; i += 1) {
-      const id = routeSummary.suggestedOrder[i];
+    const remaining = orderedStopIds.filter((id) => !routeSummary.suggestedOrder.includes(id));
+    const nextOrder = [...routeSummary.suggestedOrder, ...remaining];
+    setOrderedStopIds(nextOrder);
+    for (let i = 0; i < nextOrder.length; i += 1) {
+      const id = nextOrder[i];
       const { error } = await supabase
         .from("livraisons_planifiees")
         .update({ ordre_arret: i + 1 })
@@ -758,8 +843,13 @@ export default function DayOperationsView({ area }: Props) {
 
       <div className="ui-grid-auto" style={{ marginTop: 12 }}>
         <SectionCard title="Operations" subtitle={String(stops.length)} />
-        <SectionCard title="Distance actuelle" subtitle={`${routeSummary.currentKm.toFixed(1)} km`} />
-        <SectionCard title="Distance suggeree" subtitle={`${routeSummary.suggestedKm.toFixed(1)} km`} />
+        <SectionCard title="Distance routiere actuelle" subtitle={`${routeSummary.currentKm.toFixed(1)} km`} />
+        <SectionCard title="Distance routiere suggeree" subtitle={`${routeSummary.suggestedKm.toFixed(1)} km`} />
+        <SectionCard title="Conduite actuelle" subtitle={`${routeSummary.currentDriveMinutes} min`} />
+        <SectionCard title="Conduite suggeree" subtitle={`${routeSummary.suggestedDriveMinutes} min`} />
+        <SectionCard title="Service total (30 min/arret)" subtitle={`${routeSummary.serviceMinutes} min`} />
+        <SectionCard title="Duree totale estimee" subtitle={`${routeSummary.totalMinutes} min`} />
+        <SectionCard title="Retour estime" subtitle={routeSummary.retourEstime} />
         <SectionCard
           title="Gain estime"
           subtitle={`${Math.max(0, routeSummary.currentKm - routeSummary.suggestedKm).toFixed(1)} km`}
@@ -977,6 +1067,7 @@ export default function DayOperationsView({ area }: Props) {
                 onSelect={(id) => setSelectedId(id)}
                 origin={origin}
                 returnOrigin={returnOrigin}
+                routeGeometryLatLng={routeSummary.routeGeometryLatLng}
               />
             </div>
           </section>
@@ -1007,12 +1098,30 @@ export default function DayOperationsView({ area }: Props) {
               ) : null}
             </div>
             {routeMessage ? <p className="ui-text-muted" style={{ margin: 0 }}>{routeMessage}</p> : null}
+            {routeLoading ? <p className="ui-text-muted" style={{ margin: 0 }}>Calcul routier en cours...</p> : null}
+            {routeSummary.missingStops.length > 0 ? (
+              <div className="ui-stack-xs">
+                <p className="ui-text-muted" style={{ margin: 0, color: "#b45309", fontWeight: 700 }}>
+                  {routeSummary.missingStops.length} arret(s) exclus de la suggestion: coordonnees manquantes.
+                </p>
+                <div className="ui-text-muted" style={{ fontSize: 12 }}>
+                  {routeSummary.missingStops
+                    .map((stop) => `${stop.nom || stop.id}${stop.adresse ? ` (${stop.adresse})` : ""}`)
+                    .join(" ; ")}
+                </div>
+              </div>
+            ) : null}
             <AppCard tone="muted" className="ui-stack-xs" style={{ padding: 12 }}>
               <div className="ui-grid-2" style={{ gap: 8 }}>
                 <div><strong>Depart:</strong> {origin?.label ?? "Non defini"}</div>
                 <div><strong>Retour:</strong> {returnOrigin?.label ?? origin?.label ?? "Non defini"}</div>
-                <div><strong>Distance actuelle:</strong> {routeSummary.currentKm.toFixed(1)} km</div>
-                <div><strong>Distance suggeree:</strong> {routeSummary.suggestedKm.toFixed(1)} km</div>
+                <div><strong>Distance routiere actuelle:</strong> {routeSummary.currentKm.toFixed(1)} km</div>
+                <div><strong>Distance routiere suggeree:</strong> {routeSummary.suggestedKm.toFixed(1)} km</div>
+                <div><strong>Temps conduite actuel:</strong> {routeSummary.currentDriveMinutes} min</div>
+                <div><strong>Temps conduite suggere:</strong> {routeSummary.suggestedDriveMinutes} min</div>
+                <div><strong>Temps service total:</strong> {routeSummary.serviceMinutes} min</div>
+                <div><strong>Duree totale:</strong> {routeSummary.totalMinutes} min</div>
+                <div><strong>Retour estime:</strong> {routeSummary.retourEstime}</div>
               </div>
               <div style={{ wordBreak: "break-word" }}>
                 <strong>Ordre actuel:</strong>{" "}
@@ -1039,6 +1148,18 @@ export default function DayOperationsView({ area }: Props) {
               <div>
                 <strong>Gain estime:</strong> {Math.max(0, routeSummary.currentKm - routeSummary.suggestedKm).toFixed(1)} km
               </div>
+              {routeSummary.detailedSuggestedStops.length > 0 ? (
+                <div className="ui-stack-xs" style={{ marginTop: 6 }}>
+                  <strong>Detail des arrets (ordre suggere):</strong>
+                  {routeSummary.detailedSuggestedStops.map((stop) => (
+                    <div key={stop.id} className="ui-text-muted" style={{ fontSize: 12 }}>
+                      #{stop.ordre} {stop.nom} · {stop.adresse || "Adresse non renseignee"} ·{" "}
+                      {stop.tempsConduiteDepuisPrecedentMinutes} min route · arrivee {stop.arriveeEstimee} ·
+                      service {stop.tempsServiceMinutes} min · depart {stop.departEstime}
+                    </div>
+                  ))}
+                </div>
+              ) : null}
             </AppCard>
           </section>
 

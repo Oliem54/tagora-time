@@ -20,7 +20,7 @@ export default function AuthenticatedPageHeader({
   navigation,
   ...props
 }: AuthenticatedPageHeaderProps) {
-  const { user } = useCurrentAccess();
+  const { user, role } = useCurrentAccess();
   const resolvedNavigation =
     navigation ??
     (showNavigation ? (
@@ -28,12 +28,21 @@ export default function AuthenticatedPageHeader({
         <TagoraPageNavigation />
       </Suspense>
     ) : null);
+  const roleLabel =
+    role === "employe"
+      ? "Employé"
+      : role === "direction"
+        ? "Direction"
+        : role === "admin"
+          ? "Admin"
+          : "Rôle non défini";
 
   return (
     <PageHeader
       {...props}
       navigation={resolvedNavigation}
       userIdentity={showUserIdentity ? user?.email ?? null : null}
+      userRoleLabel={showUserIdentity ? roleLabel : null}
     />
   );
 }

@@ -26,6 +26,7 @@ type Props = {
   onSelect: (id: number) => void;
   origin: OriginPoint | null;
   returnOrigin: OriginPoint | null;
+  routeGeometryLatLng?: Array<[number, number]>;
 };
 
 function EnsureLeafletResize() {
@@ -68,7 +69,36 @@ export default function DayOperationsMap({
   onSelect,
   origin,
   returnOrigin,
+  routeGeometryLatLng = [],
 }: Props) {
+  const displayPoints = (() => {
+    const grouped = new Map<string, DayOperationMapPoint[]>();
+    points.forEach((point) => {
+      const key = `${point.latitude.toFixed(6)}|${point.longitude.toFixed(6)}`;
+      const bucket = grouped.get(key) ?? [];
+      bucket.push(point);
+      grouped.set(key, bucket);
+    });
+    const next: DayOperationMapPoint[] = [];
+    grouped.forEach((bucket) => {
+      if (bucket.length === 1) {
+        next.push(bucket[0]);
+        return;
+      }
+      // Spread overlapping markers in a tiny circle so all stops remain visible.
+      const radius = 0.00022;
+      bucket.forEach((point, idx) => {
+        const angle = (2 * Math.PI * idx) / bucket.length;
+        next.push({
+          ...point,
+          latitude: point.latitude + Math.sin(angle) * radius,
+          longitude: point.longitude + Math.cos(angle) * radius,
+        });
+      });
+    });
+    return next;
+  })();
+
   const routePath = [
     ...[...points]
       .sort((a, b) => a.order - b.order)
@@ -76,15 +106,15 @@ export default function DayOperationsMap({
   ];
 
   const center = (
-    points[0]
-      ? [points[0].latitude, points[0].longitude]
+    displayPoints[0]
+      ? [displayPoints[0].latitude, displayPoints[0].longitude]
       : origin
         ? [origin.latitude, origin.longitude]
         : returnOrigin
           ? [returnOrigin.latitude, returnOrigin.longitude]
           : [46.8139, -71.2082]
   ) as [number, number];
-  const bounds = points.map((point) => [point.latitude, point.longitude]) as [
+  const bounds = displayPoints.map((point) => [point.latitude, point.longitude]) as [
     number,
     number
   ][];
@@ -149,7 +179,7 @@ export default function DayOperationsMap({
           </Tooltip>
         </Marker>
       ) : null}
-      {points.map((point) => (
+      {displayPoints.map((point) => (
         <Marker
           key={point.id}
           position={[point.latitude, point.longitude]}
@@ -170,10 +200,13 @@ export default function DayOperationsMap({
           </Popup>
         </Marker>
       ))}
-      {routePath.length > 1 ? (
-        <Polyline positions={routePath} pathOptions={{ color: "#0f2948", weight: 3, opacity: 0.65 }} />
+      {(routeGeometryLatLng.length > 1 || routePath.length > 1) ? (
+        <Polyline
+          positions={routeGeometryLatLng.length > 1 ? routeGeometryLatLng : routePath}
+          pathOptions={{ color: "#0f2948", weight: 3, opacity: 0.65 }}
+        />
       ) : null}
-      {points.length === 0 ? (
+      {displayPoints.length === 0 ? (
         <Marker position={center}>
           <Popup>
             <div style={{ fontSize: 13 }}>
