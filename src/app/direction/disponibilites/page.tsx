@@ -59,13 +59,13 @@ type RemorqueUnavailability = {
   status: "active" | "cancelled";
 };
 
+/** Colonnes alignees sur direction/ressources/vehicules et remorques (pas de modele cote DB). */
 type ResourceRow = {
   id: number;
   nom?: string | null;
-  modele?: string | null;
   plaque?: string | null;
-  identifiant?: string | null;
-  numero?: string | null;
+  description?: string | null;
+  actif?: boolean | null;
 };
 
 const DAY_REASON_LABELS: Record<DayClosureReason, string> = {
@@ -120,10 +120,14 @@ function formatDateTime(value: string) {
   });
 }
 
-function getResourceLabel(item: ResourceRow) {
-  return String(
-    item.nom || item.modele || item.plaque || item.identifiant || item.numero || `#${item.id}`
-  );
+function getResourceLabel(item: ResourceRow, kind: "vehicule" | "remorque") {
+  const nom = item.nom?.trim();
+  const plaque = item.plaque?.trim();
+  const description = item.description?.trim();
+  if (nom) return nom;
+  if (plaque) return plaque;
+  if (description) return description;
+  return kind === "vehicule" ? `Vehicule #${item.id}` : `Remorque #${item.id}`;
 }
 
 type DisponibilitesResponse = {
@@ -541,7 +545,7 @@ export default function DirectionDisponibilitesPage() {
               <option value="">Choisir un vehicule</option>
               {vehicules.map((item) => (
                 <option key={item.id} value={String(item.id)}>
-                  {getResourceLabel(item)}
+                  {getResourceLabel(item, "vehicule")}
                 </option>
               ))}
             </select>
@@ -621,8 +625,8 @@ export default function DirectionDisponibilitesPage() {
                   <tr key={item.id}>
                     <td style={tdStyle}>
                       {vehiculesById.get(item.vehicule_id)
-                        ? getResourceLabel(vehiculesById.get(item.vehicule_id) as ResourceRow)
-                        : `#${item.vehicule_id}`}
+                        ? getResourceLabel(vehiculesById.get(item.vehicule_id) as ResourceRow, "vehicule")
+                        : `Vehicule #${item.vehicule_id}`}
                     </td>
                     <td style={tdStyle}>{formatDateTime(item.start_at)}</td>
                     <td style={tdStyle}>{formatDateTime(item.end_at)}</td>
@@ -661,7 +665,7 @@ export default function DirectionDisponibilitesPage() {
               <option value="">Choisir une remorque</option>
               {remorques.map((item) => (
                 <option key={item.id} value={String(item.id)}>
-                  {getResourceLabel(item)}
+                  {getResourceLabel(item, "remorque")}
                 </option>
               ))}
             </select>
@@ -741,8 +745,8 @@ export default function DirectionDisponibilitesPage() {
                   <tr key={item.id}>
                     <td style={tdStyle}>
                       {remorquesById.get(item.remorque_id)
-                        ? getResourceLabel(remorquesById.get(item.remorque_id) as ResourceRow)
-                        : `#${item.remorque_id}`}
+                        ? getResourceLabel(remorquesById.get(item.remorque_id) as ResourceRow, "remorque")
+                        : `Remorque #${item.remorque_id}`}
                     </td>
                     <td style={tdStyle}>{formatDateTime(item.start_at)}</td>
                     <td style={tdStyle}>{formatDateTime(item.end_at)}</td>

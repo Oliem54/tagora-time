@@ -2369,3 +2369,9 @@ select {
     width: min(300px, calc(100vw - 32px));
   }
 }
+
+@keyframes tagora-refresh-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

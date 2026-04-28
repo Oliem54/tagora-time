@@ -32,11 +32,23 @@ export function getUserRole(user: User | null | undefined): AppRole | null {
 }
 
 export function getHomePathForRole(role: AppRole): string {
-  return role === "employe" ? "/employe/dashboard" : "/direction/dashboard";
+  if (role === "employe") {
+    return "/employe/dashboard";
+  }
+
+  if (role === "admin") {
+    return "/admin/dashboard";
+  }
+
+  return "/direction/dashboard";
 }
 
 export function getLoginPathForRole(role: AppRole): string {
-  return role === "employe" ? "/employe/login" : "/direction/login";
+  if (role === "employe") {
+    return "/employe/login";
+  }
+
+  return "/direction/login";
 }
 
 export function getPasswordChangePathForRole(role: AppRole): string {

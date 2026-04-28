@@ -1,135 +1,205 @@
 "use client";
 
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import {
   ArrowUpRight,
   BriefcaseBusiness,
   CalendarRange,
+  Clock3,
   FileStack,
   Files,
-  Route,
-  TimerReset,
+  ReceiptText,
+  Sparkles,
   Truck,
+  UsersRound,
   Waypoints,
   type LucideIcon,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { supabase } from "../../lib/supabase/client";
-import { useCurrentAccess } from "../../hooks/useCurrentAccess";
+import { supabase } from "@/app/lib/supabase/client";
+import { useCurrentAccess } from "@/app/hooks/useCurrentAccess";
 import AuthenticatedPageHeader from "@/app/components/ui/AuthenticatedPageHeader";
 import SectionCard from "@/app/components/ui/SectionCard";
 import AppCard from "@/app/components/ui/AppCard";
 import SecondaryButton from "@/app/components/ui/SecondaryButton";
+import StatusBadge from "@/app/components/ui/StatusBadge";
 
-type ModulePermission = "documents" | "livraisons" | "terrain" | "ressources" | null;
-type ModuleGroupId = "operations" | "gestion";
+type ModuleGroupId = "operations" | "administration";
 
 type ModuleDefinition = {
+  id: string;
   href: string;
   label: string;
   description: string;
-  permission: ModulePermission;
   group: ModuleGroupId;
   icon: LucideIcon;
   accent: string;
+  /** compteur Ameliorations (admin uniquement) */
+  pendingKey?: "ameliorations";
 };
 
-type ModuleGroup = {
-  id: ModuleGroupId;
-  title: string;
-  subtitle: string;
-};
-
-const MODULE_GROUPS: ModuleGroup[] = [
+const MODULE_GROUPS: { id: ModuleGroupId; title: string; subtitle: string }[] = [
   {
     id: "operations",
-    title: "Operations terrain",
-    subtitle: "Terrain et suivi.",
+    title: "Operations et suivi",
+    subtitle: "Livraisons, terrain et documents.",
   },
   {
-    id: "gestion",
-    title: "Gestion interne",
-    subtitle: "Documents, ressources et disponibilites.",
+    id: "administration",
+    title: "Administration",
+    subtitle: "Comptes, paie, facturation et controles.",
   },
 ];
 
 const MODULES: ModuleDefinition[] = [
   {
+    id: "livraisons",
     href: "/direction/livraisons",
-    label: "Livraison & ramassage",
-    description: "Planification livraisons et ramassages.",
-    permission: "livraisons",
+    label: "Livraison et ramassage",
+    description: "Planification et suivi des operations.",
     group: "operations",
     icon: Truck,
     accent:
       "linear-gradient(135deg, rgba(59,130,246,0.16) 0%, rgba(15,41,72,0.08) 100%)",
   },
   {
+    id: "terrain",
     href: "/direction/terrain",
     label: "Terrain",
     description: "Carte en direct et equipes.",
-    permission: "terrain",
     group: "operations",
     icon: Waypoints,
     accent:
       "linear-gradient(135deg, rgba(16,185,129,0.18) 0%, rgba(15,41,72,0.08) 100%)",
   },
   {
-    href: "/direction/sorties-terrain",
-    label: "Sorties terrain",
-    description: "Kilomètres et temps.",
-    permission: "terrain",
-    group: "operations",
-    icon: Route,
-    accent:
-      "linear-gradient(135deg, rgba(245,158,11,0.18) 0%, rgba(15,41,72,0.08) 100%)",
-  },
-  {
-    href: "/direction/temps-titan",
-    label: "Temps Titan",
-    description: "Heures et refacturation.",
-    permission: "terrain",
-    group: "operations",
-    icon: TimerReset,
-    accent:
-      "linear-gradient(135deg, rgba(99,102,241,0.18) 0%, rgba(15,41,72,0.08) 100%)",
-  },
-  {
+    id: "documents",
     href: "/direction/documents",
     label: "Documents",
-    description: "Dossiers et pièces.",
-    permission: "documents",
-    group: "gestion",
+    description: "Dossiers et pieces.",
+    group: "operations",
     icon: Files,
     accent:
       "linear-gradient(135deg, rgba(14,165,233,0.18) 0%, rgba(15,41,72,0.08) 100%)",
   },
   {
-    href: "/direction/ressources",
-    label: "Ressources",
-    description: "Employés et flotte.",
-    permission: "ressources",
-    group: "gestion",
-    icon: BriefcaseBusiness,
+    id: "ameliorations",
+    href: "/ameliorations",
+    label: "Ameliorations",
+    description: "Suggestions et ameliorations a traiter.",
+    group: "administration",
+    icon: Sparkles,
     accent:
-      "linear-gradient(135deg, rgba(236,72,153,0.16) 0%, rgba(15,41,72,0.08) 100%)",
+      "linear-gradient(135deg, rgba(234,179,8,0.2) 0%, rgba(15,41,72,0.08) 100%)",
+    pendingKey: "ameliorations",
   },
   {
+    id: "comptes",
+    href: "/direction/demandes-comptes",
+    label: "Gestion des comptes employes",
+    description: "Acces et fiches employes.",
+    group: "administration",
+    icon: UsersRound,
+    accent:
+      "linear-gradient(135deg, rgba(244,114,182,0.18) 0%, rgba(15,41,72,0.08) 100%)",
+  },
+  {
+    id: "horodateur",
+    href: "/direction/horodateur",
+    label: "Horodateur",
+    description: "Quarts, pointage et anomalies.",
+    group: "administration",
+    icon: Clock3,
+    accent:
+      "linear-gradient(135deg, rgba(34,197,94,0.18) 0%, rgba(15,41,72,0.08) 100%)",
+  },
+  {
+    id: "paie",
+    href: "/direction/paie-compagnies",
+    label: "Paie par compagnie",
+    description: "Heures et couts par compagnie.",
+    group: "administration",
+    icon: ReceiptText,
+    accent:
+      "linear-gradient(135deg, rgba(168,85,247,0.18) 0%, rgba(15,41,72,0.08) 100%)",
+  },
+  {
+    id: "facturation",
+    href: "/direction/facturation-titan",
+    label: "Facturation Titan",
+    description: "Montants a facturer.",
+    group: "administration",
+    icon: FileStack,
+    accent:
+      "linear-gradient(135deg, rgba(251,146,60,0.18) 0%, rgba(15,41,72,0.08) 100%)",
+  },
+  {
+    id: "disponibilites",
     href: "/direction/disponibilites",
     label: "Disponibilites et blocages",
     description: "Fenetres, vehicules et indisponibilites.",
-    permission: "terrain",
-    group: "gestion",
+    group: "administration",
     icon: CalendarRange,
     accent:
       "linear-gradient(135deg, rgba(6,182,212,0.18) 0%, rgba(15,41,72,0.08) 100%)",
   },
+  {
+    id: "ressources",
+    href: "/direction/ressources",
+    label: "Ressources",
+    description: "Employes, flotte et referentiels.",
+    group: "administration",
+    icon: BriefcaseBusiness,
+    accent:
+      "linear-gradient(135deg, rgba(236,72,153,0.16) 0%, rgba(15,41,72,0.08) 100%)",
+  },
 ];
 
-export default function DirectionDashboardClient() {
+export default function AdminDashboardClient() {
   const router = useRouter();
-  const { user, loading, hasPermission } = useCurrentAccess();
+  const { user, loading } = useCurrentAccess();
+  const [ameliorationsPending, setAmeliorationsPending] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (loading || !user) {
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+        if (!session?.access_token || cancelled) {
+          return;
+        }
+        const response = await fetch("/api/admin/ameliorations-pending-count", {
+          headers: { Authorization: `Bearer ${session.access_token}` },
+        });
+        if (response.status === 403) {
+          setAmeliorationsPending(null);
+          return;
+        }
+        if (!response.ok) {
+          setAmeliorationsPending(null);
+          return;
+        }
+        const payload = (await response.json()) as { count?: number };
+        if (cancelled) {
+          return;
+        }
+        setAmeliorationsPending(typeof payload.count === "number" ? payload.count : null);
+      } catch {
+        if (!cancelled) {
+          setAmeliorationsPending(null);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [loading, user]);
 
   useEffect(() => {
     if (loading || user) {
@@ -138,18 +208,13 @@ export default function DirectionDashboardClient() {
     router.replace("/direction/login");
   }, [loading, user, router]);
 
-  const visibleModules = useMemo(
-    () => MODULES.filter((item) => (item.permission ? hasPermission(item.permission) : true)),
-    [hasPermission]
-  );
-
   const groupedModules = useMemo(
     () =>
       MODULE_GROUPS.map((group) => ({
         ...group,
-        modules: visibleModules.filter((item) => item.group === group.id),
-      })).filter((group) => group.modules.length > 0),
-    [visibleModules]
+        modules: MODULES.filter((m) => m.group === group.id),
+      })).filter((g) => g.modules.length > 0),
+    []
   );
 
   async function handleLogout() {
@@ -157,19 +222,32 @@ export default function DirectionDashboardClient() {
     router.push("/direction/login");
   }
 
+  function badgeForModule(m: ModuleDefinition) {
+    if (m.pendingKey === "ameliorations" && ameliorationsPending != null && ameliorationsPending > 0) {
+      return (
+        <StatusBadge
+          label={
+            ameliorationsPending === 1
+              ? "1 nouvelle"
+              : `${ameliorationsPending} nouvelles`
+          }
+          tone="warning"
+        />
+      );
+    }
+    return null;
+  }
+
   if (loading) {
     return (
       <main className="tagora-app-shell">
         <div className="tagora-app-content">
           <AuthenticatedPageHeader
-            title="Tableau de bord direction"
+            title="Tableau de bord administrateur"
             subtitle=""
             showNavigation={false}
           />
-          <SectionCard
-            title="Chargement"
-            subtitle="Session en cours."
-          />
+          <SectionCard title="Chargement" subtitle="Session en cours." />
         </div>
       </main>
     );
@@ -183,7 +261,7 @@ export default function DirectionDashboardClient() {
     <main className="tagora-app-shell">
       <div className="tagora-app-content ui-stack-lg">
         <AuthenticatedPageHeader
-          title="Tableau de bord direction"
+          title="Tableau de bord administrateur"
           subtitle=""
           showNavigation={false}
           actions={
@@ -207,10 +285,7 @@ export default function DirectionDashboardClient() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.42, delay: groupIndex * 0.06, ease: "easeOut" }}
           >
-            <SectionCard
-              title={group.title}
-              subtitle={group.subtitle}
-            >
+            <SectionCard title={group.title} subtitle={group.subtitle}>
               <div
                 style={{
                   display: "grid",
@@ -221,10 +296,9 @@ export default function DirectionDashboardClient() {
               >
                 {group.modules.map((item, moduleIndex) => {
                   const Icon = item.icon;
-
                   return (
                     <motion.article
-                      key={item.href}
+                      key={item.id}
                       initial={{ opacity: 0, y: 12 }}
                       animate={{ opacity: 1, y: 0 }}
                       transition={{
@@ -276,6 +350,7 @@ export default function DirectionDashboardClient() {
                             >
                               <Icon size={24} strokeWidth={2.1} />
                             </motion.div>
+                            {badgeForModule(item)}
                           </div>
 
                           <div className="ui-stack-sm">

@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
-import AuthenticatedImprovementsFab from "@/app/components/AuthenticatedImprovementsFab";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -33,7 +32,6 @@ export default function RootLayout({
     >
       <body suppressHydrationWarning className="min-h-full flex flex-col">
         {children}
-        <AuthenticatedImprovementsFab />
       </body>
     </html>
   );

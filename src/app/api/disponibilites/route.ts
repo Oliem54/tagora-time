@@ -31,8 +31,8 @@ export async function GET(req: NextRequest) {
         .select("*")
         .eq("status", "active")
         .order("start_at", { ascending: true }),
-      supabase.from("vehicules").select("id, nom, modele, plaque, identifiant, numero").order("id"),
-      supabase.from("remorques").select("id, nom, modele, plaque, identifiant, numero").order("id"),
+      supabase.from("vehicules").select("id, nom, plaque, description, actif").order("id"),
+      supabase.from("remorques").select("id, nom, plaque, description, actif").order("id"),
     ]);
 
     const firstError =

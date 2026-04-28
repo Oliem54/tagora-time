@@ -1,9 +1,46 @@
-import { createClient, type AuthError } from "@supabase/supabase-js";
+import { createClient } from "@supabase/supabase-js";
 
 /** CRLF / espaces dans .env.local peuvent corrompre l’URL → Failed to fetch. */
 function trimEnv(value: string | undefined): string {
   return typeof value === "string" ? value.trim() : "";
 }
+
+function summarizeArgForAuthLog(arg: unknown): string {
+  if (arg instanceof Error) return `${arg.name} ${arg.message}`;
+  if (arg && typeof arg === "object" && "message" in arg) {
+    return String((arg as { message?: unknown }).message ?? "");
+  }
+  return String(arg);
+}
+
+/**
+ * GoTrue appelle console.error sur un refresh echoue (session locale morte).
+ * En dev, Next/Turbopack transforme ca en overlay bloquant la page login.
+ * On degrade uniquement les erreurs de refresh token connues vers console.warn.
+ */
+function installDevSupabaseRefreshTokenConsoleFilter() {
+  if (typeof window === "undefined" || process.env.NODE_ENV !== "development") return;
+  const w = window as Window & { __tagoraSupabaseRefreshConsoleFilter?: boolean };
+  if (w.__tagoraSupabaseRefreshConsoleFilter) return;
+  w.__tagoraSupabaseRefreshConsoleFilter = true;
+
+  const original = console.error.bind(console);
+  console.error = (...args: unknown[]) => {
+    const blob = args.map(summarizeArgForAuthLog).join(" ").toLowerCase();
+    const isRefreshNoise =
+      blob.includes("invalid refresh token") ||
+      blob.includes("refresh token not found") ||
+      blob.includes("refresh_token_not_found") ||
+      (blob.includes("authapierror") && blob.includes("refresh"));
+    if (isRefreshNoise) {
+      console.warn("[supabase auth] session locale invalide (refresh ignore en dev overlay)", ...args);
+      return;
+    }
+    original(...args);
+  };
+}
+
+installDevSupabaseRefreshTokenConsoleFilter();
 
 const supabaseUrl = trimEnv(process.env.NEXT_PUBLIC_SUPABASE_URL);
 const anonKey = trimEnv(process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY);
@@ -24,23 +61,18 @@ export const supabase = createClient(supabaseUrl, supabaseResolvedKey);
  * (session révoquée, autre projet, reset DB, stockage partiellement corrompu).
  * Sans purge locale, chaque getSession/getUser retente le refresh et réaffiche l’erreur.
  */
-export function isInvalidStoredRefreshTokenError(
-  error: AuthError | null | undefined
-): boolean {
-  if (!error) return false;
-  const code = (error.code ?? "").toLowerCase();
-  if (code === "refresh_token_not_found") return true;
-  const msg = (error.message ?? "").toLowerCase();
-  return (
-    msg.includes("refresh token not found") ||
-    (msg.includes("invalid refresh token") && msg.includes("not found"))
-  );
+export function isInvalidStoredRefreshTokenError(error: unknown): boolean {
+  if (error == null) return false;
+  const asRecord =
+    typeof error === "object" && error !== null ? (error as Record<string, unknown>) : null;
+  const code = String(asRecord?.code ?? "").toLowerCase();
+  if (code === "refresh_token_not_found" || code === "invalid_grant") return true;
+  const msg = String(asRecord?.message ?? (error instanceof Error ? error.message : "")).toLowerCase();
+  return msg.includes("refresh token not found") || msg.includes("invalid refresh token");
 }
 
 /** Retourne true si une session locale invalide a été effacée. */
-export async function clearLocalAuthIfRefreshTokenDead(
-  error: AuthError | null | undefined
-): Promise<boolean> {
+export async function clearLocalAuthIfRefreshTokenDead(error: unknown): Promise<boolean> {
   if (!isInvalidStoredRefreshTokenError(error)) return false;
   await supabase.auth.signOut({ scope: "local" });
   return true;
