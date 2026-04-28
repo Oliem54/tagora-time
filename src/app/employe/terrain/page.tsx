@@ -4,6 +4,7 @@ import { startTransition, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import HeaderTagora from "../../components/HeaderTagora";
 import AccessNotice from "../../components/AccessNotice";
+import TagoraLoadingScreen from "@/app/components/ui/TagoraLoadingScreen";
 import { supabase } from "../../lib/supabase/client";
 import { useCurrentAccess } from "../../hooks/useCurrentAccess";
 import {
@@ -411,15 +412,7 @@ export default function TerrainPage() {
   };
 
   if (accessLoading || loading) {
-    return (
-      <div className="page-container">
-        <HeaderTagora
-          title="Terrain employe"
-          subtitle="Sorties et interventions"
-        />
-        <AccessNotice description="Chargement en cours." />
-      </div>
-    );
+    return <TagoraLoadingScreen isLoading message="Chargement de votre espace..." fullScreen />;
   }
 
   if (!canUseTerrain) {

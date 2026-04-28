@@ -25,6 +25,7 @@ import {
 type EmployeeProfilePageClientProps = {
   employeeId?: number | null;
 };
+type AssignablePortalRole = "employe" | "direction" | "manager" | "admin";
 
 type EmployeeAccordionSection =
   | "identite"
@@ -144,8 +145,11 @@ export default function EmployeeProfilePageClient({
   const [accountAccessToken, setAccountAccessToken] = useState<string | null>(null);
   const [portalAccount, setPortalAccount] = useState<{
     authUserId: string | null;
-    portalRole: AppRole | null;
+    portalRole: AssignablePortalRole | AppRole | null;
   } | null>(null);
+  const [portalRoleValue, setPortalRoleValue] = useState<AssignablePortalRole>("employe");
+  const [portalRoleReason, setPortalRoleReason] = useState("");
+  const [portalRoleSaving, setPortalRoleSaving] = useState(false);
 
   const breakSummary = useMemo(() => computeBreakSummary(form), [form]);
   const computedCost = useMemo(() => {
@@ -283,14 +287,17 @@ export default function EmployeeProfilePageClient({
 
       const payload = (await response.json()) as {
         authUserId?: string | null;
-        portalRole?: AppRole | null;
+        portalRole?: AssignablePortalRole | AppRole | null;
       };
 
       if (!cancelled) {
+        const nextRole = (payload.portalRole ?? "employe") as AssignablePortalRole;
         setPortalAccount({
           authUserId: typeof payload.authUserId === "string" ? payload.authUserId : null,
           portalRole: payload.portalRole ?? null,
         });
+        setPortalRoleValue(nextRole);
+        setPortalRoleReason("");
       }
     }
 
@@ -300,6 +307,48 @@ export default function EmployeeProfilePageClient({
       cancelled = true;
     };
   }, [viewerIsAppAdmin, isCreating, loading, employeeId, accountAccessToken]);
+
+  async function handlePortalRoleSave() {
+    if (!viewerIsAppAdmin || !employeeId || !Number.isFinite(employeeId) || !accountAccessToken) {
+      return;
+    }
+    setPortalRoleSaving(true);
+    setMessage("");
+    setMessageType(null);
+    try {
+      const response = await fetch(`/api/admin/employes/${employeeId}/portal-account`, {
+        method: "PATCH",
+        headers: {
+          Authorization: `Bearer ${accountAccessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          role: portalRoleValue,
+          reason: portalRoleReason.trim() || null,
+        }),
+      });
+      const payload = (await response.json().catch(() => ({}))) as { error?: string };
+      if (!response.ok) {
+        throw new Error(payload.error || "Modification de role refusee.");
+      }
+      setPortalAccount((current) =>
+        current
+          ? {
+              ...current,
+              portalRole: portalRoleValue,
+            }
+          : current
+      );
+      setMessage("Role portail mis a jour.");
+      setMessageType("success");
+      setPortalRoleReason("");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Impossible de modifier le role.");
+      setMessageType("error");
+    } finally {
+      setPortalRoleSaving(false);
+    }
+  }
 
   async function uploadPermisFile(file: File, side: "recto" | "verso") {
     const safeName = (form.nom.trim() || `chauffeur-${Date.now()}`)
@@ -1411,6 +1460,59 @@ export default function EmployeeProfilePageClient({
                       Gestion directe de la fiche.
                     </p>
                   </div>
+
+                  {viewerIsAppAdmin && portalAccount?.authUserId ? (
+                    <div
+                      className="tagora-panel-muted"
+                      style={{ display: "grid", gap: 12, padding: 16 }}
+                    >
+                      <div className="tagora-label">Role portail</div>
+                      <div
+                        style={{
+                          display: "grid",
+                          gap: 12,
+                          gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                        }}
+                      >
+                        <label className="tagora-field" style={{ marginBottom: 0 }}>
+                          <span className="tagora-label">Nouveau role</span>
+                          <select
+                            className="tagora-input"
+                            value={portalRoleValue}
+                            onChange={(event) =>
+                              setPortalRoleValue(event.target.value as AssignablePortalRole)
+                            }
+                            disabled={portalRoleSaving}
+                          >
+                            <option value="employe">Employe</option>
+                            <option value="direction">Direction</option>
+                            <option value="manager">Manager</option>
+                            <option value="admin">Admin</option>
+                          </select>
+                        </label>
+                        <label className="tagora-field" style={{ marginBottom: 0 }}>
+                          <span className="tagora-label">Raison (optionnel)</span>
+                          <input
+                            className="tagora-input"
+                            value={portalRoleReason}
+                            onChange={(event) => setPortalRoleReason(event.target.value)}
+                            disabled={portalRoleSaving}
+                            placeholder="Motif de changement"
+                          />
+                        </label>
+                      </div>
+                      <div className="tagora-actions">
+                        <button
+                          type="button"
+                          className="tagora-dark-outline-action"
+                          onClick={() => void handlePortalRoleSave()}
+                          disabled={portalRoleSaving}
+                        >
+                          {portalRoleSaving ? "Mise a jour..." : "Mettre a jour le role"}
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
 
                   {!isEditing ? (
                     <button

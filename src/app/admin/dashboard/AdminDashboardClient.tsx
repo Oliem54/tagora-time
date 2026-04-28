@@ -22,6 +22,7 @@ import AuthenticatedPageHeader from "@/app/components/ui/AuthenticatedPageHeader
 import SectionCard from "@/app/components/ui/SectionCard";
 import AppCard from "@/app/components/ui/AppCard";
 import SecondaryButton from "@/app/components/ui/SecondaryButton";
+import TagoraLoadingScreen from "@/app/components/ui/TagoraLoadingScreen";
 import StatusBadge from "@/app/components/ui/StatusBadge";
 
 type ModuleGroupId = "operations" | "administration";
@@ -229,16 +230,11 @@ export default function AdminDashboardClient() {
 
   if (loading) {
     return (
-      <main className="tagora-app-shell">
-        <div className="tagora-app-content">
-          <AuthenticatedPageHeader
-            title="Tableau de bord administrateur"
-            subtitle=""
-            showNavigation={false}
-          />
-          <SectionCard title="Chargement" subtitle="Session en cours." />
-        </div>
-      </main>
+      <TagoraLoadingScreen
+        isLoading
+        message="Chargement de votre espace..."
+        fullScreen
+      />
     );
   }
 

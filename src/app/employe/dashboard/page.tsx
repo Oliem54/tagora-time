@@ -14,6 +14,7 @@ import ModuleTile from "@/app/components/ui/ModuleTile";
 import PrimaryButton from "@/app/components/ui/PrimaryButton";
 import SecondaryButton from "@/app/components/ui/SecondaryButton";
 import HorodateurEmployeeCard from "@/app/components/horodateur/HorodateurEmployeeCard";
+import TagoraLoadingScreen from "@/app/components/ui/TagoraLoadingScreen";
 
 type NoteRow = {
   id: number;
@@ -267,16 +268,7 @@ export default function EmployeDashboardPage() {
   };
 
   if (loading || accessLoading) {
-    return (
-      <main className="tagora-app-shell">
-        <div className="tagora-app-content">
-          <AuthenticatedPageHeader
-            title="Tableau de bord employe"
-          />
-          <SectionCard title="Chargement" subtitle="Acces en cours." />
-        </div>
-      </main>
-    );
+    return <TagoraLoadingScreen isLoading message="Chargement de votre espace..." fullScreen />;
   }
 
   return (

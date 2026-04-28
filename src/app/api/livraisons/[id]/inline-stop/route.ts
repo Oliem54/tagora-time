@@ -8,6 +8,9 @@ type InlineStopPayload = {
   ville?: unknown;
   code_postal?: unknown;
   province?: unknown;
+  date_livraison?: unknown;
+  heure_prevue?: unknown;
+  statut?: unknown;
   latitude?: unknown;
   longitude?: unknown;
   note_chauffeur?: unknown;
@@ -20,6 +23,9 @@ type LivraisonInlineRow = {
   ville: string | null;
   code_postal: string | null;
   province: string | null;
+  date_livraison: string | null;
+  heure_prevue: string | null;
+  statut: string | null;
   latitude: number | null;
   longitude: number | null;
   note_chauffeur: string | null;
@@ -55,7 +61,7 @@ function buildErrorBody(
 }
 
 const INLINE_SELECT =
-  "id, adresse, ville, code_postal, province, latitude, longitude, note_chauffeur, commentaire_operationnel";
+  "id, adresse, ville, code_postal, province, date_livraison, heure_prevue, statut, latitude, longitude, note_chauffeur, commentaire_operationnel";
 
 export async function PATCH(
   req: NextRequest,
@@ -104,6 +110,9 @@ export async function PATCH(
       ville: asNullableText(body.ville),
       code_postal: asNullableText(body.code_postal),
       province: asNullableText(body.province),
+      date_livraison: asNullableText(body.date_livraison),
+      heure_prevue: asNullableText(body.heure_prevue),
+      statut: asNullableText(body.statut),
       latitude,
       longitude,
       note_chauffeur: asNullableText(body.note_chauffeur),
@@ -132,10 +141,18 @@ export async function PATCH(
       );
     }
 
+    const updateError = updateRes.error;
+    if (!updateError) {
+      return NextResponse.json(
+        buildErrorBody("Echec update inline-stop.", payload),
+        { status: 400 }
+      );
+    }
+
     const mentionsMissingColumn =
-      updateRes.error.code === "42703" ||
-      updateRes.error.message.toLowerCase().includes("column") ||
-      updateRes.error.message.toLowerCase().includes("schema cache");
+      updateError.code === "42703" ||
+      updateError.message.toLowerCase().includes("column") ||
+      updateError.message.toLowerCase().includes("schema cache");
 
     if (mentionsMissingColumn) {
       const fallbackPayload = { adresse: payload.adresse };
@@ -169,16 +186,16 @@ export async function PATCH(
         {
           error: {
             message: "Echec update complet + fallback.",
-            code: updateRes.error.code || null,
-            details: updateRes.error.details || null,
-            hint: updateRes.error.hint || null,
+            code: updateError.code || null,
+            details: updateError.details || null,
+            hint: updateError.hint || null,
             payload,
           },
           fallback_error: {
-            message: fallbackRes.error.message || null,
-            code: fallbackRes.error.code || null,
-            details: fallbackRes.error.details || null,
-            hint: fallbackRes.error.hint || null,
+            message: fallbackRes.error?.message || null,
+            code: fallbackRes.error?.code || null,
+            details: fallbackRes.error?.details || null,
+            hint: fallbackRes.error?.hint || null,
             payload: fallbackPayload,
           },
         },
@@ -186,7 +203,7 @@ export async function PATCH(
       );
     }
 
-    return NextResponse.json(buildErrorBody("Echec update inline-stop.", payload, updateRes.error), {
+    return NextResponse.json(buildErrorBody("Echec update inline-stop.", payload, updateError), {
       status: 400,
     });
   } catch (error) {

@@ -444,7 +444,7 @@ export async function POST(
   try {
     const { user, role } = await getStrictDirectionRequestUser(req);
 
-    if (!user || (role !== "direction" && role !== "admin")) {
+    if (!user || role !== "admin") {
       return NextResponse.json({ error: "Acces refuse." }, { status: 403 });
     }
 
@@ -474,12 +474,6 @@ export async function POST(
     let authUser = await resolveAuthUser(employee);
     const targetRole = getUserRole(authUser);
 
-    if (role === "direction" && targetRole === "admin") {
-      return NextResponse.json(
-        { error: "Profil admin reserve aux comptes admin." },
-        { status: 403 }
-      );
-    }
     const email = normalizeEmail(authUser?.email ?? employee.courriel);
     const adminSupabase = createAdminSupabaseClient();
     const publicSupabase = createPublicServerSupabaseClient();

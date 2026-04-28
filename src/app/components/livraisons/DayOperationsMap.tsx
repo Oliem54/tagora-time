@@ -1,6 +1,6 @@
 "use client";
 
-import { MapContainer, Marker, Polyline, Popup, TileLayer, Tooltip } from "react-leaflet";
+import { MapContainer, Marker, Polyline, Popup, TileLayer, Tooltip, useMapEvents } from "react-leaflet";
 import L from "leaflet";
 import { useEffect } from "react";
 import { useMap } from "react-leaflet";
@@ -27,7 +27,30 @@ type Props = {
   origin: OriginPoint | null;
   returnOrigin: OriginPoint | null;
   routeGeometryLatLng?: Array<[number, number]>;
+  manualPickMode?: boolean;
+  manualPickStopLabel?: string;
+  manualDraft?: { latitude: number; longitude: number } | null;
+  onManualDraftChange?: (coords: { latitude: number; longitude: number }) => void;
 };
+
+function MapClickCapture({
+  enabled,
+  onManualDraftChange,
+}: {
+  enabled: boolean;
+  onManualDraftChange?: (coords: { latitude: number; longitude: number }) => void;
+}) {
+  useMapEvents({
+    click(event) {
+      if (!enabled || !onManualDraftChange) return;
+      onManualDraftChange({
+        latitude: event.latlng.lat,
+        longitude: event.latlng.lng,
+      });
+    },
+  });
+  return null;
+}
 
 function isValidMapCoord(lat: number, lng: number) {
   return (
@@ -79,6 +102,10 @@ export default function DayOperationsMap({
   origin,
   returnOrigin,
   routeGeometryLatLng = [],
+  manualPickMode = false,
+  manualPickStopLabel,
+  manualDraft = null,
+  onManualDraftChange,
 }: Props) {
   const displayPoints = (() => {
     const grouped = new Map<string, DayOperationMapPoint[]>();
@@ -162,6 +189,7 @@ export default function DayOperationsMap({
       scrollWheelZoom
     >
       <EnsureLeafletResize />
+      <MapClickCapture enabled={manualPickMode} onManualDraftChange={onManualDraftChange} />
       <TileLayer
         attribution='&copy; OpenStreetMap contributors &copy; CARTO'
         url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
@@ -230,6 +258,41 @@ export default function DayOperationsMap({
           <Popup>
             <div style={{ fontSize: 13 }}>
               Aucun point geolocalisable pour cette journee.
+            </div>
+          </Popup>
+        </Marker>
+      ) : null}
+      {manualPickMode ? (
+        <Marker
+          position={[
+            manualDraft?.latitude ?? center[0],
+            manualDraft?.longitude ?? center[1],
+          ]}
+          draggable
+          icon={L.divIcon({
+            className: "",
+            html: `<div style="width:34px;height:34px;border-radius:999px;background:#f59e0b;color:#111827;border:3px solid #fff;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:900;box-shadow:0 2px 8px rgba(0,0,0,0.3)">M</div>`,
+            iconSize: [34, 34],
+            iconAnchor: [17, 17],
+          })}
+          eventHandlers={{
+            dragend: (event) => {
+              if (!onManualDraftChange) return;
+              const marker = event.target as L.Marker;
+              const latlng = marker.getLatLng();
+              onManualDraftChange({
+                latitude: latlng.lat,
+                longitude: latlng.lng,
+              });
+            },
+          }}
+        >
+          <Popup>
+            <div style={{ fontSize: 13 }}>
+              Mode position manuelle active.
+              <br />
+              Deplacez le point, puis acceptez la position.
+              {manualPickStopLabel ? ` de ${manualPickStopLabel}` : ""}.
             </div>
           </Popup>
         </Marker>

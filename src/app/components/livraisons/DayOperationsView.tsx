@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
@@ -9,6 +9,7 @@ import AppCard from "@/app/components/ui/AppCard";
 import SectionCard from "@/app/components/ui/SectionCard";
 import StatusBadge from "@/app/components/ui/StatusBadge";
 import OperationProofsPanel from "@/app/components/proofs/OperationProofsPanel";
+import InternalMentionsPanel from "@/app/components/internal/InternalMentionsPanel";
 import { supabase } from "@/app/lib/supabase/client";
 import { useCurrentAccess } from "@/app/hooks/useCurrentAccess";
 import { getOperationCoordinates } from "@/app/lib/livraisons/coordinates";
@@ -16,31 +17,24 @@ import { getOperationCoordinates } from "@/app/lib/livraisons/coordinates";
 const DayOperationsMap = dynamic(() => import("./DayOperationsMap"), { ssr: false });
 
 type Row = Record<string, string | number | null | undefined>;
-type GeocodedPoint = { latitude: number; longitude: number };
+type GeocodedPoint = {
+  latitude: number;
+  longitude: number;
+  confidence: "exact" | "approximatif";
+};
 type OriginBase = { label: string; latitude: number; longitude: number };
 type StopEditForm = {
   adresse: string;
   ville: string;
   code_postal: string;
   province: string;
+  date_livraison: string;
+  heure_prevue: string;
+  statut: string;
   latitude: string;
   longitude: string;
   note_chauffeur: string;
   commentaire_operationnel: string;
-};
-
-type CoordinateDebugRow = {
-  id: number;
-  client: string;
-  adresse: string;
-  keys: string;
-  latDetected: number | null;
-  lngDetected: number | null;
-  source: string | null;
-  latField: string | number | null | undefined;
-  lngField: string | number | null | undefined;
-  latitudeField: string | number | null | undefined;
-  longitudeField: string | number | null | undefined;
 };
 
 type Props = {
@@ -201,6 +195,61 @@ function buildGeocodeFallbackQuery(stop: { address: string; row: Row }, dossier?
   return parts.join(", ");
 }
 
+function buildGeocodeCandidates(stop: { address: string; row: Row }, dossier?: Row) {
+  const addressData = buildFullAddress(stop.row, dossier);
+  const base = normalizeAddressInput(addressData.full || "");
+  const street = normalizeAddressInput(addressData.street || stop.address || "");
+  const city = normalizeAddressInput(addressData.city || "");
+  const postal = normalizeAddressInput(addressData.postal || "");
+  const province = normalizeAddressInput(addressData.province || "Quebec");
+  const streetWithoutNumber = street.replace(/^\d+\s*/, "").trim();
+  const hasStreetNumber = /^\d+\s/.test(street);
+
+  const primaryVariants = [
+    base,
+    [street, city, province, "Canada"].filter(Boolean).join(", "),
+    [streetWithoutNumber, city, province].filter(Boolean).join(", "),
+    [streetWithoutNumber, city, "Canada"].filter(Boolean).join(", "),
+    hasStreetNumber ? [street, city].filter(Boolean).join(", ") : "",
+    [city, postal].filter(Boolean).join(", "),
+    [city, province, "Canada"].filter(Boolean).join(", "),
+    buildGeocodeFallbackQuery(stop, dossier),
+  ];
+  const accentlessVariants = primaryVariants.map((variant) => stripAccents(variant));
+
+  return dedupeQueries([
+    ...primaryVariants,
+    [street, city, postal, province, "Canada"].filter(Boolean).join(", "),
+    [postal, city, province, "Canada"].filter(Boolean).join(", "),
+    ...accentlessVariants,
+  ]);
+}
+
+function buildGeocodeCandidatesFromParts(parts: {
+  adresse: string;
+  ville: string;
+  code_postal: string;
+  province: string;
+}) {
+  const street = normalizeAddressInput(parts.adresse || "");
+  const city = normalizeAddressInput(parts.ville || "");
+  const postal = normalizeAddressInput(parts.code_postal || "");
+  const province = normalizeAddressInput(parts.province || "Quebec");
+  const streetWithoutNumber = street.replace(/^\d+\s*/, "").trim();
+  const hasStreetNumber = /^\d+\s/.test(street);
+  const full = [street, city, postal, province, "Canada"].filter(Boolean).join(", ");
+  const variants = [
+    full,
+    [street, city, province, "Canada"].filter(Boolean).join(", "),
+    [streetWithoutNumber, city, province].filter(Boolean).join(", "),
+    [streetWithoutNumber, city, "Canada"].filter(Boolean).join(", "),
+    hasStreetNumber ? [street, city].filter(Boolean).join(", ") : "",
+    [city, postal].filter(Boolean).join(", "),
+    [city, province, "Canada"].filter(Boolean).join(", "),
+  ];
+  return dedupeQueries([...variants, ...variants.map((value) => stripAccents(value))]);
+}
+
 function isReliableAddressParts(street: string, city: string, postal: string) {
   return Boolean(street.trim() && city.trim() && postal.trim());
 }
@@ -257,6 +306,42 @@ function formatApiErrorDetails(data: unknown, payload: Record<string, unknown>) 
 
 const NOMINATIM_MIN_INTERVAL_MS = 1100;
 
+function normalizeAddressInput(value: string) {
+  return value
+    .replace(/\s*-\s*/g, "-")
+    .replace(/\bQC\b/gi, "Quebec")
+    .replace(/\bQuebec\b/gi, "Quebec")
+    .replace(/\bCAN\b/gi, "Canada")
+    .replace(/\bch\.\b/gi, "chemin")
+    .replace(/\bboul\.\b/gi, "boulevard")
+    .replace(/\bav\.\b/gi, "avenue")
+    .replace(/\brte\b/gi, "route")
+    .replace(/\bpointes-aux-bleuets\b/gi, "Pointe-aux-Bleuets")
+    .replace(/\brue de la pointes\b/gi, "rue de la Pointe")
+    .replace(/\s+/g, " ")
+    .replace(/,\s*,/g, ", ")
+    .replace(/\s*,\s*/g, ", ")
+    .trim();
+}
+
+function stripAccents(value: string) {
+  return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+}
+
+function dedupeQueries(values: string[]) {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const value of values) {
+    const normalized = normalizeAddressInput(value);
+    if (!normalized) continue;
+    const key = normalized.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(normalized);
+  }
+  return out;
+}
+
 /** Geocodage via API serveur (User-Agent, pas de blocage CORS navigateur / Nominatim). */
 async function geocodeAddress(address: string): Promise<GeocodedPoint | null> {
   const query = address.trim();
@@ -270,12 +355,17 @@ async function geocodeAddress(address: string): Promise<GeocodedPoint | null> {
       ok?: boolean;
       latitude?: number;
       longitude?: number;
+      confidence?: "exact" | "approximatif" | "faible";
       error?: string;
     };
     if (!response.ok || !data.ok || data.latitude == null || data.longitude == null) {
       return null;
     }
-    return { latitude: data.latitude, longitude: data.longitude };
+    return {
+      latitude: data.latitude,
+      longitude: data.longitude,
+      confidence: data.confidence === "exact" ? "exact" : "approximatif",
+    };
   } catch {
     return null;
   }
@@ -285,6 +375,7 @@ export default function DayOperationsView({ area }: Props) {
   const searchParams = useSearchParams();
   const { user, role, loading: accessLoading, hasPermission } = useCurrentAccess();
   const [rows, setRows] = useState<Row[]>([]);
+  const [chauffeurs, setChauffeurs] = useState<Row[]>([]);
   const [dossiersById, setDossiersById] = useState<Map<number, Row>>(new Map());
   const [loading, setLoading] = useState(true);
   const [selectedId, setSelectedId] = useState<number | null>(null);
@@ -305,22 +396,38 @@ export default function DayOperationsView({ area }: Props) {
   const [isEditingStop, setIsEditingStop] = useState(false);
   const [savingStop, setSavingStop] = useState(false);
   const [stopFormMessage, setStopFormMessage] = useState("");
+  const [recheckingStopId, setRecheckingStopId] = useState<number | null>(null);
+  const [searchingPosition, setSearchingPosition] = useState(false);
+  const routeSuggestionTimerRef = useRef<number | null>(null);
+  const lastRoutePayloadKeyRef = useRef<string>("");
+  const [manualPickStopId, setManualPickStopId] = useState<number | null>(null);
+  const [manualPositionDraft, setManualPositionDraft] = useState<{ latitude: number; longitude: number } | null>(null);
+  const [quickActionLoading, setQuickActionLoading] = useState<string | null>(null);
   const [stopEditForm, setStopEditForm] = useState<StopEditForm>({
     adresse: "",
     ville: "",
     code_postal: "",
     province: "",
+    date_livraison: "",
+    heure_prevue: "",
+    statut: "",
     latitude: "",
     longitude: "",
     note_chauffeur: "",
     commentaire_operationnel: "",
   });
-  const [geocodeFailureById, setGeocodeFailureById] = useState<Record<number, string>>({});
+  const [geocodeFailureById, setGeocodeFailureById] = useState<
+    Record<number, { message: string; addressTried: string; originalAddress: string }>
+  >({});
+  const [geocodeStatusById, setGeocodeStatusById] = useState<
+    Record<number, "exact" | "approximatif" | "a_valider" | "manuelle">
+  >({});
 
   const dateIso = searchParams.get("date") || "";
   const canUseLivraisons = hasPermission("livraisons");
   const canManageOrder = area === "direction" && (role === "direction" || role === "admin");
   const canEditStopDetails = role === "direction" || role === "admin";
+  const isAdmin = role === "admin";
 
   const persistGeocodedToServer = useCallback(async (stopId: number, latitude: number, longitude: number) => {
     const res = await fetch(`/api/livraisons/${stopId}/geocode-position`, {
@@ -328,9 +435,9 @@ export default function DayOperationsView({ area }: Props) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ latitude, longitude }),
     });
-    if (!res.ok) return;
+    if (!res.ok) return false;
     const data = (await res.json().catch(() => ({}))) as { success?: boolean };
-    if (!data.success) return;
+    if (!data.success) return false;
     setGeocodeFailureById((prev) => {
       if (!(stopId in prev)) return prev;
       const next = { ...prev };
@@ -344,6 +451,7 @@ export default function DayOperationsView({ area }: Props) {
           : row
       )
     );
+    return true;
   }, []);
 
   useEffect(() => {
@@ -379,13 +487,22 @@ export default function DayOperationsView({ area }: Props) {
           setReturnAddressInput("Oliem Solutions, Quebec");
         }
       }
-      const { data, error } = await supabase
-        .from("livraisons_planifiees")
-        .select("*")
-        .eq("date_livraison", dateIso)
-        .order("ordre_arret", { ascending: true })
-        .order("heure_prevue", { ascending: true })
-        .order("id", { ascending: true });
+      const [opsRes, chauffeursRes] = await Promise.all([
+        supabase
+          .from("livraisons_planifiees")
+          .select("*")
+          .eq("date_livraison", dateIso)
+          .order("ordre_arret", { ascending: true })
+          .order("heure_prevue", { ascending: true })
+          .order("id", { ascending: true }),
+        supabase.from("chauffeurs").select("id, nom, prenom, nom_complet, courriel, actif").order("id", { ascending: true }),
+      ]);
+      const { data, error } = opsRes;
+      if (!chauffeursRes.error) {
+        setChauffeurs((chauffeursRes.data ?? []) as Row[]);
+      } else {
+        setChauffeurs([]);
+      }
       if (error) {
         setRows([]);
       } else {
@@ -529,7 +646,8 @@ export default function DayOperationsView({ area }: Props) {
         return;
       }
       const nextGeo: Record<number, GeocodedPoint> = {};
-      const failures: Record<number, string> = {};
+      const failures: Record<number, { message: string; addressTried: string; originalAddress: string }> = {};
+      const statuses: Record<number, "exact" | "approximatif" | "a_valider"> = {};
       let changed = false;
       let lastOpWasNominatim = false;
 
@@ -538,49 +656,127 @@ export default function DayOperationsView({ area }: Props) {
         const coords = getOperationCoordinates(stop.row);
         if (coords.lat != null && coords.lng != null) {
           lastOpWasNominatim = false;
-          nextGeo[stop.id] = { latitude: coords.lat, longitude: coords.lng };
+          nextGeo[stop.id] = { latitude: coords.lat, longitude: coords.lng, confidence: "exact" };
+          statuses[stop.id] = "exact";
           changed = true;
           continue;
         }
-        if (lastOpWasNominatim) {
-          await new Promise((r) => setTimeout(r, NOMINATIM_MIN_INTERVAL_MS));
-        }
-        const dossier =
-          stop.dossierId != null ? dossiersById.get(stop.dossierId) : undefined;
-        const primary = stop.fullAddress.trim();
-        const fallback = buildGeocodeFallbackQuery(
-          { address: stop.address, row: stop.row },
-          dossier
-        ).trim();
-        const query = primary || fallback;
-        if (!query) {
-          failures[stop.id] =
-            "Adresse insuffisante (rue, ville, code postal, etc.) : geocodage impossible.";
+        const dossier = stop.dossierId != null ? dossiersById.get(stop.dossierId) : undefined;
+        const queries = buildGeocodeCandidates({ address: stop.address, row: stop.row }, dossier);
+        if (queries.length === 0) {
+          failures[stop.id] = {
+            message:
+              "Adresse a valider. Nous n avons pas pu positionner cette adresse automatiquement sur la carte.",
+            addressTried: stop.fullAddress || stop.address || "-",
+            originalAddress: stop.fullAddress || stop.address || "-",
+          };
+          statuses[stop.id] = "a_valider";
           continue;
         }
-        let point = await geocodeAddress(query);
-        lastOpWasNominatim = true;
-        if (!point && primary && fallback && primary !== fallback) {
-          await new Promise((r) => setTimeout(r, NOMINATIM_MIN_INTERVAL_MS));
-          point = await geocodeAddress(fallback);
+        let point: GeocodedPoint | null = null;
+        let usedQuery = "";
+        for (let index = 0; index < queries.length; index += 1) {
+          if (lastOpWasNominatim || index > 0) {
+            await new Promise((r) => setTimeout(r, NOMINATIM_MIN_INTERVAL_MS));
+          }
+          const query = queries[index];
+          usedQuery = query;
+          point = await geocodeAddress(query);
+          lastOpWasNominatim = true;
+          if (point) break;
         }
         if (point) {
           nextGeo[stop.id] = point;
+          statuses[stop.id] = point.confidence === "exact" ? "exact" : "approximatif";
           changed = true;
           if (canEditStopDetails) {
             await persistGeocodedToServer(stop.id, point.latitude, point.longitude);
           }
         } else {
-          failures[stop.id] = `Aucun resultat Nominatim pour : ${query.length > 120 ? `${query.slice(0, 120)}...` : query}`;
+          failures[stop.id] = {
+            message:
+              "Adresse a valider. Nous n avons pas pu positionner cette adresse automatiquement sur la carte.",
+            addressTried: usedQuery || stop.fullAddress || stop.address || "-",
+            originalAddress: stop.fullAddress || stop.address || "-",
+          };
+          statuses[stop.id] = "a_valider";
         }
       }
       if (changed) {
         setGeoById((current) => ({ ...current, ...nextGeo }));
       }
       setGeocodeFailureById(failures);
+      setGeocodeStatusById(statuses);
     }
     void geocodeStops();
   }, [canEditStopDetails, dossiersById, persistGeocodedToServer, stops]);
+
+  const retryStopGeocoding = useCallback(
+    async (stopId: number) => {
+      const stop = stops.find((item) => item.id === stopId);
+      if (!stop) return;
+      const dossier = stop.dossierId != null ? dossiersById.get(stop.dossierId) : undefined;
+      const queries = dedupeQueries([
+        stop.fullAddress || stop.address || "",
+        ...buildGeocodeCandidates({ address: stop.address, row: stop.row }, dossier),
+      ]);
+      if (queries.length === 0) {
+        setGeocodeStatusById((prev) => ({ ...prev, [stopId]: "a_valider" }));
+        setGeocodeFailureById((prev) => ({
+          ...prev,
+          [stopId]: {
+            message:
+              "Adresse a valider. Nous n avons pas pu positionner cette adresse automatiquement sur la carte.",
+            addressTried: stop.fullAddress || stop.address || "-",
+            originalAddress: stop.fullAddress || stop.address || "-",
+          },
+        }));
+        return;
+      }
+      setRecheckingStopId(stopId);
+      let point: GeocodedPoint | null = null;
+      let usedQuery = "";
+      for (let index = 0; index < queries.length; index += 1) {
+        if (index > 0) {
+          await new Promise((r) => setTimeout(r, NOMINATIM_MIN_INTERVAL_MS));
+        }
+        usedQuery = queries[index];
+        point = await geocodeAddress(usedQuery);
+        if (point) break;
+      }
+      if (point) {
+        setGeoById((prev) => ({
+          ...prev,
+          [stopId]: point,
+        }));
+        setGeocodeStatusById((prev) => ({
+          ...prev,
+          [stopId]: point.confidence === "exact" ? "exact" : "approximatif",
+        }));
+        setGeocodeFailureById((prev) => {
+          const next = { ...prev };
+          delete next[stopId];
+          return next;
+        });
+        if (canEditStopDetails) {
+          await persistGeocodedToServer(stopId, point.latitude, point.longitude);
+        }
+      } else {
+        setGeocodeStatusById((prev) => ({ ...prev, [stopId]: "a_valider" }));
+        setGeocodeFailureById((prev) => ({
+          ...prev,
+          [stopId]: {
+            message:
+              "Adresse a valider. Nous n avons pas pu positionner cette adresse automatiquement sur la carte.",
+            addressTried: usedQuery || stop.fullAddress || stop.address || "-",
+            originalAddress: stop.fullAddress || stop.address || "-",
+          },
+        }));
+      }
+      setRecheckingStopId(null);
+    },
+    [canEditStopDetails, dossiersById, persistGeocodedToServer, stops]
+  );
 
   /** Même ordre que la colonne de gauche (orderedStopIds) ; pas de re-tri ici. La carte reçoit ce tableau tel quel. */
   const mapPoints = useMemo(() => {
@@ -590,9 +786,9 @@ export default function DayOperationsView({ area }: Props) {
       .filter((stop): stop is NonNullable<typeof stop> => Boolean(stop));
     return ordered
       .filter((stop) => Boolean(geoById[stop.id]))
-      .map((stop, index) => ({
+      .map((stop) => ({
         id: stop.id,
-        order: index + 1,
+        order: stop.order,
         label: stop.client,
         type: stop.type,
         latitude: geoById[stop.id].latitude,
@@ -604,8 +800,23 @@ export default function DayOperationsView({ area }: Props) {
     const byId = new Map(stops.map((stop) => [stop.id, stop]));
     return orderedStopIds
       .map((id) => byId.get(id))
-      .filter((stop): stop is NonNullable<typeof stop> => Boolean(stop) && !geoById[stop.id]);
+      .filter((stop): stop is NonNullable<typeof stop> => {
+        if (!stop) return false;
+        return !geoById[stop.id];
+      });
   }, [geoById, orderedStopIds, stops]);
+
+  const stopsApproximate = useMemo(() => {
+    const byId = new Map(stops.map((stop) => [stop.id, stop]));
+    return orderedStopIds
+      .map((id) => byId.get(id))
+      .filter(
+        (stop): stop is NonNullable<typeof stop> => {
+          if (!stop) return false;
+          return geocodeStatusById[stop.id] === "approximatif";
+        }
+      );
+  }, [geocodeStatusById, orderedStopIds, stops]);
 
   const selected = useMemo(() => {
     const byId = new Map(stops.map((stop) => [stop.id, stop]));
@@ -619,6 +830,8 @@ export default function DayOperationsView({ area }: Props) {
     if (!selected) {
       setIsEditingStop(false);
       setStopFormMessage("");
+      setManualPickStopId(null);
+      setManualPositionDraft(null);
       return;
     }
     setStopEditForm({
@@ -626,6 +839,9 @@ export default function DayOperationsView({ area }: Props) {
       ville: getFieldString(selected.row, ["ville", "city"]),
       code_postal: getFieldString(selected.row, ["code_postal", "postal_code", "zip"]),
       province: getFieldString(selected.row, ["province", "state"]),
+      date_livraison: getFieldString(selected.row, ["date_livraison"]),
+      heure_prevue: getFieldString(selected.row, ["heure_prevue"]),
+      statut: getFieldString(selected.row, ["statut"]),
       latitude: getFieldString(selected.row, ["latitude", "lat"]),
       longitude: getFieldString(selected.row, ["longitude", "lng", "lon"]),
       note_chauffeur: getFieldString(selected.row, ["note_chauffeur", "note_representant"]),
@@ -652,24 +868,6 @@ export default function DayOperationsView({ area }: Props) {
         setRouteSuggestion(null);
         return;
       }
-
-      const debugRows: CoordinateDebugRow[] = orderedStops.map((stop) => {
-        const coords = getOperationCoordinates(stop.row);
-        return {
-          id: stop.id,
-          client: stop.client,
-          adresse: stop.fullAddress || stop.address || "",
-          keys: Object.keys(stop.row || {}).sort().join(", "),
-          latDetected: coords.lat,
-          lngDetected: coords.lng,
-          source: coords.source,
-          latField: stop.row.lat as string | number | null | undefined,
-          lngField: stop.row.lng as string | number | null | undefined,
-          latitudeField: stop.row.latitude as string | number | null | undefined,
-          longitudeField: stop.row.longitude as string | number | null | undefined,
-        };
-      });
-      console.table(debugRows);
 
       const payload = {
         depart: {
@@ -698,6 +896,11 @@ export default function DayOperationsView({ area }: Props) {
         serviceMinutesParStop: 30,
         heureDepart: "08:00",
       };
+      const payloadKey = JSON.stringify(payload);
+      if (lastRoutePayloadKeyRef.current === payloadKey) {
+        return;
+      }
+      lastRoutePayloadKeyRef.current = payloadKey;
 
       setRouteLoading(true);
       try {
@@ -724,7 +927,7 @@ export default function DayOperationsView({ area }: Props) {
           const id = Number(stop.id);
           if (!Number.isFinite(id)) return;
           if (!Number.isFinite(stop.lat) || !Number.isFinite(stop.lng)) return;
-          resolvedCoords[id] = { latitude: stop.lat, longitude: stop.lng };
+          resolvedCoords[id] = { latitude: stop.lat, longitude: stop.lng, confidence: "exact" };
         });
         if (Object.keys(resolvedCoords).length > 0) {
           setGeoById((current) => ({ ...current, ...resolvedCoords }));
@@ -738,7 +941,17 @@ export default function DayOperationsView({ area }: Props) {
         setRouteLoading(false);
       }
     }
-    void loadRouteSuggestion();
+    if (routeSuggestionTimerRef.current != null) {
+      window.clearTimeout(routeSuggestionTimerRef.current);
+    }
+    routeSuggestionTimerRef.current = window.setTimeout(() => {
+      void loadRouteSuggestion();
+    }, 900);
+    return () => {
+      if (routeSuggestionTimerRef.current != null) {
+        window.clearTimeout(routeSuggestionTimerRef.current);
+      }
+    };
   }, [geoById, orderedStopIds, origin, returnOrigin, stops]);
 
   const routeSummary = useMemo(() => {
@@ -831,6 +1044,9 @@ export default function DayOperationsView({ area }: Props) {
       ville: stopEditForm.ville.trim() || null,
       code_postal: stopEditForm.code_postal.trim() || null,
       province: stopEditForm.province.trim() || null,
+      date_livraison: stopEditForm.date_livraison.trim() || null,
+      heure_prevue: stopEditForm.heure_prevue.trim() || null,
+      statut: stopEditForm.statut.trim() || null,
       latitude: nextLatitude,
       longitude: nextLongitude,
       note_chauffeur: stopEditForm.note_chauffeur.trim() || null,
@@ -867,17 +1083,19 @@ export default function DayOperationsView({ area }: Props) {
       );
       return;
     }
+    const updatedRowAsRow = updatedRow as Row;
 
     setRows((current) =>
       current.map((row) => {
         if (Number(row.id) !== selected.id) return row;
-        return { ...row, ...updatedRow };
+        return { ...row, ...updatedRowAsRow };
       })
     );
 
     const latForMap = parseNumericOrNull(String(updatedRow.latitude ?? ""));
     const lngForMap = parseNumericOrNull(String(updatedRow.longitude ?? ""));
     if (latForMap != null && lngForMap != null) {
+      setGeocodeStatusById((prev) => ({ ...prev, [selected.id]: "exact" }));
       setGeocodeFailureById((prev) => {
         if (!(selected.id in prev)) return prev;
         const next = { ...prev };
@@ -886,9 +1104,10 @@ export default function DayOperationsView({ area }: Props) {
       });
       setGeoById((current) => ({
         ...current,
-        [selected.id]: { latitude: latForMap, longitude: lngForMap },
+        [selected.id]: { latitude: latForMap, longitude: lngForMap, confidence: "exact" },
       }));
     } else {
+      setGeocodeStatusById((prev) => ({ ...prev, [selected.id]: "a_valider" }));
       setGeoById((current) => {
         const next = { ...current };
         delete next[selected.id];
@@ -903,6 +1122,197 @@ export default function DayOperationsView({ area }: Props) {
         ? String((responseData as { warning?: unknown }).warning ?? "")
         : "";
     setStopFormMessage(warning || "Arret mis a jour.");
+  }
+
+  async function searchPositionFromEditedAddress() {
+    if (!selected) return;
+    setSearchingPosition(true);
+    setStopFormMessage("");
+    const queries = buildGeocodeCandidatesFromParts(stopEditForm);
+    if (queries.length === 0) {
+      setSearchingPosition(false);
+      setStopFormMessage(
+        "Adresse a valider. Nous n avons pas pu positionner cette adresse automatiquement sur la carte."
+      );
+      return;
+    }
+    let point: GeocodedPoint | null = null;
+    for (let index = 0; index < queries.length; index += 1) {
+      if (index > 0) {
+        await new Promise((r) => setTimeout(r, NOMINATIM_MIN_INTERVAL_MS));
+      }
+      point = await geocodeAddress(queries[index]);
+      if (point) break;
+    }
+    if (!point) {
+      setSearchingPosition(false);
+      setStopFormMessage(
+        "Adresse a valider. Nous n avons pas pu positionner cette adresse automatiquement sur la carte."
+      );
+      setGeocodeStatusById((prev) => ({ ...prev, [selected.id]: "a_valider" }));
+      return;
+    }
+
+    setStopEditForm((prev) => ({
+      ...prev,
+      latitude: String(point.latitude),
+      longitude: String(point.longitude),
+    }));
+    setGeoById((prev) => ({
+      ...prev,
+      [selected.id]: point,
+    }));
+    setGeocodeStatusById((prev) => ({
+      ...prev,
+      [selected.id]: point.confidence === "exact" ? "exact" : "approximatif",
+    }));
+    setSearchingPosition(false);
+    setStopFormMessage(
+      point.confidence === "exact"
+        ? "Adresse localisee."
+        : "Position approximative a valider."
+    );
+  }
+
+  async function runQuickStopAction(
+    action: "replanifier" | "annuler" | "supprimer" | "completer"
+  ) {
+    if (!selected || !canEditStopDetails) return;
+    const actionKey = `${action}:${selected.id}`;
+    if (action === "supprimer") {
+      const confirmed = window.confirm("Confirmer la suppression de cet arret ?");
+      if (!confirmed) return;
+    }
+    setQuickActionLoading(actionKey);
+    setStopFormMessage("");
+    try {
+      if (action === "supprimer") {
+        const { error } = await supabase.from("livraisons_planifiees").delete().eq("id", selected.id);
+        if (error) {
+          setStopFormMessage("Suppression impossible pour le moment.");
+          return;
+        }
+        setRows((current) => current.filter((row) => Number(row.id) !== selected.id));
+        setGeocodeFailureById((prev) => {
+          const next = { ...prev };
+          delete next[selected.id];
+          return next;
+        });
+        setGeoById((prev) => {
+          const next = { ...prev };
+          delete next[selected.id];
+          return next;
+        });
+        setStopFormMessage("Arret supprime.");
+        return;
+      }
+
+      const patch: Record<string, unknown> = {};
+      if (action === "annuler") patch.statut = "annulee";
+      if (action === "replanifier") patch.statut = "planifiee";
+      if (action === "completer") {
+        patch.statut = selected.type === "ramassage" ? "ramassee" : "livree";
+      }
+      const { data, error } = await supabase
+        .from("livraisons_planifiees")
+        .update(patch)
+        .eq("id", selected.id)
+        .select("*")
+        .maybeSingle();
+      if (error || !data) {
+        setStopFormMessage("Action rapide indisponible pour le moment.");
+        return;
+      }
+      setRows((current) =>
+        current.map((row) => (Number(row.id) === selected.id ? { ...row, ...(data as Row) } : row))
+      );
+      setStopFormMessage(
+        action === "annuler"
+          ? "Arret annule."
+          : action === "replanifier"
+            ? "Arret replanifie."
+            : "Arret marque complete."
+      );
+    } finally {
+      setQuickActionLoading(null);
+    }
+  }
+
+  function startManualPositionMode(stopId: number) {
+    const stop = stops.find((item) => item.id === stopId);
+    if (!stop) return;
+    const existing = geoById[stopId];
+    const rawCoords = getOperationCoordinates(stop.row);
+    const fallback =
+      existing ??
+      (rawCoords.lat != null && rawCoords.lng != null
+        ? { latitude: rawCoords.lat, longitude: rawCoords.lng, confidence: "approximatif" as const }
+        : null);
+    const centerFallback =
+      fallback ??
+      (origin
+        ? { latitude: origin.latitude, longitude: origin.longitude, confidence: "approximatif" as const }
+        : returnOrigin
+          ? { latitude: returnOrigin.latitude, longitude: returnOrigin.longitude, confidence: "approximatif" as const }
+          : { latitude: 46.8139, longitude: -71.2082, confidence: "approximatif" as const });
+    setManualPositionDraft({
+      latitude: centerFallback.latitude,
+      longitude: centerFallback.longitude,
+    });
+    setManualPickStopId(stopId);
+    setIsEditingStop(true);
+    setShowDetail(true);
+    setStopFormMessage("Mode position manuelle active. Deplacez le point puis cliquez Accepter la position.");
+  }
+
+  function cancelManualPositionMode() {
+    setManualPickStopId(null);
+    setManualPositionDraft(null);
+    setStopFormMessage("Position manuelle annulee.");
+  }
+
+  async function acceptManualPosition() {
+    if (manualPickStopId == null || !manualPositionDraft) return;
+    const stopId = manualPickStopId;
+    const coords = manualPositionDraft;
+
+    setGeoById((prev) => ({
+      ...prev,
+      [stopId]: { ...coords, confidence: "exact" },
+    }));
+    setGeocodeStatusById((prev) => ({ ...prev, [stopId]: "manuelle" }));
+    setGeocodeFailureById((prev) => {
+      const next = { ...prev };
+      delete next[stopId];
+      return next;
+    });
+    setRows((current) =>
+      current.map((row) =>
+        Number(row.id) === stopId
+          ? { ...row, latitude: coords.latitude, longitude: coords.longitude }
+          : row
+      )
+    );
+    if (selected?.id === stopId) {
+      setStopEditForm((prev) => ({
+        ...prev,
+        latitude: String(coords.latitude),
+        longitude: String(coords.longitude),
+      }));
+    }
+
+    let saved = true;
+    if (canEditStopDetails) {
+      saved = await persistGeocodedToServer(stopId, coords.latitude, coords.longitude);
+    }
+
+    setManualPickStopId(null);
+    setManualPositionDraft(null);
+    setStopFormMessage(
+      saved
+        ? "Position definie manuellement et sauvegardee."
+        : "Position appliquee localement, mais non sauvegardee. Veuillez reessayer."
+    );
   }
 
   if (accessLoading || loading) {
@@ -923,26 +1333,126 @@ export default function DayOperationsView({ area }: Props) {
     );
   }
 
+  const kpiCards = [
+    { label: "Operations", value: String(stops.length) },
+    { label: "Distance routiere actuelle", value: `${routeSummary.currentKm.toFixed(1)} km` },
+    { label: "Distance routiere suggeree", value: `${routeSummary.suggestedKm.toFixed(1)} km` },
+    { label: "Conduite actuelle", value: `${routeSummary.currentDriveMinutes} min` },
+    { label: "Conduite suggeree", value: `${routeSummary.suggestedDriveMinutes} min` },
+    { label: "Service total (30 min/arret)", value: `${routeSummary.serviceMinutes} min` },
+    { label: "Duree totale estimee", value: `${routeSummary.totalMinutes} min` },
+    { label: "Retour estime", value: routeSummary.retourEstime },
+    {
+      label: "Gain estime",
+      value: `${Math.max(0, routeSummary.currentKm - routeSummary.suggestedKm).toFixed(1)} km`,
+    },
+  ];
+
   return (
     <main className="page-container">
-      <HeaderTagora
-        title="Journee livraison & ramassage"
-        subtitle={dateIso ? formatDateLabel(dateIso) : "Date manquante"}
-      />
+      <section
+        className="tagora-panel"
+        style={{
+          marginTop: 8,
+          padding: 16,
+          borderRadius: 18,
+          background:
+            "linear-gradient(135deg, rgba(15,41,72,0.96) 0%, rgba(24,72,124,0.92) 52%, rgba(37,99,235,0.82) 100%)",
+          boxShadow: "0 14px 32px rgba(15, 41, 72, 0.24)",
+          border: "1px solid rgba(255,255,255,0.18)",
+        }}
+      >
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+            gap: 12,
+            alignItems: "center",
+          }}
+        >
+          <div style={{ display: "flex", justifyContent: "flex-start" }}>
+            <div
+              style={{
+                borderRadius: 999,
+                padding: "6px 12px",
+                fontWeight: 900,
+                fontSize: 13,
+                letterSpacing: "0.08em",
+                color: "#0f2948",
+                background: "rgba(255,255,255,0.95)",
+                border: "1px solid rgba(255,255,255,0.9)",
+              }}
+            >
+              TAGORA
+            </div>
+          </div>
+          <div style={{ display: "grid", gap: 8, justifyItems: "center", textAlign: "center" }}>
+            <div style={{ display: "grid", gap: 2 }}>
+              <h1 style={{ margin: 0, color: "#f8fafc", fontSize: 24, lineHeight: 1.1 }}>
+                Journee livraison & ramassage
+              </h1>
+              <span style={{ color: "rgba(226,232,240,0.95)", fontSize: 12 }}>
+                Planification, suivi et coordination des arrets du jour ·{" "}
+                {dateIso ? formatDateLabel(dateIso) : "Date manquante"}
+              </span>
+            </div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "center" }}>
+              <Link
+                href={area === "direction" ? "/direction/livraisons" : "/employe/livraisons"}
+                className="tagora-dark-outline-action day-ops-compact-btn"
+                style={{ borderColor: "rgba(255,255,255,0.65)", color: "#ffffff", background: "transparent" }}
+              >
+                Retour
+              </Link>
+              {area === "direction" ? (
+                <Link
+                  href="/direction/dashboard"
+                  className="tagora-dark-outline-action day-ops-compact-btn"
+                  style={{ borderColor: "rgba(255,255,255,0.65)", color: "#ffffff", background: "transparent" }}
+                >
+                  Tableau de bord direction
+                </Link>
+              ) : null}
+            </div>
+          </div>
+          <div style={{ display: "flex", justifyContent: "flex-end" }}>
+            <StatusBadge
+              label={role === "admin" ? "Compte admin" : "Compte direction"}
+              tone={role === "admin" ? "success" : "warning"}
+            />
+          </div>
+        </div>
+      </section>
 
-      <div className="ui-grid-auto" style={{ marginTop: 12 }}>
-        <SectionCard title="Operations" subtitle={String(stops.length)} />
-        <SectionCard title="Distance routiere actuelle" subtitle={`${routeSummary.currentKm.toFixed(1)} km`} />
-        <SectionCard title="Distance routiere suggeree" subtitle={`${routeSummary.suggestedKm.toFixed(1)} km`} />
-        <SectionCard title="Conduite actuelle" subtitle={`${routeSummary.currentDriveMinutes} min`} />
-        <SectionCard title="Conduite suggeree" subtitle={`${routeSummary.suggestedDriveMinutes} min`} />
-        <SectionCard title="Service total (30 min/arret)" subtitle={`${routeSummary.serviceMinutes} min`} />
-        <SectionCard title="Duree totale estimee" subtitle={`${routeSummary.totalMinutes} min`} />
-        <SectionCard title="Retour estime" subtitle={routeSummary.retourEstime} />
-        <SectionCard
-          title="Gain estime"
-          subtitle={`${Math.max(0, routeSummary.currentKm - routeSummary.suggestedKm).toFixed(1)} km`}
-        />
+      <div
+        style={{
+          marginTop: 14,
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))",
+          gap: 10,
+          alignItems: "stretch",
+        }}
+      >
+        {kpiCards.map((item) => (
+          <AppCard
+            key={item.label}
+            tone="muted"
+            style={{
+              minHeight: 92,
+              display: "grid",
+              gap: 6,
+              alignContent: "space-between",
+              border: "1px solid #dbe4f0",
+              boxShadow: "0 8px 16px rgba(15, 41, 72, 0.08)",
+              borderRadius: 14,
+            }}
+          >
+            <span className="ui-text-muted" style={{ fontSize: 12, fontWeight: 700 }}>
+              {item.label}
+            </span>
+            <strong style={{ fontSize: 22, color: "#0f2948", lineHeight: 1.05 }}>{item.value}</strong>
+          </AppCard>
+        ))}
       </div>
 
       <div className="day-ops-layout" style={{ marginTop: 12 }}>
@@ -1156,6 +1666,44 @@ export default function DayOperationsView({ area }: Props) {
                 les arrets geolocalises (dans l&apos;ordre de la liste), puis le retour.
               </p>
             ) : null}
+            {stopsApproximate.length > 0 ? (
+              <p className="ui-text-muted" style={{ margin: "0 0 8px", color: "#b45309" }}>
+                Position approximative a valider : {stopsApproximate.map((s) => s.client).join(", ")}.
+              </p>
+            ) : null}
+            {manualPickStopId != null ? (
+              <div
+                className="tagora-panel-muted"
+                style={{ margin: "0 0 8px", padding: 10, border: "1px solid #f59e0b", background: "#fff7ed" }}
+              >
+                <strong>Position manuelle en cours</strong>
+                <div className="ui-text-muted" style={{ marginTop: 4 }}>
+                  Arret selectionne :{" "}
+                  {stops.find((stop) => stop.id === manualPickStopId)?.order ?? "-"}{" "}
+                  {stops.find((stop) => stop.id === manualPickStopId)?.client ?? ""}
+                </div>
+                <div className="ui-text-muted" style={{ marginTop: 4 }}>
+                  Deplacez le point sur la carte, puis cliquez Accepter la position.
+                </div>
+                <div style={{ marginTop: 8, display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  <button
+                    type="button"
+                    className="tagora-dark-action day-ops-compact-btn"
+                    disabled={!manualPositionDraft}
+                    onClick={() => void acceptManualPosition()}
+                  >
+                    Accepter la position
+                  </button>
+                  <button
+                    type="button"
+                    className="tagora-dark-outline-action day-ops-compact-btn"
+                    onClick={() => cancelManualPositionMode()}
+                  >
+                    Annuler
+                  </button>
+                </div>
+              </div>
+            ) : null}
             {Object.keys(geocodeFailureById).length > 0 ? (
               <div
                 className="tagora-panel"
@@ -1163,17 +1711,59 @@ export default function DayOperationsView({ area }: Props) {
                   margin: "0 0 8px",
                   padding: 10,
                   fontSize: 12,
-                  background: "rgba(254, 242, 242, 0.95)",
-                  border: "1px solid #f87171",
+                  background: "rgba(255, 247, 237, 0.95)",
+                  border: "1px solid #f59e0b",
                 }}
               >
-                <strong>Geocodage : detail par arret</strong>
+                <strong>Adresse a valider</strong>
+                <div className="ui-text-muted" style={{ marginTop: 4 }}>
+                  Nous n avons pas pu positionner automatiquement certaines adresses sur la carte.
+                </div>
                 <ul style={{ margin: "6px 0 0 18px", padding: 0 }}>
-                  {Object.entries(geocodeFailureById).map(([id, msg]) => {
+                  {Object.entries(geocodeFailureById).map(([id, item]) => {
                     const st = stops.find((s) => s.id === Number(id));
                     return (
                       <li key={id} style={{ marginBottom: 4 }}>
-                        <strong>{st?.client ?? `Arret ${id}`}</strong> : {msg}
+                        <strong>{st?.client ?? `Arret ${id}`}</strong>
+                        <div className="ui-text-muted" style={{ marginTop: 2 }}>
+                          Adresse originale: {item.originalAddress}
+                        </div>
+                        <div className="ui-text-muted" style={{ marginTop: 2 }}>
+                          Derniere tentative: {item.addressTried}
+                        </div>
+                        <div style={{ marginTop: 4, display: "flex", gap: 6, flexWrap: "wrap" }}>
+                          <button
+                            type="button"
+                            className="tagora-dark-outline-action day-ops-compact-btn"
+                            onClick={() => {
+                              setSelectedId(Number(id));
+                              setShowDetail(true);
+                              setIsEditingStop(true);
+                              setStopFormMessage(item.message);
+                            }}
+                          >
+                            Corriger l adresse
+                          </button>
+                          <button
+                            type="button"
+                            className="tagora-dark-outline-action day-ops-compact-btn"
+                            disabled={recheckingStopId === Number(id)}
+                            onClick={() => void retryStopGeocoding(Number(id))}
+                          >
+                            {recheckingStopId === Number(id) ? "Recherche..." : "Rechercher a nouveau"}
+                          </button>
+                          <button
+                            type="button"
+                            className="tagora-dark-outline-action day-ops-compact-btn"
+                            onClick={() => {
+                              setSelectedId(Number(id));
+                              setShowDetail(true);
+                              startManualPositionMode(Number(id));
+                            }}
+                          >
+                            Definir la position sur la carte
+                          </button>
+                        </div>
                       </li>
                     );
                   })}
@@ -1188,6 +1778,10 @@ export default function DayOperationsView({ area }: Props) {
                 origin={origin}
                 returnOrigin={returnOrigin}
                 routeGeometryLatLng={routeSummary.routeGeometryLatLng}
+                manualPickMode={manualPickStopId != null}
+                manualPickStopLabel={selected?.client}
+                manualDraft={manualPositionDraft}
+                onManualDraftChange={(coords) => setManualPositionDraft(coords)}
               />
             </div>
           </section>
@@ -1350,9 +1944,120 @@ export default function DayOperationsView({ area }: Props) {
                   <div><strong>Heure:</strong> {selected.time}</div>
                   <div><strong>Type:</strong> {selected.type === "ramassage" ? "Ramassage" : "Livraison"}</div>
                   <div><strong>Statut:</strong> {selected.statusText}</div>
+                  <div>
+                    <strong>Geolocalisation:</strong>{" "}
+                    {geocodeStatusById[selected.id] === "approximatif"
+                      ? "Position approximative a valider"
+                      : geocodeStatusById[selected.id] === "manuelle"
+                        ? "Position definie manuellement"
+                      : geocodeStatusById[selected.id] === "a_valider"
+                        ? "Adresse a valider"
+                        : "Adresse localisee"}
+                  </div>
                   <div><strong>Dossier:</strong> {selected.dossierId ?? "-"}</div>
+                  <div><strong>Commande:</strong> {String(selected.row.numero_commande || selected.row.commande || "-")}</div>
+                  <div><strong>Facture:</strong> {String(selected.row.numero_facture || selected.row.facture || "-")}</div>
                 </AppCard>
               </div>
+
+              {canEditStopDetails ? (
+                <AppCard tone="muted" className="ui-stack-xs" style={{ padding: 12 }}>
+                  <strong>Actions rapides</strong>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    <button
+                      type="button"
+                      className="tagora-dark-outline-action day-ops-compact-btn"
+                      onClick={() => {
+                        setIsEditingStop(true);
+                        setShowDetail(true);
+                        setStopFormMessage("");
+                      }}
+                    >
+                      Modifier
+                    </button>
+                    <button
+                      type="button"
+                      className="tagora-dark-outline-action day-ops-compact-btn"
+                      disabled={quickActionLoading === `replanifier:${selected.id}`}
+                      onClick={() => void runQuickStopAction("replanifier")}
+                    >
+                      Replanifier
+                    </button>
+                    <button
+                      type="button"
+                      className="tagora-dark-outline-action day-ops-compact-btn"
+                      disabled={quickActionLoading === `annuler:${selected.id}`}
+                      onClick={() => void runQuickStopAction("annuler")}
+                    >
+                      Annuler
+                    </button>
+                    <button
+                      type="button"
+                      className="tagora-dark-outline-action day-ops-compact-btn"
+                      disabled={quickActionLoading === `completer:${selected.id}`}
+                      onClick={() => void runQuickStopAction("completer")}
+                    >
+                      {selected.type === "ramassage" ? "Marquer ramasse" : "Marquer livre"}
+                    </button>
+                    {isAdmin ? (
+                      <button
+                        type="button"
+                        className="tagora-dark-outline-action day-ops-compact-btn"
+                        disabled={quickActionLoading === `supprimer:${selected.id}`}
+                        onClick={() => void runQuickStopAction("supprimer")}
+                      >
+                        Supprimer
+                      </button>
+                    ) : null}
+                    <button
+                      type="button"
+                      className="tagora-dark-outline-action day-ops-compact-btn"
+                      onClick={() => {
+                        startManualPositionMode(selected.id);
+                      }}
+                    >
+                      Definir position carte
+                    </button>
+                  </div>
+                </AppCard>
+              ) : null}
+
+              <AppCard tone="muted" className="ui-stack-xs" style={{ padding: 12 }}>
+                <InternalMentionsPanel
+                  entityType={selected.type === "ramassage" ? "ramassage" : "livraison"}
+                  entityId={selected.id}
+                  recipients={chauffeurs.filter((item) => {
+                    const actifValue = String(item.actif ?? "true").toLowerCase();
+                    return actifValue !== "false" && actifValue !== "0";
+                  }).map((item) => {
+                    const fullName = [item.prenom, item.nom].filter(Boolean).map(String).join(" ").trim();
+                    return {
+                      id: Number(item.id),
+                      name: String(item.nom_complet || item.nom || fullName || `#${String(item.id)}`),
+                      email: typeof item.courriel === "string" ? item.courriel : null,
+                      active: true,
+                    };
+                  })}
+                  context={{
+                    title: selected.client,
+                    client: selected.client,
+                    adresse: selected.fullAddress || selected.address || "",
+                    commande: String(selected.row.numero_commande || selected.row.commande || ""),
+                    facture: String(selected.row.numero_facture || selected.row.facture || ""),
+                    date: String(selected.row.date_livraison || ""),
+                    heure: String(selected.row.heure_prevue || selected.time || ""),
+                    statut: String(selected.row.statut || selected.statusText || ""),
+                    dossier: String(selected.dossierId || selected.row.dossier_id || ""),
+                    vehicule: String(selected.row.vehicule_id || selected.row.vehicule || ""),
+                    remorque: String(selected.row.remorque_id || selected.row.remorque || ""),
+                    chauffeur: String(selected.row.chauffeur_id || selected.row.chauffeur || ""),
+                    linkPath:
+                      selected.type === "ramassage"
+                        ? `/direction/ramassages`
+                        : `/direction/livraisons/jour?date=${encodeURIComponent(dateIso)}`,
+                  }}
+                />
+              </AppCard>
 
               {showDetail ? (
                 <>
@@ -1413,6 +2118,45 @@ export default function DayOperationsView({ area }: Props) {
                               setStopEditForm((prev) => ({ ...prev, province: event.target.value }))
                             }
                           />
+                        </label>
+                        <label className="tagora-field" style={{ margin: 0 }}>
+                          <span className="tagora-label">Date livraison</span>
+                          <input
+                            type="date"
+                            className="tagora-input"
+                            value={stopEditForm.date_livraison}
+                            onChange={(event) =>
+                              setStopEditForm((prev) => ({ ...prev, date_livraison: event.target.value }))
+                            }
+                          />
+                        </label>
+                        <label className="tagora-field" style={{ margin: 0 }}>
+                          <span className="tagora-label">Heure prevue</span>
+                          <input
+                            type="time"
+                            className="tagora-input"
+                            value={stopEditForm.heure_prevue}
+                            onChange={(event) =>
+                              setStopEditForm((prev) => ({ ...prev, heure_prevue: event.target.value }))
+                            }
+                          />
+                        </label>
+                        <label className="tagora-field" style={{ margin: 0 }}>
+                          <span className="tagora-label">Statut</span>
+                          <select
+                            className="tagora-input"
+                            value={stopEditForm.statut}
+                            onChange={(event) =>
+                              setStopEditForm((prev) => ({ ...prev, statut: event.target.value }))
+                            }
+                          >
+                            <option value="">--</option>
+                            <option value="planifiee">Planifiee</option>
+                            <option value="en_cours">En cours</option>
+                            <option value="livree">Livree</option>
+                            <option value="ramassee">Ramassee</option>
+                            <option value="annulee">Annulee</option>
+                          </select>
                         </label>
                         <label className="tagora-field" style={{ margin: 0 }}>
                           <span className="tagora-label">Latitude</span>
@@ -1477,7 +2221,15 @@ export default function DayOperationsView({ area }: Props) {
                         </p>
                       ) : null}
                       {stopFormMessage ? <p className="ui-text-muted" style={{ margin: 0 }}>{stopFormMessage}</p> : null}
-                      <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
+                        <button
+                          type="button"
+                          className="tagora-dark-outline-action day-ops-compact-btn"
+                          disabled={searchingPosition}
+                          onClick={() => void searchPositionFromEditedAddress()}
+                        >
+                          {searchingPosition ? "Recherche position..." : "Rechercher position"}
+                        </button>
                         <button
                           type="button"
                           className="tagora-dark-action day-ops-compact-btn"
@@ -1504,21 +2256,37 @@ export default function DayOperationsView({ area }: Props) {
                       </div>
                     </AppCard>
                   )}
-                  <AppCard tone="muted" className="ui-stack-xs" style={{ padding: 12 }}>
-                    <div className="ui-text-muted" style={{ fontSize: 12 }}>
-                      Documents et preuves
+                  <details
+                    className="tagora-panel-muted"
+                    style={{ padding: 12, border: "1px solid #dbe4f0", borderRadius: 12 }}
+                  >
+                    <summary
+                      style={{
+                        cursor: "pointer",
+                        fontWeight: 700,
+                        color: "#0f172a",
+                        listStyle: "none",
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                      }}
+                    >
+                      <span>Documents et preuves</span>
+                      <span className="ui-text-muted" style={{ fontSize: 12 }}>Afficher</span>
+                    </summary>
+                    <div style={{ marginTop: 10 }}>
+                      <OperationProofsPanel
+                        moduleSource={selected.type === "ramassage" ? "ramassage" : "livraison"}
+                        sourceId={selected.id}
+                        categorieParDefaut={
+                          selected.type === "ramassage" ? "preuve_ramassage" : "preuve_livraison"
+                        }
+                        titre="Documents et preuves"
+                        commentairePlaceholder="Ajouter note, document, photo, vocal ou signature"
+                        compact
+                      />
                     </div>
-                    <OperationProofsPanel
-                      moduleSource={selected.type === "ramassage" ? "ramassage" : "livraison"}
-                      sourceId={selected.id}
-                      categorieParDefaut={
-                        selected.type === "ramassage" ? "preuve_ramassage" : "preuve_livraison"
-                      }
-                      titre="Documents et preuves"
-                      commentairePlaceholder="Ajouter note, document, photo, vocal ou signature"
-                      compact
-                    />
-                  </AppCard>
+                  </details>
                 </>
               ) : null}
             </section>

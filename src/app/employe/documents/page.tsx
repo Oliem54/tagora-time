@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import AccessNotice from "@/app/components/AccessNotice";
 import HeaderTagora from "@/app/components/HeaderTagora";
+import TagoraLoadingScreen from "@/app/components/ui/TagoraLoadingScreen";
 import { useCurrentAccess } from "@/app/hooks/useCurrentAccess";
 import { supabase } from "@/app/lib/supabase/client";
 
@@ -164,14 +165,7 @@ export default function EmployeDocumentsPage() {
   }, [accessLoading, canUseDocuments, userId]);
 
   if (accessLoading) {
-    return (
-      <main className="tagora-app-shell">
-        <div className="tagora-app-content" style={{ maxWidth: 1400 }}>
-          <HeaderTagora title="Documents" subtitle="Chargement" />
-          <AccessNotice description="Acces en cours." />
-        </div>
-      </main>
-    );
+    return <TagoraLoadingScreen isLoading message="Chargement de votre espace..." fullScreen />;
   }
 
   return (

@@ -33,6 +33,7 @@ import InfoRow from "@/app/components/ui/InfoRow";
 import FormField from "@/app/components/ui/FormField";
 import SecondaryButton from "@/app/components/ui/SecondaryButton";
 import StatusBadge from "@/app/components/ui/StatusBadge";
+import TagoraLoadingScreen from "@/app/components/ui/TagoraLoadingScreen";
 import FilterBar from "@/app/components/ui/FilterBar";
 
 type GpsPosition = {
@@ -292,14 +293,7 @@ export default function DirectionTerrainPage() {
   );
 
   if (accessLoading || (!blocked && loading)) {
-    return (
-      <main className="tagora-app-shell">
-        <div className="tagora-app-content">
-          <AuthenticatedPageHeader title="Terrain direction" />
-          <SectionCard title="Chargement" subtitle="Positions en cours." />
-        </div>
-      </main>
-    );
+    return <TagoraLoadingScreen isLoading message="Chargement de votre espace..." fullScreen />;
   }
   if (!user) {
     router.push("/direction/login");

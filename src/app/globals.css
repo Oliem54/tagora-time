@@ -2375,3 +2375,124 @@ select {
     transform: rotate(360deg);
   }
 }
+
+.tagora-loading-overlay {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background:
+    radial-gradient(circle at 20% 14%, rgba(102, 149, 216, 0.18), transparent 40%),
+    radial-gradient(circle at 84% 18%, rgba(73, 115, 182, 0.16), transparent 36%),
+    linear-gradient(180deg, #081c38 0%, #0c2a52 52%, #103463 100%);
+  opacity: 1;
+  transition: opacity 240ms ease;
+}
+
+.tagora-loading-overlay.is-exiting {
+  opacity: 0;
+}
+
+.tagora-loading-card {
+  width: min(520px, 92vw);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 16px;
+  padding: clamp(36px, 5vw, 56px) clamp(24px, 4vw, 44px);
+  border-radius: 28px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.13) 0%, rgba(255, 255, 255, 0.05) 100%);
+  box-shadow:
+    0 26px 56px rgba(7, 21, 40, 0.38),
+    inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  backdrop-filter: blur(16px);
+}
+
+.tagora-loading-logo-shell {
+  width: min(280px, 62vw);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 10px;
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  animation: tagora-loading-breathe 2.8s ease-in-out infinite;
+}
+
+.tagora-loading-logo {
+  width: 100%;
+  max-width: 280px;
+  height: auto;
+  display: block;
+  object-fit: contain;
+  filter: drop-shadow(0 10px 24px rgba(255, 255, 255, 0.08));
+}
+
+.tagora-loading-progress-track {
+  width: min(360px, 80vw);
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.24);
+  overflow: hidden;
+  margin-top: 2px;
+}
+
+.tagora-loading-progress-bar {
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #7eaef8 0%, #d7e9ff 45%, #79a8f1 100%);
+  box-shadow:
+    0 0 20px rgba(144, 186, 255, 0.75),
+    0 0 10px rgba(255, 255, 255, 0.55);
+  transition: width 320ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.tagora-loading-message {
+  margin: 0;
+  color: rgba(236, 245, 255, 0.88);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-align: center;
+}
+
+@keyframes tagora-loading-breathe {
+  0%, 100% {
+    transform: translateY(0) scale(1);
+    filter: saturate(1);
+  }
+  50% {
+    transform: translateY(-1px) scale(1.01);
+    filter: saturate(1.05);
+  }
+}
+
+@media (max-width: 700px) {
+  .tagora-loading-card {
+    width: min(480px, 94vw);
+    padding: 34px 20px 30px;
+    border-radius: 24px;
+  }
+
+  .tagora-loading-logo-shell {
+    width: min(220px, 64vw);
+  }
+
+  .tagora-loading-logo {
+    max-width: 220px;
+  }
+
+  .tagora-loading-progress-track {
+    width: min(300px, 82vw);
+    height: 5px;
+  }
+}

@@ -9,8 +9,10 @@ import SectionCard from "@/app/components/ui/SectionCard";
 import AppCard from "@/app/components/ui/AppCard";
 import StatusBadge from "@/app/components/ui/StatusBadge";
 import OperationProofsPanel from "@/app/components/proofs/OperationProofsPanel";
+import InternalMentionsPanel from "@/app/components/internal/InternalMentionsPanel";
 import { supabase } from "@/app/lib/supabase/client";
 import { useCurrentAccess } from "@/app/hooks/useCurrentAccess";
+import TagoraLoadingScreen from "@/app/components/ui/TagoraLoadingScreen";
 
 type Row = Record<string, string | number | null | undefined>;
 
@@ -32,6 +34,21 @@ type PickupCreateFormState = {
   chauffeur_id: string;
   statut: "planifiee" | "pret_a_ramasser";
   notes: string;
+};
+
+type OverdueSeverity = "overdue" | "warning" | "normal";
+type OverdueItem = {
+  id: number;
+  client: string;
+  commande: string;
+  facture: string;
+  expectedDate: string;
+  diffDays: number;
+  lateDays: number;
+  status: string;
+  phone: string;
+  email: string;
+  severity: OverdueSeverity;
 };
 
 function toIsoDate(date: Date) {
@@ -128,8 +145,10 @@ function getPersonLabel(item: Row) {
 }
 
 export default function DirectionRamassagesPage() {
-  const { user, loading: accessLoading, hasPermission } = useCurrentAccess();
+  const { user, role, loading: accessLoading, hasPermission } = useCurrentAccess();
   const canUseLivraisons = hasPermission("livraisons");
+  const isAdmin = role === "admin";
+  const canViewAlertSettings = role === "admin" || role === "direction";
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [showCreateForm, setShowCreateForm] = useState(false);
@@ -145,8 +164,32 @@ export default function DirectionRamassagesPage() {
   const [calendarDate, setCalendarDate] = useState(new Date());
   const [statusFilter, setStatusFilter] = useState<PickupFilter>("");
   const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [overdueItems, setOverdueItems] = useState<OverdueItem[]>([]);
+  const [overdueLoading, setOverdueLoading] = useState(false);
+  const [delayDays, setDelayDays] = useState(2);
+  const [warningDays, setWarningDays] = useState(1);
+  const [configSaving, setConfigSaving] = useState(false);
 
   const todayIso = toIsoDate(new Date());
+
+  const fetchOverdue = useCallback(async () => {
+    setOverdueLoading(true);
+    try {
+      const res = await fetch("/api/direction/ramassages/overdue", { cache: "no-store" });
+      const payload = (await res.json().catch(() => ({}))) as {
+        items?: OverdueItem[];
+        config?: { delayDays?: number; warningDays?: number };
+      };
+      if (!res.ok) throw new Error((payload as { error?: string }).error ?? "Erreur overdue");
+      setOverdueItems(Array.isArray(payload.items) ? payload.items : []);
+      setDelayDays(Number(payload.config?.delayDays ?? 2));
+      setWarningDays(Number(payload.config?.warningDays ?? 1));
+    } catch {
+      setOverdueItems([]);
+    } finally {
+      setOverdueLoading(false);
+    }
+  }, []);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -193,13 +236,37 @@ export default function DirectionRamassagesPage() {
     setLoading(false);
   }, [selectedId]);
 
+  async function saveOverdueConfig() {
+    setConfigSaving(true);
+    try {
+      const response = await fetch("/api/direction/ramassages/overdue", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ delayDays, warningDays }),
+      });
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => ({}))) as { error?: string };
+        throw new Error(payload.error || "Sauvegarde refusee.");
+      }
+      await fetchOverdue();
+      setMessage("Delai d alerte ramassage mis a jour.");
+      setMessageType("success");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Impossible de sauvegarder la configuration d alerte.");
+      setMessageType("error");
+    } finally {
+      setConfigSaving(false);
+    }
+  }
+
   useEffect(() => {
     if (accessLoading || !user || !canUseLivraisons) return;
     const timer = window.setTimeout(() => {
       void fetchData();
+      void fetchOverdue();
     }, 0);
     return () => window.clearTimeout(timer);
-  }, [accessLoading, canUseLivraisons, fetchData, user]);
+  }, [accessLoading, canUseLivraisons, fetchData, fetchOverdue, user]);
 
   const computed = useMemo(() => {
     return rows.map((item) => ({
@@ -289,6 +356,7 @@ export default function DirectionRamassagesPage() {
     setMessage("Ramassage mis a jour.");
     setMessageType("success");
     await fetchData();
+    await fetchOverdue();
   }
 
   async function handleCreatePickup(event: React.FormEvent) {
@@ -332,15 +400,61 @@ export default function DirectionRamassagesPage() {
     setMessage("Ramassage cree.");
     setMessageType("success");
     await fetchData();
+    await fetchOverdue();
+  }
+
+  async function sendReminder(id: number) {
+    setSavingId(id);
+    setMessage("");
+    setMessageType(null);
+    try {
+      const res = await fetch(`/api/direction/ramassages/${id}/send-reminder`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      const payload = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) throw new Error(payload.error || "Relance impossible");
+      setMessage("Relance client envoyee (si un contact etait disponible).");
+      setMessageType("success");
+      await fetchData();
+      await fetchOverdue();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Erreur relance client.");
+      setMessageType("error");
+    } finally {
+      setSavingId(null);
+    }
+  }
+
+  async function reschedulePickup(id: number, currentDate: string) {
+    const nextDate = window.prompt("Nouvelle date de ramassage (YYYY-MM-DD)", currentDate || "");
+    if (!nextDate) return;
+    setSavingId(id);
+    setMessage("");
+    setMessageType(null);
+    try {
+      const res = await fetch(`/api/direction/ramassages/${id}/reschedule`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ dateLivraison: nextDate }),
+      });
+      const payload = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) throw new Error(payload.error || "Replanification impossible");
+      setMessage("Ramassage replanifie.");
+      setMessageType("success");
+      await fetchData();
+      await fetchOverdue();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Erreur replanification.");
+      setMessageType("error");
+    } finally {
+      setSavingId(null);
+    }
   }
 
   if (accessLoading || (canUseLivraisons && loading)) {
-    return (
-      <main className="page-container">
-        <HeaderTagora title="Calendrier ramassages" subtitle="Chargement" />
-        <AccessNotice description="Chargement en cours." />
-      </main>
-    );
+    return <TagoraLoadingScreen isLoading message="Chargement de votre espace..." fullScreen />;
   }
 
   if (!user) return null;
@@ -403,6 +517,9 @@ export default function DirectionRamassagesPage() {
           <Link href="/direction/ramassages" aria-current="page" style={{ ...navButtonBase, ...getButtonTone(true) }}>
             Ramassages
           </Link>
+          <Link href="/direction/livraisons/archives" style={{ ...navButtonBase, ...getButtonTone(false) }}>
+            Archives
+          </Link>
         </div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           <button
@@ -437,6 +554,156 @@ export default function DirectionRamassagesPage() {
       </div>
 
       <FeedbackMessage message={message} type={messageType} />
+
+      {canViewAlertSettings ? (
+        <section className="tagora-panel" style={{ marginTop: 16 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+          <div>
+            <h2 className="section-title" style={{ marginBottom: 6 }}>
+              Parametres alertes ramassage
+            </h2>
+            <p className="ui-text-muted" style={{ margin: 0 }}>
+              Configuration du delai et actualisation des alertes direction.
+            </p>
+          </div>
+          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+            {isAdmin ? (
+              <>
+                <label className="ui-text-muted" style={{ fontSize: 12 }}>
+                  Delai (jours)
+                </label>
+                <input
+                  type="number"
+                  min={1}
+                  value={delayDays}
+                  onChange={(e) => setDelayDays(Number(e.target.value || 2))}
+                  className="tagora-input"
+                  style={{ width: 88 }}
+                />
+                <label className="ui-text-muted" style={{ fontSize: 12 }}>
+                  Alerte avant (jours)
+                </label>
+                <input
+                  type="number"
+                  min={0}
+                  value={warningDays}
+                  onChange={(e) => setWarningDays(Number(e.target.value || 1))}
+                  className="tagora-input"
+                  style={{ width: 88 }}
+                />
+                <button type="button" className="tagora-dark-outline-action" onClick={() => void saveOverdueConfig()} disabled={configSaving}>
+                  {configSaving ? "Sauvegarde..." : "Sauvegarder"}
+                </button>
+              </>
+            ) : (
+              <span className="ui-text-muted" style={{ fontSize: 13 }}>
+                Delai actuel: {delayDays} jour(s) | Alerte avant: {warningDays} jour(s)
+              </span>
+            )}
+            <button type="button" className="tagora-dark-outline-action" onClick={() => void fetchOverdue()} disabled={overdueLoading}>
+              {overdueLoading ? "..." : "Actualiser alertes"}
+            </button>
+          </div>
+        </div>
+        </section>
+      ) : null}
+
+      {overdueItems.length > 0 ? (
+        <section className="tagora-panel" style={{ marginTop: 12 }}>
+          <div>
+            <h2 className="section-title" style={{ marginBottom: 6 }}>
+              Commandes non ramassees
+            </h2>
+            <p className="ui-text-muted" style={{ margin: 0 }}>
+              Priorite direction: commandes en retard ou proches du delai.
+            </p>
+          </div>
+          <div style={{ display: "grid", gap: 10, marginTop: 14 }}>
+            {overdueItems.slice(0, 8).map((item) => {
+              const bg =
+                item.severity === "overdue"
+                  ? "rgba(254, 242, 242, 0.96)"
+                  : item.severity === "warning"
+                    ? "rgba(255, 247, 237, 0.96)"
+                    : "rgba(248, 250, 252, 0.96)";
+              const border =
+                item.severity === "overdue"
+                  ? "#ef4444"
+                  : item.severity === "warning"
+                    ? "#f97316"
+                    : "#cbd5e1";
+              return (
+                <article
+                  key={item.id}
+                  style={{
+                    border: `1px solid ${border}`,
+                    borderRadius: 12,
+                    background: bg,
+                    padding: 12,
+                    display: "grid",
+                    gap: 8,
+                  }}
+                >
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
+                    <strong>{item.client || `Ramassage #${item.id}`}</strong>
+                    <span
+                      style={{
+                        fontSize: 11,
+                        fontWeight: 700,
+                        borderRadius: 999,
+                        padding: "2px 8px",
+                        border: `1px solid ${border}`,
+                        color: item.severity === "overdue" ? "#b91c1c" : item.severity === "warning" ? "#c2410c" : "#334155",
+                        background: "#ffffff",
+                      }}
+                    >
+                      {item.severity === "overdue" ? `En retard de ${item.lateDays} jour(s)` : "A relancer bientot"}
+                    </span>
+                  </div>
+                  <div className="ui-text-muted">
+                    Commande: {item.commande || "-"} | Facture: {item.facture || "-"} | Date prevue: {item.expectedDate || "-"}
+                  </div>
+                  <div className="ui-text-muted">
+                    Statut: {item.status || "-"} | Telephone: {item.phone || "-"} | Courriel: {item.email || "-"}
+                  </div>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    <button
+                      type="button"
+                      className="tagora-dark-outline-action"
+                      disabled={savingId === item.id}
+                      onClick={() => void sendReminder(item.id)}
+                    >
+                      Relancer client
+                    </button>
+                    <button
+                      type="button"
+                      className="tagora-dark-outline-action"
+                      disabled={savingId === item.id}
+                      onClick={() => void reschedulePickup(item.id, item.expectedDate)}
+                    >
+                      Replanifier
+                    </button>
+                    <button
+                      type="button"
+                      className="tagora-dark-outline-action"
+                      disabled={savingId === item.id}
+                      onClick={() => void updatePickupStatus(item.id, "ramasse")}
+                    >
+                      Marquer comme ramasse
+                    </button>
+                    <Link
+                      href={`/direction/livraisons/archives?search=${encodeURIComponent(item.commande || item.client || String(item.id))}`}
+                      className="tagora-dark-outline-action"
+                    >
+                      Voir dossier
+                    </Link>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        </section>
+      ) : null}
 
       {showCreateForm ? (
         <section className="tagora-panel" style={{ marginTop: 16 }}>
@@ -778,6 +1045,29 @@ export default function DirectionRamassagesPage() {
             categorieParDefaut="preuve_ramassage_direction"
             titre="Documents et preuves du ramassage"
             commentairePlaceholder="Commentaire ramassage"
+          />
+          <InternalMentionsPanel
+            entityType="ramassage"
+            entityId={selected.id}
+            recipients={chauffeurs
+              .filter((item) => {
+                const actifValue = String(item.actif ?? "true").toLowerCase();
+                return actifValue !== "false" && actifValue !== "0";
+              })
+              .map((item) => ({
+                id: Number(item.id),
+                name: getPersonLabel(item),
+                email: typeof item.courriel === "string" ? item.courriel : null,
+                active: true,
+              }))}
+            context={{
+              title: String(selected.item.client || ""),
+              client: String(selected.item.client || ""),
+              commande: String(selected.item.numero_commande || selected.item.commande || ""),
+              facture: String(selected.item.numero_facture || selected.item.facture || ""),
+              date: String(selected.item.date_livraison || ""),
+              linkPath: `/direction/ramassages`,
+            }}
           />
         </section>
       ) : null}

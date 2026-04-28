@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import HeaderTagora from "@/app/components/HeaderTagora";
 import FeedbackMessage from "@/app/components/FeedbackMessage";
 import AccessNotice from "@/app/components/AccessNotice";
+import TagoraLoadingScreen from "@/app/components/ui/TagoraLoadingScreen";
 import { useCurrentAccess } from "@/app/hooks/useCurrentAccess";
 
 type MessageType = "success" | "error" | null;
@@ -418,12 +419,7 @@ export default function DirectionDisponibilitesPage() {
   );
 
   if (accessLoading || (!blocked && loading)) {
-    return (
-      <main className="page-container">
-        <HeaderTagora title="Disponibilites et blocages" subtitle="Chargement" />
-        <AccessNotice description="Chargement en cours." />
-      </main>
-    );
+    return <TagoraLoadingScreen isLoading message="Chargement de votre espace..." fullScreen />;
   }
 
   if (!user) return null;

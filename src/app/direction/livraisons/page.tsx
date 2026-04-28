@@ -5,9 +5,11 @@ import Link from "next/link";
 import HeaderTagora from "@/app/components/HeaderTagora";
 import FeedbackMessage from "@/app/components/FeedbackMessage";
 import AccessNotice from "@/app/components/AccessNotice";
+import TagoraLoadingScreen from "@/app/components/ui/TagoraLoadingScreen";
 import { supabase } from "@/app/lib/supabase/client";
 import { useCurrentAccess } from "@/app/hooks/useCurrentAccess";
 import OperationProofsPanel from "@/app/components/proofs/OperationProofsPanel";
+import InternalMentionsPanel from "@/app/components/internal/InternalMentionsPanel";
 import {
   ACCOUNT_REQUEST_COMPANIES,
   getCompanyLabel,
@@ -459,12 +461,7 @@ export default function Page() {
   }
 
   if (accessLoading || (!blocked && loading)) {
-    return (
-      <main className="page-container">
-        <HeaderTagora title="Livraison & ramassage" subtitle="Chargement" />
-        <AccessNotice description="Chargement en cours." />
-      </main>
-    );
+    return <TagoraLoadingScreen isLoading message="Chargement de votre espace..." fullScreen />;
   }
 
   if (!user) {
@@ -613,6 +610,12 @@ export default function Page() {
             style={{ ...navButtonBase, ...getButtonTone(false) }}
           >
             Ramassages
+          </Link>
+          <Link
+            href="/direction/livraisons/archives"
+            style={{ ...navButtonBase, ...getButtonTone(false) }}
+          >
+            Archives
           </Link>
         </div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -782,6 +785,27 @@ export default function Page() {
               categorieParDefaut="preuve_livraison_direction"
               titre="Preuves livraison"
               commentairePlaceholder="Commentaire direction"
+            />
+            <InternalMentionsPanel
+              entityType="livraison"
+              entityId={editingId}
+              recipients={chauffeurs
+                .filter((item) => {
+                  const actifValue = String(item.actif ?? "true").toLowerCase();
+                  return actifValue !== "false" && actifValue !== "0";
+                })
+                .map((item) => ({
+                  id: Number(item.id),
+                  name: getPersonLabel(item),
+                  email: typeof item.courriel === "string" ? item.courriel : null,
+                  active: true,
+                }))}
+              context={{
+                title: form.client || undefined,
+                client: form.client || undefined,
+                date: form.date_livraison || undefined,
+                linkPath: `/direction/livraisons?edit=${editingId}`,
+              }}
             />
           </div>
         </section>

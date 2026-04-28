@@ -4,6 +4,13 @@ import { createAdminSupabaseClient } from "@/app/lib/supabase/admin";
 import { extractRoleFromUser } from "@/app/lib/account-requests.server";
 import { isValidEmail } from "@/app/lib/account-requests.shared";
 import { sendSmsToPhone } from "@/app/lib/notifications";
+import {
+  buildPublicUrl,
+  renderBaseEmailLayout,
+  renderInfoRows,
+  renderPlainTextFallback,
+  type EmailInfoRow,
+} from "@/app/lib/email/templates";
 
 const LOG_PREFIX = "[improvements-notify]";
 
@@ -24,10 +31,6 @@ export type NewImprovementNotifyPayload = {
   created_by_role: string | null;
   created_at: string;
 };
-
-function buildAppBaseUrl() {
-  return process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") ?? "";
-}
 
 async function sendResendImprovementEmail(to: string, subject: string, text: string, html: string) {
   const apiKey = process.env.RESEND_API_KEY;
@@ -76,18 +79,9 @@ async function sendResendImprovementEmail(to: string, subject: string, text: str
   }
 }
 
-function escapeHtml(s: string) {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
-
 export async function notifyAdminsNewImprovement(payload: NewImprovementNotifyPayload) {
   const supabase = createAdminSupabaseClient();
-  const baseUrl = buildAppBaseUrl();
-  const ameliorationsUrl = baseUrl ? `${baseUrl}/ameliorations` : "/ameliorations";
+  const ameliorationsUrl = buildPublicUrl("/ameliorations");
 
   const admins: Array<{ id: string; email: string | undefined }> = [];
   let page = 1;
@@ -154,33 +148,32 @@ export async function notifyAdminsNewImprovement(payload: NewImprovementNotifyPa
 
   const subject = "Nouvelle amélioration soumise - TAGORA Time";
   const dateLabel = new Date(payload.created_at).toLocaleString("fr-CA");
-  const textBody = [
-    `Titre : ${payload.title}`,
-    `Module : ${payload.module}`,
-    `Priorité : ${payload.priority}`,
-    "",
-    "Description :",
-    payload.description,
-    "",
-    `Soumise par : ${payload.created_by_email ?? "—"}`,
-    `Rôle : ${payload.created_by_role ?? "—"}`,
-    `Date : ${dateLabel}`,
-    "",
-    `Voir les améliorations : ${ameliorationsUrl}`,
-  ].join("\n");
-
-  const htmlBody = `
-    <h2>Nouvelle amélioration</h2>
-    <p><strong>Titre :</strong> ${escapeHtml(payload.title)}</p>
-    <p><strong>Module :</strong> ${escapeHtml(payload.module)}</p>
-    <p><strong>Priorité :</strong> ${escapeHtml(payload.priority)}</p>
-    <p><strong>Description :</strong></p>
-    <pre style="white-space:pre-wrap;font-family:inherit;">${escapeHtml(payload.description)}</pre>
-    <p><strong>Soumise par :</strong> ${escapeHtml(payload.created_by_email ?? "—")}</p>
-    <p><strong>Rôle :</strong> ${escapeHtml(payload.created_by_role ?? "—")}</p>
-    <p><strong>Date :</strong> ${escapeHtml(dateLabel)}</p>
-    <p><a href="${escapeHtml(ameliorationsUrl)}">Ouvrir /ameliorations</a></p>
-  `;
+  const rows: EmailInfoRow[] = [
+    { label: "Module", value: payload.module || "-" },
+    { label: "Priorite", value: payload.priority || "-" },
+    { label: "Titre", value: payload.title || "-" },
+    { label: "Soumise par", value: payload.created_by_email || "-" },
+    { label: "Role", value: payload.created_by_role || "-" },
+    { label: "Date", value: dateLabel },
+  ];
+  const textBody = renderPlainTextFallback({
+    intro: "Une nouvelle amelioration a ete soumise dans TAGORA.",
+    rows,
+    messageLabel: "Description",
+    messageBody: payload.description || "-",
+    actionUrl: ameliorationsUrl,
+    footer: "Merci,\nTAGORA",
+  });
+  const htmlBody = renderBaseEmailLayout({
+    title: "TAGORA - Nouvelle amelioration soumise",
+    intro: "Une nouvelle amelioration a ete soumise dans TAGORA.",
+    summaryRowsHtml: renderInfoRows(rows),
+    messageLabel: "Description",
+    messageBody: payload.description || "-",
+    actionLabel: "Voir les ameliorations",
+    actionUrl: ameliorationsUrl,
+    footer: "Merci,\nTAGORA",
+  });
 
   const smsBody = `Nouvelle amélioration TAGORA Time : ${payload.title.slice(0, 80)}${payload.title.length > 80 ? "…" : ""}. Module : ${payload.module}. Voir /ameliorations.`;
 

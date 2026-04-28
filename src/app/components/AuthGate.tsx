@@ -1,7 +1,7 @@
 "use client";
 
 import { ReactNode, useEffect, useMemo, useState } from "react";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   clearLocalAuthIfRefreshTokenDead,
   isAuthClientLockContentionError,
@@ -20,6 +20,7 @@ import {
   getUserRole,
 } from "@/app/lib/auth/roles";
 import { hasPasswordChangeRequired } from "@/app/lib/auth/passwords";
+import TagoraLoadingScreen from "@/app/components/ui/TagoraLoadingScreen";
 
 type AuthGateProps = {
   areaRole: AppRole;
@@ -34,13 +35,29 @@ export default function AuthGate({
 }: AuthGateProps) {
   const pathname = usePathname();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [status, setStatus] = useState<"checking" | "allowed">("checking");
   const [missingPermission, setMissingPermission] = useState<string | null>(null);
+  const [forceShowLoader, setForceShowLoader] = useState(false);
 
   const isPublicPath = useMemo(
     () => publicPaths.includes(pathname),
     [pathname, publicPaths]
   );
+  const debugShowLoader = searchParams.get("showLoader") === "1";
+
+  useEffect(() => {
+    if (process.env.NODE_ENV !== "development") return;
+    if (!debugShowLoader) {
+      setForceShowLoader(false);
+      return;
+    }
+    setForceShowLoader(true);
+    const timer = window.setTimeout(() => {
+      setForceShowLoader(false);
+    }, 2000);
+    return () => window.clearTimeout(timer);
+  }, [debugShowLoader]);
 
   useEffect(() => {
     let cancelled = false;
@@ -173,19 +190,10 @@ export default function AuthGate({
   }
 
   return (
-    <main className="tagora-app-shell">
-      <div className="tagora-app-content" style={{ maxWidth: 980 }}>
-        <div className="tagora-panel">
-          <h1 className="section-title" style={{ marginBottom: 10 }}>
-            {missingPermission ? "Acces restreint" : "Verification de la session"}
-          </h1>
-          <p className="tagora-note">
-            {missingPermission
-              ? `La permission ${missingPermission} est requise pour ouvrir ce module. Redirection vers votre espace autorise.`
-              : "Validation de votre acces et redirection vers le bon espace."}
-          </p>
-        </div>
-      </div>
-    </main>
+    <TagoraLoadingScreen
+      isLoading
+      message={missingPermission ? "Validation de vos accès..." : "Initialisation de TAGORA..."}
+      fullScreen
+    />
   );
 }

@@ -30,6 +30,9 @@ type AccessState = {
   loading: boolean;
 };
 
+let lastSyncActivationAt = 0;
+const SYNC_ACTIVATION_MIN_INTERVAL_MS = 5 * 60 * 1000;
+
 export function useCurrentAccess() {
   const [state, setState] = useState<AccessState>({
     user: null,
@@ -44,6 +47,10 @@ export function useCurrentAccess() {
 
     async function syncAccountActivation(retryDepth = 0) {
       try {
+        const now = Date.now();
+        if (now - lastSyncActivationAt < SYNC_ACTIVATION_MIN_INTERVAL_MS) {
+          return;
+        }
         let {
           data: { session },
           error: sessionError,
@@ -80,6 +87,9 @@ export function useCurrentAccess() {
           });
           const payload = await response.json().catch(() => null);
           devInfo("auth-cookie", "refresh sync-activation response", payload);
+          if (response.ok) {
+            lastSyncActivationAt = Date.now();
+          }
         } catch {
           // Silent on purpose: access loading must keep working even if the sync endpoint is unavailable.
         }

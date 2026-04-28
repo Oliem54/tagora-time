@@ -48,6 +48,14 @@ function formatRole(role: RequestRole | null | undefined) {
   return "Non defini";
 }
 
+function getViewerRoleLabel(role: string | null | undefined) {
+  if (role === "admin") return "Admin";
+  if (role === "direction") return "Direction";
+  if (role === "manager") return "Manager";
+  if (role === "employe" || role === "employee") return "Employe";
+  return null;
+}
+
 function formatDate(value: string | null | undefined) {
   if (!value) return "-";
 
@@ -208,6 +216,7 @@ function AccountEditDrawer({
   onConfirmOverwriteChange,
   onRunAction,
   onRunSecurityAction,
+  canManageRoles,
 }: {
   request: AccountAccessRequestRecord;
   assignedRole: RequestRole;
@@ -224,6 +233,7 @@ function AccountEditDrawer({
   onConfirmOverwriteChange: () => void;
   onRunAction: (action: AccountAccessAction) => void;
   onRunSecurityAction: (action: AccountSecurityAction) => void;
+  canManageRoles: boolean;
 }) {
   const primaryAction = getPrimaryActionForStatus(request.status);
   const secondaryActions = getSecondaryActionsForStatus(request.status);
@@ -315,56 +325,66 @@ function AccountEditDrawer({
           />
         </div>
 
-        <div className="tagora-form-grid">
-          <label className="tagora-field">
-            <span className="tagora-label">Role</span>
-            <select
-              className="tagora-input"
-              value={assignedRole}
-              onChange={(event) => {
-                const v = event.target.value;
-                if (v === "direction") onRoleChange("direction");
-                else if (v === "admin") onRoleChange("admin");
-                else onRoleChange("employe");
-              }}
-              disabled={Boolean(savingAction)}
-            >
-              <option value="employe">Employe</option>
-              <option value="direction">Direction</option>
-              <option value="admin">Admin</option>
-            </select>
-          </label>
-
-          <label className="tagora-field" style={{ gridColumn: "1 / -1" }}>
-            <span className="tagora-label">Note admin compte</span>
-            <textarea
-              className="tagora-textarea"
-              value={reviewNote}
-              onChange={(event) => onReviewNoteChange(event.target.value)}
-              placeholder="Note admin"
-              readOnly={Boolean(savingAction)}
-            />
-          </label>
-        </div>
-
-        <div className="ui-stack-xs">
-          <div className="tagora-label">Permissions</div>
-          <div className="tagora-panel-muted account-requests-permissions">
-            {permissionOptions.map((option) => (
-              <label key={option.value} className="account-requests-permission-option">
-                <input
-                  type="checkbox"
-                  checked={assignedPermissions.includes(option.value)}
-                  onChange={() => onTogglePermission(option.value)}
+        {canManageRoles ? (
+          <>
+            <div className="tagora-form-grid">
+              <label className="tagora-field">
+                <span className="tagora-label">Role</span>
+                <select
+                  className="tagora-input"
+                  value={assignedRole}
+                  onChange={(event) => {
+                    const v = event.target.value;
+                    if (v === "direction") onRoleChange("direction");
+                    else if (v === "admin") onRoleChange("admin");
+                    else onRoleChange("employe");
+                  }}
                   disabled={Boolean(savingAction)}
-                />
-                <span>{option.label}</span>
+                >
+                  <option value="employe">Employe</option>
+                  <option value="direction">Direction</option>
+                  <option value="admin">Admin</option>
+                </select>
               </label>
-            ))}
-          </div>
-        </div>
 
-        {request.existing_account?.exists ? (
+              <label className="tagora-field" style={{ gridColumn: "1 / -1" }}>
+                <span className="tagora-label">Note admin compte</span>
+                <textarea
+                  className="tagora-textarea"
+                  value={reviewNote}
+                  onChange={(event) => onReviewNoteChange(event.target.value)}
+                  placeholder="Note admin"
+                  readOnly={Boolean(savingAction)}
+                />
+              </label>
+            </div>
+
+            <div className="ui-stack-xs">
+              <div className="tagora-label">Permissions</div>
+              <div className="tagora-panel-muted account-requests-permissions">
+                {permissionOptions.map((option) => (
+                  <label key={option.value} className="account-requests-permission-option">
+                    <input
+                      type="checkbox"
+                      checked={assignedPermissions.includes(option.value)}
+                      onChange={() => onTogglePermission(option.value)}
+                      disabled={Boolean(savingAction)}
+                    />
+                    <span>{option.label}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          </>
+        ) : (
+          <div className="tagora-panel-muted" style={{ padding: 12 }}>
+            <span className="ui-text-muted">
+              Gestion des roles reservee aux administrateurs.
+            </span>
+          </div>
+        )}
+
+        {canManageRoles && request.existing_account?.exists ? (
           <label className="account-requests-permission-option">
             <input
               type="checkbox"
@@ -399,7 +419,7 @@ function AccountEditDrawer({
                 type="button"
                 className={getButtonClassName(primaryAction.tone)}
                 onClick={() => onRunAction(primaryAction.action)}
-                disabled={Boolean(savingAction)}
+                disabled={Boolean(savingAction) || !canManageRoles}
                 style={{ height: 34, padding: "0 12px", borderRadius: 10, fontSize: 12 }}
               >
                 {savingAction === primaryAction.action ? "Traitement..." : primaryAction.label}
@@ -413,7 +433,7 @@ function AccountEditDrawer({
                   type="button"
                   className={getButtonClassName(item.tone)}
                   onClick={() => onRunAction(item.action)}
-                  disabled={Boolean(savingAction)}
+                  disabled={Boolean(savingAction) || !canManageRoles}
                   style={{ height: 34, padding: "0 12px", borderRadius: 10, fontSize: 12 }}
                 >
                   {savingAction === item.action ? "Traitement..." : item.label}
@@ -432,6 +452,7 @@ function AccountEditDrawer({
               className="tagora-dark-outline-action"
               onClick={() => onRunSecurityAction("reset_password")}
               disabled={
+                !canManageRoles ||
                 !request.employee_link?.id ||
                 !request.existing_account?.exists ||
                 Boolean(securityAction)
@@ -448,6 +469,7 @@ function AccountEditDrawer({
               className="tagora-dark-outline-action"
               onClick={() => onRunSecurityAction("send_reset_link")}
               disabled={
+                !canManageRoles ||
                 !request.employee_link?.id ||
                 !request.existing_account?.exists ||
                 Boolean(securityAction)
@@ -507,7 +529,9 @@ function AccountEditDrawer({
 }
 
 export default function DirectionEmployeeAccountsClient() {
-  const { user } = useCurrentAccess();
+  const { user, role } = useCurrentAccess();
+  const canManageRoles = role === "admin";
+  const viewerRoleLabel = getViewerRoleLabel(role);
   const [requests, setRequests] = useState<AccountAccessRequestRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [accessToken, setAccessToken] = useState<string | null>(null);
@@ -659,6 +683,11 @@ export default function DirectionEmployeeAccountsClient() {
     if (!accessToken) {
       return;
     }
+    if (!canManageRoles) {
+      setMessage("Action reservee aux administrateurs.");
+      setMessageType("error");
+      return;
+    }
 
     setSavingAction(action);
     setMessage("");
@@ -704,6 +733,11 @@ export default function DirectionEmployeeAccountsClient() {
 
   async function runSecurityAction(action: AccountSecurityAction, request: AccountAccessRequestRecord) {
     if (!request.employee_link?.id || !accessToken) {
+      return;
+    }
+    if (!canManageRoles) {
+      setMessage("Action reservee aux administrateurs.");
+      setMessageType("error");
       return;
     }
 
@@ -766,7 +800,7 @@ export default function DirectionEmployeeAccountsClient() {
           </div>
 
           <div className="account-requests-premium-hero-actions">
-            {user?.email ? <UserIdentityBadge value={user.email} /> : null}
+            {user?.email ? <UserIdentityBadge value={user.email} roleLabel={viewerRoleLabel} /> : null}
             <Link href="/direction" className="account-requests-hero-button account-requests-hero-button-secondary">
               <LayoutDashboard size={14} />
               Tableau
@@ -955,6 +989,7 @@ export default function DirectionEmployeeAccountsClient() {
           }
           onRunAction={(action) => void runAction(action, editingRequest)}
           onRunSecurityAction={(action) => void runSecurityAction(action, editingRequest)}
+          canManageRoles={canManageRoles}
         />
       ) : null}
     </main>

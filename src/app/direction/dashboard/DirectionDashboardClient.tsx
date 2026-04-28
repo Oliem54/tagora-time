@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import {
   ArrowUpRight,
@@ -13,13 +13,14 @@ import {
   Waypoints,
   type LucideIcon,
 } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "../../lib/supabase/client";
 import { useCurrentAccess } from "../../hooks/useCurrentAccess";
 import AuthenticatedPageHeader from "@/app/components/ui/AuthenticatedPageHeader";
 import SectionCard from "@/app/components/ui/SectionCard";
 import AppCard from "@/app/components/ui/AppCard";
 import SecondaryButton from "@/app/components/ui/SecondaryButton";
+import TagoraLoadingScreen from "@/app/components/ui/TagoraLoadingScreen";
 
 type ModulePermission = "documents" | "livraisons" | "terrain" | "ressources" | null;
 type ModuleGroupId = "operations" | "gestion";
@@ -114,11 +115,39 @@ const MODULES: ModuleDefinition[] = [
     accent:
       "linear-gradient(135deg, rgba(236,72,153,0.16) 0%, rgba(15,41,72,0.08) 100%)",
   },
+  {
+    href: "/direction/demandes-comptes",
+    label: "Gestion des comptes",
+    description: "Comptes employés, accès opérationnels et préférences d alertes.",
+    permission: "ressources",
+    group: "gestion",
+    icon: FileStack,
+    accent:
+      "linear-gradient(135deg, rgba(14,165,233,0.18) 0%, rgba(59,130,246,0.08) 100%)",
+  },
 ];
 
 export default function DirectionDashboardClient() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { user, loading, hasPermission } = useCurrentAccess();
+  const [archiveSearch, setArchiveSearch] = useState("");
+  const [forceShowLoader, setForceShowLoader] = useState(false);
+
+  const debugShowLoader = searchParams.get("showLoader") === "1";
+
+  useEffect(() => {
+    if (process.env.NODE_ENV !== "development") return;
+    if (!debugShowLoader) {
+      setForceShowLoader(false);
+      return;
+    }
+    setForceShowLoader(true);
+    const timer = window.setTimeout(() => {
+      setForceShowLoader(false);
+    }, 2000);
+    return () => window.clearTimeout(timer);
+  }, [debugShowLoader]);
 
   useEffect(() => {
     if (loading || user) {
@@ -146,21 +175,22 @@ export default function DirectionDashboardClient() {
     router.push("/direction/login");
   }
 
-  if (loading) {
+  function goToArchives(searchValue?: string) {
+    const value = (searchValue ?? archiveSearch).trim();
+    if (!value) {
+      router.push("/direction/livraisons/archives");
+      return;
+    }
+    router.push(`/direction/livraisons/archives?search=${encodeURIComponent(value)}`);
+  }
+
+  if (loading || forceShowLoader) {
     return (
-      <main className="tagora-app-shell">
-        <div className="tagora-app-content">
-          <AuthenticatedPageHeader
-            title="Tableau de bord direction"
-            subtitle=""
-            showNavigation={false}
-          />
-          <SectionCard
-            title="Chargement"
-            subtitle="Session en cours."
-          />
-        </div>
-      </main>
+      <TagoraLoadingScreen
+        isLoading
+        message="Chargement de votre espace..."
+        fullScreen
+      />
     );
   }
 
@@ -315,6 +345,52 @@ export default function DirectionDashboardClient() {
             </SectionCard>
           </motion.section>
         ))}
+
+        {hasPermission("livraisons") ? (
+          <motion.section
+            initial={{ opacity: 0, y: 18 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.42, delay: 0.2, ease: "easeOut" }}
+          >
+            <SectionCard
+              title="Documents de livraison et ramassage"
+              subtitle="Accès rapide aux archives, preuves, signatures, photos et documents liés."
+            >
+              <AppCard className="ui-stack-md">
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "minmax(220px, 1fr) auto auto",
+                    gap: "var(--ui-space-3)",
+                    alignItems: "center",
+                  }}
+                >
+                  <input
+                    type="text"
+                    className="tagora-input"
+                    value={archiveSearch}
+                    onChange={(event) => setArchiveSearch(event.target.value)}
+                    placeholder="Chercher un dossier (client, commande, facture...)"
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        event.preventDefault();
+                        goToArchives();
+                      }
+                    }}
+                  />
+                  <SecondaryButton onClick={() => goToArchives("")}>Ouvrir les archives</SecondaryButton>
+                  <button
+                    type="button"
+                    className="tagora-dark-action"
+                    onClick={() => goToArchives()}
+                  >
+                    Chercher un dossier
+                  </button>
+                </div>
+              </AppCard>
+            </SectionCard>
+          </motion.section>
+        ) : null}
       </div>
     </main>
   );
