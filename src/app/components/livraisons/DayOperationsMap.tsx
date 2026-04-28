@@ -1,6 +1,6 @@
 "use client";
 
-import { MapContainer, Marker, Polyline, Popup, TileLayer, Tooltip } from "react-leaflet";
+import { MapContainer, Marker, Polyline, Popup, TileLayer, Tooltip, useMapEvents } from "react-leaflet";
 import L from "leaflet";
 import { useEffect } from "react";
 import { useMap } from "react-leaflet";
@@ -26,7 +26,40 @@ type Props = {
   onSelect: (id: number) => void;
   origin: OriginPoint | null;
   returnOrigin: OriginPoint | null;
+  routeGeometryLatLng?: Array<[number, number]>;
+  manualPickMode?: boolean;
+  manualPickStopLabel?: string;
+  manualDraft?: { latitude: number; longitude: number } | null;
+  onManualDraftChange?: (coords: { latitude: number; longitude: number }) => void;
 };
+
+function MapClickCapture({
+  enabled,
+  onManualDraftChange,
+}: {
+  enabled: boolean;
+  onManualDraftChange?: (coords: { latitude: number; longitude: number }) => void;
+}) {
+  useMapEvents({
+    click(event) {
+      if (!enabled || !onManualDraftChange) return;
+      onManualDraftChange({
+        latitude: event.latlng.lat,
+        longitude: event.latlng.lng,
+      });
+    },
+  });
+  return null;
+}
+
+function isValidMapCoord(lat: number, lng: number) {
+  return (
+    Number.isFinite(lat) &&
+    Number.isFinite(lng) &&
+    Math.abs(lat) <= 90 &&
+    Math.abs(lng) <= 180
+  );
+}
 
 function EnsureLeafletResize() {
   const map = useMap();
@@ -68,33 +101,74 @@ export default function DayOperationsMap({
   onSelect,
   origin,
   returnOrigin,
+  routeGeometryLatLng = [],
+  manualPickMode = false,
+  manualPickStopLabel,
+  manualDraft = null,
+  onManualDraftChange,
 }: Props) {
-  const routePath = [
-    ...[...points]
-      .sort((a, b) => a.order - b.order)
-      .map((point) => [point.latitude, point.longitude] as [number, number]),
-  ];
+  const displayPoints = (() => {
+    const grouped = new Map<string, DayOperationMapPoint[]>();
+    points.forEach((point) => {
+      const key = `${point.latitude.toFixed(6)}|${point.longitude.toFixed(6)}`;
+      const bucket = grouped.get(key) ?? [];
+      bucket.push(point);
+      grouped.set(key, bucket);
+    });
+    const next: DayOperationMapPoint[] = [];
+    grouped.forEach((bucket) => {
+      if (bucket.length === 1) {
+        next.push(bucket[0]);
+        return;
+      }
+      // Spread overlapping markers in a tiny circle so all stops remain visible.
+      const radius = 0.00022;
+      bucket.forEach((point, idx) => {
+        const angle = (2 * Math.PI * idx) / bucket.length;
+        next.push({
+          ...point,
+          latitude: point.latitude + Math.sin(angle) * radius,
+          longitude: point.longitude + Math.cos(angle) * radius,
+        });
+      });
+    });
+    return next;
+  })();
+
+  /** Tracé = ordre exact de `points` (mapPoints / liste). Ne pas trier ici. */
+  const stopPositions = points
+    .map((point) => [point.latitude, point.longitude] as [number, number])
+    .filter(([lat, lng]) => isValidMapCoord(lat, lng));
+
+  const routePath: [number, number][] = [];
+  if (origin && isValidMapCoord(origin.latitude, origin.longitude)) {
+    routePath.push([origin.latitude, origin.longitude]);
+  }
+  routePath.push(...stopPositions);
+  if (returnOrigin && isValidMapCoord(returnOrigin.latitude, returnOrigin.longitude)) {
+    routePath.push([returnOrigin.latitude, returnOrigin.longitude]);
+  }
 
   const center = (
-    points[0]
-      ? [points[0].latitude, points[0].longitude]
-      : origin
-        ? [origin.latitude, origin.longitude]
-        : returnOrigin
-          ? [returnOrigin.latitude, returnOrigin.longitude]
-          : [46.8139, -71.2082]
+    displayPoints[0] && isValidMapCoord(displayPoints[0].latitude, displayPoints[0].longitude)
+      ? ([displayPoints[0].latitude, displayPoints[0].longitude] as [number, number])
+      : stopPositions[0]
+        ? stopPositions[0]
+        : origin && isValidMapCoord(origin.latitude, origin.longitude)
+          ? ([origin.latitude, origin.longitude] as [number, number])
+          : returnOrigin && isValidMapCoord(returnOrigin.latitude, returnOrigin.longitude)
+            ? ([returnOrigin.latitude, returnOrigin.longitude] as [number, number])
+            : ([46.8139, -71.2082] as [number, number])
   ) as [number, number];
-  const bounds = points.map((point) => [point.latitude, point.longitude]) as [
-    number,
-    number
-  ][];
-  if (origin) {
+
+  const bounds: [number, number][] = displayPoints
+    .filter((p) => isValidMapCoord(p.latitude, p.longitude))
+    .map((p) => [p.latitude, p.longitude]);
+  if (origin && isValidMapCoord(origin.latitude, origin.longitude)) {
     bounds.push([origin.latitude, origin.longitude]);
-    routePath.unshift([origin.latitude, origin.longitude]);
   }
-  if (returnOrigin) {
+  if (returnOrigin && isValidMapCoord(returnOrigin.latitude, returnOrigin.longitude)) {
     bounds.push([returnOrigin.latitude, returnOrigin.longitude]);
-    routePath.push([returnOrigin.latitude, returnOrigin.longitude]);
   }
   const boundsOrUndefined = bounds.length > 0 ? bounds : undefined;
 
@@ -115,6 +189,7 @@ export default function DayOperationsMap({
       scrollWheelZoom
     >
       <EnsureLeafletResize />
+      <MapClickCapture enabled={manualPickMode} onManualDraftChange={onManualDraftChange} />
       <TileLayer
         attribution='&copy; OpenStreetMap contributors &copy; CARTO'
         url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
@@ -149,7 +224,9 @@ export default function DayOperationsMap({
           </Tooltip>
         </Marker>
       ) : null}
-      {points.map((point) => (
+      {displayPoints
+        .filter((point) => isValidMapCoord(point.latitude, point.longitude))
+        .map((point) => (
         <Marker
           key={point.id}
           position={[point.latitude, point.longitude]}
@@ -170,14 +247,52 @@ export default function DayOperationsMap({
           </Popup>
         </Marker>
       ))}
-      {routePath.length > 1 ? (
-        <Polyline positions={routePath} pathOptions={{ color: "#0f2948", weight: 3, opacity: 0.65 }} />
+      {(routeGeometryLatLng.length > 1 || routePath.length > 1) ? (
+        <Polyline
+          positions={routeGeometryLatLng.length > 1 ? routeGeometryLatLng : routePath}
+          pathOptions={{ color: "#0f2948", weight: 3, opacity: 0.65 }}
+        />
       ) : null}
-      {points.length === 0 ? (
+      {displayPoints.length === 0 ? (
         <Marker position={center}>
           <Popup>
             <div style={{ fontSize: 13 }}>
               Aucun point geolocalisable pour cette journee.
+            </div>
+          </Popup>
+        </Marker>
+      ) : null}
+      {manualPickMode ? (
+        <Marker
+          position={[
+            manualDraft?.latitude ?? center[0],
+            manualDraft?.longitude ?? center[1],
+          ]}
+          draggable
+          icon={L.divIcon({
+            className: "",
+            html: `<div style="width:34px;height:34px;border-radius:999px;background:#f59e0b;color:#111827;border:3px solid #fff;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:900;box-shadow:0 2px 8px rgba(0,0,0,0.3)">M</div>`,
+            iconSize: [34, 34],
+            iconAnchor: [17, 17],
+          })}
+          eventHandlers={{
+            dragend: (event) => {
+              if (!onManualDraftChange) return;
+              const marker = event.target as L.Marker;
+              const latlng = marker.getLatLng();
+              onManualDraftChange({
+                latitude: latlng.lat,
+                longitude: latlng.lng,
+              });
+            },
+          }}
+        >
+          <Popup>
+            <div style={{ fontSize: 13 }}>
+              Mode position manuelle active.
+              <br />
+              Deplacez le point, puis acceptez la position.
+              {manualPickStopLabel ? ` de ${manualPickStopLabel}` : ""}.
             </div>
           </Popup>
         </Marker>

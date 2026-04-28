@@ -14,13 +14,23 @@ const AREA_CONFIG = {
     dashboardHref: "/employe/dashboard",
     dashboardLabel: "Tableau de bord employe",
   },
+  admin: {
+    dashboardHref: "/admin/dashboard",
+    dashboardLabel: "Tableau de bord admin",
+  },
 } as const;
 
 function getAreaFromPath(pathname: string): AppRole | null {
+  if (pathname.startsWith("/admin")) {
+    return "admin";
+  }
+  /** Module améliorations : route racine hors `/admin/*`, réservé aux admins (AuthGate / garde client). */
+  if (pathname === "/ameliorations" || pathname.startsWith("/ameliorations/")) {
+    return "admin";
+  }
   if (pathname.startsWith("/direction")) {
     return "direction";
   }
-
   if (pathname.startsWith("/employe")) {
     return "employe";
   }
@@ -34,6 +44,10 @@ function getBackHref(
   livraisonId: string | null
 ) {
   const { dashboardHref } = AREA_CONFIG[area];
+
+  if (area === "admin") {
+    return pathname === dashboardHref ? "/admin" : dashboardHref;
+  }
 
   if (area === "direction") {
     if (

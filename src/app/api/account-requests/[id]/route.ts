@@ -53,7 +53,7 @@ function parseAction(value: unknown): AccountRequestAction | null {
 }
 
 function getRequestedRole(value: unknown): AppRole | null {
-  return value === "direction" || value === "employe" ? value : null;
+  return value === "direction" || value === "employe" || value === "admin" ? value : null;
 }
 
 type EmployeeProfileInput = {
@@ -1360,7 +1360,7 @@ export async function PATCH(
 
     const { user, role } = await getStrictDirectionRequestUser(req);
 
-    if (!user || (role !== "direction" && role !== "admin")) {
+    if (!user || role !== "admin") {
       return NextResponse.json({ error: "Acces refuse." }, { status: 403 });
     }
 
@@ -2014,7 +2014,7 @@ export async function DELETE(
 
     const { user, role } = await getStrictDirectionRequestUser(req);
 
-    if (!user || (role !== "direction" && role !== "admin")) {
+    if (!user || role !== "admin") {
       return NextResponse.json({ error: "Acces refuse." }, { status: 403 });
     }
 

@@ -10,6 +10,7 @@ import {
   type ImprovementPriority,
   type ImprovementStatus,
 } from "@/app/lib/improvements";
+import { notifyAdminsNewImprovement } from "@/app/lib/improvement-admin-notify.server";
 
 function isImprovementModule(value: unknown): value is ImprovementModule {
   return typeof value === "string" && IMPROVEMENT_MODULE_OPTIONS.includes(value as ImprovementModule);
@@ -45,6 +46,11 @@ export async function GET(req: NextRequest) {
 
     const statusParam = req.nextUrl.searchParams.get("status");
     const statusFilter = statusParam && statusParam !== "tous" ? statusParam : null;
+    const scopeParam = req.nextUrl.searchParams.get("scope") ?? "actives";
+    const scope =
+      scopeParam === "archive" || scopeParam === "tous" || scopeParam === "actives"
+        ? scopeParam
+        : "actives";
 
     if (statusFilter && !isImprovementStatus(statusFilter)) {
       return NextResponse.json({ error: "Statut invalide." }, { status: 400 });
@@ -54,10 +60,18 @@ export async function GET(req: NextRequest) {
     let query = supabase
       .from("app_improvements")
       .select(
-        "id, created_at, updated_at, treated_at, deleted_at, module, priority, title, description, status, created_by_email, created_by_role"
+        "id, created_at, updated_at, treated_at, deleted_at, deleted_by, archived_at, archived_by, module, priority, title, description, status, created_by_email, created_by_role"
       )
       .order("created_at", { ascending: false })
-      .limit(300);
+      .limit(500);
+
+    if (scope === "actives") {
+      query = query.is("archived_at", null).is("deleted_at", null);
+    } else if (scope === "archive") {
+      query = query.not("archived_at", "is", null).is("deleted_at", null);
+    } else {
+      query = query.is("deleted_at", null);
+    }
 
     if (statusFilter) {
       query = query.eq("status", statusFilter);
@@ -140,7 +154,7 @@ export async function POST(req: NextRequest) {
           created_by_role: role,
         },
       ])
-      .select("id")
+      .select("id, created_at")
       .single();
 
     if (error) {
@@ -168,6 +182,29 @@ export async function POST(req: NextRequest) {
         },
         { status: 500 }
       );
+    }
+
+    const createdAt =
+      data && typeof data === "object" && "created_at" in data && typeof data.created_at === "string"
+        ? data.created_at
+        : new Date().toISOString();
+
+    try {
+      await notifyAdminsNewImprovement({
+        id: data.id,
+        title,
+        module: moduleValue,
+        priority: priorityValue,
+        description,
+        created_by_email: user.email ?? null,
+        created_by_role: role,
+        created_at: createdAt,
+      });
+    } catch (notifyError) {
+      console.error("[ameliorations][POST] notify_admins_failed", {
+        improvementId: data.id,
+        message: notifyError instanceof Error ? notifyError.message : String(notifyError),
+      });
     }
 
     return NextResponse.json({ success: true, improvementId: data.id });
@@ -214,8 +251,8 @@ export async function PATCH(req: NextRequest) {
     const payload: Record<string, unknown> = {
       status,
       updated_at: nowIso,
+      /* Refus workflow (supprimee) : pas de deleted_at, la suppression logique est une autre action. */
       treated_at: status === "traitee" ? nowIso : null,
-      deleted_at: status === "supprimee" ? nowIso : null,
     };
 
     const supabase = createAdminSupabaseClient();

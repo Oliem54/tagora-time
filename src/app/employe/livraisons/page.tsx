@@ -18,6 +18,7 @@ import FormField from "@/app/components/ui/FormField";
 import PrimaryButton from "@/app/components/ui/PrimaryButton";
 import StatusBadge from "@/app/components/ui/StatusBadge";
 import OperationProofsPanel, { type ModuleSource } from "@/app/components/proofs/OperationProofsPanel";
+import TagoraLoadingScreen from "@/app/components/ui/TagoraLoadingScreen";
 
 type Livraison = {
   id: number;
@@ -430,14 +431,7 @@ export default function EmployeLivraisonsPage() {
   };
 
   if (accessLoading || loading) {
-    return (
-      <main className="tagora-app-shell">
-        <div className="tagora-app-content">
-          <AuthenticatedPageHeader title="Livraison & ramassage" />
-          <SectionCard title="Chargement" subtitle="Acces en cours." />
-        </div>
-      </main>
-    );
+    return <TagoraLoadingScreen isLoading message="Chargement de votre espace..." fullScreen />;
   }
 
   if (!canUseLivraisons) {

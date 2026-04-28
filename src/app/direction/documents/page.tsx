@@ -5,11 +5,14 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import HeaderTagora from "@/app/components/HeaderTagora";
 import { supabase } from "../../lib/supabase/client";
+import { useCurrentAccess } from "@/app/hooks/useCurrentAccess";
 
 export default function DirectionDocumentsPage() {
   const router = useRouter();
+  const { role } = useCurrentAccess();
   const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(true);
+  const [archiveSearch, setArchiveSearch] = useState("");
 
   useEffect(() => {
     const checkSession = async () => {
@@ -31,6 +34,15 @@ export default function DirectionDocumentsPage() {
     await supabase.auth.signOut();
     router.push("/direction/login");
   };
+
+  function openArchives(searchValue?: string) {
+    const value = (searchValue ?? archiveSearch).trim();
+    if (!value) {
+      router.push("/direction/livraisons/archives");
+      return;
+    }
+    router.push(`/direction/livraisons/archives?search=${encodeURIComponent(value)}`);
+  }
 
   if (loading) {
     return (
@@ -195,6 +207,57 @@ export default function DirectionDocumentsPage() {
           liste de documents, les filtres, les téléchargements et les actions.
         </div>
       </div>
+
+      {role === "direction" || role === "admin" ? (
+        <>
+          <div className="spacer-24" />
+          <div className="card">
+            <div
+              style={{
+                fontSize: 24,
+                color: "var(--tagora-blue)",
+                fontWeight: 700,
+                marginBottom: 12,
+              }}
+            >
+              Archives livraisons et ramassages
+            </div>
+            <div className="muted" style={{ marginBottom: 16 }}>
+              Rechercher, consulter et télécharger les preuves de livraison, ramassage, photos,
+              signatures, signatures électroniques, factures, commandes et documents liés.
+            </div>
+
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "minmax(220px, 1fr) auto auto",
+                gap: 10,
+                alignItems: "center",
+              }}
+            >
+              <input
+                type="text"
+                className="tagora-input"
+                value={archiveSearch}
+                onChange={(event) => setArchiveSearch(event.target.value)}
+                placeholder="Client, commande, facture, adresse, chauffeur..."
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    openArchives();
+                  }
+                }}
+              />
+              <button className="tagora-btn tagora-btn-primary" onClick={() => openArchives()}>
+                Recherche rapide
+              </button>
+              <button className="tagora-btn tagora-btn-secondary" onClick={() => openArchives("")}>
+                Ouvrir les archives complètes
+              </button>
+            </div>
+          </div>
+        </>
+      ) : null}
     </div>
   );
 }

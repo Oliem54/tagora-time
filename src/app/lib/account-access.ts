@@ -55,6 +55,8 @@ export type AccountAccessRequestRecord = {
     isExpired: boolean;
     expiresAt: string | null;
   } | null;
+  /** auth.users.id après invitation / activation */
+  invited_user_id?: string | null;
   created_at: string;
 };
 

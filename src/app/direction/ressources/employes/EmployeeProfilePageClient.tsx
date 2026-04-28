@@ -4,11 +4,14 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import FeedbackMessage from "@/app/components/FeedbackMessage";
 import HeaderTagora from "@/app/components/HeaderTagora";
+import { useCurrentAccess } from "@/app/hooks/useCurrentAccess";
 import {
   ACCOUNT_REQUEST_COMPANIES,
   getCompanyLabel,
 } from "@/app/lib/account-requests.shared";
+import type { AppRole } from "@/app/lib/auth/roles";
 import { supabase } from "@/app/lib/supabase/client";
+import AdminImprovementNotificationsAccountSection from "./AdminImprovementNotificationsAccountSection";
 import {
   buildEmployeForm,
   buildEmployePayload,
@@ -22,6 +25,7 @@ import {
 type EmployeeProfilePageClientProps = {
   employeeId?: number | null;
 };
+type AssignablePortalRole = "employe" | "direction" | "manager" | "admin";
 
 type EmployeeAccordionSection =
   | "identite"
@@ -118,6 +122,9 @@ export default function EmployeeProfilePageClient({
   employeeId = null,
 }: EmployeeProfilePageClientProps) {
   const router = useRouter();
+  const { role: viewerRole, loading: accessLoading } = useCurrentAccess();
+  /** Section « notifications améliorations » : jamais pour direction / employé, ni pendant le chargement du rôle. */
+  const viewerIsAppAdmin = !accessLoading && viewerRole === "admin";
   const isCreating = employeeId == null;
   const [loading, setLoading] = useState(!isCreating);
   const [saving, setSaving] = useState(false);
@@ -135,6 +142,14 @@ export default function EmployeeProfilePageClient({
   const [isEditing, setIsEditing] = useState(isCreating);
   const [openSection, setOpenSection] =
     useState<EmployeeAccordionSection>("identite");
+  const [accountAccessToken, setAccountAccessToken] = useState<string | null>(null);
+  const [portalAccount, setPortalAccount] = useState<{
+    authUserId: string | null;
+    portalRole: AssignablePortalRole | AppRole | null;
+  } | null>(null);
+  const [portalRoleValue, setPortalRoleValue] = useState<AssignablePortalRole>("employe");
+  const [portalRoleReason, setPortalRoleReason] = useState("");
+  const [portalRoleSaving, setPortalRoleSaving] = useState(false);
 
   const breakSummary = useMemo(() => computeBreakSummary(form), [form]);
   const computedCost = useMemo(() => {
@@ -210,6 +225,130 @@ export default function EmployeeProfilePageClient({
 
     void loadEmployeProfile(employeeId);
   }, [employeeId, isCreating, loadEmployeProfile]);
+
+  useEffect(() => {
+    if (accessLoading) {
+      return;
+    }
+
+    let cancelled = false;
+    void (async () => {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (!cancelled) {
+        setAccountAccessToken(session?.access_token ?? null);
+      }
+    })();
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!cancelled) {
+        setAccountAccessToken(session?.access_token ?? null);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+      subscription.unsubscribe();
+    };
+  }, [accessLoading]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadPortalAccount() {
+      if (!viewerIsAppAdmin || isCreating || loading || !employeeId || !Number.isFinite(employeeId)) {
+        if (!cancelled) {
+          setPortalAccount(null);
+        }
+        return;
+      }
+
+      const token = accountAccessToken;
+      if (!token) {
+        if (!cancelled) {
+          setPortalAccount(null);
+        }
+        return;
+      }
+
+      const response = await fetch(`/api/admin/employes/${employeeId}/portal-account`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (!response.ok) {
+        if (!cancelled) {
+          setPortalAccount(null);
+        }
+        return;
+      }
+
+      const payload = (await response.json()) as {
+        authUserId?: string | null;
+        portalRole?: AssignablePortalRole | AppRole | null;
+      };
+
+      if (!cancelled) {
+        const nextRole = (payload.portalRole ?? "employe") as AssignablePortalRole;
+        setPortalAccount({
+          authUserId: typeof payload.authUserId === "string" ? payload.authUserId : null,
+          portalRole: payload.portalRole ?? null,
+        });
+        setPortalRoleValue(nextRole);
+        setPortalRoleReason("");
+      }
+    }
+
+    void loadPortalAccount();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [viewerIsAppAdmin, isCreating, loading, employeeId, accountAccessToken]);
+
+  async function handlePortalRoleSave() {
+    if (!viewerIsAppAdmin || !employeeId || !Number.isFinite(employeeId) || !accountAccessToken) {
+      return;
+    }
+    setPortalRoleSaving(true);
+    setMessage("");
+    setMessageType(null);
+    try {
+      const response = await fetch(`/api/admin/employes/${employeeId}/portal-account`, {
+        method: "PATCH",
+        headers: {
+          Authorization: `Bearer ${accountAccessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          role: portalRoleValue,
+          reason: portalRoleReason.trim() || null,
+        }),
+      });
+      const payload = (await response.json().catch(() => ({}))) as { error?: string };
+      if (!response.ok) {
+        throw new Error(payload.error || "Modification de role refusee.");
+      }
+      setPortalAccount((current) =>
+        current
+          ? {
+              ...current,
+              portalRole: portalRoleValue,
+            }
+          : current
+      );
+      setMessage("Role portail mis a jour.");
+      setMessageType("success");
+      setPortalRoleReason("");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Impossible de modifier le role.");
+      setMessageType("error");
+    } finally {
+      setPortalRoleSaving(false);
+    }
+  }
 
   async function uploadPermisFile(file: File, side: "recto" | "verso") {
     const safeName = (form.nom.trim() || `chauffeur-${Date.now()}`)
@@ -545,6 +684,16 @@ export default function EmployeeProfilePageClient({
                   />
                 </div>
               </section>
+
+              {!isCreating &&
+              viewerIsAppAdmin &&
+              portalAccount?.portalRole === "admin" ? (
+                <AdminImprovementNotificationsAccountSection
+                  accessToken={accountAccessToken}
+                  invitedUserId={portalAccount.authUserId}
+                  viewerIsAdmin={viewerIsAppAdmin}
+                />
+              ) : null}
 
               <AccordionSection
                 title="Identite"
@@ -1311,6 +1460,59 @@ export default function EmployeeProfilePageClient({
                       Gestion directe de la fiche.
                     </p>
                   </div>
+
+                  {viewerIsAppAdmin && portalAccount?.authUserId ? (
+                    <div
+                      className="tagora-panel-muted"
+                      style={{ display: "grid", gap: 12, padding: 16 }}
+                    >
+                      <div className="tagora-label">Role portail</div>
+                      <div
+                        style={{
+                          display: "grid",
+                          gap: 12,
+                          gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                        }}
+                      >
+                        <label className="tagora-field" style={{ marginBottom: 0 }}>
+                          <span className="tagora-label">Nouveau role</span>
+                          <select
+                            className="tagora-input"
+                            value={portalRoleValue}
+                            onChange={(event) =>
+                              setPortalRoleValue(event.target.value as AssignablePortalRole)
+                            }
+                            disabled={portalRoleSaving}
+                          >
+                            <option value="employe">Employe</option>
+                            <option value="direction">Direction</option>
+                            <option value="manager">Manager</option>
+                            <option value="admin">Admin</option>
+                          </select>
+                        </label>
+                        <label className="tagora-field" style={{ marginBottom: 0 }}>
+                          <span className="tagora-label">Raison (optionnel)</span>
+                          <input
+                            className="tagora-input"
+                            value={portalRoleReason}
+                            onChange={(event) => setPortalRoleReason(event.target.value)}
+                            disabled={portalRoleSaving}
+                            placeholder="Motif de changement"
+                          />
+                        </label>
+                      </div>
+                      <div className="tagora-actions">
+                        <button
+                          type="button"
+                          className="tagora-dark-outline-action"
+                          onClick={() => void handlePortalRoleSave()}
+                          disabled={portalRoleSaving}
+                        >
+                          {portalRoleSaving ? "Mise a jour..." : "Mettre a jour le role"}
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
 
                   {!isEditing ? (
                     <button

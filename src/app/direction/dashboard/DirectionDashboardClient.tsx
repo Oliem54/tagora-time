@@ -1,34 +1,29 @@
 "use client";
 
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import {
-  AlertTriangle,
   ArrowUpRight,
   BriefcaseBusiness,
-  Clock3,
   FileStack,
   Files,
-  ReceiptText,
   Route,
   TimerReset,
   Truck,
-  UsersRound,
   Waypoints,
   type LucideIcon,
 } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "../../lib/supabase/client";
 import { useCurrentAccess } from "../../hooks/useCurrentAccess";
 import AuthenticatedPageHeader from "@/app/components/ui/AuthenticatedPageHeader";
 import SectionCard from "@/app/components/ui/SectionCard";
 import AppCard from "@/app/components/ui/AppCard";
 import SecondaryButton from "@/app/components/ui/SecondaryButton";
-import StatusBadge from "@/app/components/ui/StatusBadge";
-import type { HorodateurPhase1DirectionPendingExceptionAlert } from "@/app/lib/horodateur-v1/types";
+import TagoraLoadingScreen from "@/app/components/ui/TagoraLoadingScreen";
 
 type ModulePermission = "documents" | "livraisons" | "terrain" | "ressources" | null;
-type ModuleGroupId = "operations" | "gestion" | "administration";
+type ModuleGroupId = "operations" | "gestion";
 
 type ModuleDefinition = {
   href: string;
@@ -46,20 +41,6 @@ type ModuleGroup = {
   subtitle: string;
 };
 
-type DirectionDashboardClientProps = {
-  pendingAccountsCount: number;
-  pendingHorodateurExceptionsCount: number;
-  pendingHorodateurExceptions: HorodateurPhase1DirectionPendingExceptionAlert[];
-};
-
-function formatDateTime(value: string | null | undefined) {
-  if (!value) {
-    return "-";
-  }
-
-  return new Date(value).toLocaleString("fr-CA");
-}
-
 const MODULE_GROUPS: ModuleGroup[] = [
   {
     id: "operations",
@@ -70,11 +51,6 @@ const MODULE_GROUPS: ModuleGroup[] = [
     id: "gestion",
     title: "Gestion interne",
     subtitle: "Documents et ressources.",
-  },
-  {
-    id: "administration",
-    title: "Administration",
-    subtitle: "Demandes et controles.",
   },
 ];
 
@@ -102,7 +78,7 @@ const MODULES: ModuleDefinition[] = [
   {
     href: "/direction/sorties-terrain",
     label: "Sorties terrain",
-    description: "Kilometres et temps.",
+    description: "Kilomètres et temps.",
     permission: "terrain",
     group: "operations",
     icon: Route,
@@ -122,7 +98,7 @@ const MODULES: ModuleDefinition[] = [
   {
     href: "/direction/documents",
     label: "Documents",
-    description: "Dossiers et pieces.",
+    description: "Dossiers et pièces.",
     permission: "documents",
     group: "gestion",
     icon: Files,
@@ -132,7 +108,7 @@ const MODULES: ModuleDefinition[] = [
   {
     href: "/direction/ressources",
     label: "Ressources",
-    description: "Employes et flotte.",
+    description: "Employés et flotte.",
     permission: "ressources",
     group: "gestion",
     icon: BriefcaseBusiness,
@@ -140,54 +116,38 @@ const MODULES: ModuleDefinition[] = [
       "linear-gradient(135deg, rgba(236,72,153,0.16) 0%, rgba(15,41,72,0.08) 100%)",
   },
   {
-    href: "/direction/horodateur",
-    label: "Horodateur",
-    description: "Quarts et anomalies.",
-    permission: "terrain",
-    group: "administration",
-    icon: Clock3,
-    accent:
-      "linear-gradient(135deg, rgba(34,197,94,0.18) 0%, rgba(15,41,72,0.08) 100%)",
-  },
-  {
     href: "/direction/demandes-comptes",
-    label: "Gestion des comptes employe",
-    description: "Acces et fiches.",
-    permission: null,
-    group: "administration",
-    icon: UsersRound,
-    accent:
-      "linear-gradient(135deg, rgba(244,114,182,0.18) 0%, rgba(15,41,72,0.08) 100%)",
-  },
-  {
-    href: "/direction/paie-compagnies",
-    label: "Paie par compagnie",
-    description: "Heures et couts.",
-    permission: "terrain",
-    group: "administration",
-    icon: ReceiptText,
-    accent:
-      "linear-gradient(135deg, rgba(168,85,247,0.18) 0%, rgba(15,41,72,0.08) 100%)",
-  },
-  {
-    href: "/direction/facturation-titan",
-    label: "Facturation Titan",
-    description: "Montants a facturer.",
-    permission: "terrain",
-    group: "administration",
+    label: "Gestion des comptes",
+    description: "Comptes employés, accès opérationnels et préférences d alertes.",
+    permission: "ressources",
+    group: "gestion",
     icon: FileStack,
     accent:
-      "linear-gradient(135deg, rgba(251,146,60,0.18) 0%, rgba(15,41,72,0.08) 100%)",
+      "linear-gradient(135deg, rgba(14,165,233,0.18) 0%, rgba(59,130,246,0.08) 100%)",
   },
 ];
 
-export default function DirectionDashboardClient({
-  pendingAccountsCount,
-  pendingHorodateurExceptionsCount,
-  pendingHorodateurExceptions,
-}: DirectionDashboardClientProps) {
+export default function DirectionDashboardClient() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { user, loading, hasPermission } = useCurrentAccess();
+  const [archiveSearch, setArchiveSearch] = useState("");
+  const [forceShowLoader, setForceShowLoader] = useState(false);
+
+  const debugShowLoader = searchParams.get("showLoader") === "1";
+
+  useEffect(() => {
+    if (process.env.NODE_ENV !== "development") return;
+    if (!debugShowLoader) {
+      setForceShowLoader(false);
+      return;
+    }
+    setForceShowLoader(true);
+    const timer = window.setTimeout(() => {
+      setForceShowLoader(false);
+    }, 2000);
+    return () => window.clearTimeout(timer);
+  }, [debugShowLoader]);
 
   useEffect(() => {
     if (loading || user) {
@@ -215,21 +175,22 @@ export default function DirectionDashboardClient({
     router.push("/direction/login");
   }
 
-  if (loading) {
+  function goToArchives(searchValue?: string) {
+    const value = (searchValue ?? archiveSearch).trim();
+    if (!value) {
+      router.push("/direction/livraisons/archives");
+      return;
+    }
+    router.push(`/direction/livraisons/archives?search=${encodeURIComponent(value)}`);
+  }
+
+  if (loading || forceShowLoader) {
     return (
-      <main className="tagora-app-shell">
-        <div className="tagora-app-content">
-          <AuthenticatedPageHeader
-            title="Tableau de bord direction"
-            subtitle=""
-            showNavigation={false}
-          />
-          <SectionCard
-            title="Chargement"
-            subtitle="Session en cours."
-          />
-        </div>
-      </main>
+      <TagoraLoadingScreen
+        isLoading
+        message="Chargement de votre espace..."
+        fullScreen
+      />
     );
   }
 
@@ -253,70 +214,10 @@ export default function DirectionDashboardClient({
                 alignItems: "center",
               }}
             >
-              <SecondaryButton onClick={handleLogout}>Se deconnecter</SecondaryButton>
+              <SecondaryButton onClick={handleLogout}>Se déconnecter</SecondaryButton>
             </div>
           }
         />
-
-        {pendingHorodateurExceptionsCount > 0 ? (
-          <AppCard
-            className="ui-stack-md"
-            style={{
-              border: "1px solid rgba(245, 158, 11, 0.28)",
-              background:
-                "linear-gradient(180deg, rgba(255,251,235,0.98) 0%, rgba(255,247,237,0.98) 100%)",
-              boxShadow: "0 18px 38px rgba(146, 64, 14, 0.08)",
-            }}
-          >
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                gap: 16,
-                alignItems: "flex-start",
-                flexWrap: "wrap",
-              }}
-            >
-              <div className="ui-stack-sm">
-                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <AlertTriangle size={18} color="#b45309" />
-                  <strong style={{ color: "#92400e", fontSize: 18 }}>
-                    {pendingHorodateurExceptionsCount} exception
-                    {pendingHorodateurExceptionsCount > 1 ? "s" : ""} horodateur en attente
-                  </strong>
-                </div>
-                <p style={{ margin: 0, color: "#78350f", lineHeight: 1.6 }}>
-                  Validation direction requise dans l horodateur.
-                </p>
-              </div>
-
-              <SecondaryButton onClick={() => router.push("/direction/horodateur")}>
-                Ouvrir l horodateur
-              </SecondaryButton>
-            </div>
-
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-                gap: "var(--ui-space-4)",
-              }}
-            >
-              {pendingHorodateurExceptions.map((item) => (
-                <AppCard key={item.id} tone="default" className="ui-stack-xs">
-                  <span className="ui-eyebrow">Exception recente</span>
-                  <strong style={{ fontSize: 16 }}>
-                    {item.employeeName || item.employeeEmail || item.id}
-                  </strong>
-                  <span className="ui-text-muted">{item.reasonLabel}</span>
-                  <span className="ui-text-muted">
-                    {item.exceptionType} - {formatDateTime(item.occurredAt || item.requestedAt)}
-                  </span>
-                </AppCard>
-              ))}
-            </div>
-          </AppCard>
-        ) : null}
 
         {groupedModules.map((group, groupIndex) => (
           <motion.section
@@ -339,8 +240,6 @@ export default function DirectionDashboardClient({
               >
                 {group.modules.map((item, moduleIndex) => {
                   const Icon = item.icon;
-                  const isPendingAccounts = item.href === "/direction/demandes-comptes";
-                  const isHorodateur = item.href === "/direction/horodateur";
 
                   return (
                     <motion.article
@@ -396,18 +295,6 @@ export default function DirectionDashboardClient({
                             >
                               <Icon size={24} strokeWidth={2.1} />
                             </motion.div>
-
-                            {isPendingAccounts && pendingAccountsCount > 0 ? (
-                              <StatusBadge
-                                label={`${pendingAccountsCount} attente`}
-                                tone="danger"
-                              />
-                            ) : isHorodateur && pendingHorodateurExceptionsCount > 0 ? (
-                              <StatusBadge
-                                label={`${pendingHorodateurExceptionsCount} attente`}
-                                tone="warning"
-                              />
-                            ) : null}
                           </div>
 
                           <div className="ui-stack-sm">
@@ -458,6 +345,52 @@ export default function DirectionDashboardClient({
             </SectionCard>
           </motion.section>
         ))}
+
+        {hasPermission("livraisons") ? (
+          <motion.section
+            initial={{ opacity: 0, y: 18 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.42, delay: 0.2, ease: "easeOut" }}
+          >
+            <SectionCard
+              title="Documents de livraison et ramassage"
+              subtitle="Accès rapide aux archives, preuves, signatures, photos et documents liés."
+            >
+              <AppCard className="ui-stack-md">
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "minmax(220px, 1fr) auto auto",
+                    gap: "var(--ui-space-3)",
+                    alignItems: "center",
+                  }}
+                >
+                  <input
+                    type="text"
+                    className="tagora-input"
+                    value={archiveSearch}
+                    onChange={(event) => setArchiveSearch(event.target.value)}
+                    placeholder="Chercher un dossier (client, commande, facture...)"
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        event.preventDefault();
+                        goToArchives();
+                      }
+                    }}
+                  />
+                  <SecondaryButton onClick={() => goToArchives("")}>Ouvrir les archives</SecondaryButton>
+                  <button
+                    type="button"
+                    className="tagora-dark-action"
+                    onClick={() => goToArchives()}
+                  >
+                    Chercher un dossier
+                  </button>
+                </div>
+              </AppCard>
+            </SectionCard>
+          </motion.section>
+        ) : null}
       </div>
     </main>
   );
