@@ -30,7 +30,7 @@ import { supabase } from "@/app/lib/supabase/client";
 import AccountRequestRowActions from "./AccountRequestRowActions";
 import EmployeeLinkStatusBadge from "./EmployeeLinkStatusBadge";
 
-type RequestRole = "employe" | "direction";
+type RequestRole = "employe" | "direction" | "admin";
 type AccountSecurityAction = "reset_password" | "send_reset_link";
 
 type ActionConfig = {
@@ -321,13 +321,17 @@ function AccountEditDrawer({
             <select
               className="tagora-input"
               value={assignedRole}
-              onChange={(event) =>
-                onRoleChange(event.target.value === "direction" ? "direction" : "employe")
-              }
+              onChange={(event) => {
+                const v = event.target.value;
+                if (v === "direction") onRoleChange("direction");
+                else if (v === "admin") onRoleChange("admin");
+                else onRoleChange("employe");
+              }}
               disabled={Boolean(savingAction)}
             >
               <option value="employe">Employe</option>
               <option value="direction">Direction</option>
+              <option value="admin">Admin</option>
             </select>
           </label>
 
@@ -632,7 +636,9 @@ export default function DirectionEmployeeAccountsClient() {
     }
 
     setAssignedRole(
-      (editingRequest.assigned_role ?? editingRequest.requested_role ?? "employe") as RequestRole
+      (editingRequest.assigned_role ??
+        editingRequest.requested_role ??
+        "employe") as RequestRole
     );
     setAssignedPermissions(
       editingRequest.assigned_permissions ?? editingRequest.requested_permissions ?? []

@@ -24,6 +24,10 @@ function getAreaFromPath(pathname: string): AppRole | null {
   if (pathname.startsWith("/admin")) {
     return "admin";
   }
+  /** Module améliorations : route racine hors `/admin/*`, réservé aux admins (AuthGate / garde client). */
+  if (pathname === "/ameliorations" || pathname.startsWith("/ameliorations/")) {
+    return "admin";
+  }
   if (pathname.startsWith("/direction")) {
     return "direction";
   }

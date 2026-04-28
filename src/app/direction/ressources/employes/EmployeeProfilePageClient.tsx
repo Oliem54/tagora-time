@@ -4,11 +4,14 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import FeedbackMessage from "@/app/components/FeedbackMessage";
 import HeaderTagora from "@/app/components/HeaderTagora";
+import { useCurrentAccess } from "@/app/hooks/useCurrentAccess";
 import {
   ACCOUNT_REQUEST_COMPANIES,
   getCompanyLabel,
 } from "@/app/lib/account-requests.shared";
+import type { AppRole } from "@/app/lib/auth/roles";
 import { supabase } from "@/app/lib/supabase/client";
+import AdminImprovementNotificationsAccountSection from "./AdminImprovementNotificationsAccountSection";
 import {
   buildEmployeForm,
   buildEmployePayload,
@@ -118,6 +121,9 @@ export default function EmployeeProfilePageClient({
   employeeId = null,
 }: EmployeeProfilePageClientProps) {
   const router = useRouter();
+  const { role: viewerRole, loading: accessLoading } = useCurrentAccess();
+  /** Section « notifications améliorations » : jamais pour direction / employé, ni pendant le chargement du rôle. */
+  const viewerIsAppAdmin = !accessLoading && viewerRole === "admin";
   const isCreating = employeeId == null;
   const [loading, setLoading] = useState(!isCreating);
   const [saving, setSaving] = useState(false);
@@ -135,6 +141,11 @@ export default function EmployeeProfilePageClient({
   const [isEditing, setIsEditing] = useState(isCreating);
   const [openSection, setOpenSection] =
     useState<EmployeeAccordionSection>("identite");
+  const [accountAccessToken, setAccountAccessToken] = useState<string | null>(null);
+  const [portalAccount, setPortalAccount] = useState<{
+    authUserId: string | null;
+    portalRole: AppRole | null;
+  } | null>(null);
 
   const breakSummary = useMemo(() => computeBreakSummary(form), [form]);
   const computedCost = useMemo(() => {
@@ -210,6 +221,85 @@ export default function EmployeeProfilePageClient({
 
     void loadEmployeProfile(employeeId);
   }, [employeeId, isCreating, loadEmployeProfile]);
+
+  useEffect(() => {
+    if (accessLoading) {
+      return;
+    }
+
+    let cancelled = false;
+    void (async () => {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (!cancelled) {
+        setAccountAccessToken(session?.access_token ?? null);
+      }
+    })();
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!cancelled) {
+        setAccountAccessToken(session?.access_token ?? null);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+      subscription.unsubscribe();
+    };
+  }, [accessLoading]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadPortalAccount() {
+      if (!viewerIsAppAdmin || isCreating || loading || !employeeId || !Number.isFinite(employeeId)) {
+        if (!cancelled) {
+          setPortalAccount(null);
+        }
+        return;
+      }
+
+      const token = accountAccessToken;
+      if (!token) {
+        if (!cancelled) {
+          setPortalAccount(null);
+        }
+        return;
+      }
+
+      const response = await fetch(`/api/admin/employes/${employeeId}/portal-account`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (!response.ok) {
+        if (!cancelled) {
+          setPortalAccount(null);
+        }
+        return;
+      }
+
+      const payload = (await response.json()) as {
+        authUserId?: string | null;
+        portalRole?: AppRole | null;
+      };
+
+      if (!cancelled) {
+        setPortalAccount({
+          authUserId: typeof payload.authUserId === "string" ? payload.authUserId : null,
+          portalRole: payload.portalRole ?? null,
+        });
+      }
+    }
+
+    void loadPortalAccount();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [viewerIsAppAdmin, isCreating, loading, employeeId, accountAccessToken]);
 
   async function uploadPermisFile(file: File, side: "recto" | "verso") {
     const safeName = (form.nom.trim() || `chauffeur-${Date.now()}`)
@@ -545,6 +635,16 @@ export default function EmployeeProfilePageClient({
                   />
                 </div>
               </section>
+
+              {!isCreating &&
+              viewerIsAppAdmin &&
+              portalAccount?.portalRole === "admin" ? (
+                <AdminImprovementNotificationsAccountSection
+                  accessToken={accountAccessToken}
+                  invitedUserId={portalAccount.authUserId}
+                  viewerIsAdmin={viewerIsAppAdmin}
+                />
+              ) : null}
 
               <AccordionSection
                 title="Identite"

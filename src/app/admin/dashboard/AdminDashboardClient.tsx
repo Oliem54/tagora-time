@@ -5,7 +5,6 @@ import { motion } from "framer-motion";
 import {
   ArrowUpRight,
   BriefcaseBusiness,
-  CalendarRange,
   Clock3,
   FileStack,
   Files,
@@ -133,16 +132,6 @@ const MODULES: ModuleDefinition[] = [
     icon: FileStack,
     accent:
       "linear-gradient(135deg, rgba(251,146,60,0.18) 0%, rgba(15,41,72,0.08) 100%)",
-  },
-  {
-    id: "disponibilites",
-    href: "/direction/disponibilites",
-    label: "Disponibilites et blocages",
-    description: "Fenetres, vehicules et indisponibilites.",
-    group: "administration",
-    icon: CalendarRange,
-    accent:
-      "linear-gradient(135deg, rgba(6,182,212,0.18) 0%, rgba(15,41,72,0.08) 100%)",
   },
   {
     id: "ressources",

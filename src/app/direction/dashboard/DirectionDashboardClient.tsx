@@ -5,7 +5,6 @@ import { motion } from "framer-motion";
 import {
   ArrowUpRight,
   BriefcaseBusiness,
-  CalendarRange,
   FileStack,
   Files,
   Route,
@@ -50,7 +49,7 @@ const MODULE_GROUPS: ModuleGroup[] = [
   {
     id: "gestion",
     title: "Gestion interne",
-    subtitle: "Documents, ressources et disponibilites.",
+    subtitle: "Documents et ressources.",
   },
 ];
 
@@ -114,16 +113,6 @@ const MODULES: ModuleDefinition[] = [
     icon: BriefcaseBusiness,
     accent:
       "linear-gradient(135deg, rgba(236,72,153,0.16) 0%, rgba(15,41,72,0.08) 100%)",
-  },
-  {
-    href: "/direction/disponibilites",
-    label: "Disponibilites et blocages",
-    description: "Fenetres, vehicules et indisponibilites.",
-    permission: "terrain",
-    group: "gestion",
-    icon: CalendarRange,
-    accent:
-      "linear-gradient(135deg, rgba(6,182,212,0.18) 0%, rgba(15,41,72,0.08) 100%)",
   },
 ];
 

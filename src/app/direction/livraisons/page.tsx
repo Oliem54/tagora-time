@@ -70,7 +70,7 @@ function createLivraisonForm(
 }
 
 export default function Page() {
-  const { user, loading: accessLoading, hasPermission } = useCurrentAccess();
+  const { user, loading: accessLoading, hasPermission, role } = useCurrentAccess();
 
   const [livraisons, setLivraisons] = useState<Row[]>([]);
   const [dossiers, setDossiers] = useState<Row[]>([]);
@@ -517,9 +517,88 @@ export default function Page() {
       ? { background: "#0f2948", color: "#ffffff" }
       : { background: "#ffffff", color: "#0f2948" };
 
+  const showDisponibilitesPlanning =
+    (role === "direction" || role === "admin") && !blocked;
+
   return (
     <main className="page-container">
       <HeaderTagora title="Livraison & ramassage" subtitle="Planification" />
+      {showDisponibilitesPlanning ? (
+        <section
+          className="tagora-panel"
+          style={{
+            marginTop: 12,
+            padding: "14px 16px",
+            display: "flex",
+            flexWrap: "wrap",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 14,
+            border: "1px solid rgba(205, 219, 238, 0.95)",
+            borderRadius: 14,
+            boxShadow: "0 6px 20px rgba(15, 41, 72, 0.07)",
+            background: "linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)",
+            boxSizing: "border-box",
+          }}
+        >
+          <div style={{ minWidth: 0, flex: "1 1 240px" }}>
+            <p
+              style={{
+                margin: 0,
+                fontSize: 11,
+                fontWeight: 700,
+                letterSpacing: "0.14em",
+                textTransform: "uppercase",
+                color: "#64748b",
+              }}
+            >
+              Planification
+            </p>
+            <h2
+              className="section-title"
+              style={{
+                margin: "6px 0 0",
+                fontSize: 16,
+                fontWeight: 700,
+                letterSpacing: "-0.02em",
+                color: "#0f2948",
+              }}
+            >
+              Disponibilités et blocages
+            </h2>
+            <p
+              className="ui-text-muted"
+              style={{
+                margin: "6px 0 0",
+                fontSize: 13,
+                lineHeight: 1.45,
+                maxWidth: 540,
+              }}
+            >
+              Fermez une journée de livraison ou rendez un véhicule/remorque indisponible pour une
+              plage horaire précise.
+            </p>
+          </div>
+          <Link
+            href="/direction/disponibilites"
+            className="tagora-dark-action"
+            style={{
+              flexShrink: 0,
+              minHeight: 40,
+              padding: "10px 18px",
+              borderRadius: 10,
+              fontSize: 13,
+              fontWeight: 700,
+              textDecoration: "none",
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            Gérer
+          </Link>
+        </section>
+      ) : null}
       <div style={{ marginTop: 12, display: "grid", gap: 10 }}>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           <Link

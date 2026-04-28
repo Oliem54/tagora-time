@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
@@ -188,6 +188,19 @@ function parseNumericOrNull(value: string) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+function buildGeocodeFallbackQuery(stop: { address: string; row: Row }, dossier?: Row) {
+  const addressData = buildFullAddress(stop.row, dossier);
+  if (addressData.full.trim()) return addressData.full;
+  const parts = [
+    stop.address.trim(),
+    getFieldString(stop.row, ["ville", "city", "municipalite"]),
+    getFieldString(stop.row, ["code_postal", "postal_code", "zip"]),
+    getFieldString(stop.row, ["province", "etat", "state"]),
+    addressData.country || "Canada",
+  ].filter(Boolean);
+  return parts.join(", ");
+}
+
 function isReliableAddressParts(street: string, city: string, postal: string) {
   return Boolean(street.trim() && city.trim() && postal.trim());
 }
@@ -242,23 +255,27 @@ function formatApiErrorDetails(data: unknown, payload: Record<string, unknown>) 
   return base.join("\n");
 }
 
+const NOMINATIM_MIN_INTERVAL_MS = 1100;
+
+/** Geocodage via API serveur (User-Agent, pas de blocage CORS navigateur / Nominatim). */
 async function geocodeAddress(address: string): Promise<GeocodedPoint | null> {
   const query = address.trim();
   if (!query) return null;
-  const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&q=${encodeURIComponent(query)}`;
   try {
-    const response = await fetch(url, {
-      headers: {
-        Accept: "application/json",
-      },
-    });
-    if (!response.ok) return null;
-    const data = (await response.json()) as Array<{ lat: string; lon: string }>;
-    if (!data[0]) return null;
-    const latitude = Number(data[0].lat);
-    const longitude = Number(data[0].lon);
-    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
-    return { latitude, longitude };
+    const response = await fetch(
+      `/api/geocode?q=${encodeURIComponent(query)}`,
+      { cache: "no-store", credentials: "same-origin" }
+    );
+    const data = (await response.json()) as {
+      ok?: boolean;
+      latitude?: number;
+      longitude?: number;
+      error?: string;
+    };
+    if (!response.ok || !data.ok || data.latitude == null || data.longitude == null) {
+      return null;
+    }
+    return { latitude: data.latitude, longitude: data.longitude };
   } catch {
     return null;
   }
@@ -298,11 +315,36 @@ export default function DayOperationsView({ area }: Props) {
     note_chauffeur: "",
     commentaire_operationnel: "",
   });
+  const [geocodeFailureById, setGeocodeFailureById] = useState<Record<number, string>>({});
 
   const dateIso = searchParams.get("date") || "";
   const canUseLivraisons = hasPermission("livraisons");
   const canManageOrder = area === "direction" && (role === "direction" || role === "admin");
   const canEditStopDetails = role === "direction" || role === "admin";
+
+  const persistGeocodedToServer = useCallback(async (stopId: number, latitude: number, longitude: number) => {
+    const res = await fetch(`/api/livraisons/${stopId}/geocode-position`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ latitude, longitude }),
+    });
+    if (!res.ok) return;
+    const data = (await res.json().catch(() => ({}))) as { success?: boolean };
+    if (!data.success) return;
+    setGeocodeFailureById((prev) => {
+      if (!(stopId in prev)) return prev;
+      const next = { ...prev };
+      delete next[stopId];
+      return next;
+    });
+    setRows((current) =>
+      current.map((row) =>
+        Number(row.id) === stopId
+          ? { ...row, latitude, longitude }
+          : row
+      )
+    );
+  }, []);
 
   useEffect(() => {
     async function loadDayRows() {
@@ -482,31 +524,65 @@ export default function DayOperationsView({ area }: Props) {
 
   useEffect(() => {
     async function geocodeStops() {
-      if (stops.length === 0) return;
+      if (stops.length === 0) {
+        setGeocodeFailureById({});
+        return;
+      }
       const nextGeo: Record<number, GeocodedPoint> = {};
+      const failures: Record<number, string> = {};
       let changed = false;
+      let lastOpWasNominatim = false;
+
       for (const stop of stops) {
         if (!Number.isFinite(stop.id)) continue;
         const coords = getOperationCoordinates(stop.row);
         if (coords.lat != null && coords.lng != null) {
+          lastOpWasNominatim = false;
           nextGeo[stop.id] = { latitude: coords.lat, longitude: coords.lng };
           changed = true;
           continue;
         }
-        if (!stop.fullAddress) continue;
-        const point = await geocodeAddress(stop.fullAddress);
+        if (lastOpWasNominatim) {
+          await new Promise((r) => setTimeout(r, NOMINATIM_MIN_INTERVAL_MS));
+        }
+        const dossier =
+          stop.dossierId != null ? dossiersById.get(stop.dossierId) : undefined;
+        const primary = stop.fullAddress.trim();
+        const fallback = buildGeocodeFallbackQuery(
+          { address: stop.address, row: stop.row },
+          dossier
+        ).trim();
+        const query = primary || fallback;
+        if (!query) {
+          failures[stop.id] =
+            "Adresse insuffisante (rue, ville, code postal, etc.) : geocodage impossible.";
+          continue;
+        }
+        let point = await geocodeAddress(query);
+        lastOpWasNominatim = true;
+        if (!point && primary && fallback && primary !== fallback) {
+          await new Promise((r) => setTimeout(r, NOMINATIM_MIN_INTERVAL_MS));
+          point = await geocodeAddress(fallback);
+        }
         if (point) {
           nextGeo[stop.id] = point;
           changed = true;
+          if (canEditStopDetails) {
+            await persistGeocodedToServer(stop.id, point.latitude, point.longitude);
+          }
+        } else {
+          failures[stop.id] = `Aucun resultat Nominatim pour : ${query.length > 120 ? `${query.slice(0, 120)}...` : query}`;
         }
       }
       if (changed) {
         setGeoById((current) => ({ ...current, ...nextGeo }));
       }
+      setGeocodeFailureById(failures);
     }
     void geocodeStops();
-  }, [stops]);
+  }, [canEditStopDetails, dossiersById, persistGeocodedToServer, stops]);
 
+  /** Même ordre que la colonne de gauche (orderedStopIds) ; pas de re-tri ici. La carte reçoit ce tableau tel quel. */
   const mapPoints = useMemo(() => {
     const byId = new Map(stops.map((stop) => [stop.id, stop]));
     const ordered = orderedStopIds
@@ -522,6 +598,13 @@ export default function DayOperationsView({ area }: Props) {
         latitude: geoById[stop.id].latitude,
         longitude: geoById[stop.id].longitude,
       }));
+  }, [geoById, orderedStopIds, stops]);
+
+  const stopsNotOnMap = useMemo(() => {
+    const byId = new Map(stops.map((stop) => [stop.id, stop]));
+    return orderedStopIds
+      .map((id) => byId.get(id))
+      .filter((stop): stop is NonNullable<typeof stop> => Boolean(stop) && !geoById[stop.id]);
   }, [geoById, orderedStopIds, stops]);
 
   const selected = useMemo(() => {
@@ -795,6 +878,12 @@ export default function DayOperationsView({ area }: Props) {
     const latForMap = parseNumericOrNull(String(updatedRow.latitude ?? ""));
     const lngForMap = parseNumericOrNull(String(updatedRow.longitude ?? ""));
     if (latForMap != null && lngForMap != null) {
+      setGeocodeFailureById((prev) => {
+        if (!(selected.id in prev)) return prev;
+        const next = { ...prev };
+        delete next[selected.id];
+        return next;
+      });
       setGeoById((current) => ({
         ...current,
         [selected.id]: { latitude: latForMap, longitude: lngForMap },
@@ -1060,6 +1149,37 @@ export default function DayOperationsView({ area }: Props) {
                 Origine non definie.
               </p>
             )}
+            {stopsNotOnMap.length > 0 ? (
+              <p className="ui-text-muted" style={{ margin: "0 0 8px" }}>
+                {stopsNotOnMap.length} arret{stopsNotOnMap.length > 1 ? "s" : ""} sans position sur
+                la carte : {stopsNotOnMap.map((s) => s.client).join(", ")}. La ligne relie le depot,
+                les arrets geolocalises (dans l&apos;ordre de la liste), puis le retour.
+              </p>
+            ) : null}
+            {Object.keys(geocodeFailureById).length > 0 ? (
+              <div
+                className="tagora-panel"
+                style={{
+                  margin: "0 0 8px",
+                  padding: 10,
+                  fontSize: 12,
+                  background: "rgba(254, 242, 242, 0.95)",
+                  border: "1px solid #f87171",
+                }}
+              >
+                <strong>Geocodage : detail par arret</strong>
+                <ul style={{ margin: "6px 0 0 18px", padding: 0 }}>
+                  {Object.entries(geocodeFailureById).map(([id, msg]) => {
+                    const st = stops.find((s) => s.id === Number(id));
+                    return (
+                      <li key={id} style={{ marginBottom: 4 }}>
+                        <strong>{st?.client ?? `Arret ${id}`}</strong> : {msg}
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            ) : null}
             <div className="day-ops-map-wrap">
               <DayOperationsMap
                 points={mapPoints}
@@ -1143,10 +1263,11 @@ export default function DayOperationsView({ area }: Props) {
                         return stop ? `#${index + 1} ${stop.client}` : `#${id}`;
                       })
                       .join(" -> ")
-                  : "-"}
+                  : "—"}
               </div>
               <div>
-                <strong>Gain estime:</strong> {Math.max(0, routeSummary.currentKm - routeSummary.suggestedKm).toFixed(1)} km
+                <strong>Gain estime:</strong>{" "}
+                {`${Math.max(0, routeSummary.currentKm - routeSummary.suggestedKm).toFixed(1)} km`}
               </div>
               {routeSummary.detailedSuggestedStops.length > 0 ? (
                 <div className="ui-stack-xs" style={{ marginTop: 6 }}>

@@ -17,6 +17,35 @@ export type ModuleSource =
 
 type ProofType = "document" | "voice" | "signature" | "note";
 
+/** Types métier pour les fichiers (colonne `categorie`, `type_preuve` = document). */
+export const OPERATION_DOCUMENT_CATEGORIES = [
+  "facture",
+  "bon_livraison",
+  "bon_ramassage",
+  "preuve_signee",
+  "photo",
+  "autre",
+] as const;
+
+export type OperationDocumentCategory = (typeof OPERATION_DOCUMENT_CATEGORIES)[number];
+
+const DOCUMENT_CATEGORY_LABELS: Record<OperationDocumentCategory, string> = {
+  facture: "Facture",
+  bon_livraison: "Bon de livraison",
+  bon_ramassage: "Bon de ramassage",
+  preuve_signee: "Preuve signée",
+  photo: "Photo",
+  autre: "Autre document",
+};
+
+function documentCategoryLabel(categorie: string | null): string {
+  if (!categorie) return "Document";
+  if (categorie in DOCUMENT_CATEGORY_LABELS) {
+    return DOCUMENT_CATEGORY_LABELS[categorie as OperationDocumentCategory];
+  }
+  return categorie;
+}
+
 type OperationProofRow = {
   id: string;
   module_source: ModuleSource;
@@ -49,6 +78,11 @@ function formatProofDate(value: string | null | undefined) {
   return parsed.toLocaleString("fr-CA");
 }
 
+function shortUserRef(id: string | null | undefined) {
+  if (!id) return "—";
+  return id.length > 10 ? `${id.slice(0, 8)}…` : id;
+}
+
 function buildStoragePrefix(moduleSource: ModuleSource, sourceId: string) {
   return `operation-proofs/${moduleSource}/${sourceId}`;
 }
@@ -62,11 +96,18 @@ export default function OperationProofsPanel({
   compact = false,
 }: Props) {
   const sourceIdText = String(sourceId);
+  const showOperationDocuments =
+    moduleSource === "livraison" || moduleSource === "ramassage";
+
   const [proofs, setProofs] = useState<OperationProofRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [feedback, setFeedback] = useState("");
   const [commentaire, setCommentaire] = useState("");
+  const [documentCategory, setDocumentCategory] = useState<OperationDocumentCategory>("autre");
+  const [documentNote, setDocumentNote] = useState("");
+  const [documentFile, setDocumentFile] = useState<File | null>(null);
+  const documentFileInputRef = useRef<HTMLInputElement | null>(null);
   const [recordingSupported, setRecordingSupported] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
@@ -78,11 +119,8 @@ export default function OperationProofsPanel({
   const [hasSignature, setHasSignature] = useState(false);
   const hasWindow = typeof window !== "undefined";
   const hasNavigator = typeof navigator !== "undefined";
-  const hasGetUserMedia =
-    hasNavigator && typeof navigator.mediaDevices?.getUserMedia === "function";
   const hasMediaRecorder =
     hasWindow && typeof window.MediaRecorder !== "undefined";
-  const secureContext = hasWindow ? window.isSecureContext : false;
 
   const hasVoiceProof = useMemo(
     () => proofs.some((proof) => proof.type_preuve === "voice"),
@@ -90,6 +128,15 @@ export default function OperationProofsPanel({
   );
   const hasSignatureProof = useMemo(
     () => proofs.some((proof) => proof.type_preuve === "signature"),
+    [proofs]
+  );
+
+  const fileDocuments = useMemo(
+    () => proofs.filter((p) => p.type_preuve === "document"),
+    [proofs]
+  );
+  const otherProofs = useMemo(
+    () => proofs.filter((p) => p.type_preuve !== "document"),
     [proofs]
   );
 
@@ -139,63 +186,76 @@ export default function OperationProofsPanel({
     };
   }, [audioPreviewUrl]);
 
-  const uploadProof = useCallback(async (
-    file: File,
-    typePreuve: ProofType
-  ) => {
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user) {
-      setFeedback("Session invalide. Reconnecte-toi.");
-      return;
-    }
+  type UploadExtra = {
+    categorieOverride?: string;
+    commentaireOverride?: string | null;
+  };
 
-    setUploading(true);
-    setFeedback("");
-    const ext = file.name.includes(".") ? file.name.split(".").pop() : "bin";
-    const storageName = `${typePreuve}-${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
-    const storagePath = `${buildStoragePrefix(moduleSource, sourceIdText)}/${storageName}`;
+  const uploadProof = useCallback(
+    async (file: File, typePreuve: ProofType, extra?: UploadExtra) => {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) {
+        setFeedback("Session invalide. Reconnecte-toi.");
+        return;
+      }
 
-    const { error: uploadError } = await supabase.storage
-      .from("photos-dossiers")
-      .upload(storagePath, file);
+      setUploading(true);
+      setFeedback("");
+      const ext = file.name.includes(".") ? file.name.split(".").pop() : "bin";
+      const storageName = `${typePreuve}-${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+      const storagePath = `${buildStoragePrefix(moduleSource, sourceIdText)}/${storageName}`;
 
-    if (uploadError) {
-      setFeedback("Echec upload du fichier.");
+      const { error: uploadError } = await supabase.storage
+        .from("photos-dossiers")
+        .upload(storagePath, file);
+
+      if (uploadError) {
+        setFeedback("Echec upload du fichier.");
+        setUploading(false);
+        return;
+      }
+
+      const { data: publicUrlData } = supabase.storage
+        .from("photos-dossiers")
+        .getPublicUrl(storagePath);
+
+      const categorieRow =
+        extra?.categorieOverride !== undefined ? extra.categorieOverride : categorieParDefaut;
+
+      const commentaireRow =
+        extra && Object.prototype.hasOwnProperty.call(extra, "commentaireOverride")
+          ? extra.commentaireOverride ?? null
+          : commentaire.trim() || null;
+
+      const { error: insertError } = await supabase.from("operation_proofs").insert({
+        module_source: moduleSource,
+        source_id: sourceIdText,
+        type_preuve: typePreuve,
+        categorie: categorieRow,
+        nom: file.name || storageName,
+        date_heure: new Date().toISOString(),
+        cree_par: user.id,
+        url_fichier: publicUrlData.publicUrl,
+        mime_type: file.type || null,
+        taille: Number.isFinite(file.size) ? file.size : null,
+        commentaire: commentaireRow,
+        statut: "captured",
+      });
+
+      if (insertError) {
+        setFeedback("Upload fait mais enregistrement impossible.");
+        setUploading(false);
+        return;
+      }
+
+      setCommentaire("");
       setUploading(false);
-      return;
-    }
-
-    const { data: publicUrlData } = supabase.storage
-      .from("photos-dossiers")
-      .getPublicUrl(storagePath);
-
-    const { error: insertError } = await supabase.from("operation_proofs").insert({
-      module_source: moduleSource,
-      source_id: sourceIdText,
-      type_preuve: typePreuve,
-      categorie: categorieParDefaut,
-      nom: file.name || storageName,
-      date_heure: new Date().toISOString(),
-      cree_par: user.id,
-      url_fichier: publicUrlData.publicUrl,
-      mime_type: file.type || null,
-      taille: Number.isFinite(file.size) ? file.size : null,
-      commentaire: commentaire.trim() || null,
-      statut: "captured",
-    });
-
-    if (insertError) {
-      setFeedback("Upload fait mais enregistrement impossible.");
-      setUploading(false);
-      return;
-    }
-
-    setCommentaire("");
-    setUploading(false);
-    await loadProofs();
-  }, [categorieParDefaut, commentaire, loadProofs, moduleSource, sourceIdText]);
+      await loadProofs();
+    },
+    [categorieParDefaut, commentaire, loadProofs, moduleSource, sourceIdText]
+  );
 
   const saveTextNote = useCallback(async () => {
     const note = commentaire.trim();
@@ -236,11 +296,33 @@ export default function OperationProofsPanel({
     await loadProofs();
   }, [categorieParDefaut, commentaire, loadProofs, moduleSource, sourceIdText]);
 
-  const handleDocument = async (event: ChangeEvent<HTMLInputElement>) => {
+  const handleLegacyDocument = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
     await uploadProof(file, "document");
     event.target.value = "";
+  };
+
+  const handleDocumentFilePick = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    setDocumentFile(file ?? null);
+  };
+
+  const handleAddOperationDocument = async () => {
+    if (!documentFile) {
+      setFeedback("Choisissez un fichier à joindre.");
+      return;
+    }
+    setFeedback("");
+    await uploadProof(documentFile, "document", {
+      categorieOverride: documentCategory,
+      commentaireOverride: documentNote.trim() || null,
+    });
+    setDocumentFile(null);
+    setDocumentNote("");
+    if (documentFileInputRef.current) {
+      documentFileInputRef.current.value = "";
+    }
   };
 
   const startVoiceRecording = async () => {
@@ -407,7 +489,7 @@ export default function OperationProofsPanel({
       <a
         href={proof.url_fichier}
         target="_blank"
-        rel="noreferrer"
+        rel="noopener noreferrer"
         className="tagora-dark-outline-action"
         style={{ textDecoration: "none", textAlign: "center", padding: "10px 12px", borderRadius: 10 }}
       >
@@ -416,8 +498,175 @@ export default function OperationProofsPanel({
     );
   };
 
+  const gap = compact ? 8 : 12;
+
   return (
     <div className={compact ? "ui-stack-sm" : "ui-stack-md"}>
+      {showOperationDocuments ? (
+        <AppCard
+          className={compact ? "ui-stack-xs" : "ui-stack-sm"}
+          tone="default"
+          style={{
+            border: "1px solid rgba(205, 219, 238, 0.95)",
+            borderRadius: 14,
+            boxShadow: "0 6px 20px rgba(15, 41, 72, 0.06)",
+          }}
+        >
+          <div className="ui-eyebrow" style={{ letterSpacing: "0.12em" }}>
+            Documents
+          </div>
+          <p className="ui-text-muted" style={{ margin: 0, fontSize: 13, lineHeight: 1.45 }}>
+            Factures, bons, photos et pièces jointes à l&apos;opération. L&apos;ouverture se fait
+            toujours dans un nouvel onglet.
+          </p>
+          <div
+            className="tagora-form-grid"
+            style={{ display: "grid", gap, marginTop: 4 }}
+          >
+            <label className="tagora-field" style={{ margin: 0 }}>
+              <span className="tagora-label">Type de document</span>
+              <select
+                className="tagora-select"
+                value={documentCategory}
+                onChange={(e) => setDocumentCategory(e.target.value as OperationDocumentCategory)}
+              >
+                {OPERATION_DOCUMENT_CATEGORIES.map((key) => (
+                  <option key={key} value={key}>
+                    {DOCUMENT_CATEGORY_LABELS[key]}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="tagora-field" style={{ margin: 0 }}>
+              <span className="tagora-label">Fichier</span>
+              <input
+                ref={documentFileInputRef}
+                type="file"
+                accept="image/*,application/pdf,.doc,.docx,.xls,.xlsx,.txt"
+                onChange={handleDocumentFilePick}
+                className="tagora-input"
+              />
+            </label>
+            <label className="tagora-field" style={{ margin: 0 }}>
+              <span className="tagora-label">Note (optionnelle)</span>
+              <input
+                type="text"
+                value={documentNote}
+                onChange={(e) => setDocumentNote(e.target.value)}
+                className="tagora-input"
+                placeholder="Référence, commentaire court…"
+              />
+            </label>
+          </div>
+          <PrimaryButton
+            type="button"
+            onClick={() => void handleAddOperationDocument()}
+            disabled={uploading || !documentFile}
+          >
+            {uploading ? "Envoi…" : "Ajouter"}
+          </PrimaryButton>
+
+          <div style={{ marginTop: compact ? 10 : 14 }}>
+            <div className="ui-eyebrow" style={{ fontSize: 11 }}>
+              Documents enregistrés
+            </div>
+            {loading ? (
+              <div className="ui-text-muted" style={{ marginTop: 6 }}>
+                Chargement…
+              </div>
+            ) : fileDocuments.length === 0 ? (
+              <div className="ui-text-muted" style={{ marginTop: 6 }}>
+                Aucun document pour cette opération.
+              </div>
+            ) : (
+              <ul
+                style={{
+                  listStyle: "none",
+                  margin: "10px 0 0",
+                  padding: 0,
+                  display: "grid",
+                  gap: 10,
+                }}
+              >
+                {fileDocuments.map((doc) => (
+                  <li
+                    key={doc.id}
+                    style={{
+                      display: "grid",
+                      gap: 8,
+                      padding: "12px 14px",
+                      borderRadius: 12,
+                      border: "1px solid #e2e8f0",
+                      background: "#f8fafc",
+                    }}
+                  >
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "baseline" }}>
+                      <span style={{ fontWeight: 700, color: "#0f2948", fontSize: 14 }}>
+                        {documentCategoryLabel(doc.categorie)}
+                      </span>
+                      <span className="ui-text-muted" style={{ fontSize: 12 }}>
+                        {formatProofDate(doc.date_heure)}
+                      </span>
+                    </div>
+                    <div style={{ fontSize: 13, wordBreak: "break-word", color: "#334155" }}>
+                      {doc.nom}
+                    </div>
+                    <div className="ui-text-muted" style={{ fontSize: 12 }}>
+                      Ajouté par : {shortUserRef(doc.cree_par)}
+                      {doc.commentaire ? (
+                        <>
+                          {" "}
+                          · {doc.commentaire}
+                        </>
+                      ) : null}
+                    </div>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                      <a
+                        href={doc.url_fichier}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="tagora-dark-action"
+                        style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          padding: "8px 14px",
+                          borderRadius: 10,
+                          fontSize: 13,
+                          fontWeight: 700,
+                          textDecoration: "none",
+                        }}
+                      >
+                        Voir
+                      </a>
+                      <a
+                        href={doc.url_fichier}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        download={doc.nom || undefined}
+                        className="tagora-dark-outline-action"
+                        style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          padding: "8px 14px",
+                          borderRadius: 10,
+                          fontSize: 13,
+                          fontWeight: 700,
+                          textDecoration: "none",
+                        }}
+                      >
+                        Télécharger
+                      </a>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </AppCard>
+      ) : null}
+
       <AppCard className={compact ? "ui-stack-xs" : "ui-stack-sm"} tone={compact ? "muted" : "default"}>
         <div className="ui-eyebrow">{titre}</div>
         <FormField label="Commentaire optionnel">
@@ -434,16 +683,18 @@ export default function OperationProofsPanel({
             Enregistrer une note
           </PrimaryButton>
         </div>
-        <FormField label="1) Ajouter un document">
-          <input
-            type="file"
-            accept="image/*,application/pdf,.doc,.docx,.xls,.xlsx,.txt"
-            onChange={handleDocument}
-            className="tagora-input"
-          />
-        </FormField>
+        {!showOperationDocuments ? (
+          <FormField label="1) Ajouter un document">
+            <input
+              type="file"
+              accept="image/*,application/pdf,.doc,.docx,.xls,.xlsx,.txt"
+              onChange={handleLegacyDocument}
+              className="tagora-input"
+            />
+          </FormField>
+        ) : null}
         <AppCard tone="muted" className={compact ? "ui-stack-xs" : "ui-stack-sm"}>
-          <div className="ui-eyebrow">2) Enregistrer un vocal</div>
+          <div className="ui-eyebrow">{showOperationDocuments ? "1) Enregistrer un vocal" : "2) Enregistrer un vocal"}</div>
           <div
             style={{
               display: "flex",
@@ -496,7 +747,7 @@ export default function OperationProofsPanel({
           ) : null}
         </AppCard>
         <AppCard tone="muted" className={compact ? "ui-stack-xs" : "ui-stack-sm"}>
-          <div className="ui-eyebrow">3) Signature client</div>
+          <div className="ui-eyebrow">{showOperationDocuments ? "2) Signature client" : "3) Signature client"}</div>
           <canvas
             ref={signatureCanvasRef}
             width={760}
@@ -531,14 +782,16 @@ export default function OperationProofsPanel({
       </AppCard>
 
       <AppCard className={compact ? "ui-stack-xs" : "ui-stack-sm"} tone={compact ? "muted" : "default"}>
-        <div className="ui-eyebrow">Preuves existantes</div>
+        <div className="ui-eyebrow">
+          {showOperationDocuments ? "Autres preuves (vocal, signature, note)" : "Preuves existantes"}
+        </div>
         {loading ? (
           <div className="ui-text-muted">Chargement...</div>
-        ) : proofs.length === 0 ? (
+        ) : (showOperationDocuments ? otherProofs : proofs).length === 0 ? (
           <div className="ui-text-muted">Aucune preuve.</div>
         ) : (
           <div className="ui-stack-sm">
-            {proofs.map((proof) => (
+            {(showOperationDocuments ? otherProofs : proofs).map((proof) => (
               <AppCard key={proof.id} tone="muted" className="ui-stack-xs">
                 <div className="ui-eyebrow">
                   {proof.type_preuve} • {proof.categorie || "-"}

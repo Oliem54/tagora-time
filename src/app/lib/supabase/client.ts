@@ -57,6 +57,34 @@ if (!supabaseUrl || !supabaseResolvedKey) {
 export const supabase = createClient(supabaseUrl, supabaseResolvedKey);
 
 /**
+ * supabase-js sérialise partiellement GoTrue, mais getUser / getSession en parallèle
+ * (plusieurs useEffect, onAuthStateChange, Strict Mode) provoquent l’erreur
+ * "Lock ... was released because another request stole it".
+ */
+let authReadChain: Promise<unknown> = Promise.resolve();
+
+export function runWithBrowserAuthReadLock<T>(fn: () => Promise<T>): Promise<T> {
+  const run = authReadChain.then(() => fn());
+  authReadChain = run.then(
+    () => undefined,
+    () => undefined
+  );
+  return run;
+}
+
+export function isAuthClientLockContentionError(err: unknown): boolean {
+  const msg =
+    err &&
+    typeof (err as { message?: string }).message === "string" &&
+    (err as { message: string }).message
+      ? (err as { message: string }).message
+      : err instanceof Error
+        ? err.message
+        : String(err);
+  return /lock .+ (was )?released|another request|stole it/i.test(msg);
+}
+
+/**
  * GoTrue renvoie ce cas quand le refresh_token en localStorage n’existe plus côté serveur
  * (session révoquée, autre projet, reset DB, stockage partiellement corrompu).
  * Sans purge locale, chaque getSession/getUser retente le refresh et réaffiche l’erreur.

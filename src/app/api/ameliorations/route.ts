@@ -10,6 +10,7 @@ import {
   type ImprovementPriority,
   type ImprovementStatus,
 } from "@/app/lib/improvements";
+import { notifyAdminsNewImprovement } from "@/app/lib/improvement-admin-notify.server";
 
 function isImprovementModule(value: unknown): value is ImprovementModule {
   return typeof value === "string" && IMPROVEMENT_MODULE_OPTIONS.includes(value as ImprovementModule);
@@ -153,7 +154,7 @@ export async function POST(req: NextRequest) {
           created_by_role: role,
         },
       ])
-      .select("id")
+      .select("id, created_at")
       .single();
 
     if (error) {
@@ -181,6 +182,29 @@ export async function POST(req: NextRequest) {
         },
         { status: 500 }
       );
+    }
+
+    const createdAt =
+      data && typeof data === "object" && "created_at" in data && typeof data.created_at === "string"
+        ? data.created_at
+        : new Date().toISOString();
+
+    try {
+      await notifyAdminsNewImprovement({
+        id: data.id,
+        title,
+        module: moduleValue,
+        priority: priorityValue,
+        description,
+        created_by_email: user.email ?? null,
+        created_by_role: role,
+        created_at: createdAt,
+      });
+    } catch (notifyError) {
+      console.error("[ameliorations][POST] notify_admins_failed", {
+        improvementId: data.id,
+        message: notifyError instanceof Error ? notifyError.message : String(notifyError),
+      });
     }
 
     return NextResponse.json({ success: true, improvementId: data.id });

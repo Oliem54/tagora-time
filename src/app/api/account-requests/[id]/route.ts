@@ -53,7 +53,7 @@ function parseAction(value: unknown): AccountRequestAction | null {
 }
 
 function getRequestedRole(value: unknown): AppRole | null {
-  return value === "direction" || value === "employe" ? value : null;
+  return value === "direction" || value === "employe" || value === "admin" ? value : null;
 }
 
 type EmployeeProfileInput = {

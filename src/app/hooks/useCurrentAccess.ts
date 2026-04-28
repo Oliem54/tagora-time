@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import type { User } from "@supabase/supabase-js";
 import {
   clearLocalAuthIfRefreshTokenDead,
+  runWithBrowserAuthReadLock,
   supabase,
 } from "@/app/lib/supabase/client";
 import { AppRole, getUserRole } from "@/app/lib/auth/roles";
@@ -93,26 +94,28 @@ export function useCurrentAccess() {
 
     async function loadAccess(allowRetryAfterPurge = true) {
       try {
-        await syncAccountActivation();
+        await runWithBrowserAuthReadLock(async () => {
+          await syncAccountActivation();
 
-        let { data, error: userError } = await supabase.auth.getUser();
-        if (await clearLocalAuthIfRefreshTokenDead(userError)) {
-          ({ data, error: userError } = await supabase.auth.getUser());
-        }
-        const user = data.user;
+          let { data, error: userError } = await supabase.auth.getUser();
+          if (await clearLocalAuthIfRefreshTokenDead(userError)) {
+            ({ data, error: userError } = await supabase.auth.getUser());
+          }
+          const user = data.user;
 
-        if (!user) {
-          writeBrowserSessionCookie(null);
-        }
+          if (!user) {
+            writeBrowserSessionCookie(null);
+          }
 
-        if (cancelled) return;
+          if (cancelled) return;
 
-        setState({
-          user,
-          role: getUserRole(user),
-          permissions: getUserPermissions(user),
-          companyAccess: buildUserCompanyAccess(user),
-          loading: false,
+          setState({
+            user,
+            role: getUserRole(user),
+            permissions: getUserPermissions(user),
+            companyAccess: buildUserCompanyAccess(user),
+            loading: false,
+          });
         });
       } catch (caught) {
         const err = caught instanceof Error ? caught : new Error(String(caught));

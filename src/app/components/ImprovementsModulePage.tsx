@@ -549,6 +549,7 @@ export default function ImprovementsModulePage() {
           <HeaderTagora
             title="Ameliorations"
             subtitle="Chargement"
+            showNavigation={false}
           />
           <AccessNotice description="Chargement en cours." />
         </div>
@@ -560,7 +561,11 @@ export default function ImprovementsModulePage() {
     return (
       <main className="tagora-app-shell">
         <div className="tagora-app-content" style={{ maxWidth: 760 }}>
-          <HeaderTagora title="Ameliorations" subtitle="Redirection" />
+          <HeaderTagora
+            title="Ameliorations"
+            subtitle="Redirection"
+            showNavigation={false}
+          />
           <AccessNotice description="Redirection vers votre espace." />
         </div>
       </main>

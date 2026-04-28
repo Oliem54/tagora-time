@@ -29,6 +29,15 @@ type Props = {
   routeGeometryLatLng?: Array<[number, number]>;
 };
 
+function isValidMapCoord(lat: number, lng: number) {
+  return (
+    Number.isFinite(lat) &&
+    Number.isFinite(lng) &&
+    Math.abs(lat) <= 90 &&
+    Math.abs(lng) <= 180
+  );
+}
+
 function EnsureLeafletResize() {
   const map = useMap();
 
@@ -99,32 +108,40 @@ export default function DayOperationsMap({
     return next;
   })();
 
-  const routePath = [
-    ...[...points]
-      .sort((a, b) => a.order - b.order)
-      .map((point) => [point.latitude, point.longitude] as [number, number]),
-  ];
+  /** Tracé = ordre exact de `points` (mapPoints / liste). Ne pas trier ici. */
+  const stopPositions = points
+    .map((point) => [point.latitude, point.longitude] as [number, number])
+    .filter(([lat, lng]) => isValidMapCoord(lat, lng));
+
+  const routePath: [number, number][] = [];
+  if (origin && isValidMapCoord(origin.latitude, origin.longitude)) {
+    routePath.push([origin.latitude, origin.longitude]);
+  }
+  routePath.push(...stopPositions);
+  if (returnOrigin && isValidMapCoord(returnOrigin.latitude, returnOrigin.longitude)) {
+    routePath.push([returnOrigin.latitude, returnOrigin.longitude]);
+  }
 
   const center = (
-    displayPoints[0]
-      ? [displayPoints[0].latitude, displayPoints[0].longitude]
-      : origin
-        ? [origin.latitude, origin.longitude]
-        : returnOrigin
-          ? [returnOrigin.latitude, returnOrigin.longitude]
-          : [46.8139, -71.2082]
+    displayPoints[0] && isValidMapCoord(displayPoints[0].latitude, displayPoints[0].longitude)
+      ? ([displayPoints[0].latitude, displayPoints[0].longitude] as [number, number])
+      : stopPositions[0]
+        ? stopPositions[0]
+        : origin && isValidMapCoord(origin.latitude, origin.longitude)
+          ? ([origin.latitude, origin.longitude] as [number, number])
+          : returnOrigin && isValidMapCoord(returnOrigin.latitude, returnOrigin.longitude)
+            ? ([returnOrigin.latitude, returnOrigin.longitude] as [number, number])
+            : ([46.8139, -71.2082] as [number, number])
   ) as [number, number];
-  const bounds = displayPoints.map((point) => [point.latitude, point.longitude]) as [
-    number,
-    number
-  ][];
-  if (origin) {
+
+  const bounds: [number, number][] = displayPoints
+    .filter((p) => isValidMapCoord(p.latitude, p.longitude))
+    .map((p) => [p.latitude, p.longitude]);
+  if (origin && isValidMapCoord(origin.latitude, origin.longitude)) {
     bounds.push([origin.latitude, origin.longitude]);
-    routePath.unshift([origin.latitude, origin.longitude]);
   }
-  if (returnOrigin) {
+  if (returnOrigin && isValidMapCoord(returnOrigin.latitude, returnOrigin.longitude)) {
     bounds.push([returnOrigin.latitude, returnOrigin.longitude]);
-    routePath.push([returnOrigin.latitude, returnOrigin.longitude]);
   }
   const boundsOrUndefined = bounds.length > 0 ? bounds : undefined;
 
@@ -179,7 +196,9 @@ export default function DayOperationsMap({
           </Tooltip>
         </Marker>
       ) : null}
-      {displayPoints.map((point) => (
+      {displayPoints
+        .filter((point) => isValidMapCoord(point.latitude, point.longitude))
+        .map((point) => (
         <Marker
           key={point.id}
           position={[point.latitude, point.longitude]}

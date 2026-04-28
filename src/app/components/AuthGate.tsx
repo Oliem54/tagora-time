@@ -4,6 +4,8 @@ import { ReactNode, useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import {
   clearLocalAuthIfRefreshTokenDead,
+  isAuthClientLockContentionError,
+  runWithBrowserAuthReadLock,
   supabase,
 } from "@/app/lib/supabase/client";
 import {
@@ -43,72 +45,116 @@ export default function AuthGate({
   useEffect(() => {
     let cancelled = false;
 
-    async function evaluateAccess() {
-      setMissingPermission(null);
-      let { data, error: userError } = await supabase.auth.getUser();
-      if (await clearLocalAuthIfRefreshTokenDead(userError)) {
-        ({ data, error: userError } = await supabase.auth.getUser());
-      }
-      const user = data.user;
-      const role = getUserRole(user);
-
-      if (cancelled) return;
-
-      if (!user) {
-        if (isPublicPath) {
-          setStatus("allowed");
-          return;
+    async function getUserOnce() {
+      try {
+        return await supabase.auth.getUser();
+      } catch (e) {
+        if (isAuthClientLockContentionError(e)) {
+          return await supabase.auth.getUser();
         }
-
-        router.replace(getLoginPathForRole(areaRole));
-        return;
+        throw e;
       }
-
-      if (!role) {
-        await supabase.auth.signOut();
-
-        if (!cancelled) {
-          router.replace(getLoginPathForRole(areaRole));
-        }
-        return;
-      }
-
-      const roleMatchesArea =
-        areaRole === "admin"
-          ? role === "admin"
-          : role === areaRole || (areaRole === "direction" && role === "admin");
-
-      if (!roleMatchesArea) {
-        router.replace(getHomePathForRole(role));
-        return;
-      }
-
-      if (isPublicPath) {
-        router.replace(getHomePathForRole(role));
-        return;
-      }
-
-      if (
-        areaRole === "employe" &&
-        hasPasswordChangeRequired(user) &&
-        pathname !== getPasswordChangePathForRole(role)
-      ) {
-        router.replace(getPasswordChangePathForRole(role));
-        return;
-      }
-
-      const requiredPermission = getRequiredPermissionForPath(pathname);
-
-      if (requiredPermission && !hasUserPermission(user, requiredPermission)) {
-        setMissingPermission(requiredPermission);
-        router.replace(getHomePathForRole(role));
-        return;
-      }
-
-      setStatus("allowed");
     }
 
-    evaluateAccess();
+    async function evaluateAccess() {
+      try {
+        await runWithBrowserAuthReadLock(async () => {
+          setMissingPermission(null);
+
+          let { data, error: userError } = await getUserOnce();
+          if (userError && isAuthClientLockContentionError(userError)) {
+            const retry = await getUserOnce();
+            data = retry.data;
+            userError = retry.error;
+          }
+          if (await clearLocalAuthIfRefreshTokenDead(userError)) {
+            if (cancelled) return;
+            const second = await getUserOnce();
+            data = second.data;
+            userError = second.error;
+          }
+          const user = data.user;
+          const role = getUserRole(user);
+
+          if (cancelled) return;
+
+          if (!user) {
+            if (isPublicPath) {
+              setStatus("allowed");
+              return;
+            }
+
+            router.replace(getLoginPathForRole(areaRole));
+            return;
+          }
+
+          if (!role) {
+            await supabase.auth.signOut();
+
+            if (!cancelled) {
+              router.replace(getLoginPathForRole(areaRole));
+            }
+            return;
+          }
+
+          const roleMatchesArea =
+            areaRole === "admin"
+              ? role === "admin"
+              : role === areaRole || (areaRole === "direction" && role === "admin");
+
+          if (!roleMatchesArea) {
+            router.replace(getHomePathForRole(role));
+            return;
+          }
+
+          if (isPublicPath) {
+            router.replace(getHomePathForRole(role));
+            return;
+          }
+
+          if (
+            areaRole === "employe" &&
+            hasPasswordChangeRequired(user) &&
+            pathname !== getPasswordChangePathForRole(role)
+          ) {
+            router.replace(getPasswordChangePathForRole(role));
+            return;
+          }
+
+          const requiredPermission = getRequiredPermissionForPath(pathname);
+
+          if (requiredPermission && !hasUserPermission(user, requiredPermission)) {
+            setMissingPermission(requiredPermission);
+            router.replace(getHomePathForRole(role));
+            return;
+          }
+
+          setStatus("allowed");
+        });
+      } catch (e) {
+        if (isAuthClientLockContentionError(e)) {
+          if (!cancelled) {
+            void Promise.resolve().then(() => {
+              if (!cancelled) void evaluateAccess();
+            });
+          }
+          return;
+        }
+        if (cancelled) return;
+        try {
+          await supabase.auth.signOut({ scope: "local" });
+        } catch {
+          // ignore
+        }
+        if (isPublicPath) {
+          setStatus("allowed");
+        } else {
+          router.replace(getLoginPathForRole(areaRole));
+        }
+      }
+    }
+
+    void evaluateAccess();
 
     const {
       data: { subscription },
