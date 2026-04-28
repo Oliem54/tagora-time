@@ -1,7 +1,7 @@
 "use client";
 
 import { ReactNode, useEffect, useMemo, useState } from "react";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import {
   clearLocalAuthIfRefreshTokenDead,
   isAuthClientLockContentionError,
@@ -35,30 +35,13 @@ export default function AuthGate({
 }: AuthGateProps) {
   const pathname = usePathname();
   const router = useRouter();
-  const searchParams = useSearchParams();
   const [status, setStatus] = useState<"checking" | "allowed">("checking");
   const [missingPermission, setMissingPermission] = useState<string | null>(null);
-  const [forceShowLoader, setForceShowLoader] = useState(false);
 
   const isPublicPath = useMemo(
     () => publicPaths.includes(pathname),
     [pathname, publicPaths]
   );
-  const debugShowLoader = searchParams.get("showLoader") === "1";
-
-  useEffect(() => {
-    if (process.env.NODE_ENV !== "development") return;
-    if (!debugShowLoader) {
-      setForceShowLoader(false);
-      return;
-    }
-    setForceShowLoader(true);
-    const timer = window.setTimeout(() => {
-      setForceShowLoader(false);
-    }, 2000);
-    return () => window.clearTimeout(timer);
-  }, [debugShowLoader]);
-
   useEffect(() => {
     let cancelled = false;
 

@@ -105,6 +105,7 @@ export default function SuiviClientPage({ token }: { token: string }) {
   );
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void loadTracking();
 
     const interval = window.setInterval(() => {

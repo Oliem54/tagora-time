@@ -139,6 +139,7 @@ export default function DirectionDashboardClient() {
   useEffect(() => {
     if (process.env.NODE_ENV !== "development") return;
     if (!debugShowLoader) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setForceShowLoader(false);
       return;
     }

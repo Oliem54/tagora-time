@@ -254,25 +254,6 @@ function isReliableAddressParts(street: string, city: string, postal: string) {
   return Boolean(street.trim() && city.trim() && postal.trim());
 }
 
-function formatSupabaseErrorDetails(
-  error: {
-    message?: string;
-    code?: string;
-    details?: string;
-    hint?: string;
-  } | null,
-  payload: Record<string, unknown>
-) {
-  if (!error) return "";
-  return [
-    `message: ${error.message || "-"}`,
-    `code: ${error.code || "-"}`,
-    `details: ${error.details || "-"}`,
-    `hint: ${error.hint || "-"}`,
-    `payload: ${JSON.stringify(payload)}`,
-  ].join("\n");
-}
-
 function formatApiErrorDetails(data: unknown, payload: Record<string, unknown>) {
   const root = (data && typeof data === "object" ? data : {}) as Record<string, unknown>;
   const error = (root.error && typeof root.error === "object" ? root.error : {}) as Record<
@@ -628,6 +609,7 @@ export default function DayOperationsView({ area }: Props) {
       .sort((a, b) => a.order - b.order)
       .map((stop) => stop.id);
     if (ids.length === 0) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setOrderedStopIds([]);
       return;
     }
@@ -828,6 +810,7 @@ export default function DayOperationsView({ area }: Props) {
 
   useEffect(() => {
     if (!selected) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setIsEditingStop(false);
       setStopFormMessage("");
       setManualPickStopId(null);

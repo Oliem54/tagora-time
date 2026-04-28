@@ -115,6 +115,7 @@ export default function FacturationTitanPage() {
     if (accessLoading) return;
     if (!user) return;
     if (!hasTerrainPerm) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setLoading(false);
       return;
     }

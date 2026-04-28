@@ -649,7 +649,6 @@ export async function sendDirectionAlert(
     };
     const message =
       error instanceof Error ? error.message : String(errRecord.message ?? error);
-    const stack = error instanceof Error ? error.stack ?? null : null;
     const statusCode =
       resendHttpStatus ??
       (typeof errRecord.statusCode === "number" ? errRecord.statusCode : null) ??

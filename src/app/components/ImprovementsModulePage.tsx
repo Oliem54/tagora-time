@@ -299,6 +299,7 @@ export default function ImprovementsModulePage() {
   const kpi = useMemo(() => {
     const list = fullSnapshot;
     const weekMs = 7 * 24 * 60 * 60 * 1000;
+    // eslint-disable-next-line react-hooks/purity
     const now = Date.now();
     let nouvelles = 0;
     let enAttente = 0;
@@ -341,6 +342,7 @@ export default function ImprovementsModulePage() {
       return;
     }
     const ac = new AbortController();
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void loadItems("tous", "actives", { signal: ac.signal });
     return () => {
       ac.abort();
@@ -1038,6 +1040,7 @@ export default function ImprovementsModulePage() {
                     const isRecent =
                       !item.archived_at &&
                       item.status === "en_attente" &&
+                      // eslint-disable-next-line react-hooks/purity
                       Date.now() - new Date(item.created_at).getTime() <=
                         7 * 24 * 60 * 60 * 1000;
                     return (

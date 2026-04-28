@@ -101,6 +101,7 @@ export default function InternalMentionsPanel(props: {
   }, [entityId, hasValidEntity, props.entityType]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void fetchMentions();
   }, [fetchMentions]);
 
@@ -292,6 +293,7 @@ export default function InternalMentionsPanel(props: {
 
   useEffect(() => {
     if (!mentionMenuOpen) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setMenuCoords(null);
       return;
     }

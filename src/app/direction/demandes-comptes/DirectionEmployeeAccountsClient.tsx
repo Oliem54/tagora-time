@@ -630,6 +630,7 @@ export default function DirectionEmployeeAccountsClient() {
       return;
     }
 
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void fetchRequests();
   }, [accessToken, fetchRequests, isReady]);
 
@@ -659,6 +660,7 @@ export default function DirectionEmployeeAccountsClient() {
       return;
     }
 
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setAssignedRole(
       (editingRequest.assigned_role ??
         editingRequest.requested_role ??

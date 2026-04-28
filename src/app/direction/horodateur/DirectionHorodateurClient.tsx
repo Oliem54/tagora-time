@@ -727,6 +727,7 @@ export default function DirectionHorodateurPage() {
     }
 
     if (!canUseTerrain) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setLoading(false);
       return;
     }

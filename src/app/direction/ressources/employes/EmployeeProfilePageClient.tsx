@@ -209,6 +209,7 @@ export default function EmployeeProfilePageClient({
 
   useEffect(() => {
     if (isCreating) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setLoading(false);
       setOriginalProfile(null);
       setForm(buildEmployeForm(null));

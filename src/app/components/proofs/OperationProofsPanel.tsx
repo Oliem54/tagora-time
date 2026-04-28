@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { type ChangeEvent, type PointerEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/app/lib/supabase/client";
 import FormField from "@/app/components/ui/FormField";
@@ -117,11 +118,6 @@ export default function OperationProofsPanel({
   const signatureCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const isDrawingRef = useRef(false);
   const [hasSignature, setHasSignature] = useState(false);
-  const hasWindow = typeof window !== "undefined";
-  const hasNavigator = typeof navigator !== "undefined";
-  const hasMediaRecorder =
-    hasWindow && typeof window.MediaRecorder !== "undefined";
-
   const hasVoiceProof = useMemo(
     () => proofs.some((proof) => proof.type_preuve === "voice"),
     [proofs]
@@ -478,9 +474,12 @@ export default function OperationProofsPanel({
     }
     if (proof.mime_type?.startsWith("image/")) {
       return (
-        <img
+        <Image
           src={proof.url_fichier}
           alt={proof.nom}
+          width={640}
+          height={280}
+          unoptimized
           style={{ width: "100%", height: 140, objectFit: "cover", borderRadius: 10 }}
         />
       );
