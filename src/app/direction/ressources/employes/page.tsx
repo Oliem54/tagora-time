@@ -36,6 +36,7 @@ export default function Page() {
     const res = await supabase
       .from("chauffeurs")
       .select("id, nom, courriel, telephone, actif, primary_company")
+      .neq("actif", false)
       .order("id", { ascending: true });
 
     if (res.error) {
@@ -59,6 +60,7 @@ export default function Page() {
       const res = await supabase
         .from("chauffeurs")
         .select("id, nom, courriel, telephone, actif, primary_company")
+        .neq("actif", false)
         .order("id", { ascending: true });
 
       if (!isActive) {
@@ -88,7 +90,7 @@ export default function Page() {
 
   async function handleDelete(id: number) {
     const confirmed = window.confirm(
-      "Supprimer cet employe ? Cette action est definitive."
+      "Desactiver cet employe ? Son historique sera conserve."
     );
 
     if (!confirmed) {
@@ -99,16 +101,34 @@ export default function Page() {
     setMessage("");
     setMessageType(null);
 
-    const res = await supabase.from("chauffeurs").delete().eq("id", id);
+    const res = await supabase
+      .from("chauffeurs")
+      .update({ actif: false })
+      .eq("id", id);
 
     if (res.error) {
+      if (res.error.code === "23503") {
+        const fallback = await supabase
+          .from("chauffeurs")
+          .update({ actif: false })
+          .eq("id", id);
+        if (!fallback.error) {
+          setMessage(
+            "Impossible de supprimer cet employe, car il possede deja un historique. Il a ete desactive a la place."
+          );
+          setMessageType("success");
+          setDeletingId(null);
+          await fetchEmployes();
+          return;
+        }
+      }
       setMessage(`Erreur suppression: ${res.error.message}`);
       setMessageType("error");
       setDeletingId(null);
       return;
     }
 
-    setMessage("Employe supprime.");
+    setMessage("Employe desactive. Son historique est conserve.");
     setMessageType("success");
     setDeletingId(null);
     await fetchEmployes();
@@ -216,7 +236,7 @@ export default function Page() {
                         onClick={() => void handleDelete(item.id)}
                         disabled={deletingId === item.id}
                       >
-                        {deletingId === item.id ? "Suppression..." : "Supprimer"}
+                        {deletingId === item.id ? "Desactivation..." : "Desactiver"}
                       </button>
                     </div>
                   </DataTableCell>

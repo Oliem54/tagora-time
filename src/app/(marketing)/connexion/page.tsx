@@ -6,16 +6,16 @@ import { marketingConnectionLinks } from "../components/site/navigation";
 
 const portals = [
   {
-    title: "Connexion employe",
+    title: "Je suis un employe",
     text: "Acces aux modules terrain, livraisons, documents et operations selon les droits actifs.",
-    href: marketingConnectionLinks.employe,
-    action: "Acceder cote employe",
+    href: "/employe/login",
+    action: "Aller a la connexion employe",
   },
   {
-    title: "Connexion direction",
+    title: "Je suis la direction",
     text: "Acces aux tableaux de bord, a la gestion et au pilotage des modules internes.",
-    href: marketingConnectionLinks.direction,
-    action: "Acceder cote direction",
+    href: "/direction/login",
+    action: "Aller a la connexion direction",
   },
 ] as const;
 
@@ -31,14 +31,20 @@ export default function Page() {
       <PageIntro
         eyebrow="Connexion"
         title="Accedez a l environnement TAGORA."
-        description="La partie applicative reste separee du site public. Cette page sert de point d entree clair vers l application, sans melanger la logique marketing et la logique metier."
+        description="Choisissez votre profil pour vous connecter directement au bon portail, sans avoir a connaitre les URLs internes."
         actions={
           <>
             <Link
-              href={marketingConnectionLinks.app}
+              href="/employe/login"
               className="inline-flex items-center justify-center rounded-full bg-white px-6 py-3.5 text-sm font-semibold text-slate-950 shadow-[0_20px_50px_rgba(255,255,255,0.16)] transition hover:bg-slate-100"
             >
-              Ouvrir l application
+              Je suis un employe
+            </Link>
+            <Link
+              href="/direction/login"
+              className="inline-flex items-center justify-center rounded-full bg-white px-6 py-3.5 text-sm font-semibold text-slate-950 shadow-[0_20px_50px_rgba(255,255,255,0.16)] transition hover:bg-slate-100"
+            >
+              Je suis la direction
             </Link>
             <Link
               href={marketingConnectionLinks.demoMailto}

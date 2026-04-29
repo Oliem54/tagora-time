@@ -510,7 +510,7 @@ export default function EmployeeProfilePageClient({
     }
 
     const confirmed = window.confirm(
-      "Supprimer cet employe ? Cette action est definitive."
+      "Desactiver cet employe ? Son historique sera conserve."
     );
 
     if (!confirmed) {
@@ -521,16 +521,45 @@ export default function EmployeeProfilePageClient({
     setMessage("");
     setMessageType(null);
 
-    const { error } = await supabase.from("chauffeurs").delete().eq("id", employeeId);
+    const { error } = await supabase
+      .from("chauffeurs")
+      .update({ actif: false })
+      .eq("id", employeeId);
 
     if (error) {
+      if (error.code === "23503") {
+        const fallback = await supabase
+          .from("chauffeurs")
+          .update({ actif: false })
+          .eq("id", employeeId);
+        if (!fallback.error) {
+          setMessage(
+            "Impossible de supprimer cet employe, car il possede deja un historique. Il a ete desactive a la place."
+          );
+          setMessageType("success");
+          setDeleting(false);
+          setForm((current) => ({ ...current, actif: false }));
+          setOriginalProfile((current) =>
+            current ? ({ ...current, actif: false } as EmployeProfile) : current
+          );
+          setIsEditing(false);
+          return;
+        }
+      }
       setMessage(`Erreur suppression: ${error.message}`);
       setMessageType("error");
       setDeleting(false);
       return;
     }
 
-    router.push("/direction/ressources/employes");
+    setMessage("Employe desactive. Son historique est conserve.");
+    setMessageType("success");
+    setDeleting(false);
+    setForm((current) => ({ ...current, actif: false }));
+    setOriginalProfile((current) =>
+      current ? ({ ...current, actif: false } as EmployeProfile) : current
+    );
+    setIsEditing(false);
   }
 
   const topActions = (
@@ -1559,7 +1588,7 @@ export default function EmployeeProfilePageClient({
                     onClick={() => void handleDelete()}
                     disabled={saving || deleting}
                   >
-                    {deleting ? "Suppression..." : "Supprimer"}
+                    {deleting ? "Desactivation..." : "Desactiver"}
                   </button>
                 </section>
               ) : null}
