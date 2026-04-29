@@ -8,6 +8,7 @@ import {
   FileStack,
   Files,
   Route,
+  Sparkles,
   TimerReset,
   Truck,
   Waypoints,
@@ -124,6 +125,16 @@ const MODULES: ModuleDefinition[] = [
     icon: FileStack,
     accent:
       "linear-gradient(135deg, rgba(14,165,233,0.18) 0%, rgba(59,130,246,0.08) 100%)",
+  },
+  {
+    href: "/ameliorations",
+    label: "Améliorations",
+    description: "Suggestions, demandes d'amélioration et suivis internes.",
+    permission: "ressources",
+    group: "gestion",
+    icon: Sparkles,
+    accent:
+      "linear-gradient(135deg, rgba(234,179,8,0.2) 0%, rgba(15,41,72,0.08) 100%)",
   },
 ];
 
