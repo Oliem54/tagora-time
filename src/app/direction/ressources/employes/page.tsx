@@ -227,6 +227,7 @@ export default function Page() {
                       <Link
                         href={`/direction/ressources/employes/${item.id}`}
                         className="tagora-dark-action"
+                        style={actionButtonStyle}
                       >
                         Modifier profil
                       </Link>
@@ -235,6 +236,7 @@ export default function Page() {
                         className="tagora-btn-danger"
                         onClick={() => void handleDelete(item.id)}
                         disabled={deletingId === item.id}
+                        style={actionButtonStyle}
                       >
                         {deletingId === item.id ? "Desactivation..." : "Desactiver"}
                       </button>
@@ -252,6 +254,14 @@ export default function Page() {
 
 const actionsRowStyle: React.CSSProperties = {
   display: "flex",
-  gap: 10,
-  flexWrap: "wrap",
+  flexDirection: "column",
+  gap: 8,
+  alignItems: "stretch",
+  minWidth: 184,
+};
+
+const actionButtonStyle: React.CSSProperties = {
+  width: "100%",
+  minHeight: 42,
+  justifyContent: "center",
 };
