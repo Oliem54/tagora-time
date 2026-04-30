@@ -203,10 +203,6 @@ export default function ImprovementsModulePage() {
     }
     if (!user) {
       router.replace("/");
-      return;
-    }
-    if (role && role !== "admin") {
-      router.replace(getHomePathForRole(role));
     }
   }, [loading, role, router, user]);
 
@@ -544,7 +540,9 @@ export default function ImprovementsModulePage() {
     }
   }
 
-  if (loading || !user || !role) {
+  const canManageImprovements = role === "admin";
+
+  if (loading || !user) {
     return (
       <main className="tagora-app-shell">
         <div className="tagora-app-content" style={{ maxWidth: 760 }}>
@@ -554,21 +552,6 @@ export default function ImprovementsModulePage() {
             showNavigation={false}
           />
           <AccessNotice description="Chargement en cours." />
-        </div>
-      </main>
-    );
-  }
-
-  if (role !== "admin") {
-    return (
-      <main className="tagora-app-shell">
-        <div className="tagora-app-content" style={{ maxWidth: 760 }}>
-          <HeaderTagora
-            title="Ameliorations"
-            subtitle="Redirection"
-            showNavigation={false}
-          />
-          <AccessNotice description="Redirection vers votre espace." />
         </div>
       </main>
     );
@@ -657,7 +640,7 @@ export default function ImprovementsModulePage() {
               </button>
 
               <Link
-                href={getHomePathForRole(role)}
+                href={role ? getHomePathForRole(role) : "/"}
                 className="tagora-dark-outline-action rounded-xl border px-5 py-3 text-sm font-medium transition"
               >
                 Retour
@@ -666,12 +649,13 @@ export default function ImprovementsModulePage() {
           </form>
         </div>
 
-        <section
-          style={{
-            marginTop: 32,
-            padding: 0,
-          }}
-        >
+        {canManageImprovements ? (
+          <section
+            style={{
+              marginTop: 32,
+              padding: 0,
+            }}
+          >
           <div
             style={{
               background: "#fff",
@@ -1344,7 +1328,8 @@ export default function ImprovementsModulePage() {
               )}
             </div>
           </div>
-        </section>
+          </section>
+        ) : null}
       </div>
     </main>
   );
