@@ -546,6 +546,7 @@ export default function DirectionEmployeeAccountsClient() {
   const [messageType, setMessageType] = useState<"success" | "error" | null>(null);
   const [savingAction, setSavingAction] = useState<AccountAccessAction | null>(null);
   const [securityAction, setSecurityAction] = useState<AccountSecurityAction | null>(null);
+  const [deletingRequestId, setDeletingRequestId] = useState<string | null>(null);
   const [permissionOptions, setPermissionOptions] = useState<
     Array<{ value: string; label: string }>
   >(fallbackPermissions);
@@ -782,6 +783,67 @@ export default function DirectionEmployeeAccountsClient() {
     }
   }
 
+  async function deleteRequest(request: AccountAccessRequestRecord) {
+    if (!accessToken) {
+      return;
+    }
+
+    if (
+      !window.confirm(
+        "Voulez-vous vraiment supprimer cette demande de compte ? Cette action est irreversible."
+      )
+    ) {
+      return;
+    }
+
+    setDeletingRequestId(request.id);
+    setMessage("");
+    setMessageType(null);
+
+    try {
+      const response = await fetch(`/api/account-requests/${request.id}`, {
+        method: "DELETE",
+        cache: "no-store",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "x-account-requests-client": "browser-authenticated",
+          "x-account-requests-page": "direction-demandes-comptes",
+        },
+      });
+
+      const payload = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        if (response.status === 403) {
+          setMessage("Seul un administrateur peut supprimer une demande.");
+          setMessageType("error");
+          return;
+        }
+        if (response.status === 404) {
+          setMessage("La demande de compte est introuvable.");
+          setMessageType("error");
+          await fetchRequests();
+          return;
+        }
+        setMessage(
+          buildApiErrorMessage(payload, "La suppression de la demande n a pas pu aboutir.")
+        );
+        setMessageType("error");
+        return;
+      }
+
+      setMessage("Demande de compte supprimee avec succes.");
+      setMessageType("success");
+      setRequests((current) => current.filter((item) => item.id !== request.id));
+      setEditingRequestId((current) => (current === request.id ? null : current));
+    } catch {
+      setMessage("La suppression de la demande n a pas pu aboutir.");
+      setMessageType("error");
+    } finally {
+      setDeletingRequestId(null);
+    }
+  }
+
   return (
     <main className="tagora-app-shell account-requests-page">
       <div className="tagora-app-content account-requests-premium-layout">
@@ -960,6 +1022,9 @@ export default function DirectionEmployeeAccountsClient() {
                           <AccountRequestRowActions
                             request={request}
                             onEdit={() => setEditingRequestId(request.id)}
+                            onDelete={() => void deleteRequest(request)}
+                            deleting={deletingRequestId === request.id}
+                            canDelete={canManageRoles}
                           />
                         </div>
                       </td>
