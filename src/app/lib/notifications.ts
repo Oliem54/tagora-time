@@ -6,6 +6,7 @@ import {
   type AccountRequestCompany,
 } from "@/app/lib/account-requests.shared";
 import { normalizePhoneNumber } from "@/app/lib/timeclock-api.shared";
+import { resolveResendFromEmail } from "@/app/lib/resend-email";
 
 type DirectionAlertClassification = "informative" | "direction_action_required";
 type DirectionAlertDetailValue =
@@ -506,7 +507,8 @@ export async function sendDirectionAlert(
   }
 
   const apiKey = process.env.RESEND_API_KEY;
-  const fromEmail = process.env.RESEND_FROM_EMAIL;
+  const fromEmailResolution = resolveResendFromEmail(process.env.RESEND_FROM_EMAIL);
+  const fromEmail = fromEmailResolution.fromEmail;
   const { validRecipients, invalidRecipients } =
     normalizeDirectionAlertRecipients(options?.recipients);
   const managementUrl = buildManagementUrl(payload.managementUrl);
@@ -523,6 +525,8 @@ export async function sendDirectionAlert(
       alertType: payload.alertType,
       hasApiKey: Boolean(apiKey),
       hasFromEmail: Boolean(fromEmail),
+      fromEmailReason: fromEmailResolution.reason,
+      fromEmailDiagnostics: fromEmailResolution.diagnostics,
       recipientsConfigured: validRecipients.length > 0,
     });
 
@@ -530,22 +534,6 @@ export async function sendDirectionAlert(
       ok: false,
       skipped: true,
       reason: "email_config_missing",
-      recipients: validRecipients,
-      invalidRecipients,
-      providerMessageId: null,
-    };
-  }
-
-  if (!isValidEmail(fromEmail)) {
-    console.error(DIRECTION_ALERT_LOG_PREFIX, "invalid_from_email", {
-      alertType: payload.alertType,
-      fromEmail,
-    });
-
-    return {
-      ok: false,
-      skipped: true,
-      reason: "invalid_from_email",
       recipients: validRecipients,
       invalidRecipients,
       providerMessageId: null,

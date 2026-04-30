@@ -8,6 +8,7 @@ import {
   renderPlainTextFallback,
   type EmailInfoRow,
 } from "@/app/lib/email/templates";
+import { resolveResendFromEmail } from "@/app/lib/resend-email";
 
 type MentionEntityType =
   | "livraison"
@@ -124,8 +125,18 @@ async function sendMentionEmail(options: {
   };
 }) {
   const apiKey = process.env.RESEND_API_KEY;
-  const fromEmail = process.env.RESEND_FROM_EMAIL ?? process.env.DIRECTION_ALERT_FROM_EMAIL;
+  const fromEmailResolution = resolveResendFromEmail(
+    process.env.RESEND_FROM_EMAIL ?? process.env.DIRECTION_ALERT_FROM_EMAIL
+  );
+  const fromEmail = fromEmailResolution.fromEmail;
   if (!apiKey || !fromEmail) {
+    console.error("[internal-mentions send] resend_config_invalid", {
+      operationId: options.operationId ?? null,
+      hasApiKey: Boolean(apiKey),
+      hasFromEmail: Boolean(fromEmail),
+      fromEmailReason: fromEmailResolution.reason,
+      fromEmailDiagnostics: fromEmailResolution.diagnostics,
+    });
     return {
       ok: false,
       reason: "resend_not_configured" as const,
