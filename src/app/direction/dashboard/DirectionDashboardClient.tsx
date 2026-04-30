@@ -144,6 +144,9 @@ export default function DirectionDashboardClient() {
   const { user, loading, hasPermission } = useCurrentAccess();
   const [archiveSearch, setArchiveSearch] = useState("");
   const [forceShowLoader, setForceShowLoader] = useState(false);
+  const [accessToken, setAccessToken] = useState<string | null>(null);
+  const [pendingAccountRequestsCount, setPendingAccountRequestsCount] = useState(0);
+  const [pendingImprovementsCount, setPendingImprovementsCount] = useState(0);
 
   const debugShowLoader = searchParams.get("showLoader") === "1";
 
@@ -168,6 +171,61 @@ export default function DirectionDashboardClient() {
     router.replace("/direction/login");
   }, [loading, user, router]);
 
+  useEffect(() => {
+    const init = async () => {
+      const { data } = await supabase.auth.getSession();
+      setAccessToken(data.session?.access_token ?? null);
+    };
+
+    void init();
+  }, []);
+
+  useEffect(() => {
+    if (!accessToken || !user) {
+      return;
+    }
+
+    const loadPendingBadges = async () => {
+      try {
+        const [accountsResponse, improvementsResponse] = await Promise.all([
+          fetch("/api/account-requests/pending-count", {
+            method: "GET",
+            headers: {
+              Authorization: `Bearer ${accessToken}`,
+            },
+          }),
+          fetch("/api/admin/ameliorations-pending-count", {
+            method: "GET",
+            headers: {
+              Authorization: `Bearer ${accessToken}`,
+            },
+          }),
+        ]);
+
+        if (accountsResponse.ok) {
+          const accountsPayload = (await accountsResponse.json()) as { count?: unknown };
+          const nextCount = Number(accountsPayload.count);
+          setPendingAccountRequestsCount(Number.isFinite(nextCount) ? Math.max(0, nextCount) : 0);
+        } else {
+          setPendingAccountRequestsCount(0);
+        }
+
+        if (improvementsResponse.ok) {
+          const improvementsPayload = (await improvementsResponse.json()) as { count?: unknown };
+          const nextCount = Number(improvementsPayload.count);
+          setPendingImprovementsCount(Number.isFinite(nextCount) ? Math.max(0, nextCount) : 0);
+        } else {
+          setPendingImprovementsCount(0);
+        }
+      } catch {
+        setPendingAccountRequestsCount(0);
+        setPendingImprovementsCount(0);
+      }
+    };
+
+    void loadPendingBadges();
+  }, [accessToken, user]);
+
   const visibleModules = useMemo(
     () => MODULES.filter((item) => (item.permission ? hasPermission(item.permission) : true)),
     [hasPermission]
@@ -180,6 +238,15 @@ export default function DirectionDashboardClient() {
         modules: visibleModules.filter((item) => item.group === group.id),
       })).filter((group) => group.modules.length > 0),
     [visibleModules]
+  );
+
+  const notificationCountByHref = useMemo(
+    () =>
+      new Map<string, number>([
+        ["/direction/demandes-comptes", pendingAccountRequestsCount],
+        ["/ameliorations", pendingImprovementsCount],
+      ]),
+    [pendingAccountRequestsCount, pendingImprovementsCount]
   );
 
   async function handleLogout() {
@@ -310,17 +377,51 @@ export default function DirectionDashboardClient() {
                           </div>
 
                           <div className="ui-stack-sm">
-                            <h3
+                            <div
                               style={{
-                                margin: 0,
-                                fontSize: 24,
-                                lineHeight: 1.08,
-                                letterSpacing: "-0.03em",
-                                color: "#102544",
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "space-between",
+                                gap: 10,
                               }}
                             >
-                              {item.label}
-                            </h3>
+                              <h3
+                                style={{
+                                  margin: 0,
+                                  fontSize: 24,
+                                  lineHeight: 1.08,
+                                  letterSpacing: "-0.03em",
+                                  color: "#102544",
+                                }}
+                              >
+                                {item.label}
+                              </h3>
+                              {(notificationCountByHref.get(item.href) ?? 0) > 0 ? (
+                                <span
+                                  aria-label={`${notificationCountByHref.get(item.href)} en attente`}
+                                  style={{
+                                    minWidth: 22,
+                                    height: 22,
+                                    padding: "0 7px",
+                                    borderRadius: 999,
+                                    display: "inline-flex",
+                                    alignItems: "center",
+                                    justifyContent: "center",
+                                    fontSize: 12,
+                                    fontWeight: 800,
+                                    color: "#ffffff",
+                                    background:
+                                      "linear-gradient(135deg, #ef4444 0%, #dc2626 100%)",
+                                    border: "1px solid rgba(127,29,29,0.22)",
+                                    boxShadow:
+                                      "0 6px 16px rgba(220,38,38,0.35), inset 0 1px 0 rgba(255,255,255,0.24)",
+                                    flexShrink: 0,
+                                  }}
+                                >
+                                  {notificationCountByHref.get(item.href)}
+                                </span>
+                              ) : null}
+                            </div>
                             <p
                               style={{
                                 margin: 0,

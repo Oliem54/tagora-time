@@ -10,8 +10,11 @@ export async function GET(req: NextRequest) {
   if (!user) {
     return NextResponse.json({ error: "Authentification requise." }, { status: 401 });
   }
-  if (role !== "admin") {
-    return NextResponse.json({ error: "Acces reserve aux administrateurs." }, { status: 403 });
+  if (role !== "admin" && role !== "direction") {
+    return NextResponse.json(
+      { error: "Acces reserve a la direction et aux administrateurs." },
+      { status: 403 }
+    );
   }
 
   const { count, hadError } = await countPendingAppImprovements();
