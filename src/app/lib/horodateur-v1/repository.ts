@@ -994,3 +994,152 @@ export async function attachShiftToException(
     throw error;
   }
 }
+
+/** Shifts whose work_date falls in [startWorkDate, endWorkDate] (inclusive), server-side filter. */
+export async function listShiftsInWorkDateRange(options: {
+  startWorkDate: string;
+  endWorkDate: string;
+  employeeId?: number;
+  companyContext?: HorodateurPhase1EmployeeProfile["primaryCompany"] | null;
+}) {
+  const supabase = createAdminSupabaseClient();
+  let query = supabase
+    .from("horodateur_shifts")
+    .select("*")
+    .gte("work_date", options.startWorkDate)
+    .lte("work_date", options.endWorkDate)
+    .order("work_date", { ascending: true });
+
+  if (
+    options.companyContext === "oliem_solutions" ||
+    options.companyContext === "titan_produits_industriels"
+  ) {
+    query = query.eq("company_context", options.companyContext);
+  }
+
+  if (typeof options.employeeId === "number" && options.employeeId > 0) {
+    query = query.eq("employee_id", options.employeeId);
+  }
+
+  const { data, error } = await query.returns<HorodateurPhase1ShiftRecord[]>();
+
+  if (error) {
+    throw error;
+  }
+
+  return data ?? [];
+}
+
+type HorodateurEventRowRaw = EventRow & {
+  livraison_id?: number | null;
+  dossier_id?: number | null;
+  sortie_id?: number | null;
+  metadata?: Record<string, unknown> | null;
+  company_context?: string | null;
+};
+
+/** Events in work_date range for the given employees (all event rows, any status). */
+export async function listHorodateurEventsInWorkDateRange(options: {
+  startWorkDate: string;
+  endWorkDate: string;
+  employeeIds: number[];
+}) {
+  if (!options.employeeIds.length) {
+    return [];
+  }
+
+  const supabase = createAdminSupabaseClient();
+  const { data, error } = await supabase
+    .from("horodateur_events")
+    .select("*")
+    .gte("work_date", options.startWorkDate)
+    .lte("work_date", options.endWorkDate)
+    .in("employee_id", options.employeeIds)
+    .order("occurred_at", { ascending: true })
+    .returns<HorodateurEventRowRaw[]>();
+
+  if (error && isMissingColumnError(error, "occurred_at")) {
+    const legacy = await supabase
+      .from("horodateur_events")
+      .select("*")
+      .gte("work_date", options.startWorkDate)
+      .lte("work_date", options.endWorkDate)
+      .in("employee_id", options.employeeIds)
+      .order("event_time", { ascending: true })
+      .returns<HorodateurEventRowRaw[]>();
+
+    if (legacy.error) {
+      throw legacy.error;
+    }
+
+    return (legacy.data ?? []).map((row) => normalizeEventRow(row));
+  }
+
+  if (error) {
+    throw error;
+  }
+
+  return (data ?? []).map((row) => normalizeEventRow(row));
+}
+
+export async function getEmployeesByIdsForRegistre(ids: number[]) {
+  if (!ids.length) {
+    return [];
+  }
+
+  const supabase = createAdminSupabaseClient();
+  let { data, error } = await supabase
+    .from("chauffeurs")
+    .select(CHAUFFEUR_PHASE1_SELECT_CANONICAL)
+    .in("id", ids)
+    .returns<ChauffeurProfileRow[]>();
+
+  if (error && isMissingColumnError(error, "telephone")) {
+    const fallback = await supabase
+      .from("chauffeurs")
+      .select(CHAUFFEUR_PHASE1_SELECT_LEGACY_PHONE)
+      .in("id", ids)
+      .returns<ChauffeurProfileRow[]>();
+    data = fallback.data ?? null;
+    error = fallback.error ?? null;
+  }
+
+  if (error) {
+    throw error;
+  }
+
+  return (data ?? []).map(mapProfile);
+}
+
+export async function listHorodateurExceptionsForEmployees(
+  employeeIds: number[]
+) {
+  if (!employeeIds.length) {
+    return [];
+  }
+
+  const supabase = createAdminSupabaseClient();
+  const { data, error } = await supabase
+    .from("horodateur_exceptions")
+    .select(`
+      *,
+      source_event:source_event_id (
+        id,
+        work_date
+      )
+    `)
+    .in("employee_id", employeeIds)
+    .returns<
+      Array<
+        HorodateurPhase1ExceptionRecord & {
+          source_event?: { work_date?: string } | Array<{ work_date?: string }>;
+        }
+      >
+    >();
+
+  if (error) {
+    throw error;
+  }
+
+  return data ?? [];
+}

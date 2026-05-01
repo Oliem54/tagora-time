@@ -137,6 +137,9 @@ type DirectionMutationPayload = {
   };
 };
 
+const HORODATEUR_NOTIFICATION_CONFIG_MISSING_MESSAGE =
+  "Configuration des notifications à compléter";
+
 const DIRECTION_EVENT_TYPES = [
   "punch_in",
   "break_start",
@@ -466,8 +469,8 @@ export default function DirectionHorodateurPage() {
   const [note, setNote] = useState("");
   const [liveFilter, setLiveFilter] = useState<LiveFilter>("tous");
   const [config, setConfig] = useState<AlertConfig>({
-    email_enabled: true,
-    sms_enabled: true,
+    email_enabled: false,
+    sms_enabled: false,
     reminder_delay_minutes: 60,
     direction_emails: [],
     direction_sms_numbers: [],
@@ -612,6 +615,7 @@ export default function DirectionHorodateurPage() {
               ok: configResponse.ok,
               payload: configPayload as {
                 error?: string;
+                code?: string;
                 details?: string;
                 hint?: string;
                 config?: AlertConfig;
@@ -690,16 +694,24 @@ export default function DirectionHorodateurPage() {
         }
 
         if (!result.config.ok) {
-          errors.push(
-            [
-              "GET /api/direction/horodateur/notifications/config",
-              result.config.payload.error ?? "erreur inconnue",
-              result.config.payload.details,
-              result.config.payload.hint,
-            ]
-              .filter(Boolean)
-              .join(" - ")
-          );
+          const cfgPayload = result.config.payload;
+          if (
+            cfgPayload.code === "horodateur_notification_config_unavailable" ||
+            cfgPayload.error === HORODATEUR_NOTIFICATION_CONFIG_MISSING_MESSAGE
+          ) {
+            errors.push(HORODATEUR_NOTIFICATION_CONFIG_MISSING_MESSAGE);
+          } else {
+            errors.push(
+              [
+                "GET /api/direction/horodateur/notifications/config",
+                cfgPayload.error ?? "erreur inconnue",
+                cfgPayload.details,
+                cfgPayload.hint,
+              ]
+                .filter(Boolean)
+                .join(" - ")
+            );
+          }
         }
 
         if (errors.length > 0) {
@@ -850,6 +862,12 @@ export default function DirectionHorodateurPage() {
         const result = await response.json();
 
         if (!response.ok) {
+          if (
+            typeof result.code === "string" &&
+            result.code === "horodateur_notification_config_unavailable"
+          ) {
+            throw new Error(HORODATEUR_NOTIFICATION_CONFIG_MISSING_MESSAGE);
+          }
           throw new Error(result.error ?? "Impossible d enregistrer la configuration.");
         }
 
@@ -1103,6 +1121,14 @@ export default function DirectionHorodateurPage() {
                 justifyContent: "flex-end",
               }}
             >
+              <Link
+                href="/direction/horodateur/registre"
+                className="tagora-dark-outline-action"
+                style={{ textDecoration: "none" }}
+              >
+                <span>Consulter le registre des heures</span>
+              </Link>
+
               <Link
                 href="/direction/dashboard"
                 className="tagora-dark-outline-action"

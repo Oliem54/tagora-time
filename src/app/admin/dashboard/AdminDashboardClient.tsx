@@ -5,6 +5,7 @@ import { motion } from "framer-motion";
 import {
   ArrowUpRight,
   BriefcaseBusiness,
+  ClipboardList,
   Clock3,
   FileStack,
   Files,
@@ -113,6 +114,16 @@ const MODULES: ModuleDefinition[] = [
     icon: Clock3,
     accent:
       "linear-gradient(135deg, rgba(34,197,94,0.18) 0%, rgba(15,41,72,0.08) 100%)",
+  },
+  {
+    id: "horodateur-registre",
+    href: "/direction/horodateur/registre",
+    label: "Registre des heures",
+    description: "Historique des heures et punchs par periode.",
+    group: "administration",
+    icon: ClipboardList,
+    accent:
+      "linear-gradient(135deg, rgba(56,189,248,0.2) 0%, rgba(15,41,72,0.08) 100%)",
   },
   {
     id: "paie",

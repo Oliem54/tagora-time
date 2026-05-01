@@ -11,6 +11,7 @@ import {
   Sparkles,
   TimerReset,
   Truck,
+  ClipboardList,
   Waypoints,
   type LucideIcon,
 } from "lucide-react";
@@ -85,6 +86,16 @@ const MODULES: ModuleDefinition[] = [
     icon: Route,
     accent:
       "linear-gradient(135deg, rgba(245,158,11,0.18) 0%, rgba(15,41,72,0.08) 100%)",
+  },
+  {
+    href: "/direction/horodateur/registre",
+    label: "Registre des heures",
+    description: "Historique des quarts, punchs et exceptions.",
+    permission: "terrain",
+    group: "operations",
+    icon: ClipboardList,
+    accent:
+      "linear-gradient(135deg, rgba(14,165,233,0.2) 0%, rgba(15,41,72,0.08) 100%)",
   },
   {
     href: "/direction/temps-titan",
