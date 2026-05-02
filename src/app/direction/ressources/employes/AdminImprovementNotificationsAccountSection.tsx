@@ -80,6 +80,7 @@ export default function AdminImprovementNotificationsAccountSection({
   }, [accessToken, invitedUserId, canLoad]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void load();
   }, [load]);
 

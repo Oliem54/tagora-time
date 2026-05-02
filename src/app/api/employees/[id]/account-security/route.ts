@@ -472,7 +472,6 @@ export async function POST(
     }
 
     let authUser = await resolveAuthUser(employee);
-    const targetRole = getUserRole(authUser);
 
     const email = normalizeEmail(authUser?.email ?? employee.courriel);
     const adminSupabase = createAdminSupabaseClient();

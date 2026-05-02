@@ -236,6 +236,7 @@ export default function DirectionDisponibilitesPage() {
 
   useEffect(() => {
     if (accessLoading || !user || blocked) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void fetchDisponibilites();
   }, [accessLoading, blocked, fetchDisponibilites, user]);
 

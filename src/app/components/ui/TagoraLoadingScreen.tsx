@@ -30,6 +30,7 @@ export default function TagoraLoadingScreen({
 
   useEffect(() => {
     if (isLoading) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setIsExiting(false);
       const timer = window.setTimeout(() => {
         setIsVisible(true);

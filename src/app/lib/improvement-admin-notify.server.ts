@@ -4,6 +4,7 @@ import { createAdminSupabaseClient } from "@/app/lib/supabase/admin";
 import { extractRoleFromUser } from "@/app/lib/account-requests.server";
 import { isValidEmail } from "@/app/lib/account-requests.shared";
 import { sendSmsToPhone } from "@/app/lib/notifications";
+import { resolveResendFromEmail } from "@/app/lib/resend-email";
 import {
   buildPublicUrl,
   renderBaseEmailLayout,
@@ -34,12 +35,15 @@ export type NewImprovementNotifyPayload = {
 
 async function sendResendImprovementEmail(to: string, subject: string, text: string, html: string) {
   const apiKey = process.env.RESEND_API_KEY;
-  const fromEmail = process.env.RESEND_FROM_EMAIL;
+  const fromEmailResolution = resolveResendFromEmail(process.env.RESEND_FROM_EMAIL);
+  const fromEmail = fromEmailResolution.fromEmail;
 
   if (!apiKey || !fromEmail) {
     console.error(LOG_PREFIX, "email_config_missing", {
       hasApiKey: Boolean(apiKey),
       hasFromEmail: Boolean(fromEmail),
+      fromEmailReason: fromEmailResolution.reason,
+      fromEmailDiagnostics: fromEmailResolution.diagnostics,
     });
     return;
   }

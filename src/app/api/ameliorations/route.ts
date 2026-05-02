@@ -107,8 +107,13 @@ export async function POST(req: NextRequest) {
     if (!user) {
       return NextResponse.json({ error: "Authentification requise." }, { status: 401 });
     }
-    if (role !== "admin") {
-      return NextResponse.json({ error: "Acces reserve aux admins." }, { status: 403 });
+    const canCreateImprovement =
+      role === "admin" || role === "direction" || role === "employe" || role == null;
+    if (!canCreateImprovement) {
+      return NextResponse.json(
+        { error: "Acces reserve aux utilisateurs authentifies." },
+        { status: 403 }
+      );
     }
 
     const body = (await req.json()) as {

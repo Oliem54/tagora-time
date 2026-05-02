@@ -9,11 +9,7 @@ export default function AuthenticatedImprovementsFab() {
   const { user, role, loading } = useCurrentAccess();
   const hiddenMarketingPaths = ["/", "/logiciel", "/etiquettes", "/contact", "/connexion"];
 
-  if (loading || !user || !role) {
-    return null;
-  }
-
-  if (role !== "admin") {
+  if (loading || !user) {
     return null;
   }
 
