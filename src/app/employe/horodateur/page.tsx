@@ -73,6 +73,7 @@ type HistoryPayload = {
     impact_minutes: number;
     status: string;
     details: string | null;
+    review_note?: string | null;
   }>;
 };
 
@@ -94,6 +95,20 @@ function formatMinutes(totalMinutes: number) {
   const hours = Math.floor(totalMinutes / 60);
   const minutes = totalMinutes % 60;
   return `${hours}h ${String(minutes).padStart(2, "0")}m`;
+}
+
+function exceptionStatusLabelFr(status: string) {
+  switch (status) {
+    case "en_attente":
+      return "En attente";
+    case "approuve":
+    case "modifie":
+      return "Approuvée";
+    case "refuse":
+      return "Refusée";
+    default:
+      return status;
+  }
 }
 
 function resolveOccurredAt(event: {
@@ -281,6 +296,11 @@ export default function EmployeHorodateurPage() {
   const [note, setNote] = useState("");
   const [snapshot, setSnapshot] = useState<EmployeeSnapshot | null>(null);
   const [history, setHistory] = useState<HistoryPayload | null>(null);
+  const [longLeaveBanner, setLongLeaveBanner] = useState<{
+    publicLabel: string;
+    startDate: string;
+    returnSummary: string;
+  } | null>(null);
 
   const currentStateLabel = useMemo(() => {
     const value =
@@ -330,6 +350,23 @@ export default function EmployeHorodateurPage() {
 
       if (!historyResponse.ok) {
         throw new Error(historyPayload.error ?? "Impossible de charger l historique.");
+      }
+
+      const ll = (snapshotPayload as { longLeave?: unknown }).longLeave;
+      if (
+        ll &&
+        typeof ll === "object" &&
+        ll !== null &&
+        "publicLabel" in ll &&
+        "returnSummary" in ll
+      ) {
+        setLongLeaveBanner({
+          publicLabel: String((ll as { publicLabel?: unknown }).publicLabel ?? ""),
+          startDate: String((ll as { startDate?: unknown }).startDate ?? ""),
+          returnSummary: String((ll as { returnSummary?: unknown }).returnSummary ?? ""),
+        });
+      } else {
+        setLongLeaveBanner(null);
       }
 
       setSnapshot(normalizeSnapshotPayload(snapshotPayload));
@@ -394,7 +431,7 @@ export default function EmployeHorodateurPage() {
     };
   }, [canUseTerrain, loadData, user]);
 
-  async function handlePunch(eventType: string) {
+  async function handlePunch(eventType: string, options?: { acknowledgeLongLeave?: boolean }) {
     const {
       data: { session },
     } = await supabase.auth.getSession();
@@ -417,10 +454,23 @@ export default function EmployeHorodateurPage() {
           eventType,
           note: note.trim() || null,
           companyContext: snapshot?.employee.primaryCompany ?? null,
+          acknowledgeLongLeavePunch: options?.acknowledgeLongLeave === true,
         }),
       });
 
       const payload = await response.json();
+
+      if (response.status === 409 && payload?.code === "LONG_LEAVE_CONFIRMATION_REQUIRED") {
+        const msg =
+          typeof payload.error === "string"
+            ? payload.error
+            : "Vous êtes en congé prolongé. Voulez-vous quand même pointer ?";
+        const ok = window.confirm(msg);
+        if (ok) {
+          await handlePunch(eventType, { acknowledgeLongLeave: true });
+        }
+        return;
+      }
 
       if (!response.ok) {
         throw new Error(payload.error ?? "Impossible d enregistrer ce pointage.");
@@ -463,6 +513,25 @@ export default function EmployeHorodateurPage() {
       <HeaderTagora title="Horodateur" subtitle="" />
 
       {message ? <AccessNotice title="Information" description={message} /> : null}
+
+      {longLeaveBanner ? (
+        <section className="tagora-panel" style={{ marginTop: 24, borderColor: "rgba(245,158,11,0.5)" }}>
+          <h2 className="section-title" style={{ marginBottom: 8 }}>
+            Congé prolongé
+          </h2>
+          <p style={{ margin: 0, lineHeight: 1.5, color: "#0f172a" }}>
+            Vous êtes actuellement marqué en congé prolongé ({longLeaveBanner.publicLabel}
+            {longLeaveBanner.startDate ? ` — depuis le ${longLeaveBanner.startDate}` : ""}
+            ). Contactez la direction avant de pointer.
+            <br />
+            Retour prévu :{" "}
+            {longLeaveBanner.returnSummary === "indéterminé"
+              ? "indéterminé"
+              : longLeaveBanner.returnSummary}
+            .
+          </p>
+        </section>
+      ) : null}
 
       <section className="tagora-panel" style={{ marginTop: 24 }}>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 16 }}>
@@ -539,16 +608,17 @@ export default function EmployeHorodateurPage() {
           <div style={{ display: "grid", gap: 12 }}>
             {snapshot.pendingExceptions.map((item) => (
               <div key={item.id} className="tagora-panel-muted">
-                <div className="tagora-label">{item.reason_label}</div>
+                <div className="tagora-label">Motif système · {item.reason_label}</div>
                 <div style={{ marginTop: 6, fontWeight: 700 }}>{item.exception_type}</div>
+                <div className="tagora-note" style={{ marginTop: 6 }}>
+                  Statut : {exceptionStatusLabelFr(item.status)}
+                </div>
                 <div className="tagora-note" style={{ marginTop: 6 }}>
                   Impact estime: {formatMinutes(item.impact_minutes)}
                 </div>
-                {item.details ? (
-                  <div className="tagora-note" style={{ marginTop: 4 }}>
-                    {item.details}
-                  </div>
-                ) : null}
+                <div className="tagora-note" style={{ marginTop: 4 }}>
+                  Note employé : {item.details?.trim() ? item.details : "Aucune note fournie."}
+                </div>
               </div>
             ))}
           </div>
@@ -584,6 +654,42 @@ export default function EmployeHorodateurPage() {
           </div>
         ) : (
           <p className="tagora-note">Aucun evenement aujourd hui.</p>
+        )}
+      </section>
+
+      <section className="tagora-panel" style={{ marginTop: 24 }}>
+        <h2 className="section-title" style={{ marginBottom: 12 }}>
+          Exceptions du jour
+        </h2>
+        {history?.exceptions.length ? (
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 640 }}>
+              <thead>
+                <tr style={{ background: "#f8fafc" }}>
+                  <th style={thStyle}>Statut</th>
+                  <th style={thStyle}>Motif système</th>
+                  <th style={thStyle}>Note employé</th>
+                  <th style={thStyle}>Décision</th>
+                </tr>
+              </thead>
+              <tbody>
+                {history.exceptions.map((ex) => (
+                  <tr key={ex.id}>
+                    <td style={tdStyle}>{exceptionStatusLabelFr(ex.status)}</td>
+                    <td style={tdStyle}>{ex.reason_label}</td>
+                    <td style={tdStyle}>
+                      {ex.details?.trim() ? ex.details : "—"}
+                    </td>
+                    <td style={tdStyle}>
+                      {ex.review_note?.trim() ? ex.review_note : "—"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <p className="tagora-note">Aucune exception pour cette journée.</p>
         )}
       </section>
     </main>

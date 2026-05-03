@@ -1,6 +1,10 @@
 import "server-only";
 
 import { createAdminSupabaseClient } from "@/app/lib/supabase/admin";
+import {
+  sanitizeWeeklyScheduleConfig,
+  type WeeklyScheduleConfig,
+} from "@/app/lib/weekly-schedule";
 import type {
   HorodateurCanonicalEventType,
   HorodateurDirectionAlertConfigRecord,
@@ -23,6 +27,8 @@ type ChauffeurProfileRow = {
   phone_number?: string | null;
   actif: boolean | null;
   primary_company: HorodateurPhase1EmployeeProfile["primaryCompany"];
+  can_work_for_oliem_solutions?: boolean | null;
+  can_work_for_titan_produits_industriels?: boolean | null;
   schedule_start: string | null;
   schedule_end: string | null;
   scheduled_work_days: string[] | null;
@@ -40,6 +46,7 @@ type ChauffeurProfileRow = {
   alert_email_enabled?: boolean | null;
   alert_sms_enabled?: boolean | null;
   is_direction_alert_recipient?: boolean | null;
+  weekly_schedule_config?: unknown | null;
 };
 
 type EventRow = Record<string, unknown>;
@@ -52,6 +59,8 @@ const CHAUFFEUR_PHASE1_SELECT_CANONICAL = `
   telephone,
   actif,
   primary_company,
+  can_work_for_oliem_solutions,
+  can_work_for_titan_produits_industriels,
   schedule_start,
   schedule_end,
   scheduled_work_days,
@@ -65,7 +74,8 @@ const CHAUFFEUR_PHASE1_SELECT_CANONICAL = `
   sms_alert_quart_debut,
   alert_email_enabled,
   alert_sms_enabled,
-  is_direction_alert_recipient
+  is_direction_alert_recipient,
+  weekly_schedule_config
 `;
 
 const CHAUFFEUR_PHASE1_SELECT_LEGACY_PHONE = `
@@ -76,6 +86,8 @@ const CHAUFFEUR_PHASE1_SELECT_LEGACY_PHONE = `
   phone_number,
   actif,
   primary_company,
+  can_work_for_oliem_solutions,
+  can_work_for_titan_produits_industriels,
   schedule_start,
   schedule_end,
   scheduled_work_days,
@@ -89,7 +101,8 @@ const CHAUFFEUR_PHASE1_SELECT_LEGACY_PHONE = `
   sms_alert_quart_debut,
   alert_email_enabled,
   alert_sms_enabled,
-  is_direction_alert_recipient
+  is_direction_alert_recipient,
+  weekly_schedule_config
 `;
 
 function readErrorText(error: unknown) {
@@ -175,6 +188,8 @@ function normalizeEventRow(
 }
 
 function mapProfile(row: ChauffeurProfileRow): HorodateurPhase1EmployeeProfile {
+  const weeklyScheduleConfig: WeeklyScheduleConfig | null =
+    sanitizeWeeklyScheduleConfig(row.weekly_schedule_config);
   return {
     employeeId: row.id,
     authUserId: row.auth_user_id,
@@ -183,6 +198,9 @@ function mapProfile(row: ChauffeurProfileRow): HorodateurPhase1EmployeeProfile {
     phoneNumber: row.telephone ?? row.phone_number ?? null,
     active: row.actif !== false,
     primaryCompany: row.primary_company,
+    canWorkForOliemSolutions: row.can_work_for_oliem_solutions !== false,
+    canWorkForTitanProduitsIndustriels:
+      row.can_work_for_titan_produits_industriels === true,
     scheduleStart: row.schedule_start,
     scheduleEnd: row.schedule_end,
     scheduledWorkDays: row.scheduled_work_days,
@@ -200,6 +218,7 @@ function mapProfile(row: ChauffeurProfileRow): HorodateurPhase1EmployeeProfile {
     alertEmailEnabled: row.alert_email_enabled !== false,
     alertSmsEnabled: row.alert_sms_enabled !== false,
     isDirectionAlertRecipient: row.is_direction_alert_recipient === true,
+    weeklyScheduleConfig,
   };
 }
 
@@ -435,6 +454,7 @@ export async function insertEvent(input: HorodateurPhase1InsertEventInput) {
     actor_user_id: input.actorUserId,
     actor_role: input.actorRole,
     source_kind: input.sourceKind,
+    company_context: input.companyContext ?? null,
     notes: input.note ?? null,
     related_event_id: input.relatedEventId ?? null,
     is_manual_correction: input.isManualCorrection ?? false,
@@ -445,6 +465,23 @@ export async function insertEvent(input: HorodateurPhase1InsertEventInput) {
     work_date: input.workDate,
     week_start_date: input.weekStartDate,
   };
+
+  if (input.punchSource !== undefined) payload.punch_source = input.punchSource;
+  if (input.punchZoneKey !== undefined) payload.punch_zone_key = input.punchZoneKey;
+  if (input.punchZoneId !== undefined) payload.punch_zone_id = input.punchZoneId;
+  if (input.zoneValidated !== undefined && input.zoneValidated !== null) {
+    payload.zone_validated = input.zoneValidated;
+  }
+  if (input.gpsLatitude !== undefined && input.gpsLatitude !== null) {
+    payload.gps_latitude = input.gpsLatitude;
+  }
+  if (input.gpsLongitude !== undefined && input.gpsLongitude !== null) {
+    payload.gps_longitude = input.gpsLongitude;
+  }
+  if (input.workCompanyKey !== undefined) payload.work_company_key = input.workCompanyKey;
+  if (input.employerCompanyKey !== undefined) {
+    payload.employer_company_key = input.employerCompanyKey;
+  }
 
   for (let attempt = 0; attempt < 7; attempt += 1) {
     const { data, error } = await supabase
@@ -1142,4 +1179,92 @@ export async function listHorodateurExceptionsForEmployees(
   }
 
   return data ?? [];
+}
+
+export type HorodateurExceptionActionTokenRow = {
+  id: string;
+  exception_id: string;
+  action: "approve" | "reject";
+  token_hash: string;
+  expires_at: string;
+  used_at: string | null;
+  used_by_email: string | null;
+  created_at: string;
+};
+
+/** Supprime les jetons non utilisés pour une exception avant d’en émettre de nouveaux (nouvelle alerte). */
+export async function deleteUnusedQuickActionTokensForException(exceptionId: string) {
+  const supabase = createAdminSupabaseClient();
+  const { error } = await supabase
+    .from("horodateur_exception_action_tokens")
+    .delete()
+    .eq("exception_id", exceptionId)
+    .is("used_at", null);
+
+  if (error) {
+    throw error;
+  }
+}
+
+export async function insertQuickActionToken(input: {
+  exceptionId: string;
+  action: "approve" | "reject";
+  tokenHash: string;
+  expiresAt: string;
+}) {
+  const supabase = createAdminSupabaseClient();
+  const { data, error } = await supabase
+    .from("horodateur_exception_action_tokens")
+    .insert({
+      exception_id: input.exceptionId,
+      action: input.action,
+      token_hash: input.tokenHash,
+      expires_at: input.expiresAt,
+    })
+    .select("id")
+    .single<{ id: string }>();
+
+  if (error) {
+    throw error;
+  }
+
+  return data;
+}
+
+export async function findQuickActionTokenByHash(tokenHash: string) {
+  const supabase = createAdminSupabaseClient();
+  const { data, error } = await supabase
+    .from("horodateur_exception_action_tokens")
+    .select("*")
+    .eq("token_hash", tokenHash)
+    .maybeSingle<HorodateurExceptionActionTokenRow>();
+
+  if (error) {
+    throw error;
+  }
+
+  return data ?? null;
+}
+
+export async function markQuickActionTokenUsed(
+  tokenId: string,
+  usedByEmail?: string | null
+) {
+  const supabase = createAdminSupabaseClient();
+  const { data, error } = await supabase
+    .from("horodateur_exception_action_tokens")
+    .update({
+      used_at: new Date().toISOString(),
+      used_by_email: usedByEmail?.trim() || null,
+    })
+    .eq("id", tokenId)
+    .is("used_at", null)
+    .select("id")
+    .maybeSingle<{ id: string }>();
+
+  if (error) {
+    throw error;
+  }
+
+  return data ?? null;
 }

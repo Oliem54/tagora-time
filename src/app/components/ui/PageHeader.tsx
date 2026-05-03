@@ -1,5 +1,6 @@
 import Image from "next/image";
 import type { ReactNode } from "react";
+import type { AppRole } from "@/app/lib/auth/roles";
 import { cn } from "./cn";
 import UserIdentityBadge from "./UserIdentityBadge";
 
@@ -10,6 +11,7 @@ type PageHeaderProps = {
   actions?: ReactNode;
   userIdentity?: string | null;
   userRoleLabel?: string | null;
+  userRole?: AppRole | null;
   logoSrc?: string;
   logoAlt?: string;
   className?: string;
@@ -23,6 +25,7 @@ export default function PageHeader({
   actions,
   userIdentity,
   userRoleLabel,
+  userRole,
   logoSrc = "/logo.png",
   logoAlt = "Logo TAGORA",
   className,
@@ -65,7 +68,7 @@ export default function PageHeader({
       {actions || userIdentity ? (
         <div className="ui-page-header-actions">
           {userIdentity ? (
-            <UserIdentityBadge value={userIdentity} roleLabel={userRoleLabel} />
+            <UserIdentityBadge value={userIdentity} roleLabel={userRoleLabel} role={userRole} />
           ) : null}
           {actions}
         </div>

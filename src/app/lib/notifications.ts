@@ -5,8 +5,22 @@ import {
   isValidEmail,
   type AccountRequestCompany,
 } from "@/app/lib/account-requests.shared";
+import type { HorodateurPhase1EmployeeProfile } from "@/app/lib/horodateur-v1/types";
+import {
+  getHorodateurQuickActionActorUserId,
+  issueHorodateurExceptionQuickActionPair,
+  resolvePublicAppBaseUrl,
+} from "@/app/lib/horodateur-exception-quick-action.server";
 import { normalizePhoneNumber } from "@/app/lib/timeclock-api.shared";
+import {
+  createMissingCommunicationTemplateAlert,
+  trySendCommunicationDirectionEmail,
+  trySendCommunicationDirectionSms,
+  trySendCommunicationEmployeeEmail,
+  trySendCommunicationEmployeeSms,
+} from "@/app/lib/communication-templates.server";
 import { resolveResendFromEmail } from "@/app/lib/resend-email";
+import { createAdminSupabaseClient } from "@/app/lib/supabase/admin";
 
 type DirectionAlertClassification = "informative" | "direction_action_required";
 type DirectionAlertDetailValue =
@@ -33,6 +47,9 @@ type DirectionAlertPayload = {
   details?: Record<string, DirectionAlertDetailValue>;
   managementUrl?: string | null;
   managementLabel?: string | null;
+  /** URLs absolues (jeton inclus) — exception horodateur uniquement. */
+  quickApproveUrl?: string | null;
+  quickRejectUrl?: string | null;
 };
 
 type DirectionAlertResult = {
@@ -95,6 +112,9 @@ type HorodateurExceptionNotificationPayload = {
   exceptionId: string;
   employeeName: string | null;
   employeeEmail: string | null;
+  employeePhone?: string | null;
+  employeeNote?: string | null;
+  company?: AccountRequestCompany | string | null;
   exceptionType: string;
   reasonLabel: string;
   occurredAt: string | null;
@@ -214,7 +234,7 @@ function splitFullName(fullName: string) {
   };
 }
 
-function normalizeDirectionAlertRecipients(rawValues?: string[]) {
+export function normalizeDirectionAlertRecipients(rawValues?: string[]) {
   const recipients =
     rawValues && rawValues.length > 0
       ? rawValues.map((item) => item.trim().toLowerCase()).filter(Boolean)
@@ -245,7 +265,7 @@ function normalizeDirectionAlertRecipients(rawValues?: string[]) {
   };
 }
 
-function normalizeDirectionSmsRecipients(rawValues?: string[]) {
+export function normalizeDirectionSmsRecipients(rawValues?: string[]) {
   const recipients =
     rawValues && rawValues.length > 0
       ? rawValues
@@ -267,7 +287,7 @@ function buildManagementUrl(pathOrUrl: string | null | undefined) {
     return pathOrUrl;
   }
 
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "");
+  const baseUrl = resolvePublicAppBaseUrl();
 
   if (!baseUrl) {
     return null;
@@ -278,7 +298,7 @@ function buildManagementUrl(pathOrUrl: string | null | undefined) {
 }
 
 function getTagoraTransactionalLogoUrl() {
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "");
+  const baseUrl = resolvePublicAppBaseUrl();
   return baseUrl ? `${baseUrl}/logo.png` : null;
 }
 
@@ -314,6 +334,21 @@ function buildDirectionAlertText(payload: DirectionAlertPayload) {
     lines.push("");
     lines.push(`${payload.managementLabel ?? "Lien de gestion"} :`);
     lines.push(payload.managementUrl);
+  }
+
+  if (payload.quickApproveUrl && payload.quickRejectUrl) {
+    lines.push("");
+    lines.push("Actions rapides (24 h) — si les boutons HTML ne s’affichent pas :");
+    lines.push(`Approuver : ${payload.quickApproveUrl}`);
+    lines.push(`Refuser : ${payload.quickRejectUrl}`);
+  } else if (payload.alertType === "horodateur_exception") {
+    lines.push("");
+    lines.push(
+      "Les liens sécurisés Approuver / Refuser n’ont pas pu être inclus dans ce message."
+    );
+    lines.push(
+      "Vérifiez NEXT_PUBLIC_APP_URL (ou APP_PUBLIC_BASE_URL / déploiement Vercel), la table horodateur_exception_action_tokens, et les journaux [horodateur-exception-quick-action-links-missing]."
+    );
   }
 
   lines.push("");
@@ -365,9 +400,76 @@ function buildDirectionAlertHtml(payload: DirectionAlertPayload) {
     .join("");
 
   const managementUrl = payload.managementUrl;
-  const managementLabel = escapeHtml(payload.managementLabel ?? "Ouvrir la page de gestion");
-  const ctaRows = managementUrl
-    ? `
+  const managementLabel = escapeHtml(
+    payload.managementLabel ?? "Ouvrir l’horodateur direction"
+  );
+  const approveU = payload.quickApproveUrl;
+  const rejectU = payload.quickRejectUrl;
+
+  const quickLinksMissingBanner =
+    payload.alertType === "horodateur_exception" && (!approveU || !rejectU)
+      ? `
+            <tr>
+              <td style="padding:8px 28px 8px 28px;">
+                <div style="border:1px solid #f59e0b;background-color:#fffbeb;border-radius:10px;padding:16px 18px;">
+                  <p style="margin:0 0 10px 0;font-family:Arial,Helvetica,sans-serif;font-size:14px;font-weight:700;color:#92400e;">Liens Approuver / Refuser non disponibles</p>
+                  <p style="margin:0;font-family:Arial,Helvetica,sans-serif;font-size:13px;line-height:1.6;color:#78350f;">Les jetons d’action rapide n’ont pas pu être générés ou enregistrés. Consultez les journaux serveur marqués <strong>[horodateur-exception-quick-action-links-missing]</strong> (URL publique, Supabase, table <code style="font-size:12px;">horodateur_exception_action_tokens</code>). Vous pouvez toujours traiter l’exception depuis l’horodateur direction ci-dessous.</p>
+                </div>
+              </td>
+            </tr>`
+      : "";
+
+  const quickActionsBlock =
+    approveU && rejectU
+      ? `
+            <tr>
+              <td style="padding:16px 28px 4px 28px;">
+                <p style="margin:0 0 8px 0;font-family:Arial,Helvetica,sans-serif;font-size:14px;font-weight:700;color:#0f172a;">Actions rapides</p>
+                <p style="margin:0 0 14px 0;font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:1.5;color:#64748b;">Liens sécurisés à usage unique — expirent après 24 h.</p>
+                <table role="presentation" cellspacing="0" cellpadding="0" border="0" style="border-collapse:collapse;">
+                  <tr>
+                    <td style="padding:0 0 10px 0;">
+                      <table role="presentation" cellspacing="0" cellpadding="0" border="0" style="border-collapse:collapse;">
+                        <tr>
+                          <td bgcolor="#15803d" style="background-color:#15803d;border-radius:8px;">
+                            <a href="${escapeHtml(approveU)}" target="_blank" rel="noopener" style="display:inline-block;padding:12px 22px;font-family:Arial,Helvetica,sans-serif;font-size:14px;font-weight:700;line-height:1.2;color:#ffffff;text-decoration:none;border-radius:8px;">Approuver l’exception</a>
+                          </td>
+                        </tr>
+                      </table>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td style="padding:0 0 10px 0;">
+                      <table role="presentation" cellspacing="0" cellpadding="0" border="0" style="border-collapse:collapse;">
+                        <tr>
+                          <td bgcolor="#b91c1c" style="background-color:#b91c1c;border-radius:8px;">
+                            <a href="${escapeHtml(rejectU)}" target="_blank" rel="noopener" style="display:inline-block;padding:12px 22px;font-family:Arial,Helvetica,sans-serif;font-size:14px;font-weight:700;line-height:1.2;color:#ffffff;text-decoration:none;border-radius:8px;">Refuser l’exception</a>
+                          </td>
+                        </tr>
+                      </table>
+                    </td>
+                  </tr>
+                </table>
+                <p style="margin:16px 0 8px 0;font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:1.5;color:#475569;font-weight:700;">Si les boutons ne fonctionnent pas, copiez-collez ces liens :</p>
+                <p style="margin:0 0 6px 0;font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:1.5;color:#334155;font-weight:700;">Approuver</p>
+                <div style="font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:1.55;word-break:break-all;overflow-wrap:anywhere;color:#0f172a;background-color:#f8fafc;border:1px solid #cbd5e1;border-radius:8px;padding:12px 14px;margin:0 0 12px 0;">${escapeHtml(approveU)}</div>
+                <p style="margin:0 0 6px 0;font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:1.5;color:#334155;font-weight:700;">Refuser</p>
+                <div style="font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:1.55;word-break:break-all;overflow-wrap:anywhere;color:#0f172a;background-color:#f8fafc;border:1px solid #cbd5e1;border-radius:8px;padding:12px 14px;margin:0 0 12px 0;">${escapeHtml(rejectU)}</div>
+                ${
+                  managementUrl
+                    ? `<p style="margin:0 0 6px 0;font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:1.5;color:#334155;font-weight:700;">Ouvrir l’horodateur direction</p>
+                <div style="font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:1.55;word-break:break-all;overflow-wrap:anywhere;color:#0f172a;background-color:#f8fafc;border:1px solid #cbd5e1;border-radius:8px;padding:12px 14px;margin:0;">${escapeHtml(managementUrl)}</div>`
+                    : ""
+                }
+              </td>
+            </tr>`
+      : "";
+
+  const ctaRows =
+    quickLinksMissingBanner +
+    quickActionsBlock +
+    (managementUrl
+      ? `
             <tr>
               <td style="padding:20px 28px 8px 28px;">
                 <table role="presentation" cellspacing="0" cellpadding="0" border="0" style="border-collapse:collapse;">
@@ -385,7 +487,7 @@ function buildDirectionAlertHtml(payload: DirectionAlertPayload) {
                 <div style="font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:1.55;word-break:break-all;overflow-wrap:anywhere;color:#0f172a;background-color:#f8fafc;border:1px solid #cbd5e1;border-radius:8px;padding:12px 14px;">${escapeHtml(managementUrl)}</div>
               </td>
             </tr>`
-    : "";
+      : "");
 
   const logoCell = logoUrl
     ? `<td valign="top" width="132" style="padding:0 20px 0 0;">
@@ -847,6 +949,221 @@ export async function sendSmsToPhone(payload: {
   }
 }
 
+function buildHorodateurExceptionDirectionSmsBody(options: {
+  isReminder: boolean;
+  employeeName: string | null | undefined;
+  noteShort: string | null;
+  quickPair: { approveUrl: string; rejectUrl: string } | null;
+  openUrl: string | null;
+}) {
+  const head = options.isReminder ? "TAGORA Time (rappel)" : "TAGORA Time";
+  const name = options.employeeName?.trim() || "employé";
+  const parts: string[] = [`${head} : exception horodateur de ${name}.`];
+  if (options.noteShort) {
+    parts.push(`Note : ${options.noteShort}`);
+  }
+  if (options.quickPair?.approveUrl) {
+    parts.push(`Approuver : ${options.quickPair.approveUrl}`);
+  }
+  if (options.quickPair?.rejectUrl) {
+    parts.push(`Refuser : ${options.quickPair.rejectUrl}`);
+  }
+  if (options.openUrl && /^https?:\/\//i.test(options.openUrl)) {
+    parts.push(`Horodateur : ${options.openUrl}`);
+  }
+  return parts.join(" ");
+}
+
+function truncateHorodateurSmsNote(text: string, max: number) {
+  const t = text.replace(/\s+/g, " ").trim();
+  if (t.length <= max) return t;
+  return `${t.slice(0, Math.max(0, max - 1))}…`;
+}
+
+export async function notifyEmployeeHorodateurExceptionDecision(options: {
+  employee: HorodateurPhase1EmployeeProfile;
+  outcome: "approved" | "rejected";
+  exceptionId: string;
+}): Promise<{ emailStatus: string; smsStatus: string }> {
+  const { employee, outcome, exceptionId } = options;
+  const logPrefix = "[horodateur-exception-employee-notify]";
+  const baseUrl = resolvePublicAppBaseUrl();
+  const linkLine = baseUrl ? `${baseUrl}/employe/horodateur` : "/employe/horodateur";
+  const { firstName } = splitFullName(employee.fullName ?? "");
+
+  let admin: ReturnType<typeof createAdminSupabaseClient> | null = null;
+  try {
+    admin = createAdminSupabaseClient();
+  } catch {
+    admin = null;
+  }
+
+  const emailKey =
+    outcome === "approved"
+      ? "horodateur_exception_approved_employee_email"
+      : "horodateur_exception_rejected_employee_email";
+  const smsKey =
+    outcome === "approved"
+      ? "horodateur_exception_approved_employee_sms"
+      : "horodateur_exception_rejected_employee_sms";
+
+  const templateVars: Record<string, string | undefined> = {
+    employee_name: employee.fullName ?? firstName,
+    employee_email: employee.email ?? "",
+    employee_phone: employee.phoneNumber ?? "",
+    action_url: linkLine,
+    app_url: baseUrl ?? "",
+    decision_note: "",
+  };
+
+  const emailTry = await trySendCommunicationEmployeeEmail({
+    supabase: admin,
+    templateKey: emailKey,
+    audience: "employee",
+    variables: templateVars,
+    toEmail: employee.email,
+  });
+
+  let emailStatus = "skipped";
+  const email = employee.email?.trim().toLowerCase() ?? "";
+
+  if (emailTry.usedTemplate) {
+    if (!email || !isValidEmail(email)) {
+      emailStatus = "no_valid_email";
+    } else if (emailTry.skipped) {
+      emailStatus = "skipped";
+    } else if (emailTry.ok) {
+      emailStatus = "sent";
+    } else {
+      emailStatus = "error";
+    }
+  } else {
+    if (admin) {
+      await createMissingCommunicationTemplateAlert(admin, emailKey, "email", "employee");
+    }
+
+    const subject =
+      outcome === "approved"
+        ? "Votre exception horodateur a été approuvée"
+        : "Votre exception horodateur a été refusée";
+
+    const textBody =
+      outcome === "approved"
+        ? `Bonjour ${firstName},\n\nVotre demande d'exception horodateur a été approuvée.\n\nVeuillez consulter votre horodateur dans TAGORA Time.\n\n${linkLine}`
+        : `Bonjour ${firstName},\n\nVotre demande d'exception horodateur a été refusée.\n\nVeuillez consulter le détail dans TAGORA Time.\n\n${linkLine}`;
+
+    const htmlBody = `<p>Bonjour ${escapeHtml(firstName)},</p><p>${
+      outcome === "approved"
+        ? "Votre demande d’exception horodateur a été <strong>approuvée</strong>."
+        : "Votre demande d’exception horodateur a été <strong>refusée</strong>."
+    }</p><p>Veuillez consulter votre horodateur dans TAGORA Time.</p><p><a href="${escapeHtml(linkLine)}">${escapeHtml(linkLine)}</a></p>`;
+
+    if (email && isValidEmail(email)) {
+      const apiKey = process.env.RESEND_API_KEY;
+      const fromEmailResolution = resolveResendFromEmail(process.env.RESEND_FROM_EMAIL);
+      const fromEmail = fromEmailResolution.fromEmail;
+      if (apiKey && fromEmail) {
+        try {
+          const response = await fetch("https://api.resend.com/emails", {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${apiKey}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              from: fromEmail,
+              to: [email],
+              subject,
+              text: textBody,
+              html: `<!DOCTYPE html><html lang="fr"><body style="font-family:Arial,sans-serif;font-size:15px;color:#0f172a;">${htmlBody}</body></html>`,
+            }),
+          });
+          if (!response.ok) {
+            const raw = await response.text();
+            throw new Error(`Resend ${response.status}: ${raw}`);
+          }
+          emailStatus = "sent";
+        } catch (error) {
+          emailStatus = "error";
+          console.error(logPrefix, {
+            exceptionId,
+            employeeId: employee.employeeId,
+            outcome,
+            email,
+            emailStatus,
+            message: error instanceof Error ? error.message : String(error),
+          });
+        }
+      } else {
+        emailStatus = "email_config_missing";
+        console.error(logPrefix, {
+          exceptionId,
+          employeeId: employee.employeeId,
+          outcome,
+          email,
+          emailStatus,
+        });
+      }
+    } else {
+      emailStatus = "no_valid_email";
+    }
+  }
+
+  const smsTry = await trySendCommunicationEmployeeSms({
+    supabase: admin,
+    templateKey: smsKey,
+    audience: "employee",
+    variables: templateVars,
+    phone: employee.phoneNumber,
+  });
+
+  let smsStatus = "skipped";
+  if (smsTry.usedTemplate) {
+    if (smsTry.sent) smsStatus = "sent";
+    else if (smsTry.skipped) smsStatus = "skipped";
+    else smsStatus = "error";
+  } else {
+    if (admin) {
+      await createMissingCommunicationTemplateAlert(admin, smsKey, "sms", "employee");
+    }
+    const horodateurUrl = baseUrl ? `${baseUrl}/employe/horodateur` : "";
+    const smsBody =
+      outcome === "approved"
+        ? `TAGORA Time : votre exception horodateur a été approuvée. Consultez votre horodateur.${horodateurUrl ? ` ${horodateurUrl}` : ""}`
+        : `TAGORA Time : votre exception horodateur a été refusée. Consultez votre horodateur.${horodateurUrl ? ` ${horodateurUrl}` : ""}`;
+
+    try {
+      const smsResult = await sendSmsToPhone({
+        phone: employee.phoneNumber,
+        body: smsBody,
+      });
+      if (smsResult.sent) smsStatus = "sent";
+      else if (smsResult.skipped) smsStatus = smsResult.reason ?? "skipped";
+      else smsStatus = smsResult.reason ?? "error";
+    } catch (error) {
+      smsStatus = "error";
+      console.error(logPrefix, {
+        exceptionId,
+        employeeId: employee.employeeId,
+        outcome,
+        smsStatus,
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  console.info(logPrefix, {
+    exceptionId,
+    employeeId: employee.employeeId,
+    outcome,
+    email: email || null,
+    emailStatus,
+    smsStatus,
+  });
+
+  return { emailStatus, smsStatus };
+}
+
 export async function notifyDirectionOfHorodateurException(
   payload: HorodateurExceptionNotificationPayload & {
     emailEnabled?: boolean;
@@ -863,49 +1180,133 @@ export async function notifyDirectionOfHorodateurException(
     ? "TAGORA Time — Rappel : exception horodateur à traiter"
     : "TAGORA Time — Exception horodateur à traiter";
 
-  const emailResult = await sendDirectionAlert({
-    alertType: "horodateur_exception",
-    classification: "direction_action_required",
-    subject: emailSubject,
-    summary:
-      payload.isReminder
-        ? "Une exception horodateur est toujours en attente d’approbation et requiert un suivi de la direction."
-        : "Une exception horodateur est en attente d’approbation et requiert une intervention rapide de la direction.",
-    requesterLabel: "Employé",
-    requesterName: payload.employeeName,
-    requesterEmail: payload.employeeEmail,
-    requestedAt: payload.requestedAt,
-    requestId: payload.exceptionId,
-    managementUrl,
-    managementLabel: "Ouvrir l’horodateur direction",
-    details: {
-      Employé: payload.employeeName,
-      Courriel: payload.employeeEmail,
-      "Type d’exception": payload.exceptionType,
-      Motif: payload.reasonLabel,
-      "Heure de l’événement": formattedOccurredAt,
-      "Heure de création": formattedRequestedAt,
-      "Identifiant de l’exception": payload.exceptionId,
-      "Type d’envoi": payload.isReminder ? "Rappel" : "Notification initiale",
+  let quickPair: { approveUrl: string; rejectUrl: string } | null = null;
+  let quickPairIssueMessage: string | null = null;
+  try {
+    quickPair = await issueHorodateurExceptionQuickActionPair(payload.exceptionId);
+  } catch (error) {
+    quickPairIssueMessage = error instanceof Error ? error.message : String(error);
+    console.error("[horodateur-exception-quick-action]", "issue_failed", {
+      exceptionId: payload.exceptionId,
+      message: quickPairIssueMessage,
+    });
+  }
+
+  const employeeNote =
+    payload.employeeNote && payload.employeeNote.trim()
+      ? payload.employeeNote.trim()
+      : null;
+
+  const phoneRaw = payload.employeePhone?.trim();
+  const phoneDisplay = phoneRaw && phoneRaw.length > 0 ? phoneRaw : "-";
+
+  const companyLabel =
+    payload.company && typeof payload.company === "string" && payload.company !== "all"
+      ? getCompanyLabel(payload.company as AccountRequestCompany)
+      : "-";
+
+  const directionLink = buildManagementUrl(managementUrl) ?? managementUrl;
+  const resolvedBaseUrl = resolvePublicAppBaseUrl();
+  const rawNextPublic = process.env.NEXT_PUBLIC_APP_URL?.trim() || null;
+  const actionUrl =
+    directionLink && /^https?:\/\//i.test(directionLink)
+      ? directionLink
+      : resolvedBaseUrl
+        ? `${resolvedBaseUrl}${managementUrl.startsWith("/") ? managementUrl : `/${managementUrl}`}`
+        : managementUrl;
+
+  if (!quickPair) {
+    console.error("[horodateur-exception-quick-action-links-missing]", {
+      exceptionId: payload.exceptionId,
+      appUrl: resolvedBaseUrl,
+      rawNextPublicAppUrl: rawNextPublic,
+      hasActorUuid: Boolean(getHorodateurQuickActionActorUserId()),
+      tokenError: quickPairIssueMessage,
+      message: !resolvedBaseUrl
+        ? "Aucune URL publique résolue (NEXT_PUBLIC_APP_URL / APP_PUBLIC_BASE_URL / VERCEL_URL) — impossible de construire les liens Approuver / Refuser."
+        : quickPairIssueMessage ??
+          "issueHorodateurExceptionQuickActionPair returned null (voir tokenError).",
+    });
+  }
+
+  /**
+   * Toujours utiliser le HTML transactionnel riche (boutons Approuver / Refuser).
+   * Le module Communications (texte seul) masquait ces actions dans le courriel.
+   */
+  const emailResult = await sendDirectionAlert(
+    {
+      alertType: "horodateur_exception",
+      classification: "direction_action_required",
+      subject: emailSubject,
+      summary:
+        payload.isReminder
+          ? "Une exception horodateur est toujours en attente d’approbation et requiert un suivi de la direction."
+          : "Une exception horodateur est en attente d’approbation et requiert une intervention rapide de la direction.",
+      requesterLabel: "Employé",
+      requesterName: payload.employeeName,
+      requesterEmail: payload.employeeEmail,
+      requesterPhone: phoneDisplay === "-" ? null : phoneDisplay,
+      company: payload.company ?? null,
+      requestedAt: payload.requestedAt,
+      requestId: payload.exceptionId,
+      managementUrl,
+      managementLabel: "Ouvrir l’horodateur direction",
+      quickApproveUrl: quickPair?.approveUrl ?? null,
+      quickRejectUrl: quickPair?.rejectUrl ?? null,
+      details: {
+        Employé: payload.employeeName,
+        Courriel: payload.employeeEmail ?? "-",
+        Téléphone: phoneDisplay,
+        Compagnie: companyLabel,
+        "Type d’exception": payload.exceptionType,
+        "Motif système": payload.reasonLabel,
+        "Note employé": employeeNote ?? "Aucune note fournie.",
+        "Heure de l’événement": formattedOccurredAt,
+        "Heure de création (demande)": formattedRequestedAt,
+        "Identifiant exception": payload.exceptionId,
+        "Type d’envoi": payload.isReminder ? "Rappel" : "Notification initiale",
+      },
     },
-  }, {
-    enabled: payload.emailEnabled,
-    recipients: payload.recipientEmails,
+    {
+      enabled: payload.emailEnabled,
+      recipients: payload.recipientEmails,
+    }
+  );
+
+  const noteForSms = employeeNote
+    ? truncateHorodateurSmsNote(employeeNote, 80)
+    : null;
+
+  const smsOpenUrl =
+    actionUrl && /^https?:\/\//i.test(actionUrl) ? actionUrl : null;
+
+  if (
+    resolvedBaseUrl &&
+    (resolvedBaseUrl.includes("localhost") || resolvedBaseUrl.includes("127.0.0.1"))
+  ) {
+    console.warn("[horodateur-exception-sms-localhost]", {
+      exceptionId: payload.exceptionId,
+      resolvedAppUrl: resolvedBaseUrl,
+      message:
+        "L’URL publique pointe vers localhost — les liens du SMS ne fonctionneront pas sur un téléphone externe (localhost = l’appareil lui-même). Pour tester sur cellulaire : tunnel public HTTPS (ex. cloudflared), puis NEXT_PUBLIC_APP_URL=https://.... ; redémarrer ; créer une nouvelle exception.",
+    });
+  }
+
+  const smsBody = buildHorodateurExceptionDirectionSmsBody({
+    isReminder: Boolean(payload.isReminder),
+    employeeName: payload.employeeName ?? payload.employeeEmail,
+    noteShort: noteForSms,
+    quickPair,
+    openUrl: smsOpenUrl,
   });
 
-  const smsResult = await sendDirectionSmsAlert({
-    body: [
-      payload.isReminder ? "Rappel horodateur TAGORA" : "Alerte horodateur TAGORA",
-      `Employe: ${payload.employeeName ?? payload.employeeEmail ?? "-"}`,
-      `Type: ${payload.exceptionType}`,
-      `Motif: ${payload.reasonLabel}`,
-      `Quand: ${formattedOccurredAt}`,
-      `Lien: ${buildManagementUrl(managementUrl) ?? managementUrl}`,
-    ].join(" | "),
-  }, {
-    enabled: payload.smsEnabled,
-    recipients: payload.recipientSmsNumbers,
-  });
+  const smsResult = await sendDirectionSmsAlert(
+    { body: smsBody },
+    {
+      enabled: payload.smsEnabled,
+      recipients: payload.recipientSmsNumbers,
+    }
+  );
 
   return {
     email: emailResult,

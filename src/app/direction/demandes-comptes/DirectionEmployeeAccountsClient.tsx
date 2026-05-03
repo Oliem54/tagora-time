@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ArrowLeft,
   CircleAlert,
@@ -27,6 +27,8 @@ import {
   type AccountRequestCompany,
 } from "@/app/lib/account-requests.shared";
 import { supabase } from "@/app/lib/supabase/client";
+import TagoraStatCard from "@/app/components/TagoraStatCard";
+import type { TagoraStatTone } from "@/app/components/tagora-stat-tone";
 import AccountRequestRowActions from "./AccountRequestRowActions";
 import EmployeeLinkStatusBadge from "./EmployeeLinkStatusBadge";
 
@@ -178,26 +180,14 @@ function SummaryItem({ label, value }: { label: string; value: string }) {
   );
 }
 
-function StatCard({
-  label,
-  value,
-  tone,
-  icon,
-}: {
-  label: string;
-  value: number;
-  tone: "pending" | "invited" | "active" | "refused" | "error";
-  icon: ReactNode;
-}) {
-  return (
-    <div className={`account-requests-premium-stat account-requests-stat-${tone}`}>
-      <div className="account-requests-premium-stat-icon">{icon}</div>
-      <div className="account-requests-premium-stat-copy">
-        <div className="account-requests-premium-stat-label">{label}</div>
-        <div className="account-requests-premium-stat-value">{value}</div>
-      </div>
-    </div>
-  );
+function accountStatTone(
+  tone: "pending" | "invited" | "active" | "refused" | "error"
+): TagoraStatTone {
+  if (tone === "pending") return "orange";
+  if (tone === "invited") return "blue";
+  if (tone === "active") return "green";
+  if (tone === "refused") return "red";
+  return "orange";
 }
 
 function AccountEditDrawer({
@@ -876,36 +866,36 @@ export default function DirectionEmployeeAccountsClient() {
           </div>
         </section>
 
-        <div className="account-requests-stats">
-          <StatCard
-            label="En attente"
+        <div className="tagora-stat-grid tagora-stat-grid--five" style={{ marginBottom: 10 }}>
+          <TagoraStatCard
+            title="En attente"
             value={counts.pending}
-            tone="pending"
-            icon={<Clock3 size={20} strokeWidth={1.9} />}
+            tone={accountStatTone("pending")}
+            icon={<Clock3 strokeWidth={1.9} aria-hidden />}
           />
-          <StatCard
-            label="Invites"
+          <TagoraStatCard
+            title="Invités"
             value={counts.invited}
-            tone="invited"
-            icon={<Mail size={20} strokeWidth={1.9} />}
+            tone={accountStatTone("invited")}
+            icon={<Mail strokeWidth={1.9} aria-hidden />}
           />
-          <StatCard
-            label="Actifs"
+          <TagoraStatCard
+            title="Actifs"
             value={counts.active}
-            tone="active"
-            icon={<UserCheck size={20} strokeWidth={1.9} />}
+            tone={accountStatTone("active")}
+            icon={<UserCheck strokeWidth={1.9} aria-hidden />}
           />
-          <StatCard
-            label="Refuses"
+          <TagoraStatCard
+            title="Refusés"
             value={counts.refused}
-            tone="refused"
-            icon={<OctagonX size={20} strokeWidth={1.9} />}
+            tone={accountStatTone("refused")}
+            icon={<OctagonX strokeWidth={1.9} aria-hidden />}
           />
-          <StatCard
-            label="Erreurs"
+          <TagoraStatCard
+            title="Erreurs"
             value={counts.error}
-            tone="error"
-            icon={<CircleAlert size={20} strokeWidth={1.9} />}
+            tone={accountStatTone("error")}
+            icon={<CircleAlert strokeWidth={1.9} aria-hidden />}
           />
         </div>
 

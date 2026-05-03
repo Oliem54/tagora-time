@@ -20,18 +20,28 @@ import {
   getUserRole,
 } from "@/app/lib/auth/roles";
 import { hasPasswordChangeRequired } from "@/app/lib/auth/passwords";
+import { getMandatoryMfaGate, postMfaAuditEvent } from "@/app/lib/auth/mfa.client";
+import { isAuthMfaPath } from "@/app/lib/auth/mfa.shared";
 import TagoraLoadingScreen from "@/app/components/ui/TagoraLoadingScreen";
+
+type CrossAreaReadRule = {
+  pathPrefix: string;
+  roles: AppRole[];
+};
 
 type AuthGateProps = {
   areaRole: AppRole;
   children: ReactNode;
   publicPaths?: string[];
+  /** Accès lecture pour d’autres rôles (ex. employés sur une route sous /direction). */
+  crossAreaReadPaths?: CrossAreaReadRule[];
 };
 
 export default function AuthGate({
   areaRole,
   children,
   publicPaths = [],
+  crossAreaReadPaths = [],
 }: AuthGateProps) {
   const pathname = usePathname();
   const router = useRouter();
@@ -41,6 +51,15 @@ export default function AuthGate({
   const isPublicPath = useMemo(
     () => publicPaths.includes(pathname),
     [pathname, publicPaths]
+  );
+
+  const crossAreaReadMatch = useMemo(
+    () =>
+      crossAreaReadPaths.find(
+        (rule) =>
+          pathname === rule.pathPrefix || pathname.startsWith(`${rule.pathPrefix}/`)
+      ),
+    [pathname, crossAreaReadPaths]
   );
   useEffect(() => {
     let cancelled = false;
@@ -102,9 +121,54 @@ export default function AuthGate({
               ? role === "admin"
               : role === areaRole || (areaRole === "direction" && role === "admin");
 
-          if (!roleMatchesArea) {
+          const crossReadOk =
+            Boolean(crossAreaReadMatch) &&
+            Boolean(role && crossAreaReadMatch?.roles.includes(role));
+
+          if (!roleMatchesArea && !crossReadOk) {
             router.replace(getHomePathForRole(role));
             return;
+          }
+
+          const needsDirMfaGate =
+            !crossReadOk && (role === "direction" || role === "admin");
+
+          if (needsDirMfaGate && !isAuthMfaPath(pathname)) {
+            const gate = await getMandatoryMfaGate(role);
+            if (gate.kind === "setup") {
+              const {
+                data: { session },
+              } = await supabase.auth.getSession();
+              const portalPath =
+                pathname.startsWith("/admin/") || pathname.startsWith("/direction/");
+              if (
+                portalPath &&
+                typeof window !== "undefined" &&
+                !sessionStorage.getItem("tagora_mfa_gate_audit")
+              ) {
+                sessionStorage.setItem("tagora_mfa_gate_audit", "1");
+                void postMfaAuditEvent("mfa_access_blocked", session?.access_token ?? null);
+              }
+              router.replace("/auth/mfa/setup?required=1");
+              return;
+            }
+            if (gate.kind === "verify") {
+              const {
+                data: { session },
+              } = await supabase.auth.getSession();
+              const portalPath =
+                pathname.startsWith("/admin/") || pathname.startsWith("/direction/");
+              if (
+                portalPath &&
+                typeof window !== "undefined" &&
+                !sessionStorage.getItem("tagora_mfa_gate_audit")
+              ) {
+                sessionStorage.setItem("tagora_mfa_gate_audit", "1");
+                void postMfaAuditEvent("mfa_access_blocked", session?.access_token ?? null);
+              }
+              router.replace("/auth/mfa/verify");
+              return;
+            }
           }
 
           if (isPublicPath) {
@@ -166,7 +230,7 @@ export default function AuthGate({
       cancelled = true;
       subscription.unsubscribe();
     };
-  }, [areaRole, isPublicPath, pathname, router]);
+  }, [areaRole, crossAreaReadMatch, isPublicPath, pathname, router]);
 
   if (status === "allowed") {
     return <>{children}</>;

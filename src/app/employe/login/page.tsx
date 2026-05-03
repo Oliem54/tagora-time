@@ -148,6 +148,7 @@ export default function LoginPage() {
 
       setMessage("Connexion reussie.");
       setMessageType("success");
+      sessionStorage.setItem("tagora_auth_portal", "employe");
       router.replace(
         hasPasswordChangeRequired(userData.user)
           ? getPasswordChangePathForRole(role)

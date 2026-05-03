@@ -12,7 +12,8 @@ import PageHeader from "@/app/components/ui/PageHeader";
 import PrimaryButton from "@/app/components/ui/PrimaryButton";
 import SecondaryButton from "@/app/components/ui/SecondaryButton";
 import SectionCard from "@/app/components/ui/SectionCard";
-import { getHomePathForRole, getUserRole } from "@/app/lib/auth/roles";
+import { getUserRole } from "@/app/lib/auth/roles";
+import { resolvePostLoginNavigationPath } from "@/app/lib/auth/mfa.client";
 import {
   buildAppSessionCookieWriteDebug,
   writeBrowserSessionCookie,
@@ -176,7 +177,9 @@ export default function DirectionLoginPage() {
 
       setMessage("Connexion reussie.");
       setMessageType("success");
-      router.replace(getHomePathForRole(role));
+      sessionStorage.setItem("tagora_auth_portal", "direction");
+      const nextPath = await resolvePostLoginNavigationPath(role);
+      router.replace(nextPath);
     } finally {
       setSubmitting(false);
     }

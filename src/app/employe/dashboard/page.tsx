@@ -3,7 +3,7 @@
 import Image from "next/image";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowUpRight, Clock3, FileStack, ShieldCheck, Truck, Waypoints } from "lucide-react";
+import { ArrowUpRight, CalendarDays, Clock3, FileStack, ShieldCheck, Truck, Waypoints } from "lucide-react";
 import { useCurrentAccess } from "@/app/hooks/useCurrentAccess";
 import { supabase } from "../../lib/supabase/client";
 import AuthenticatedPageHeader from "@/app/components/ui/AuthenticatedPageHeader";
@@ -276,6 +276,8 @@ export default function EmployeDashboardPage() {
       <div className="tagora-app-content ui-stack-lg">
         <AuthenticatedPageHeader
           title="Tableau de bord employe"
+          subtitle=""
+          showNavigation={false}
           actions={
             <div
               style={{
@@ -299,7 +301,7 @@ export default function EmployeDashboardPage() {
               title="Horodateur"
               description="Pointage."
               icon={<Clock3 size={24} strokeWidth={2.1} />}
-              accent="linear-gradient(135deg, rgba(251,146,60,0.18) 0%, rgba(15,41,72,0.08) 100%)"
+              tone="orange"
               action={
                 <PrimaryButton onClick={() => router.push("/employe/horodateur")} style={{ width: "100%", justifyContent: "space-between" }}>
                   <span>Acceder</span>
@@ -311,7 +313,7 @@ export default function EmployeDashboardPage() {
               title="Terrain"
               description="Sorties."
               icon={<Waypoints size={24} strokeWidth={2.1} />}
-              accent="linear-gradient(135deg, rgba(16,185,129,0.18) 0%, rgba(15,41,72,0.08) 100%)"
+              tone="cyan"
               action={
                 <SecondaryButton onClick={() => router.push("/employe/terrain")} style={{ width: "100%", justifyContent: "space-between" }}>
                   <span>Acceder</span>
@@ -324,7 +326,7 @@ export default function EmployeDashboardPage() {
                 title="Livraison & ramassage"
                 description="Suivi a venir."
                 icon={<Truck size={24} strokeWidth={2.1} />}
-                accent="linear-gradient(135deg, rgba(59,130,246,0.16) 0%, rgba(15,41,72,0.08) 100%)"
+                tone="blue"
                 action={
                   <SecondaryButton onClick={() => router.push("/employe/livraisons")} style={{ width: "100%", justifyContent: "space-between" }}>
                     <span>Acceder</span>
@@ -338,7 +340,7 @@ export default function EmployeDashboardPage() {
                 title="Nouvelle intervention"
                 description="Creation."
                 icon={<FileStack size={24} strokeWidth={2.1} />}
-                accent="linear-gradient(135deg, rgba(99,102,241,0.18) 0%, rgba(15,41,72,0.08) 100%)"
+                tone="purple"
                 action={
                   <PrimaryButton onClick={() => router.push("/employe/dossiers/new")} style={{ width: "100%", justifyContent: "space-between" }}>
                     <span>Nouvelle intervention</span>
@@ -351,10 +353,40 @@ export default function EmployeDashboardPage() {
               title="Profil"
               description="Securite."
               icon={<ShieldCheck size={24} strokeWidth={2.1} />}
-              accent="linear-gradient(135deg, rgba(14,116,144,0.18) 0%, rgba(15,41,72,0.08) 100%)"
+              tone="slate"
               action={
                 <SecondaryButton onClick={() => router.push("/employe/profil")} style={{ width: "100%", justifyContent: "space-between" }}>
                   <span>Gerer</span>
+                  <ArrowUpRight size={16} />
+                </SecondaryButton>
+              }
+            />
+            <ModuleTile
+              title="Mon horaire"
+              description="Voir mes quarts, mon équipe et mes demandes."
+              icon={<CalendarDays size={24} strokeWidth={2.1} />}
+              tone="cyan"
+              action={
+                <SecondaryButton
+                  onClick={() => router.push("/employe/effectifs")}
+                  style={{ width: "100%", justifyContent: "space-between" }}
+                >
+                  <span>Ouvrir</span>
+                  <ArrowUpRight size={16} />
+                </SecondaryButton>
+              }
+            />
+            <ModuleTile
+              title="Demandes d’horaire et exceptions"
+              description="Soumettre une demande de congé, vacances, retard ou exception d’horaire."
+              icon={<Clock3 size={24} strokeWidth={2.1} />}
+              tone="blue"
+              action={
+                <SecondaryButton
+                  onClick={() => router.push("/employe/effectifs/demandes")}
+                  style={{ width: "100%", justifyContent: "space-between" }}
+                >
+                  <span>Acceder</span>
                   <ArrowUpRight size={16} />
                 </SecondaryButton>
               }

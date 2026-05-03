@@ -471,7 +471,7 @@ export default function Page() {
   if (blocked) {
     return (
       <main className="page-container">
-        <HeaderTagora title="Livraison & ramassage" subtitle="Acces requis" />
+        <HeaderTagora title="Livraison & ramassage" subtitle="" showNavigation={false} />
         <AccessNotice description="Acces requis." />
       </main>
     );
@@ -519,7 +519,31 @@ export default function Page() {
 
   return (
     <main className="page-container">
-      <HeaderTagora title="Livraison & ramassage" subtitle="Planification" />
+      <HeaderTagora
+        title="Livraison & ramassage"
+        subtitle=""
+        showNavigation={false}
+        actions={
+          <div
+            style={{
+              display: "flex",
+              gap: "var(--ui-space-3)",
+              flexWrap: "wrap",
+              alignItems: "center",
+            }}
+          >
+            <Link href="/direction/ramassages" className="tagora-dark-outline-action" style={{ textDecoration: "none" }}>
+              Ramassages
+            </Link>
+            <Link href="/direction/livraisons/archives" className="tagora-dark-outline-action" style={{ textDecoration: "none" }}>
+              Archives
+            </Link>
+            <Link href="/direction/dashboard" className="tagora-dark-action" style={{ textDecoration: "none" }}>
+              Tableau de bord direction
+            </Link>
+          </div>
+        }
+      />
       {showDisponibilitesPlanning ? (
         <section
           className="tagora-panel"

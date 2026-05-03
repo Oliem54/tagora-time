@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { dualWriteLivraisonDeliveryIncident } from "@/app/lib/app-alerts-dual-write.server";
 import { getAuthenticatedRequestUser } from "@/app/lib/account-requests.server";
 import { hasUserPermission } from "@/app/lib/auth/permissions";
 import { createAdminSupabaseClient } from "@/app/lib/supabase/admin";
@@ -207,6 +208,18 @@ export async function POST(
 
         if (serviceCaseError) {
           throw serviceCaseError;
+        }
+
+        try {
+          await dualWriteLivraisonDeliveryIncident({
+            supabase,
+            incidentId: String(incidentRow.id),
+            livraisonId: livraison.id,
+            category: incidentCategory,
+            description: incidentDescription || null,
+          });
+        } catch (e) {
+          console.warn("[app_alerts] livrer dual-write", e);
         }
       }
 

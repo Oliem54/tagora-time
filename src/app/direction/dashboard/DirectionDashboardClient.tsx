@@ -5,6 +5,8 @@ import { motion } from "framer-motion";
 import {
   ArrowUpRight,
   BriefcaseBusiness,
+  CalendarDays,
+  Clock3,
   FileStack,
   Files,
   Route,
@@ -12,6 +14,7 @@ import {
   TimerReset,
   Truck,
   ClipboardList,
+  Bell,
   Waypoints,
   type LucideIcon,
 } from "lucide-react";
@@ -23,9 +26,12 @@ import SectionCard from "@/app/components/ui/SectionCard";
 import AppCard from "@/app/components/ui/AppCard";
 import SecondaryButton from "@/app/components/ui/SecondaryButton";
 import TagoraLoadingScreen from "@/app/components/ui/TagoraLoadingScreen";
+import TagoraCountBadge from "@/app/components/TagoraCountBadge";
+import TagoraIconBadge from "@/app/components/TagoraIconBadge";
+import type { TagoraStatTone } from "@/app/components/tagora-stat-tone";
 
 type ModulePermission = "documents" | "livraisons" | "terrain" | "ressources" | null;
-type ModuleGroupId = "operations" | "gestion";
+type ModuleGroupId = "supervision" | "operations" | "gestion";
 
 type ModuleDefinition = {
   href: string;
@@ -34,7 +40,7 @@ type ModuleDefinition = {
   permission: ModulePermission;
   group: ModuleGroupId;
   icon: LucideIcon;
-  accent: string;
+  tone: TagoraStatTone;
 };
 
 type ModuleGroup = {
@@ -44,6 +50,11 @@ type ModuleGroup = {
 };
 
 const MODULE_GROUPS: ModuleGroup[] = [
+  {
+    id: "supervision",
+    title: "Supervision",
+    subtitle: "Suivi centralise des alertes et files d'attente.",
+  },
   {
     id: "operations",
     title: "Operations terrain",
@@ -56,7 +67,19 @@ const MODULE_GROUPS: ModuleGroup[] = [
   },
 ];
 
+const EFFECTIFS_MODULE_HREF = "/direction/effectifs";
+const ALERT_CENTER_HREF = "/direction/alertes";
+
 const MODULES: ModuleDefinition[] = [
+  {
+    href: ALERT_CENTER_HREF,
+    label: "Centre d'alertes",
+    description: "Alertes direction, SMS, courriels et suivis a traiter.",
+    permission: null,
+    group: "supervision",
+    icon: Bell,
+    tone: "orange",
+  },
   {
     href: "/direction/livraisons",
     label: "Livraison & ramassage",
@@ -64,28 +87,16 @@ const MODULES: ModuleDefinition[] = [
     permission: "livraisons",
     group: "operations",
     icon: Truck,
-    accent:
-      "linear-gradient(135deg, rgba(59,130,246,0.16) 0%, rgba(15,41,72,0.08) 100%)",
+    tone: "blue",
   },
   {
-    href: "/direction/terrain",
-    label: "Terrain",
-    description: "Carte en direct et equipes.",
-    permission: "terrain",
+    href: "/direction/horodateur",
+    label: "Horodateur",
+    description: "Suivi live des punchs, pauses et exceptions.",
+    permission: null,
     group: "operations",
-    icon: Waypoints,
-    accent:
-      "linear-gradient(135deg, rgba(16,185,129,0.18) 0%, rgba(15,41,72,0.08) 100%)",
-  },
-  {
-    href: "/direction/sorties-terrain",
-    label: "Sorties terrain",
-    description: "Kilomètres et temps.",
-    permission: "terrain",
-    group: "operations",
-    icon: Route,
-    accent:
-      "linear-gradient(135deg, rgba(245,158,11,0.18) 0%, rgba(15,41,72,0.08) 100%)",
+    icon: Clock3,
+    tone: "green",
   },
   {
     href: "/direction/horodateur/registre",
@@ -94,8 +105,34 @@ const MODULES: ModuleDefinition[] = [
     permission: "terrain",
     group: "operations",
     icon: ClipboardList,
-    accent:
-      "linear-gradient(135deg, rgba(14,165,233,0.2) 0%, rgba(15,41,72,0.08) 100%)",
+    tone: "cyan",
+  },
+  {
+    href: EFFECTIFS_MODULE_HREF,
+    label: "Calendrier des effectifs",
+    description: "Couverture des équipes par département.",
+    permission: null,
+    group: "operations",
+    icon: CalendarDays,
+    tone: "cyan",
+  },
+  {
+    href: "/direction/terrain",
+    label: "Terrain",
+    description: "Carte en direct et equipes.",
+    permission: "terrain",
+    group: "operations",
+    icon: Waypoints,
+    tone: "cyan",
+  },
+  {
+    href: "/direction/sorties-terrain",
+    label: "Sorties terrain",
+    description: "Kilomètres et temps.",
+    permission: "terrain",
+    group: "operations",
+    icon: Route,
+    tone: "orange",
   },
   {
     href: "/direction/temps-titan",
@@ -104,8 +141,7 @@ const MODULES: ModuleDefinition[] = [
     permission: "terrain",
     group: "operations",
     icon: TimerReset,
-    accent:
-      "linear-gradient(135deg, rgba(99,102,241,0.18) 0%, rgba(15,41,72,0.08) 100%)",
+    tone: "purple",
   },
   {
     href: "/direction/documents",
@@ -114,8 +150,7 @@ const MODULES: ModuleDefinition[] = [
     permission: "documents",
     group: "gestion",
     icon: Files,
-    accent:
-      "linear-gradient(135deg, rgba(14,165,233,0.18) 0%, rgba(15,41,72,0.08) 100%)",
+    tone: "blue",
   },
   {
     href: "/direction/ressources",
@@ -124,8 +159,7 @@ const MODULES: ModuleDefinition[] = [
     permission: "ressources",
     group: "gestion",
     icon: BriefcaseBusiness,
-    accent:
-      "linear-gradient(135deg, rgba(236,72,153,0.16) 0%, rgba(15,41,72,0.08) 100%)",
+    tone: "purple",
   },
   {
     href: "/direction/demandes-comptes",
@@ -134,8 +168,7 @@ const MODULES: ModuleDefinition[] = [
     permission: "ressources",
     group: "gestion",
     icon: FileStack,
-    accent:
-      "linear-gradient(135deg, rgba(14,165,233,0.18) 0%, rgba(59,130,246,0.08) 100%)",
+    tone: "purple",
   },
   {
     href: "/ameliorations",
@@ -144,20 +177,36 @@ const MODULES: ModuleDefinition[] = [
     permission: "ressources",
     group: "gestion",
     icon: Sparkles,
-    accent:
-      "linear-gradient(135deg, rgba(234,179,8,0.2) 0%, rgba(15,41,72,0.08) 100%)",
+    tone: "yellow",
   },
 ];
+
+function dedupeModulesByHref(items: ModuleDefinition[]): ModuleDefinition[] {
+  const seen = new Set<string>();
+  const out: ModuleDefinition[] = [];
+  for (const m of items) {
+    if (seen.has(m.href)) continue;
+    seen.add(m.href);
+    out.push(m);
+  }
+  return out;
+}
 
 export default function DirectionDashboardClient() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { user, loading, hasPermission } = useCurrentAccess();
+  const { user, loading, hasPermission, role, permissions } = useCurrentAccess();
   const [archiveSearch, setArchiveSearch] = useState("");
   const [forceShowLoader, setForceShowLoader] = useState(false);
   const [accessToken, setAccessToken] = useState<string | null>(null);
   const [pendingAccountRequestsCount, setPendingAccountRequestsCount] = useState(0);
   const [pendingImprovementsCount, setPendingImprovementsCount] = useState(0);
+  const [pendingEffectifsScheduleCount, setPendingEffectifsScheduleCount] = useState(0);
+  const [alertCenterMeta, setAlertCenterMeta] = useState({
+    badgeTotal: 0,
+    failed: 0,
+    critical: 0,
+  });
 
   const debugShowLoader = searchParams.get("showLoader") === "1";
 
@@ -192,55 +241,119 @@ export default function DirectionDashboardClient() {
   }, []);
 
   useEffect(() => {
-    if (!accessToken || !user) {
+    if (!accessToken || !user || loading) {
       return;
     }
 
     const loadPendingBadges = async () => {
-      try {
-        const [accountsResponse, improvementsResponse] = await Promise.all([
-          fetch("/api/account-requests/pending-count", {
-            method: "GET",
-            headers: {
-              Authorization: `Bearer ${accessToken}`,
-            },
-          }),
-          fetch("/api/admin/ameliorations-pending-count", {
-            method: "GET",
-            headers: {
-              Authorization: `Bearer ${accessToken}`,
-            },
-          }),
-        ]);
-
-        if (accountsResponse.ok) {
-          const accountsPayload = (await accountsResponse.json()) as { count?: unknown };
-          const nextCount = Number(accountsPayload.count);
-          setPendingAccountRequestsCount(Number.isFinite(nextCount) ? Math.max(0, nextCount) : 0);
-        } else {
-          setPendingAccountRequestsCount(0);
-        }
-
-        if (improvementsResponse.ok) {
-          const improvementsPayload = (await improvementsResponse.json()) as { count?: unknown };
-          const nextCount = Number(improvementsPayload.count);
-          setPendingImprovementsCount(Number.isFinite(nextCount) ? Math.max(0, nextCount) : 0);
-        } else {
-          setPendingImprovementsCount(0);
-        }
-      } catch {
+      const resetZeros = () => {
         setPendingAccountRequestsCount(0);
         setPendingImprovementsCount(0);
+        setPendingEffectifsScheduleCount(0);
+        setAlertCenterMeta({ badgeTotal: 0, failed: 0, critical: 0 });
+      };
+
+      if (role !== "admin" && role !== "direction") {
+        resetZeros();
+        return;
+      }
+
+      try {
+        const summaryResponse = await fetch("/api/direction/alert-center/summary", {
+          method: "GET",
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        });
+
+        if (summaryResponse.ok) {
+          const s = (await summaryResponse.json()) as {
+            open?: {
+              accountRequests?: unknown;
+              improvements?: unknown;
+              effectifsScheduleRequests?: unknown;
+            };
+            failed?: { total?: unknown; smsOrEmail?: unknown };
+            criticalUntreated?: { total?: unknown };
+            badgeTotal?: unknown;
+          };
+          const ar = Number(s.open?.accountRequests);
+          const imp = Number(s.open?.improvements);
+          const ef = Number(s.open?.effectifsScheduleRequests);
+          setPendingAccountRequestsCount(Number.isFinite(ar) ? Math.max(0, ar) : 0);
+          setPendingImprovementsCount(Number.isFinite(imp) ? Math.max(0, imp) : 0);
+          setPendingEffectifsScheduleCount(Number.isFinite(ef) ? Math.max(0, ef) : 0);
+          const bt = Number(s.badgeTotal);
+          const fl = Number(s.failed?.smsOrEmail ?? s.failed?.total);
+          const cr = Number(s.criticalUntreated?.total);
+          setAlertCenterMeta({
+            badgeTotal: Number.isFinite(bt) ? Math.max(0, bt) : 0,
+            failed: Number.isFinite(fl) ? Math.max(0, fl) : 0,
+            critical: Number.isFinite(cr) ? Math.max(0, cr) : 0,
+          });
+          return;
+        }
+
+        resetZeros();
+      } catch {
+        resetZeros();
       }
     };
 
     void loadPendingBadges();
-  }, [accessToken, user]);
+  }, [accessToken, user, role, loading]);
 
-  const visibleModules = useMemo(
-    () => MODULES.filter((item) => (item.permission ? hasPermission(item.permission) : true)),
-    [hasPermission]
-  );
+  const isDirectionCoreRole = role === "admin" || role === "direction";
+
+  const HORODATEUR_MODULE_HREF = "/direction/horodateur";
+
+  const visibleModules = useMemo(() => {
+    const showEffectifsTile = role === "admin" || role === "direction";
+    const fromConfig = MODULES.filter((item) => {
+      if (item.href === ALERT_CENTER_HREF && !isDirectionCoreRole) return false;
+      if (item.href === EFFECTIFS_MODULE_HREF) return false;
+      return item.permission ? hasPermission(item.permission) : true;
+    });
+    let list = fromConfig;
+    if (isDirectionCoreRole && !list.some((m) => m.href === HORODATEUR_MODULE_HREF)) {
+      const core = MODULES.find((m) => m.href === HORODATEUR_MODULE_HREF);
+      if (core) {
+        list = [...list, core];
+      }
+    }
+    if (showEffectifsTile && !list.some((m) => m.href === EFFECTIFS_MODULE_HREF)) {
+      const effectifsDef = MODULES.find((m) => m.href === EFFECTIFS_MODULE_HREF);
+      if (effectifsDef) {
+        const registreIdx = list.findIndex((m) => m.href === "/direction/horodateur/registre");
+        if (registreIdx >= 0) {
+          list = [
+            ...list.slice(0, registreIdx + 1),
+            effectifsDef,
+            ...list.slice(registreIdx + 1),
+          ];
+        } else {
+          const horoIdx = list.findIndex((m) => m.href === HORODATEUR_MODULE_HREF);
+          list =
+            horoIdx >= 0
+              ? [...list.slice(0, horoIdx + 1), effectifsDef, ...list.slice(horoIdx + 1)]
+              : [...list, effectifsDef];
+        }
+      }
+    }
+    return dedupeModulesByHref(list);
+  }, [hasPermission, role, isDirectionCoreRole]);
+
+  useEffect(() => {
+    if (process.env.NODE_ENV !== "development") {
+      return;
+    }
+    console.log("[direction-dashboard-visible-modules]", {
+      role,
+      permissionsLoading: loading,
+      permissions,
+      visibleModules: visibleModules.map((m) => m.label),
+    });
+  }, [role, loading, permissions, visibleModules]);
 
   const groupedModules = useMemo(
     () =>
@@ -254,11 +367,21 @@ export default function DirectionDashboardClient() {
   const notificationCountByHref = useMemo(
     () =>
       new Map<string, number>([
+        [ALERT_CENTER_HREF, alertCenterMeta.badgeTotal],
         ["/direction/demandes-comptes", pendingAccountRequestsCount],
         ["/ameliorations", pendingImprovementsCount],
+        [EFFECTIFS_MODULE_HREF, pendingEffectifsScheduleCount],
       ]),
-    [pendingAccountRequestsCount, pendingImprovementsCount]
+    [
+      alertCenterMeta.badgeTotal,
+      pendingAccountRequestsCount,
+      pendingImprovementsCount,
+      pendingEffectifsScheduleCount,
+    ]
   );
+
+  const alertesATraiterSum =
+    pendingAccountRequestsCount + pendingImprovementsCount + pendingEffectifsScheduleCount;
 
   async function handleLogout() {
     await supabase.auth.signOut();
@@ -309,6 +432,64 @@ export default function DirectionDashboardClient() {
           }
         />
 
+        {isDirectionCoreRole ? (
+          <motion.section
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.35, ease: "easeOut" }}
+          >
+            <AppCard
+              className="ui-stack-sm"
+              style={{
+                padding: "var(--ui-space-4)",
+                borderLeft: "4px solid #f97316",
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  flexWrap: "wrap",
+                  gap: "var(--ui-space-4)",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                }}
+              >
+                <div style={{ fontWeight: 600, color: "#102544" }}>Résumé alertes</div>
+                <div
+                  style={{
+                    display: "flex",
+                    flexWrap: "wrap",
+                    gap: "var(--ui-space-5)",
+                    fontSize: 14,
+                    color: "#64748b",
+                  }}
+                >
+                  <span>
+                    A traiter :{" "}
+                    <strong style={{ color: "#102544" }}>{alertesATraiterSum}</strong>
+                  </span>
+                  <span>
+                    Critiques :{" "}
+                    <strong style={{ color: "#102544" }}>{alertCenterMeta.critical}</strong>
+                  </span>
+                  <span>
+                    Echecs SMS / courriel :{" "}
+                    <strong style={{ color: "#102544" }}>{alertCenterMeta.failed}</strong>
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  className="tagora-dark-action"
+                  onClick={() => router.push(`${ALERT_CENTER_HREF}?status=open`)}
+                  style={{ padding: "8px 14px", fontSize: 14 }}
+                >
+                  Ouvrir le centre d'alertes
+                </button>
+              </div>
+            </AppCard>
+          </motion.section>
+        ) : null}
+
         {groupedModules.map((group, groupIndex) => (
           <motion.section
             key={group.id}
@@ -344,20 +525,7 @@ export default function DirectionDashboardClient() {
                       whileHover={{ y: -6 }}
                       style={{ height: "100%" }}
                     >
-                      <AppCard
-                        className="ui-stack-md"
-                        style={{
-                          height: "100%",
-                          minHeight: 262,
-                          display: "flex",
-                          flexDirection: "column",
-                          justifyContent: "space-between",
-                          border: "1px solid #dbe5f1",
-                          boxShadow: "0 18px 38px rgba(15, 23, 42, 0.08)",
-                          background:
-                            "linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(247,250,255,0.98) 100%)",
-                        }}
-                      >
+                      <AppCard className="ui-stack-md tagora-dashboard-module-card" style={{ height: "100%", minHeight: 262, display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
                         <div className="ui-stack-md" style={{ flex: 1 }}>
                           <div
                             style={{
@@ -370,20 +538,10 @@ export default function DirectionDashboardClient() {
                             <motion.div
                               whileHover={{ y: -1, scale: 1.04 }}
                               transition={{ duration: 0.18, ease: "easeOut" }}
-                              style={{
-                                width: 52,
-                                height: 52,
-                                borderRadius: 16,
-                                display: "inline-flex",
-                                alignItems: "center",
-                                justifyContent: "center",
-                                background: item.accent,
-                                border: "1px solid rgba(23,55,107,0.08)",
-                                color: "#17376b",
-                                boxShadow: "inset 0 1px 0 rgba(255,255,255,0.4)",
-                              }}
                             >
-                              <Icon size={24} strokeWidth={2.1} />
+                              <TagoraIconBadge tone={item.tone} size="lg">
+                                <Icon size={24} strokeWidth={2.1} aria-hidden />
+                              </TagoraIconBadge>
                             </motion.div>
                           </div>
 
@@ -408,29 +566,15 @@ export default function DirectionDashboardClient() {
                                 {item.label}
                               </h3>
                               {(notificationCountByHref.get(item.href) ?? 0) > 0 ? (
-                                <span
-                                  aria-label={`${notificationCountByHref.get(item.href)} en attente`}
-                                  style={{
-                                    minWidth: 22,
-                                    height: 22,
-                                    padding: "0 7px",
-                                    borderRadius: 999,
-                                    display: "inline-flex",
-                                    alignItems: "center",
-                                    justifyContent: "center",
-                                    fontSize: 12,
-                                    fontWeight: 800,
-                                    color: "#ffffff",
-                                    background:
-                                      "linear-gradient(135deg, #ef4444 0%, #dc2626 100%)",
-                                    border: "1px solid rgba(127,29,29,0.22)",
-                                    boxShadow:
-                                      "0 6px 16px rgba(220,38,38,0.35), inset 0 1px 0 rgba(255,255,255,0.24)",
-                                    flexShrink: 0,
-                                  }}
+                                <TagoraCountBadge
+                                  aria-label={
+                                    item.href === ALERT_CENTER_HREF
+                                      ? `${notificationCountByHref.get(item.href)} alerte(s) (ouvertes, echecs ou critiques non traitees)`
+                                      : `${notificationCountByHref.get(item.href)} en attente`
+                                  }
                                 >
                                   {notificationCountByHref.get(item.href)}
-                                </span>
+                                </TagoraCountBadge>
                               ) : null}
                             </div>
                             <p
@@ -451,7 +595,13 @@ export default function DirectionDashboardClient() {
                           className="tagora-dark-action"
                           whileHover={{ y: -1 }}
                           transition={{ duration: 0.16, ease: "easeOut" }}
-                          onClick={() => router.push(item.href)}
+                          onClick={() =>
+                            router.push(
+                              item.href === ALERT_CENTER_HREF
+                                ? `${ALERT_CENTER_HREF}?status=open`
+                                : item.href
+                            )
+                          }
                           style={{
                             width: "100%",
                             justifyContent: "space-between",

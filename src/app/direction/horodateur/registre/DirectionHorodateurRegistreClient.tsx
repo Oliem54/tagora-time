@@ -1,14 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
-  ArrowLeft,
   CalendarRange,
   Clock3,
   FileSpreadsheet,
-  LayoutDashboard,
   ShieldCheck,
   Timer,
   TrendingUp,
@@ -22,6 +21,9 @@ import PrimaryButton from "@/app/components/ui/PrimaryButton";
 import SecondaryButton from "@/app/components/ui/SecondaryButton";
 import StatusBadge from "@/app/components/ui/StatusBadge";
 import TagoraLoadingScreen from "@/app/components/ui/TagoraLoadingScreen";
+import TagoraStatCard from "@/app/components/TagoraStatCard";
+import type { TagoraStatTone } from "@/app/components/tagora-stat-tone";
+import AuthenticatedPageHeader from "@/app/components/ui/AuthenticatedPageHeader";
 import { useCurrentAccess } from "@/app/hooks/useCurrentAccess";
 import { supabase } from "@/app/lib/supabase/client";
 import { getWeekStartDate } from "@/app/lib/horodateur-v1/rules";
@@ -241,6 +243,7 @@ function lastExceptionTouch(ex: HorodateurRegistreExceptionDetail) {
 }
 
 export default function DirectionHorodateurRegistreClient() {
+  const searchParams = useSearchParams();
   const { user, loading, hasPermission } = useCurrentAccess();
   const [activeTab, setActiveTab] = useState<RegistrerTabId>("global");
 
@@ -277,6 +280,22 @@ export default function DirectionHorodateurRegistreClient() {
 
   const range = useMemo(() => presetRange(preset), [preset]);
   const exLookup = useMemo(() => exceptionEmployerLookup(data), [data]);
+
+  const employeeIdParam = searchParams.get("employeeId");
+  const periodParam = searchParams.get("period");
+
+  useLayoutEffect(() => {
+    const rawId = employeeIdParam;
+    if (rawId && /^\d+$/.test(rawId.trim())) {
+      setEmployeeId(rawId.trim());
+    }
+    const period = periodParam;
+    if (period === "currentWeek") {
+      setPreset("week_current");
+    } else if (period === "currentMonth") {
+      setPreset("month_current");
+    }
+  }, [employeeIdParam, periodParam]);
 
   useEffect(() => {
     if (preset !== "custom") {
@@ -512,47 +531,21 @@ export default function DirectionHorodateurRegistreClient() {
   return (
     <main className="tagora-app-shell min-h-screen bg-[linear-gradient(180deg,#eef2ff_0%,#f8fafc_45%,#f1f5f9_100%)]">
       <div className="mx-auto max-w-7xl px-4 pb-14 pt-8 sm:px-6 lg:px-10">
-        {/* En-tête large */}
-        <header className="mb-8 flex flex-col gap-6 rounded-3xl border border-white/70 bg-white/90 px-5 py-6 shadow-[0_20px_60px_-16px_rgba(15,23,42,0.12)] backdrop-blur sm:px-8 sm:py-8">
-          <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
-            <div className="flex flex-1 flex-col gap-4 sm:flex-row sm:items-start sm:gap-6">
-              <div
-                aria-hidden
-                className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-[linear-gradient(145deg,#0f3557_0%,#1e4b7c_48%,#102a52_100%)] text-lg font-black tracking-tight text-white shadow-lg shadow-slate-900/25"
-              >
-                T
-              </div>
-              <div className="min-w-0">
-                <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-                  <h1 className="text-[1.85rem] font-bold leading-tight tracking-tight text-slate-900 sm:text-[2.1rem]">
-                    Registre des heures
-                  </h1>
-                  <span className="hidden rounded-full border border-sky-100 bg-sky-50 px-3 py-0.5 text-xs font-semibold uppercase tracking-wide text-sky-800 sm:inline">
-                    Direction
-                  </span>
-                </div>
-                <p className="mt-2 max-w-3xl text-base leading-relaxed text-slate-600 sm:text-lg">
-                  Consultation des heures par semaine, mois et employe — registre administratif consolidé.
-                </p>
-              </div>
-            </div>
+        <AuthenticatedPageHeader
+          title="Registre des heures"
+          subtitle=""
+          showNavigation={false}
+          actions={
             <div className="flex flex-shrink-0 flex-wrap items-center gap-3 lg:justify-end">
-              <Link
-                href="/direction/horodateur"
-                className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-slate-300 hover:bg-slate-50"
-              >
-                <ArrowLeft className="h-4 w-4" aria-hidden /> Retour horodateur
+              <Link href="/direction/horodateur" className="tagora-dark-outline-action">
+                Retour horodateur
               </Link>
-              <Link
-                href="/direction/dashboard"
-                className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-[linear-gradient(145deg,#0f3557,#1c4f85)] px-5 text-sm font-semibold text-white shadow-md shadow-slate-900/20 transition hover:opacity-95"
-              >
-                <LayoutDashboard className="h-4 w-4" aria-hidden />
+              <Link href="/direction/dashboard" className="tagora-dark-action">
                 Tableau de bord direction
               </Link>
             </div>
-          </div>
-        </header>
+          }
+        />
 
         {/* Onglets */}
         <div className="mb-6 inline-flex rounded-2xl border border-slate-200/80 bg-slate-200/35 p-1.5 shadow-inner">
@@ -756,88 +749,70 @@ export default function DirectionHorodateurRegistreClient() {
                     Indicateurs agrégés sur la période et filtres sélectionnés.
                   </p>
                 </div>
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4 xl:gap-5">
-                  {[
-                    {
-                      label: "Heures travaillées",
-                      value: fmtHoursMinutes(summary.totalWorkedMinutes),
-                      sub: "Minutes pointées cumulées",
-                      icon: Timer,
-                      tone: "from-sky-50 to-white",
-                      iconClr: "text-sky-600",
-                    },
-                    {
-                      label: "Heures approuvées",
-                      value: fmtHoursMinutes(summary.totalApprovedPayableMinutes),
-                      sub: "Minutes payables approuvées",
-                      icon: ShieldCheck,
-                      tone: "from-emerald-50 to-white",
-                      iconClr: "text-emerald-600",
-                    },
-                    {
-                      label: "En attente approb.",
-                      value: fmtHoursMinutes(summary.totalPendingPayableMinutes),
-                      sub: "À valider côté direction",
-                      icon: TrendingUp,
-                      tone: "from-amber-50 to-white",
-                      iconClr: "text-amber-600",
-                    },
-                    {
-                      label: "Impact exceptions",
-                      value: `${summary.totalExceptionImpactMinutes} min`,
-                      sub: "Volume déclaré exceptions",
-                      icon: AlertTriangle,
-                      tone: "from-rose-50 to-white",
-                      iconClr: "text-rose-600",
-                    },
-                    {
-                      label: "Titan refacturable",
-                      value: fmtHoursMinutes(summary.titanRefundablePayableMinutes),
-                      sub: "Contexte Titan",
-                      icon: Wallet,
-                      tone: "from-violet-50 to-white",
-                      iconClr: "text-violet-600",
-                    },
-                    {
-                      label: "Employés actifs",
-                      value: String(summary.activeEmployeesInPeriod),
-                      sub: "Dans cette période",
-                      icon: Users,
-                      tone: "from-slate-50 to-white",
-                      iconClr: "text-slate-700",
-                    },
-                    {
-                      label: "Quarts incomplets",
-                      value: String(summary.incompleteShiftCount),
-                      sub: "Sortie manquante / ouverts",
-                      icon: Clock3,
-                      tone: "from-orange-50 to-white",
-                      iconClr: "text-orange-600",
-                    },
-                  ].map((card, i) => {
-                    const Ico = card.icon;
+                <div className="tagora-stat-grid">
+                  {(
+                    [
+                      {
+                        label: "Heures travaillées",
+                        value: fmtHoursMinutes(summary.totalWorkedMinutes),
+                        sub: "Minutes pointées cumulées",
+                        Icon: Timer,
+                        tone: "cyan" as TagoraStatTone,
+                      },
+                      {
+                        label: "Heures approuvées",
+                        value: fmtHoursMinutes(summary.totalApprovedPayableMinutes),
+                        sub: "Minutes payables approuvées",
+                        Icon: ShieldCheck,
+                        tone: "green",
+                      },
+                      {
+                        label: "En attente approb.",
+                        value: fmtHoursMinutes(summary.totalPendingPayableMinutes),
+                        sub: "À valider côté direction",
+                        Icon: TrendingUp,
+                        tone: "orange",
+                      },
+                      {
+                        label: "Impact exceptions",
+                        value: `${summary.totalExceptionImpactMinutes} min`,
+                        sub: "Volume déclaré exceptions",
+                        Icon: AlertTriangle,
+                        tone: "red",
+                      },
+                      {
+                        label: "Titan refacturable",
+                        value: fmtHoursMinutes(summary.titanRefundablePayableMinutes),
+                        sub: "Contexte Titan",
+                        Icon: Wallet,
+                        tone: "purple",
+                      },
+                      {
+                        label: "Employés actifs",
+                        value: String(summary.activeEmployeesInPeriod),
+                        sub: "Dans cette période",
+                        Icon: Users,
+                        tone: "slate",
+                      },
+                      {
+                        label: "Quarts incomplets",
+                        value: String(summary.incompleteShiftCount),
+                        sub: "Sortie manquante / ouverts",
+                        Icon: Clock3,
+                        tone: "orange",
+                      },
+                    ] as const
+                  ).map((card, i) => {
+                    const Ico = card.Icon;
                     return (
-                      <article
+                      <TagoraStatCard
                         key={i}
-                        className={`group flex flex-col rounded-3xl border border-slate-200/75 bg-gradient-to-br p-6 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md ${card.tone}`}
-                      >
-                        <div className="mb-5 flex items-start justify-between gap-3">
-                          <div
-                            className={`flex h-11 w-11 items-center justify-center rounded-2xl bg-white shadow-sm ring-1 ring-slate-200/60 ${card.iconClr}`}
-                          >
-                            <Ico className="h-[22px] w-[22px] opacity-90" aria-hidden />
-                          </div>
-                        </div>
-                        <div className="text-[13px] font-semibold uppercase tracking-wide text-slate-500">
-                          {card.label}
-                        </div>
-                        <div className="mt-1 break-words text-2xl font-bold tabular-nums tracking-tight text-slate-900 sm:text-[1.75rem]">
-                          {card.value}
-                        </div>
-                        <div className="mt-2 text-[13px] leading-snug text-slate-600">
-                          {card.sub}
-                        </div>
-                      </article>
+                        title={card.label}
+                        value={card.value}
+                        subtitle={card.sub}
+                        tone={card.tone}
+                        icon={<Ico strokeWidth={2} aria-hidden />}
+                      />
                     );
                   })}
                 </div>

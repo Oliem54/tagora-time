@@ -4,8 +4,6 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
-  ArrowLeft,
-  LayoutDashboard,
   RefreshCw,
   ShieldCheck,
   TimerReset,
@@ -963,9 +961,11 @@ export default function DirectionHorodateurPage() {
           },
           ...current,
         ]);
-        setMessage("Action enregistree avec exception en attente.");
+        setMessage(
+          "Action enregistrée. Les heures seront prises en compte après traitement de l’exception."
+        );
       } else {
-        setMessage("Action direction enregistree.");
+        setMessage("Action enregistrée. Les heures ont été recalculées.");
       }
 
       setNote("");
@@ -1082,7 +1082,8 @@ export default function DirectionHorodateurPage() {
         <div className="tagora-app-content">
           <AuthenticatedPageHeader
             title="Horodateur direction"
-            subtitle="Chargement"
+            subtitle=""
+            showNavigation={false}
           />
           <SectionCard title="Chargement" subtitle="Preparation de la supervision." />
         </div>
@@ -1096,7 +1097,8 @@ export default function DirectionHorodateurPage() {
         <div className="tagora-app-content">
           <AuthenticatedPageHeader
             title="Horodateur direction"
-            subtitle="Acces restreint"
+            subtitle=""
+            showNavigation={false}
           />
           <SectionCard title="Acces" subtitle="Permission terrain requise." />
         </div>
@@ -1109,8 +1111,8 @@ export default function DirectionHorodateurPage() {
       <div className="tagora-app-content ui-stack-lg">
         <AuthenticatedPageHeader
           title="Horodateur direction"
+          subtitle=""
           showNavigation={false}
-          compact
           actions={
             <div
               style={{
@@ -1118,7 +1120,6 @@ export default function DirectionHorodateurPage() {
                 gap: "var(--ui-space-3)",
                 flexWrap: "wrap",
                 alignItems: "center",
-                justifyContent: "flex-end",
               }}
             >
               <Link
@@ -1126,27 +1127,22 @@ export default function DirectionHorodateurPage() {
                 className="tagora-dark-outline-action"
                 style={{ textDecoration: "none" }}
               >
-                <span>Consulter le registre des heures</span>
+                Registre des heures
               </Link>
-
               <Link
-                href="/direction/dashboard"
+                href="/direction/horodateur/qr-zones"
                 className="tagora-dark-outline-action"
                 style={{ textDecoration: "none" }}
               >
-                <ArrowLeft size={16} />
-                <span>Retour</span>
+                Zones punch QR
               </Link>
-
               <Link
                 href="/direction/dashboard"
                 className="tagora-dark-action"
                 style={{ textDecoration: "none" }}
               >
-                <LayoutDashboard size={16} />
-                <span>Tableau de bord direction</span>
+                Tableau de bord direction
               </Link>
-
               <SecondaryButton
                 onClick={() => void loadData("refresh")}
                 disabled={refreshing || isBusy}
@@ -1337,7 +1333,7 @@ export default function DirectionHorodateurPage() {
                     }}
                   >
                     <AppCard tone="default" className="ui-stack-xs">
-                      <span className="ui-eyebrow">Exception</span>
+                      <span className="ui-eyebrow">Motif système</span>
                       <strong>{item.reason_label}</strong>
                       <span className="ui-text-muted">{item.exception_type}</span>
                     </AppCard>
@@ -1348,12 +1344,12 @@ export default function DirectionHorodateurPage() {
                     </AppCard>
                   </div>
 
-                  {item.details ? (
-                    <AppCard tone="default" className="ui-stack-xs">
-                      <span className="ui-eyebrow">Details</span>
-                      <span className="ui-text-muted">{item.details}</span>
-                    </AppCard>
-                  ) : null}
+                  <AppCard tone="default" className="ui-stack-xs">
+                    <span className="ui-eyebrow">Note employé</span>
+                    <span className="ui-text-muted">
+                      {item.details?.trim() ? item.details : "Aucune note fournie."}
+                    </span>
+                  </AppCard>
 
                   <AppCard tone="default" className="ui-stack-xs">
                     <span className="ui-eyebrow">Journal des notifications</span>

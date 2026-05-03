@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAuthenticatedRequestUser } from "@/app/lib/account-requests.server";
+import {
+  getAuthenticatedRequestUser,
+  getJwtAal,
+  getRequestAccessToken,
+} from "@/app/lib/account-requests.server";
 import { createAdminSupabaseClient } from "@/app/lib/supabase/admin";
 
 export type RamassageAlertConfig = {
@@ -23,6 +27,20 @@ export async function requireDirectionOrAdmin(req: NextRequest) {
       response: NextResponse.json({ error: "Acces reserve a la direction/admin." }, { status: 403 }),
     };
   }
+  const token = getRequestAccessToken(req).token;
+  if (getJwtAal(token) !== "aal2") {
+    return {
+      ok: false as const,
+      response: NextResponse.json(
+        {
+          error:
+            "Vérification en deux étapes requise. Complétez le MFA puis réessayez.",
+          code: "MFA_AAL2_REQUIRED",
+        },
+        { status: 403 }
+      ),
+    };
+  }
   return { ok: true as const, user, role, supabase: createAdminSupabaseClient() };
 }
 
@@ -38,6 +56,20 @@ export async function requireAdmin(req: NextRequest) {
     return {
       ok: false as const,
       response: NextResponse.json({ error: "Acces reserve aux admins." }, { status: 403 }),
+    };
+  }
+  const token = getRequestAccessToken(req).token;
+  if (getJwtAal(token) !== "aal2") {
+    return {
+      ok: false as const,
+      response: NextResponse.json(
+        {
+          error:
+            "Vérification en deux étapes requise. Complétez le MFA puis réessayez.",
+          code: "MFA_AAL2_REQUIRED",
+        },
+        { status: 403 }
+      ),
     };
   }
   return { ok: true as const, user, role, supabase: createAdminSupabaseClient() };

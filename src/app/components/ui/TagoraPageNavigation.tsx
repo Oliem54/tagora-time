@@ -70,6 +70,10 @@ function getBackHref(
       return dashboardHref;
     }
 
+    if (pathname === "/direction/effectifs") {
+      return dashboardHref;
+    }
+
     if (pathname === "/direction/terrain/new") {
       return "/direction/terrain";
     }

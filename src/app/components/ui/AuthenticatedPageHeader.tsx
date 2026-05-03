@@ -43,6 +43,7 @@ export default function AuthenticatedPageHeader({
       navigation={resolvedNavigation}
       userIdentity={showUserIdentity ? user?.email ?? null : null}
       userRoleLabel={showUserIdentity ? roleLabel : null}
+      userRole={showUserIdentity ? role : null}
     />
   );
 }

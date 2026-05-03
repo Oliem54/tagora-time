@@ -82,7 +82,13 @@ export function operationTypeLabel(value: "livraison" | "ramassage") {
 }
 
 export async function requireDirectionOrAdminApi(req: NextRequest) {
-  const { user, role } = await getStrictDirectionRequestUser(req);
+  const { user, role, mfaError } = await getStrictDirectionRequestUser(req);
+  if (mfaError) {
+    return {
+      ok: false as const,
+      response: mfaError,
+    };
+  }
   if (!user) {
     return {
       ok: false as const,

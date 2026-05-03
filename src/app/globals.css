@@ -1694,6 +1694,274 @@ select {
   background: #fff2e5;
 }
 
+/* -------------------------------------------------------------------------- */
+/* TAGORA — icônes pastel, cartes KPI (dashboards + stats)                    */
+/* -------------------------------------------------------------------------- */
+
+.tagora-icon-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border-radius: 14px;
+  border: 1px solid transparent;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45);
+}
+
+.tagora-icon-badge--sm {
+  width: 36px;
+  height: 36px;
+}
+.tagora-icon-badge--sm > svg {
+  width: 18px;
+  height: 18px;
+}
+
+.tagora-icon-badge--md {
+  width: 44px;
+  height: 44px;
+}
+.tagora-icon-badge--md > svg {
+  width: 22px;
+  height: 22px;
+}
+
+.tagora-icon-badge--lg {
+  width: 52px;
+  height: 52px;
+  border-radius: 16px;
+}
+.tagora-icon-badge--lg > svg {
+  width: 24px;
+  height: 24px;
+}
+
+.tagora-icon-badge--blue {
+  color: #2563eb;
+  background: #e8f0ff;
+  border-color: rgba(37, 99, 235, 0.14);
+}
+.tagora-icon-badge--green {
+  color: #16a34a;
+  background: #e9f8ee;
+  border-color: rgba(22, 163, 74, 0.14);
+}
+.tagora-icon-badge--orange {
+  color: #ea580c;
+  background: #fff4dc;
+  border-color: rgba(234, 88, 12, 0.14);
+}
+.tagora-icon-badge--red {
+  color: #ef4444;
+  background: #fdecec;
+  border-color: rgba(239, 68, 68, 0.14);
+}
+.tagora-icon-badge--purple {
+  color: #7c3aed;
+  background: #f3e9ff;
+  border-color: rgba(124, 58, 237, 0.14);
+}
+.tagora-icon-badge--slate {
+  color: #475569;
+  background: #f1f5f9;
+  border-color: rgba(71, 85, 105, 0.12);
+}
+.tagora-icon-badge--cyan {
+  color: #0891b2;
+  background: #e0f7fc;
+  border-color: rgba(8, 145, 178, 0.14);
+}
+.tagora-icon-badge--yellow {
+  color: #ca8a04;
+  background: #fffbeb;
+  border-color: rgba(202, 138, 4, 0.16);
+}
+
+.tagora-stat-card {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 14px;
+  align-items: center;
+  min-height: 88px;
+  padding: 16px 18px;
+  border-radius: 16px;
+  border: 1px solid #e6ebf2;
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.98) 0%,
+    rgba(249, 251, 255, 0.98) 100%
+  );
+  box-shadow: 0 8px 22px rgba(15, 23, 42, 0.04);
+  text-decoration: none;
+  color: inherit;
+}
+
+.tagora-stat-card--interactive {
+  cursor: pointer;
+  transition:
+    box-shadow 0.15s ease,
+    border-color 0.15s ease,
+    transform 0.15s ease;
+}
+
+.tagora-stat-card--interactive:hover {
+  border-color: #cbd5e1;
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.08);
+  transform: translateY(-1px);
+}
+
+.tagora-stat-card--loading {
+  opacity: 0.72;
+  pointer-events: none;
+}
+
+.tagora-stat-card-main {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.tagora-stat-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.tagora-stat-card-label {
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #8b98b2;
+  line-height: 1.25;
+}
+
+.tagora-stat-card-value {
+  font-size: 24px;
+  line-height: 1.1;
+  font-weight: 800;
+  color: #16335d;
+  font-variant-numeric: tabular-nums;
+}
+
+.tagora-stat-card-value--loading {
+  color: #94a3b8;
+}
+
+.tagora-stat-card-sub {
+  font-size: 13px;
+  line-height: 1.45;
+  color: #64748b;
+  margin-top: 2px;
+}
+
+.tagora-stat-card-badge-slot {
+  flex-shrink: 0;
+}
+
+.tagora-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 14px;
+}
+
+@media (min-width: 1100px) {
+  .tagora-stat-grid--five {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+}
+
+.tagora-count-badge {
+  min-width: 22px;
+  height: 22px;
+  padding: 0 7px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 800;
+  color: #ffffff;
+  background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+  border: 1px solid rgba(127, 29, 29, 0.22);
+  box-shadow:
+    0 6px 16px rgba(220, 38, 38, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.24);
+  flex-shrink: 0;
+}
+
+.tagora-dashboard-module-card {
+  border: 1px solid #e6ebf2;
+  box-shadow: 0 18px 38px rgba(15, 23, 42, 0.08);
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.98) 0%,
+    rgba(247, 250, 255, 0.98) 100%
+  );
+  border-radius: 16px;
+}
+
+/* Sections repliables (+ ouvre, − ferme) */
+.tagora-collapsible-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 0;
+  margin: 0;
+  border: none;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+}
+
+.tagora-collapsible-trigger:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.tagora-collapsible-toggle {
+  min-width: 44px;
+  height: 44px;
+  padding: 0 12px;
+  border-radius: 14px;
+  font-weight: 800;
+  font-size: 1.15rem;
+  line-height: 1;
+  color: #0f172a;
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease,
+    transform 0.12s ease;
+}
+
+.tagora-collapsible-trigger:hover:not(:disabled) .tagora-collapsible-toggle {
+  background: #e8eef7;
+  border-color: #cbd5e1;
+}
+
+.tagora-collapsible-panel[hidden] {
+  display: none !important;
+}
+
+.tagora-collapsible-nested-section.tagora-collapsible-section {
+  margin-top: 12px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px dashed #cbd5e1;
+  background: rgba(248, 250, 252, 0.85);
+  box-shadow: none;
+}
+
 .account-requests-premium-shell {
   display: grid;
   gap: 14px;
@@ -1874,6 +2142,126 @@ select {
 .ui-data-table-empty {
   padding: var(--ui-space-6);
   color: var(--ui-color-text-muted);
+}
+
+/* Direction — /direction/ressources/employes : tableau dense, actions lisibles */
+.employes-ressources-page .ui-data-table-shell {
+  background: #ffffff;
+  border: 1px solid #e8ecf2;
+  border-radius: 14px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05);
+}
+
+.employes-ressources-page .ui-data-table-wrap {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-gutter: stable;
+}
+
+.employes-ressources-page .ui-data-table {
+  table-layout: auto;
+  min-width: 920px;
+}
+
+.employes-ressources-page .ui-data-table th:nth-child(1),
+.employes-ressources-page .ui-data-table td:nth-child(1) {
+  width: 64px;
+  white-space: nowrap;
+}
+
+.employes-ressources-page .ui-data-table th {
+  padding: 7px 12px;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--ui-color-text-soft);
+  background: #fafbfc;
+  border-bottom: 1px solid #e8ecf2;
+}
+
+.employes-ressources-page .ui-data-table td {
+  padding: 8px 12px;
+  font-size: 13px;
+  line-height: 1.35;
+  border-bottom: 1px solid #f1f5f9;
+  vertical-align: middle;
+}
+
+.employes-ressources-page .ui-data-table tbody tr:hover {
+  background: #f8fafc;
+}
+
+.employes-ressources-page .ui-data-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.employes-ressources-page .ui-data-table th:last-child,
+.employes-ressources-page .ui-data-table td:last-child {
+  width: 204px;
+  min-width: 204px;
+  vertical-align: top;
+  padding-top: 10px;
+  padding-bottom: 10px;
+}
+
+.employes-ressources-page .employes-actions-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: stretch;
+}
+
+.employes-ressources-page .employes-action-btn {
+  width: 100%;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.25;
+  min-height: 32px;
+  border-radius: 8px;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.employes-ressources-page .employes-statut-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: flex-start;
+}
+
+.employes-ressources-page .employes-statut-stack .ui-status-badge {
+  padding: 3px 8px;
+  font-size: 9px;
+  min-height: 18px;
+}
+
+.employes-ressources-panel-title {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: #0f172a;
+}
+
+.employes-ressources-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.employes-ressources-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: flex-end;
 }
 
 .ui-module-tile {
@@ -2496,3 +2884,31 @@ select {
     height: 5px;
   }
 }
+
+/* Effectifs — vue comparative Oliem / Titan (phase 1) */
+.effectifs-dual-calendar {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: 1fr;
+}
+
+@media (min-width: 1024px) {
+  .effectifs-dual-calendar {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+/* Effectifs — cartes Oliem / Titan (priorités immédiates) */
+.effectifs-priority-company-grid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: 1fr;
+  align-items: stretch;
+}
+
+@media (min-width: 1024px) {
+  .effectifs-priority-company-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+

@@ -1,11 +1,17 @@
 import "server-only";
 
 import type { User } from "@supabase/supabase-js";
-import { NextRequest } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { createAdminSupabaseClient } from "@/app/lib/supabase/admin";
 import { createPublicServerSupabaseClient } from "@/app/lib/supabase/server";
 import { normalizeEmail } from "@/app/lib/account-requests.shared";
 import { APP_SESSION_COOKIE_NAME } from "@/app/lib/auth/session-cookie";
+import {
+  decodeSupabaseJwtPayload,
+  getJwtAal,
+} from "@/app/lib/auth/jwt-access-token";
+
+export { getJwtAal };
 
 const ACCOUNT_REQUESTS_CLIENT_MARKER_HEADER = "x-account-requests-client";
 const ACCOUNT_REQUESTS_CLIENT_MARKER_VALUE = "browser-authenticated";
@@ -85,26 +91,6 @@ export function extractRoleFromUser(
   return normalizeAppRole(appRole ?? userMetaRole ?? null);
 }
 
-function decodeJwtPayload(token: string) {
-  try {
-    const [, payloadPart] = token.split(".");
-
-    if (!payloadPart) {
-      return null;
-    }
-
-    const normalized = payloadPart.replace(/-/g, "+").replace(/_/g, "/");
-    const padded = normalized.padEnd(
-      normalized.length + ((4 - (normalized.length % 4)) % 4),
-      "="
-    );
-
-    return JSON.parse(Buffer.from(padded, "base64").toString("utf8"));
-  } catch {
-    return null;
-  }
-}
-
 export function getAccountRequestsClientMarkerHeader() {
   return ACCOUNT_REQUESTS_CLIENT_MARKER_HEADER;
 }
@@ -180,12 +166,11 @@ export async function resolveDirectionRequestUser(req: NextRequest) {
     };
   }
 
-  const jwtPayload = decodeJwtPayload(token);
+  const jwtPayload = decodeSupabaseJwtPayload(token);
+  const appMeta = jwtPayload?.app_metadata as { role?: unknown } | undefined;
+  const userMeta = jwtPayload?.user_metadata as { role?: unknown } | undefined;
   const jwtRole = normalizeAppRole(
-    jwtPayload?.app_metadata?.role ??
-      jwtPayload?.user_metadata?.role ??
-      jwtPayload?.role ??
-      null
+    appMeta?.role ?? userMeta?.role ?? jwtPayload?.role ?? null
   );
 
   const publicSupabase = createPublicServerSupabaseClient();
@@ -315,10 +300,32 @@ export async function getAuthenticatedRequestUser(req: NextRequest) {
 
 export async function getStrictDirectionRequestUser(req: NextRequest) {
   const result = await resolveDirectionRequestUser(req);
+  const token = getRequestAccessToken(req).token;
+
+  if (
+    result.user &&
+    result.role &&
+    (result.role === "direction" || result.role === "admin") &&
+    getJwtAal(token) !== "aal2"
+  ) {
+    return {
+      user: result.user,
+      role: result.role,
+      mfaError: NextResponse.json(
+        {
+          error:
+            "Vérification en deux étapes requise. Complétez le MFA dans l’application puis réessayez.",
+          code: "MFA_AAL2_REQUIRED",
+        },
+        { status: 403 }
+      ),
+    };
+  }
 
   return {
     user: result.user,
     role: result.role,
+    mfaError: null as NextResponse | null,
   };
 }
 

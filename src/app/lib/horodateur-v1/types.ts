@@ -1,4 +1,5 @@
 import type { AccountRequestCompany } from "@/app/lib/account-requests.shared";
+import type { WeeklyScheduleConfig } from "@/app/lib/weekly-schedule";
 
 export const HORODATEUR_PHASE1_EVENT_TYPES = [
   "quart_debut",
@@ -62,6 +63,7 @@ export const HORODATEUR_PHASE1_SOURCE_KINDS = [
   "employe",
   "direction",
   "automatique",
+  "qr",
 ] as const;
 
 export type HorodateurPhase1SourceKind =
@@ -145,6 +147,10 @@ export type HorodateurPhase1EmployeeProfile = {
   alertEmailEnabled: boolean;
   alertSmsEnabled: boolean;
   isDirectionAlertRecipient: boolean;
+  /** Horaire hebdomadaire détaillé (lecture seule pour futures règles punch / retard). */
+  weeklyScheduleConfig: WeeklyScheduleConfig | null;
+  canWorkForOliemSolutions: boolean;
+  canWorkForTitanProduitsIndustriels: boolean;
 };
 
 export type HorodateurPhase1EventRecord = {
@@ -348,6 +354,15 @@ export type HorodateurPhase1InsertEventInput = {
   requiresApproval: boolean;
   exceptionCode?: HorodateurPhase1ExceptionType | null;
   approvalNote?: string | null;
+  /** Métadonnées punch QR / zone (optionnel). */
+  punchSource?: string | null;
+  punchZoneKey?: string | null;
+  punchZoneId?: string | null;
+  zoneValidated?: boolean | null;
+  gpsLatitude?: number | null;
+  gpsLongitude?: number | null;
+  workCompanyKey?: string | null;
+  employerCompanyKey?: string | null;
 };
 
 export type HorodateurPhase1CreatePunchResult = {

@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAuthenticatedRequestUser } from "@/app/lib/account-requests.server";
+import {
+  getAuthenticatedRequestUser,
+  getJwtAal,
+  getRequestAccessToken,
+} from "@/app/lib/account-requests.server";
 
 export type DisponibiliteReason =
   | "journee_complete"
@@ -81,6 +85,21 @@ export async function requireDirectionOrAdmin(req: NextRequest) {
       ok: false as const,
       response: NextResponse.json(
         { error: "Acces reserve a la direction/admin." },
+        { status: 403 }
+      ),
+    };
+  }
+
+  const token = getRequestAccessToken(req).token;
+  if (getJwtAal(token) !== "aal2") {
+    return {
+      ok: false as const,
+      response: NextResponse.json(
+        {
+          error:
+            "Vérification en deux étapes requise. Complétez le MFA puis réessayez.",
+          code: "MFA_AAL2_REQUIRED",
+        },
         { status: 403 }
       ),
     };

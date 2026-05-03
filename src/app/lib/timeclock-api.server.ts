@@ -63,7 +63,19 @@ export async function requireDirectionUser(
   req: NextRequest,
   permission: "terrain" | "livraisons" | "ressources"
 ) {
-  const { user, role } = await getStrictDirectionRequestUser(req);
+  const { user, role, mfaError } = await getStrictDirectionRequestUser(req);
+
+  if (mfaError) {
+    return {
+      ok: false as const,
+      response: {
+        error:
+          "Vérification en deux étapes requise. Complétez le MFA puis réessayez.",
+        status: 403,
+        code: "MFA_AAL2_REQUIRED" as const,
+      },
+    };
+  }
 
   if (!user || (role !== "direction" && role !== "admin")) {
     return {

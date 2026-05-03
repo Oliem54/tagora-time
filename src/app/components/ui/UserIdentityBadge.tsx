@@ -1,19 +1,26 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
+import type { AppRole } from "@/app/lib/auth/roles";
+import { useMfaAal2Active } from "@/app/lib/auth/mfa.client";
 
 type UserIdentityBadgeProps = {
   value: string;
   roleLabel?: string | null;
+  /** Pour le badge MFA discret direction/admin. */
+  role?: AppRole | null;
   className?: string;
 };
 
 export default function UserIdentityBadge({
   value,
   roleLabel,
+  role,
   className,
 }: UserIdentityBadgeProps) {
   const [open, setOpen] = useState(false);
+  const mfaActive = useMfaAal2Active(role);
   const rootRef = useRef<HTMLDivElement | null>(null);
   const classes = ["ui-user-identity-badge", className].filter(Boolean).join(" ");
   const normalizedRole = useMemo(
@@ -73,6 +80,14 @@ export default function UserIdentityBadge({
             {value}
           </div>
           <div className="ui-user-identity-menu-role">{`Rôle actif: ${roleLabel || "Rôle non défini"}`}</div>
+          <Link
+            href="/account/security"
+            className="ui-button ui-button-secondary"
+            role="menuitem"
+            style={{ marginTop: 12, display: "inline-flex", justifyContent: "center" }}
+          >
+            Sécurité du compte
+          </Link>
         </div>
       ) : null}
     </div>

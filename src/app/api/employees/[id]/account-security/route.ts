@@ -389,7 +389,8 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { user, role } = await getStrictDirectionRequestUser(req);
+    const { user, role, mfaError } = await getStrictDirectionRequestUser(req);
+    if (mfaError) return mfaError;
 
     if (!user || (role !== "direction" && role !== "admin")) {
       return NextResponse.json({ error: "Acces refuse." }, { status: 403 });
@@ -442,7 +443,8 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { user, role } = await getStrictDirectionRequestUser(req);
+    const { user, role, mfaError } = await getStrictDirectionRequestUser(req);
+    if (mfaError) return mfaError;
 
     if (!user || role !== "admin") {
       return NextResponse.json({ error: "Acces refuse." }, { status: 403 });

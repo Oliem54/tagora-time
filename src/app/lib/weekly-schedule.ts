@@ -186,6 +186,192 @@ export function computeWeeklyPlannedHours(config: WeeklyScheduleConfig): number 
   }, 0);
 }
 
+/** Libellés français (Lundi = index 0 côté effectifs). */
+export const WEEKLY_SCHEDULE_DAY_LABELS_FR: Record<WeeklyScheduleDayKey, string> = {
+  monday: "Lundi",
+  tuesday: "Mardi",
+  wednesday: "Mercredi",
+  thursday: "Jeudi",
+  friday: "Vendredi",
+  saturday: "Samedi",
+  sunday: "Dimanche",
+};
+
+/**
+ * Avant sauvegarde : chaque jour actif doit avoir début/fin HH:MM valides.
+ */
+export function validateWeeklyScheduleForSave(
+  config: WeeklyScheduleConfig
+): { ok: true } | { ok: false; message: string } {
+  const normalized = sanitizeWeeklyScheduleConfig(config);
+  if (!normalized) {
+    return { ok: false, message: "Horaire hebdomadaire invalide." };
+  }
+  for (const k of WEEKLY_SCHEDULE_DAY_KEYS) {
+    const d = normalized.days[k];
+    if (!d.active) continue;
+    const start = sanitizeTime(d.start);
+    const end = sanitizeTime(d.end);
+    if (!start || !end) {
+      return {
+        ok: false,
+        message: `Veuillez compléter l'heure de début et de fin pour les jours actifs (${WEEKLY_SCHEDULE_DAY_LABELS_FR[k]}).`,
+      };
+    }
+  }
+  return { ok: true };
+}
+
+const FRENCH_DAY_TOKEN: Record<WeeklyScheduleDayKey, string> = {
+  monday: "lundi",
+  tuesday: "mardi",
+  wednesday: "mercredi",
+  thursday: "jeudi",
+  friday: "vendredi",
+  saturday: "samedi",
+  sunday: "dimanche",
+};
+
+function timeToMinutes(hhmm: string): number | null {
+  if (!TIME_HH_MM.test(hhmm.trim())) return null;
+  const [h, m] = hhmm.trim().split(":").map((x) => Number(x));
+  if (!Number.isFinite(h) || !Number.isFinite(m)) return null;
+  return h * 60 + m;
+}
+
+/**
+ * Heures prévues payées : plage début–fin moins les pauses non payées activées.
+ */
+export function computeDayNetPlannedHours(day: WeeklyScheduleDayConfig): number {
+  if (!day.active) return 0;
+  const start = sanitizeTime(day.start);
+  const end = sanitizeTime(day.end);
+  if (!start || !end) return 0;
+  const a = timeToMinutes(start);
+  const b = timeToMinutes(end);
+  if (a === null || b === null || b <= a) return 0;
+  let span = b - a;
+  let unpaid = 0;
+  for (const br of [day.breakAm, day.lunch, day.breakPm]) {
+    if (br.enabled && !br.paid && br.minutes > 0) {
+      unpaid += sanitizeNonNegativeNumber(br.minutes, 0);
+    }
+  }
+  const net = Math.max(0, span - unpaid);
+  return Math.round((net / 60) * 100) / 100;
+}
+
+export function withRecalculatedPlannedHours(
+  day: WeeklyScheduleDayConfig
+): WeeklyScheduleDayConfig {
+  const plannedHours = computeDayNetPlannedHours(day);
+  const pauseMinutes = [day.breakAm, day.lunch, day.breakPm]
+    .filter((b) => b.enabled && !b.paid)
+    .reduce((s, b) => s + sanitizeNonNegativeNumber(b.minutes, 0), 0);
+  return {
+    ...day,
+    plannedHours,
+    pauseMinutes,
+  };
+}
+
+export function recalculateWeeklyScheduleConfig(
+  config: WeeklyScheduleConfig
+): WeeklyScheduleConfig {
+  const days = {} as Record<WeeklyScheduleDayKey, WeeklyScheduleDayConfig>;
+  for (const dayKey of WEEKLY_SCHEDULE_DAY_KEYS) {
+    days[dayKey] = withRecalculatedPlannedHours(config.days[dayKey]);
+  }
+  return {
+    mode: "variable",
+    days,
+  };
+}
+
+export function isWeeklyScheduleDetailConfigured(
+  config: WeeklyScheduleConfig
+): boolean {
+  return WEEKLY_SCHEDULE_DAY_KEYS.some((k) => {
+    const d = config.days[k];
+    return d.active && Boolean(sanitizeTime(d.start)) && Boolean(sanitizeTime(d.end));
+  });
+}
+
+export function countActiveScheduleDays(config: WeeklyScheduleConfig): number {
+  return WEEKLY_SCHEDULE_DAY_KEYS.filter((k) => config.days[k].active).length;
+}
+
+export type DerivedLegacyFromWeekly = {
+  scheduled_work_days: string[];
+  planned_weekly_hours: number | null;
+  planned_daily_hours: number | null;
+  schedule_start: string | null;
+  schedule_end: string | null;
+  breakTemplate: WeeklyScheduleDayConfig | null;
+};
+
+/**
+ * Met à jour les champs planchers (jours, heures, pauses modèle) à partir de la grille.
+ * Le « modèle » de pauses globales reprend le premier jour ouvré actif (ordre Lundi→Dimanche).
+ */
+export function computeBreakSummaryForDay(day: WeeklyScheduleDayConfig) {
+  const items = [
+    {
+      enabled: day.breakAm.enabled,
+      minutes: sanitizeNonNegativeNumber(day.breakAm.minutes, 0),
+      paid: day.breakAm.paid,
+    },
+    {
+      enabled: day.lunch.enabled,
+      minutes: sanitizeNonNegativeNumber(day.lunch.minutes, 0),
+      paid: day.lunch.paid,
+    },
+    {
+      enabled: day.breakPm.enabled,
+      minutes: sanitizeNonNegativeNumber(day.breakPm.minutes, 0),
+      paid: day.breakPm.paid,
+    },
+  ];
+  const total = items.reduce(
+    (sum, item) => sum + (item.enabled && item.minutes ? item.minutes : 0),
+    0
+  );
+  const unpaid = items.reduce(
+    (sum, item) =>
+      sum + (item.enabled && item.minutes && !item.paid ? item.minutes : 0),
+    0
+  );
+  return {
+    count: items.filter((item) => item.enabled).length,
+    total,
+    unpaid,
+    paid: total - unpaid,
+  };
+}
+
+export function deriveLegacyFieldsFromWeekly(
+  config: WeeklyScheduleConfig
+): DerivedLegacyFromWeekly {
+  const recalc = recalculateWeeklyScheduleConfig(config);
+  const activeKeys = WEEKLY_SCHEDULE_DAY_KEYS.filter((k) => recalc.days[k].active);
+  const scheduled_work_days = activeKeys.map((k) => FRENCH_DAY_TOKEN[k]);
+  const total = computeWeeklyPlannedHours(recalc);
+  const firstKey = activeKeys[0] ?? null;
+  const templateDay = firstKey ? recalc.days[firstKey] : null;
+  const avg =
+    activeKeys.length > 0 && total > 0
+      ? Math.round((total / activeKeys.length) * 100) / 100
+      : null;
+  return {
+    scheduled_work_days,
+    planned_weekly_hours: total > 0 ? total : null,
+    planned_daily_hours: avg,
+    schedule_start: templateDay?.start ? sanitizeTime(templateDay.start) : null,
+    schedule_end: templateDay?.end ? sanitizeTime(templateDay.end) : null,
+    breakTemplate: templateDay,
+  };
+}
+
 export function createWeeklyScheduleFromLegacy(
   legacy: LegacyScheduleLike
 ): WeeklyScheduleConfig {
@@ -240,5 +426,5 @@ export function createWeeklyScheduleFromLegacy(
     // This helper intentionally does not override day values.
   }
 
-  return config;
+  return recalculateWeeklyScheduleConfig({ ...config, mode: "variable" });
 }

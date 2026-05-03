@@ -5,6 +5,7 @@ import { motion } from "framer-motion";
 import {
   ArrowUpRight,
   BriefcaseBusiness,
+  CalendarDays,
   ClipboardList,
   Clock3,
   FileStack,
@@ -13,6 +14,7 @@ import {
   Sparkles,
   Truck,
   UsersRound,
+  Bell,
   Waypoints,
   type LucideIcon,
 } from "lucide-react";
@@ -24,9 +26,11 @@ import SectionCard from "@/app/components/ui/SectionCard";
 import AppCard from "@/app/components/ui/AppCard";
 import SecondaryButton from "@/app/components/ui/SecondaryButton";
 import TagoraLoadingScreen from "@/app/components/ui/TagoraLoadingScreen";
-import StatusBadge from "@/app/components/ui/StatusBadge";
+import TagoraCountBadge from "@/app/components/TagoraCountBadge";
+import TagoraIconBadge from "@/app/components/TagoraIconBadge";
+import type { TagoraStatTone } from "@/app/components/tagora-stat-tone";
 
-type ModuleGroupId = "operations" | "administration";
+type ModuleGroupId = "supervision" | "operations" | "administration";
 
 type ModuleDefinition = {
   id: string;
@@ -35,12 +39,19 @@ type ModuleDefinition = {
   description: string;
   group: ModuleGroupId;
   icon: LucideIcon;
-  accent: string;
-  /** compteur Ameliorations (admin uniquement) */
-  pendingKey?: "ameliorations";
+  tone: TagoraStatTone;
+  /** compteur badges (admin uniquement) */
+  pendingKey?: "ameliorations" | "effectifs_schedule" | "alert_center";
 };
 
+const ALERT_CENTER_HREF = "/direction/alertes";
+
 const MODULE_GROUPS: { id: ModuleGroupId; title: string; subtitle: string }[] = [
+  {
+    id: "supervision",
+    title: "Supervision",
+    subtitle: "Suivi centralise des alertes et files d'attente.",
+  },
   {
     id: "operations",
     title: "Operations et suivi",
@@ -55,14 +66,23 @@ const MODULE_GROUPS: { id: ModuleGroupId; title: string; subtitle: string }[] = 
 
 const MODULES: ModuleDefinition[] = [
   {
+    id: "alert-center",
+    href: ALERT_CENTER_HREF,
+    label: "Centre d'alertes",
+    description: "Alertes direction, SMS, courriels et suivis a traiter.",
+    group: "supervision",
+    icon: Bell,
+    tone: "orange",
+    pendingKey: "alert_center",
+  },
+  {
     id: "livraisons",
     href: "/direction/livraisons",
     label: "Livraison et ramassage",
     description: "Planification et suivi des operations.",
     group: "operations",
     icon: Truck,
-    accent:
-      "linear-gradient(135deg, rgba(59,130,246,0.16) 0%, rgba(15,41,72,0.08) 100%)",
+    tone: "blue",
   },
   {
     id: "terrain",
@@ -71,8 +91,7 @@ const MODULES: ModuleDefinition[] = [
     description: "Carte en direct et equipes.",
     group: "operations",
     icon: Waypoints,
-    accent:
-      "linear-gradient(135deg, rgba(16,185,129,0.18) 0%, rgba(15,41,72,0.08) 100%)",
+    tone: "cyan",
   },
   {
     id: "documents",
@@ -81,8 +100,7 @@ const MODULES: ModuleDefinition[] = [
     description: "Dossiers et pieces.",
     group: "operations",
     icon: Files,
-    accent:
-      "linear-gradient(135deg, rgba(14,165,233,0.18) 0%, rgba(15,41,72,0.08) 100%)",
+    tone: "blue",
   },
   {
     id: "ameliorations",
@@ -91,8 +109,7 @@ const MODULES: ModuleDefinition[] = [
     description: "Suggestions et ameliorations a traiter.",
     group: "administration",
     icon: Sparkles,
-    accent:
-      "linear-gradient(135deg, rgba(234,179,8,0.2) 0%, rgba(15,41,72,0.08) 100%)",
+    tone: "yellow",
     pendingKey: "ameliorations",
   },
   {
@@ -102,8 +119,7 @@ const MODULES: ModuleDefinition[] = [
     description: "Acces et fiches employes.",
     group: "administration",
     icon: UsersRound,
-    accent:
-      "linear-gradient(135deg, rgba(244,114,182,0.18) 0%, rgba(15,41,72,0.08) 100%)",
+    tone: "purple",
   },
   {
     id: "horodateur",
@@ -112,8 +128,7 @@ const MODULES: ModuleDefinition[] = [
     description: "Quarts, pointage et anomalies.",
     group: "administration",
     icon: Clock3,
-    accent:
-      "linear-gradient(135deg, rgba(34,197,94,0.18) 0%, rgba(15,41,72,0.08) 100%)",
+    tone: "green",
   },
   {
     id: "horodateur-registre",
@@ -122,8 +137,17 @@ const MODULES: ModuleDefinition[] = [
     description: "Historique des heures et punchs par periode.",
     group: "administration",
     icon: ClipboardList,
-    accent:
-      "linear-gradient(135deg, rgba(56,189,248,0.2) 0%, rgba(15,41,72,0.08) 100%)",
+    tone: "cyan",
+  },
+  {
+    id: "effectifs",
+    href: "/direction/effectifs",
+    label: "Calendrier des effectifs",
+    description: "Couverture des équipes par département.",
+    group: "administration",
+    icon: CalendarDays,
+    tone: "cyan",
+    pendingKey: "effectifs_schedule",
   },
   {
     id: "paie",
@@ -132,8 +156,7 @@ const MODULES: ModuleDefinition[] = [
     description: "Heures et couts par compagnie.",
     group: "administration",
     icon: ReceiptText,
-    accent:
-      "linear-gradient(135deg, rgba(168,85,247,0.18) 0%, rgba(15,41,72,0.08) 100%)",
+    tone: "purple",
   },
   {
     id: "facturation",
@@ -142,8 +165,7 @@ const MODULES: ModuleDefinition[] = [
     description: "Montants a facturer.",
     group: "administration",
     icon: FileStack,
-    accent:
-      "linear-gradient(135deg, rgba(251,146,60,0.18) 0%, rgba(15,41,72,0.08) 100%)",
+    tone: "orange",
   },
   {
     id: "ressources",
@@ -152,8 +174,7 @@ const MODULES: ModuleDefinition[] = [
     description: "Employes, flotte et referentiels.",
     group: "administration",
     icon: BriefcaseBusiness,
-    accent:
-      "linear-gradient(135deg, rgba(236,72,153,0.16) 0%, rgba(15,41,72,0.08) 100%)",
+    tone: "purple",
   },
 ];
 
@@ -161,6 +182,13 @@ export default function AdminDashboardClient() {
   const router = useRouter();
   const { user, loading } = useCurrentAccess();
   const [ameliorationsPending, setAmeliorationsPending] = useState<number | null>(null);
+  const [effectifsSchedulePending, setEffectifsSchedulePending] = useState<number | null>(null);
+  const [alertCenterMeta, setAlertCenterMeta] = useState({
+    badgeTotal: 0,
+    failed: 0,
+    critical: 0,
+  });
+  const [alertOpenSum, setAlertOpenSum] = useState(0);
 
   useEffect(() => {
     if (loading || !user) {
@@ -175,25 +203,52 @@ export default function AdminDashboardClient() {
         if (!session?.access_token || cancelled) {
           return;
         }
-        const response = await fetch("/api/admin/ameliorations-pending-count", {
-          headers: { Authorization: `Bearer ${session.access_token}` },
+        const token = session.access_token;
+        const summaryRes = await fetch("/api/direction/alert-center/summary", {
+          headers: { Authorization: `Bearer ${token}` },
         });
-        if (response.status === 403) {
+
+        if (cancelled) return;
+
+        if (!summaryRes.ok) {
           setAmeliorationsPending(null);
+          setEffectifsSchedulePending(null);
+          setAlertCenterMeta({ badgeTotal: 0, failed: 0, critical: 0 });
+          setAlertOpenSum(0);
           return;
         }
-        if (!response.ok) {
-          setAmeliorationsPending(null);
-          return;
-        }
-        const payload = (await response.json()) as { count?: number };
-        if (cancelled) {
-          return;
-        }
-        setAmeliorationsPending(typeof payload.count === "number" ? payload.count : null);
+
+        const s = (await summaryRes.json()) as {
+          open?: {
+            improvements?: unknown;
+            effectifsScheduleRequests?: unknown;
+            sum?: unknown;
+          };
+          failed?: { total?: unknown; smsOrEmail?: unknown };
+          criticalUntreated?: { total?: unknown };
+          badgeTotal?: unknown;
+        };
+
+        const imp = Number(s.open?.improvements);
+        const ef = Number(s.open?.effectifsScheduleRequests);
+        setAmeliorationsPending(Number.isFinite(imp) ? Math.max(0, imp) : null);
+        setEffectifsSchedulePending(Number.isFinite(ef) ? Math.max(0, ef) : null);
+        const bt = Number(s.badgeTotal);
+        const fl = Number(s.failed?.smsOrEmail ?? s.failed?.total);
+        const cr = Number(s.criticalUntreated?.total);
+        setAlertCenterMeta({
+          badgeTotal: Number.isFinite(bt) ? Math.max(0, bt) : 0,
+          failed: Number.isFinite(fl) ? Math.max(0, fl) : 0,
+          critical: Number.isFinite(cr) ? Math.max(0, cr) : 0,
+        });
+        const os = Number(s.open?.sum);
+        setAlertOpenSum(Number.isFinite(os) ? Math.max(0, os) : 0);
       } catch {
         if (!cancelled) {
           setAmeliorationsPending(null);
+          setEffectifsSchedulePending(null);
+          setAlertCenterMeta({ badgeTotal: 0, failed: 0, critical: 0 });
+          setAlertOpenSum(0);
         }
       }
     })();
@@ -224,16 +279,34 @@ export default function AdminDashboardClient() {
   }
 
   function badgeForModule(m: ModuleDefinition) {
+    if (
+      m.pendingKey === "alert_center" &&
+      alertCenterMeta.badgeTotal > 0
+    ) {
+      const n = alertCenterMeta.badgeTotal;
+      return (
+        <TagoraCountBadge aria-label={`${n} alerte(s) au centre d'alertes`}>
+          {n > 99 ? "99+" : n}
+        </TagoraCountBadge>
+      );
+    }
     if (m.pendingKey === "ameliorations" && ameliorationsPending != null && ameliorationsPending > 0) {
       return (
-        <StatusBadge
-          label={
-            ameliorationsPending === 1
-              ? "1 nouvelle"
-              : `${ameliorationsPending} nouvelles`
-          }
-          tone="warning"
-        />
+        <TagoraCountBadge aria-label={`${ameliorationsPending} amélioration(s) en attente`}>
+          {ameliorationsPending > 99 ? "99+" : ameliorationsPending}
+        </TagoraCountBadge>
+      );
+    }
+    if (
+      m.pendingKey === "effectifs_schedule" &&
+      effectifsSchedulePending != null &&
+      effectifsSchedulePending > 0
+    ) {
+      const n = effectifsSchedulePending;
+      return (
+        <TagoraCountBadge aria-label={`${n} demande${n > 1 ? "s" : ""} d'horaire en attente`}>
+          {n > 99 ? "99+" : n}
+        </TagoraCountBadge>
       );
     }
     return null;
@@ -274,6 +347,62 @@ export default function AdminDashboardClient() {
           }
         />
 
+        <motion.section
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.35, ease: "easeOut" }}
+        >
+          <AppCard
+            className="ui-stack-sm"
+            style={{
+              padding: "var(--ui-space-4)",
+              borderLeft: "4px solid #f97316",
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                flexWrap: "wrap",
+                gap: "var(--ui-space-4)",
+                alignItems: "center",
+                justifyContent: "space-between",
+              }}
+            >
+              <div style={{ fontWeight: 600, color: "#102544" }}>Résumé alertes</div>
+              <div
+                style={{
+                  display: "flex",
+                  flexWrap: "wrap",
+                  gap: "var(--ui-space-5)",
+                  fontSize: 14,
+                  color: "#64748b",
+                }}
+              >
+                <span>
+                  A traiter :{" "}
+                  <strong style={{ color: "#102544" }}>{alertOpenSum}</strong>
+                </span>
+                <span>
+                  Critiques :{" "}
+                  <strong style={{ color: "#102544" }}>{alertCenterMeta.critical}</strong>
+                </span>
+                <span>
+                  Echecs SMS / courriel :{" "}
+                  <strong style={{ color: "#102544" }}>{alertCenterMeta.failed}</strong>
+                </span>
+              </div>
+              <button
+                type="button"
+                className="tagora-dark-action"
+                onClick={() => router.push(`${ALERT_CENTER_HREF}?status=open`)}
+                style={{ padding: "8px 14px", fontSize: 14 }}
+              >
+                Ouvrir le centre d'alertes
+              </button>
+            </div>
+          </AppCard>
+        </motion.section>
+
         {groupedModules.map((group, groupIndex) => (
           <motion.section
             key={group.id}
@@ -306,17 +435,13 @@ export default function AdminDashboardClient() {
                       style={{ height: "100%" }}
                     >
                       <AppCard
-                        className="ui-stack-md"
+                        className="ui-stack-md tagora-dashboard-module-card"
                         style={{
                           height: "100%",
                           minHeight: 262,
                           display: "flex",
                           flexDirection: "column",
                           justifyContent: "space-between",
-                          border: "1px solid #dbe5f1",
-                          boxShadow: "0 18px 38px rgba(15, 23, 42, 0.08)",
-                          background:
-                            "linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(247,250,255,0.98) 100%)",
                         }}
                       >
                         <div className="ui-stack-md" style={{ flex: 1 }}>
@@ -331,20 +456,10 @@ export default function AdminDashboardClient() {
                             <motion.div
                               whileHover={{ y: -1, scale: 1.04 }}
                               transition={{ duration: 0.18, ease: "easeOut" }}
-                              style={{
-                                width: 52,
-                                height: 52,
-                                borderRadius: 16,
-                                display: "inline-flex",
-                                alignItems: "center",
-                                justifyContent: "center",
-                                background: item.accent,
-                                border: "1px solid rgba(23,55,107,0.08)",
-                                color: "#17376b",
-                                boxShadow: "inset 0 1px 0 rgba(255,255,255,0.4)",
-                              }}
                             >
-                              <Icon size={24} strokeWidth={2.1} />
+                              <TagoraIconBadge tone={item.tone} size="lg">
+                                <Icon size={24} strokeWidth={2.1} aria-hidden />
+                              </TagoraIconBadge>
                             </motion.div>
                             {badgeForModule(item)}
                           </div>
@@ -379,7 +494,13 @@ export default function AdminDashboardClient() {
                           className="tagora-dark-action"
                           whileHover={{ y: -1 }}
                           transition={{ duration: 0.16, ease: "easeOut" }}
-                          onClick={() => router.push(item.href)}
+                          onClick={() =>
+                            router.push(
+                              item.id === "alert-center"
+                                ? `${ALERT_CENTER_HREF}?status=open`
+                                : item.href
+                            )
+                          }
                           style={{
                             width: "100%",
                             justifyContent: "space-between",

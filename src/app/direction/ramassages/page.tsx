@@ -468,22 +468,6 @@ export default function DirectionRamassagesPage() {
     );
   }
 
-  const navButtonBase: React.CSSProperties = {
-    minHeight: 40,
-    padding: "10px 16px",
-    borderRadius: 10,
-    border: "1px solid #0f2948",
-    fontSize: 13,
-    fontWeight: 700,
-    lineHeight: 1,
-    display: "inline-flex",
-    alignItems: "center",
-    justifyContent: "center",
-    textDecoration: "none",
-    whiteSpace: "nowrap",
-    transition: "all 140ms ease",
-  };
-
   const actionButtonBase: React.CSSProperties = {
     minHeight: 40,
     padding: "10px 16px",
@@ -505,22 +489,32 @@ export default function DirectionRamassagesPage() {
       ? { background: "#0f2948", color: "#ffffff" }
       : { background: "#ffffff", color: "#0f2948" };
   const pageTitle = viewMode === "liste" ? "Ramassages" : "Calendrier ramassages";
+  const headerActions = (
+    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+      <Link href="/direction/livraisons" className="tagora-dark-outline-action">
+        Livraisons
+      </Link>
+      <Link href="/direction/ramassages" className="tagora-dark-outline-action">
+        Ramassages
+      </Link>
+      <Link href="/direction/livraisons/archives" className="tagora-dark-outline-action">
+        Archives
+      </Link>
+      <Link href="/direction/dashboard" className="tagora-dark-action">
+        Tableau de bord direction
+      </Link>
+    </div>
+  );
 
   return (
     <main className="page-container">
-      <HeaderTagora title={pageTitle} subtitle="Ramassages distincts et harmonises avec les preuves." />
+      <HeaderTagora
+        title={pageTitle}
+        subtitle=""
+        showNavigation={false}
+        actions={headerActions}
+      />
       <div style={{ marginTop: 12, display: "grid", gap: 10 }}>
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <Link href="/direction/livraisons" style={{ ...navButtonBase, ...getButtonTone(false) }}>
-            Livraisons
-          </Link>
-          <Link href="/direction/ramassages" aria-current="page" style={{ ...navButtonBase, ...getButtonTone(true) }}>
-            Ramassages
-          </Link>
-          <Link href="/direction/livraisons/archives" style={{ ...navButtonBase, ...getButtonTone(false) }}>
-            Archives
-          </Link>
-        </div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           <button
             type="button"

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { User } from "@supabase/supabase-js";
 import {
   clearLocalAuthIfRefreshTokenDead,
@@ -160,10 +160,13 @@ export function useCurrentAccess() {
     };
   }, []);
 
+  const hasPermission = useCallback(
+    (permission: AppPermission) => state.permissions.includes(permission),
+    [state.permissions]
+  );
+
   return {
     ...state,
-    hasPermission(permission: AppPermission) {
-      return state.permissions.includes(permission);
-    },
+    hasPermission,
   };
 }

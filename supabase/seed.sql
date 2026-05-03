@@ -1,0 +1,2 @@
+-- Optionnel : données de dev après `supabase db reset`.
+-- Laisser vide si vous n’utilisez pas de seed.

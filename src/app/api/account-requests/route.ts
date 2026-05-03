@@ -298,7 +298,8 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    const { user, role } = await getStrictDirectionRequestUser(req);
+    const { user, role, mfaError } = await getStrictDirectionRequestUser(req);
+    if (mfaError) return mfaError;
 
     if (!user || (role !== "direction" && role !== "admin")) {
       return NextResponse.json({ error: "Acces refuse." }, { status: 403 });

@@ -1358,7 +1358,8 @@ export async function PATCH(
       );
     }
 
-    const { user, role } = await getStrictDirectionRequestUser(req);
+    const { user, role, mfaError } = await getStrictDirectionRequestUser(req);
+    if (mfaError) return mfaError;
 
     if (!user || role !== "admin") {
       return NextResponse.json({ error: "Acces refuse." }, { status: 403 });
@@ -2012,7 +2013,8 @@ export async function DELETE(
       );
     }
 
-    const { user, role } = await getStrictDirectionRequestUser(req);
+    const { user, role, mfaError } = await getStrictDirectionRequestUser(req);
+    if (mfaError) return mfaError;
 
     if (!user || role !== "admin") {
       return NextResponse.json({ error: "Acces refuse." }, { status: 403 });

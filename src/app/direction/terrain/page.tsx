@@ -303,7 +303,7 @@ export default function DirectionTerrainPage() {
     return (
       <main className="tagora-app-shell">
         <div className="tagora-app-content">
-          <AuthenticatedPageHeader title="Terrain direction" />
+          <AuthenticatedPageHeader title="Terrain direction" subtitle="" showNavigation={false} />
           <SectionCard title="Acces bloque" subtitle="Module masque." />
         </div>
       </main>
@@ -315,7 +315,23 @@ export default function DirectionTerrainPage() {
       <div className="tagora-app-content ui-stack-lg">
         <AuthenticatedPageHeader
           title="Terrain direction"
-          actions={<SecondaryButton onClick={() => void loadData()}>{refreshing ? "Synchronisation..." : "Actualiser"}</SecondaryButton>}
+          subtitle=""
+          showNavigation={false}
+          actions={
+            <div
+              style={{
+                display: "flex",
+                gap: "var(--ui-space-3)",
+                flexWrap: "wrap",
+                alignItems: "center",
+              }}
+            >
+              <Link href="/direction/dashboard" className="tagora-dark-action" style={{ textDecoration: "none" }}>
+                Tableau de bord direction
+              </Link>
+              <SecondaryButton onClick={() => void loadData()}>{refreshing ? "Synchronisation..." : "Actualiser"}</SecondaryButton>
+            </div>
+          }
         />
 
         {errorMessage ? <SectionCard title="Chargement limite" subtitle={errorMessage} tone="muted" /> : null}

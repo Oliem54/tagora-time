@@ -1,10 +1,22 @@
 import "server-only";
 
+import type { SupabaseClient } from "@supabase/supabase-js";
+
+import {
+  dualWriteHorodateurExceptionCreated,
+  findOpenAppAlertIdByDedupeKey,
+  getChauffeurCompanyKey,
+  logNotificationFailureAppAlert,
+  markHorodateurExceptionAppAlertHandled,
+  recordDeliveriesFromHorodateurDirectionNotify,
+} from "@/app/lib/app-alerts-dual-write.server";
 import { getCompanyLabel, type AccountRequestCompany } from "@/app/lib/account-requests.shared";
 import {
   notifyDirectionOfHorodateurException,
+  notifyEmployeeHorodateurExceptionDecision,
   notifyHorodateurLateness,
 } from "@/app/lib/notifications";
+import { createAdminSupabaseClient } from "@/app/lib/supabase/admin";
 import {
   attachShiftToException,
   countPendingExceptionsForEmployee,
@@ -319,7 +331,8 @@ export async function createPendingExceptionForEvent(options: {
   event: HorodateurPhase1EventRecord;
   requestedByUserId: string | null;
   reasonLabel: string;
-  details?: string | null;
+  /** Note libre employé / direction — stockée dans horodateur_exceptions.details (distinct du motif système reason_label). */
+  employeeNote?: string | null;
   impactMinutes?: number;
 }) {
   if (shouldBypassExceptionWorkflow(options.event)) {
@@ -348,10 +361,18 @@ export async function createPendingExceptionForEvent(options: {
     sourceEventId: options.event.id,
     exceptionType: options.event.exception_code,
     reasonLabel: options.reasonLabel,
-    details: options.details ?? null,
+    details: options.employeeNote?.trim() ? options.employeeNote.trim() : null,
     impactMinutes: options.impactMinutes ?? 0,
     requestedByUserId: options.requestedByUserId,
   });
+}
+
+function tryCreateAdminClient(): SupabaseClient | null {
+  try {
+    return createAdminSupabaseClient();
+  } catch {
+    return null;
+  }
 }
 
 async function notifyDirectionOfPendingException(options: {
@@ -370,21 +391,88 @@ async function notifyDirectionOfPendingException(options: {
     return options.exception;
   }
 
+  const admin = tryCreateAdminClient();
+  let alertId: string | null = null;
+
   try {
+    if (admin) {
+      const companyKey = await getChauffeurCompanyKey(admin, options.employee.employeeId);
+      const ins = await dualWriteHorodateurExceptionCreated({
+        supabase: admin,
+        exceptionId: options.exception.id,
+        employeeId: options.employee.employeeId,
+        companyKey,
+        employeeName: options.employee.fullName,
+        reasonLabel: options.exception.reason_label,
+        employeeNote: options.exception.details,
+        exceptionType: options.exception.exception_type,
+        occurredAt: getEventOccurredAt(options.event),
+      });
+      alertId = ins.id;
+      if (!alertId && ins.skippedDuplicate) {
+        alertId = await findOpenAppAlertIdByDedupeKey(
+          admin,
+          `horodateur_exception:${options.exception.id}`
+        );
+      }
+    }
+
     const notificationResult = await notifyDirectionOfHorodateurException({
       exceptionId: options.exception.id,
       employeeName: options.employee.fullName,
       employeeEmail: options.employee.email,
+      employeePhone: options.employee.phoneNumber,
+      company: options.employee.primaryCompany,
       exceptionType: options.exception.exception_type,
-        reasonLabel: options.exception.reason_label,
-        occurredAt: getEventOccurredAt(options.event),
-        requestedAt: options.exception.requested_at,
-        managementUrl: "/direction/horodateur",
-        emailEnabled: config.email_enabled,
-        smsEnabled: config.sms_enabled,
-        recipientEmails: recipients.directionEmails,
-        recipientSmsNumbers: recipients.directionSmsNumbers,
-      });
+      reasonLabel: options.exception.reason_label,
+      employeeNote: options.exception.details,
+      occurredAt: getEventOccurredAt(options.event),
+      requestedAt: options.exception.requested_at,
+      managementUrl: "/direction/horodateur",
+      emailEnabled: config.email_enabled,
+      smsEnabled: config.sms_enabled,
+      recipientEmails: recipients.directionEmails,
+      recipientSmsNumbers: recipients.directionSmsNumbers,
+    });
+
+    if (admin) {
+      if (alertId) {
+        await recordDeliveriesFromHorodateurDirectionNotify(admin, alertId, {
+          email: {
+            ok: notificationResult.email.ok,
+            skipped: Boolean(notificationResult.email.skipped),
+            reason: notificationResult.email.reason ?? null,
+            recipients: notificationResult.email.recipients ?? [],
+          },
+          sms: {
+            sent: notificationResult.sms.sent,
+            skipped: Boolean(notificationResult.sms.skipped),
+            reason: notificationResult.sms.reason ?? null,
+            recipients: notificationResult.sms.recipients ?? [],
+          },
+        });
+      }
+      if (!notificationResult.email.ok && !notificationResult.email.skipped) {
+        await logNotificationFailureAppAlert({
+          supabase: admin,
+          sourceModule: "horodateur",
+          sourceId: options.exception.id,
+          channel: "email",
+          errorMessage: notificationResult.email.reason ?? "direction_email_failed",
+          recipient: notificationResult.email.recipients?.[0] ?? null,
+        });
+      }
+      if (!notificationResult.sms.sent && !notificationResult.sms.skipped) {
+        await logNotificationFailureAppAlert({
+          supabase: admin,
+          sourceModule: "horodateur",
+          sourceId: options.exception.id,
+          channel: "sms",
+          errorMessage: notificationResult.sms.reason ?? "direction_sms_failed",
+          recipient: notificationResult.sms.recipients?.[0] ?? null,
+        });
+      }
+    }
 
     const nowIso = new Date().toISOString();
     const shouldPersistEmail =
@@ -430,6 +518,7 @@ export async function processPendingExceptionReminders() {
   const recipients = await resolveDirectionRecipients(config);
   const pendingExceptions = await listPendingExceptionsForDirection();
   const now = Date.now();
+  const admin = tryCreateAdminClient();
   const processed: Array<{
     exceptionId: string;
     emailSent: boolean;
@@ -462,12 +551,38 @@ export async function processPendingExceptionReminders() {
       continue;
     }
 
+    let alertId: string | null = null;
+    if (admin) {
+      const companyKey = await getChauffeurCompanyKey(admin, item.employee.employeeId);
+      const ins = await dualWriteHorodateurExceptionCreated({
+        supabase: admin,
+        exceptionId: item.id,
+        employeeId: item.employee.employeeId,
+        companyKey,
+        employeeName: item.employee.fullName,
+        reasonLabel: item.reason_label,
+        employeeNote: item.details,
+        exceptionType: item.exception_type,
+        occurredAt: item.event.occurredAt,
+      });
+      alertId = ins.id;
+      if (!alertId && ins.skippedDuplicate) {
+        alertId = await findOpenAppAlertIdByDedupeKey(
+          admin,
+          `horodateur_exception:${item.id}`
+        );
+      }
+    }
+
     const notificationResult = await notifyDirectionOfHorodateurException({
       exceptionId: item.id,
       employeeName: item.employee.fullName,
       employeeEmail: item.employee.email,
+      employeePhone: item.employee.phoneNumber,
+      company: item.employee.primaryCompany,
       exceptionType: item.exception_type,
       reasonLabel: item.reason_label,
+      employeeNote: item.details,
       occurredAt: item.event.occurredAt,
       requestedAt: item.requested_at,
       managementUrl: "/direction/horodateur",
@@ -477,6 +592,45 @@ export async function processPendingExceptionReminders() {
       recipientSmsNumbers: recipients.directionSmsNumbers,
       isReminder: true,
     });
+
+    if (admin) {
+      if (alertId) {
+        await recordDeliveriesFromHorodateurDirectionNotify(admin, alertId, {
+          email: {
+            ok: notificationResult.email.ok,
+            skipped: Boolean(notificationResult.email.skipped),
+            reason: notificationResult.email.reason ?? null,
+            recipients: notificationResult.email.recipients ?? [],
+          },
+          sms: {
+            sent: notificationResult.sms.sent,
+            skipped: Boolean(notificationResult.sms.skipped),
+            reason: notificationResult.sms.reason ?? null,
+            recipients: notificationResult.sms.recipients ?? [],
+          },
+        });
+      }
+      if (!notificationResult.email.ok && !notificationResult.email.skipped) {
+        await logNotificationFailureAppAlert({
+          supabase: admin,
+          sourceModule: "horodateur",
+          sourceId: item.id,
+          channel: "email",
+          errorMessage: notificationResult.email.reason ?? "direction_email_failed",
+          recipient: notificationResult.email.recipients?.[0] ?? null,
+        });
+      }
+      if (!notificationResult.sms.sent && !notificationResult.sms.skipped) {
+        await logNotificationFailureAppAlert({
+          supabase: admin,
+          sourceModule: "horodateur",
+          sourceId: item.id,
+          channel: "sms",
+          errorMessage: notificationResult.sms.reason ?? "direction_sms_failed",
+          recipient: notificationResult.sms.recipients?.[0] ?? null,
+        });
+      }
+    }
 
     const nowIso = new Date().toISOString();
     const shouldPersistEmail =
@@ -885,12 +1039,24 @@ export async function recomputeShiftForDate(
     }
 
     if (canonicalEventType === "punch_in") {
+      // Plusieurs entrées/sorties le même jour (employé ou direction) : après un quart
+      // terminé (punch_out), un nouveau punch_in ouvre un segment suivant — sans quoi le
+      // 2e bloc était ignoré (« double punch_in » alors que shiftStartAt restait celui du matin).
+      if (shiftStartAt && shiftEndAt && state === "termine") {
+        shiftEndAt = null;
+        workSegmentStartAt = eventOccurredAt;
+        state = "en_quart";
+        continue;
+      }
+
       if (!shiftStartAt) {
         shiftStartAt = eventOccurredAt;
         workSegmentStartAt = eventOccurredAt;
         state = "en_quart";
-      } else {
+      } else if (!shiftEndAt) {
         anomalies.push("Double punch_in detecte (overlap / missing_punch_out).");
+      } else {
+        anomalies.push("Double punch_in detecte (sequence inattendue).");
       }
       continue;
     }
@@ -979,6 +1145,14 @@ export async function recomputeShiftForDate(
     }
 
     if (canonicalEventType === "manual_correction") {
+      if (process.env.NODE_ENV === "development") {
+        console.info("[horodateur-calc-skipped-event]", {
+          eventId: event.id,
+          eventType: event.event_type,
+          source: event.source_kind ?? null,
+          reason: "manual_correction_not_counted_in_shift_math",
+        });
+      }
       anomalies.push("Correction manuelle detectee (review recommandee).");
       continue;
     }
@@ -1120,6 +1294,19 @@ export async function createEmployeePunch(options: {
   note?: string | null;
   companyContext?: AccountRequestCompany | null;
   relatedEventId?: string | null;
+  /** Par défaut `employe` ; utiliser `qr` pour un scan QR. */
+  sourceKind?: HorodateurPhase1InsertEventInput["sourceKind"];
+  /** Traçabilité zone / GPS (punch QR). */
+  punchTrace?: {
+    punchSource: string;
+    punchZoneKey: string | null;
+    punchZoneId: string | null;
+    zoneValidated: boolean;
+    gpsLatitude: number | null;
+    gpsLongitude: number | null;
+    workCompanyKey: string | null;
+    employerCompanyKey: string | null;
+  };
 }) : Promise<HorodateurPhase1CreatePunchResult> {
   const occurredAt = options.occurredAt ?? new Date().toISOString();
   const employee = await resolveEmployeeByAuthUserId(options.actorUserId);
@@ -1143,6 +1330,9 @@ export async function createEmployeePunch(options: {
     employee
   );
 
+  const sourceKind = options.sourceKind ?? "employe";
+  const pt = options.punchTrace;
+
   const event = await insertHorodateurEvent({
     userId: requireEmployeeAuthUserId(employee),
     employeeId: employee.employeeId,
@@ -1151,7 +1341,7 @@ export async function createEmployeePunch(options: {
     eventType: options.eventType,
     actorUserId: options.actorUserId,
     actorRole: "employe",
-    sourceKind: "employe",
+    sourceKind,
     companyContext,
     note: options.note,
     relatedEventId: options.relatedEventId,
@@ -1160,6 +1350,18 @@ export async function createEmployeePunch(options: {
     requiresApproval: classification.requiresApproval,
     exceptionCode: classification.exceptionType,
     approvalNote: classification.details,
+    ...(pt
+      ? {
+          punchSource: pt.punchSource,
+          punchZoneKey: pt.punchZoneKey,
+          punchZoneId: pt.punchZoneId,
+          zoneValidated: pt.zoneValidated,
+          gpsLatitude: pt.gpsLatitude,
+          gpsLongitude: pt.gpsLongitude,
+          workCompanyKey: pt.workCompanyKey,
+          employerCompanyKey: pt.employerCompanyKey,
+        }
+      : {}),
   });
 
   let exception: HorodateurPhase1ExceptionRecord | null = null;
@@ -1170,7 +1372,7 @@ export async function createEmployeePunch(options: {
       event,
       requestedByUserId: options.actorUserId,
       reasonLabel: classification.reasonLabel ?? "Exception horodateur en attente",
-      details: classification.details,
+      employeeNote: options.note,
     });
 
     if (exception) {
@@ -1220,6 +1422,11 @@ export async function createDirectionPunch(options: {
 
   const occurredAt = options.occurredAt ?? new Date().toISOString();
   const employee = await resolveEmployeeById(options.employeeId);
+  const workDateForRecompute = getLocalWorkDate(occurredAt);
+  const shiftBeforeDirectionAction =
+    process.env.NODE_ENV === "development"
+      ? await getShiftByEmployeeAndWorkDate(employee.employeeId, workDateForRecompute)
+      : null;
   const currentState = await getCurrentStateByEmployeeId(employee.employeeId);
   const latestApprovedEvents = await listEventsForEmployee({
     employeeId: employee.employeeId,
@@ -1270,7 +1477,7 @@ export async function createDirectionPunch(options: {
       reasonLabel:
         classification.reasonLabel ??
         `Correction direction pour ${employee.fullName ?? `#${employee.employeeId}`}`,
-      details: classification.details ?? normalizedNote,
+      employeeNote: normalizedNote,
     });
 
     if (exception) {
@@ -1282,11 +1489,22 @@ export async function createDirectionPunch(options: {
     }
   }
 
-  const shift = await recomputeShiftForDate(
-    employee.employeeId,
-    event.work_date ?? getLocalWorkDate(occurredAt)
-  );
+  const shift = await recomputeShiftForDate(employee.employeeId, workDateForRecompute);
   const refreshedState = await recomputeCurrentState(employee.employeeId);
+
+  if (process.env.NODE_ENV === "development") {
+    console.info("[direction-horodateur-action]", {
+      employeeId: employee.employeeId,
+      eventType: options.eventType,
+      source: "direction",
+      occurredAt,
+      createdEventId: event.id,
+      dayWorkedMinutesBefore: shiftBeforeDirectionAction?.worked_minutes ?? null,
+      dayPayableMinutesBefore: shiftBeforeDirectionAction?.payable_minutes ?? null,
+      dayWorkedMinutesAfter: shift.worked_minutes,
+      dayPayableMinutesAfter: shift.payable_minutes,
+    });
+  }
 
   return {
     event,
@@ -1595,11 +1813,42 @@ export async function approveHorodateurException(options: {
   );
   const currentState = await recomputeCurrentState(exception.employee_id);
 
+  let employeeNotify: Awaited<
+    ReturnType<typeof notifyEmployeeHorodateurExceptionDecision>
+  > | null = null;
+  try {
+    const employee = await getEmployeeById(exception.employee_id);
+    if (employee) {
+      employeeNotify = await notifyEmployeeHorodateurExceptionDecision({
+        employee,
+        outcome: "approved",
+        exceptionId: exception.id,
+      });
+    }
+  } catch (error) {
+    console.error("[horodateur-exception-employee-notify]", {
+      exceptionId: exception.id,
+      employeeId: exception.employee_id,
+      message: error instanceof Error ? error.message : String(error),
+    });
+  }
+
+  const admin = tryCreateAdminClient();
+  if (admin) {
+    await markHorodateurExceptionAppAlertHandled(
+      admin,
+      exception.id,
+      options.actorUserId,
+      "approved"
+    );
+  }
+
   return {
     exception: reviewedException,
     event,
     shift,
     currentState,
+    employeeNotify,
   };
 }
 
@@ -1655,10 +1904,41 @@ export async function refuseHorodateurException(options: {
   );
   const currentState = await recomputeCurrentState(exception.employee_id);
 
+  let employeeNotify: Awaited<
+    ReturnType<typeof notifyEmployeeHorodateurExceptionDecision>
+  > | null = null;
+  try {
+    const employee = await getEmployeeById(exception.employee_id);
+    if (employee) {
+      employeeNotify = await notifyEmployeeHorodateurExceptionDecision({
+        employee,
+        outcome: "rejected",
+        exceptionId: exception.id,
+      });
+    }
+  } catch (error) {
+    console.error("[horodateur-exception-employee-notify]", {
+      exceptionId: exception.id,
+      employeeId: exception.employee_id,
+      message: error instanceof Error ? error.message : String(error),
+    });
+  }
+
+  const adminRefuse = tryCreateAdminClient();
+  if (adminRefuse) {
+    await markHorodateurExceptionAppAlertHandled(
+      adminRefuse,
+      exception.id,
+      options.actorUserId,
+      "rejected"
+    );
+  }
+
   return {
     exception: reviewedException,
     event,
     shift,
     currentState,
+    employeeNotify,
   };
 }

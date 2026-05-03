@@ -1,4 +1,23 @@
 import { type AccountRequestCompany } from "@/app/lib/account-requests.shared";
+import {
+  type EffectifsDepartmentKey,
+  normalizeEffectifsDepartmentKey,
+  sanitizeDepartmentKeyArray,
+  sanitizeLocationKeyArray,
+} from "@/app/lib/effectifs-departments.shared";
+import {
+  computeBreakSummaryForDay,
+  createEmptyWeeklyScheduleConfig,
+  createWeeklyScheduleFromLegacy,
+  deriveLegacyFieldsFromWeekly,
+  isWeeklyScheduleDetailConfigured,
+  recalculateWeeklyScheduleConfig,
+  sanitizeWeeklyScheduleConfig,
+  type WeeklyScheduleConfig,
+} from "@/app/lib/weekly-schedule";
+
+export { EFFECTIFS_DEPARTMENT_ENTRIES, EFFECTIFS_LOCATION_ENTRIES } from "@/app/lib/effectifs-departments.shared";
+export type { WeeklyScheduleConfig } from "@/app/lib/weekly-schedule";
 
 export type EmployeProfile = {
   id: number;
@@ -61,6 +80,14 @@ export type EmployeProfile = {
   alert_email_enabled: boolean | null;
   alert_sms_enabled: boolean | null;
   is_direction_alert_recipient: boolean | null;
+  effectifs_department_key?: string | null;
+  effectifs_secondary_department_keys?: string[] | null;
+  effectifs_primary_location?: string | null;
+  effectifs_secondary_locations?: string[] | null;
+  can_deliver?: boolean | null;
+  default_weekly_hours?: number | null;
+  schedule_active?: boolean | null;
+  weekly_schedule_config?: unknown | null;
 };
 
 export type EmployeFormState = {
@@ -112,6 +139,14 @@ export type EmployeFormState = {
   alert_email_enabled: boolean;
   alert_sms_enabled: boolean;
   is_direction_alert_recipient: boolean;
+  effectifsDepartmentKey: string;
+  effectifsSecondaryDepartmentKeys: EffectifsDepartmentKey[];
+  effectifsPrimaryLocation: string;
+  effectifsSecondaryLocations: string[];
+  canDeliver: boolean;
+  defaultWeeklyHours: string;
+  scheduleActive: boolean;
+  weeklySchedule: WeeklyScheduleConfig;
 };
 
 export const employeeWorkDays = [
@@ -123,6 +158,21 @@ export const employeeWorkDays = [
   ["samedi", "Sam"],
   ["dimanche", "Dim"],
 ] as const;
+
+function initialWeeklySchedule(
+  profile: Partial<EmployeProfile> | null | undefined
+): WeeklyScheduleConfig {
+  if (!profile) {
+    return recalculateWeeklyScheduleConfig(
+      createEmptyWeeklyScheduleConfig("variable")
+    );
+  }
+  const parsed = sanitizeWeeklyScheduleConfig(profile.weekly_schedule_config);
+  if (parsed) {
+    return recalculateWeeklyScheduleConfig(parsed);
+  }
+  return createWeeklyScheduleFromLegacy(profile);
+}
 
 export function buildEmployeForm(
   profile: Partial<EmployeProfile> | null | undefined
@@ -192,6 +242,21 @@ export function buildEmployeForm(
     alert_email_enabled: profile?.alert_email_enabled ?? true,
     alert_sms_enabled: profile?.alert_sms_enabled ?? true,
     is_direction_alert_recipient: profile?.is_direction_alert_recipient ?? false,
+    effectifsDepartmentKey: profile?.effectifs_department_key ?? "",
+    effectifsSecondaryDepartmentKeys: sanitizeDepartmentKeyArray(
+      profile?.effectifs_secondary_department_keys
+    ),
+    effectifsPrimaryLocation: profile?.effectifs_primary_location ?? "",
+    effectifsSecondaryLocations: sanitizeLocationKeyArray(
+      profile?.effectifs_secondary_locations
+    ),
+    canDeliver: profile?.can_deliver === true,
+    defaultWeeklyHours:
+      profile?.default_weekly_hours != null
+        ? String(profile.default_weekly_hours)
+        : "",
+    scheduleActive: profile?.schedule_active !== false,
+    weeklySchedule: initialWeeklySchedule(profile),
   };
 }
 
@@ -256,13 +321,46 @@ export function computeBreakSummary(form: EmployeFormState) {
   };
 }
 
-export function buildEmployePayload(form: EmployeFormState) {
-  const breakSummary = computeBreakSummary(form);
-  const breakAmMinutes = normalizeInteger(form.break_am_minutes);
-  const lunchMinutes = normalizeInteger(form.lunch_minutes);
-  const breakPmMinutes = normalizeInteger(form.break_pm_minutes);
+export function buildEmployePayload(
+  form: EmployeFormState,
+  options?: { includeEffectifsAssignment?: boolean }
+) {
+  const includeEffectifs = options?.includeEffectifsAssignment !== false;
+  const weekly = recalculateWeeklyScheduleConfig(form.weeklySchedule);
+  const derived = deriveLegacyFieldsFromWeekly(weekly);
+  const useWeeklyDetail = isWeeklyScheduleDetailConfigured(weekly);
+  const bt = derived.breakTemplate;
 
-  return {
+  const breakSummary =
+    useWeeklyDetail && bt
+      ? computeBreakSummaryForDay(bt)
+      : computeBreakSummary(form);
+  const breakAmMinutes =
+    useWeeklyDetail && bt
+      ? bt.breakAm.minutes > 0
+        ? bt.breakAm.minutes
+        : null
+      : normalizeInteger(form.break_am_minutes);
+  const lunchMinutes =
+    useWeeklyDetail && bt
+      ? bt.lunch.minutes > 0
+        ? bt.lunch.minutes
+        : null
+      : normalizeInteger(form.lunch_minutes);
+  const breakPmMinutes =
+    useWeeklyDetail && bt
+      ? bt.breakPm.minutes > 0
+        ? bt.breakPm.minutes
+        : null
+      : normalizeInteger(form.break_pm_minutes);
+
+  const primaryDept =
+    normalizeEffectifsDepartmentKey(form.effectifsDepartmentKey) ?? null;
+  const secondaryDeptKeys = sanitizeDepartmentKeyArray(
+    form.effectifsSecondaryDepartmentKeys
+  ).filter((k) => k !== primaryDept);
+
+  const payload: Record<string, unknown> = {
     nom: normalizeString(form.nom) ?? "",
     telephone: normalizeString(form.telephone),
     courriel: normalizeString(form.courriel),
@@ -282,34 +380,50 @@ export function buildEmployePayload(form: EmployeFormState) {
     social_benefits_percent:
       normalizeNumber(form.social_benefits_percent) ?? 15,
     titan_billable: form.titan_billable,
-    schedule_start: normalizeString(form.schedule_start),
-    schedule_end: normalizeString(form.schedule_end),
-    scheduled_work_days: form.scheduled_work_days,
-    planned_daily_hours: normalizeNumber(form.planned_daily_hours),
-    planned_weekly_hours: normalizeNumber(form.planned_weekly_hours),
-    pause_minutes: normalizeInteger(form.pause_minutes) ?? 15,
+    schedule_start: useWeeklyDetail
+      ? derived.schedule_start
+      : normalizeString(form.schedule_start),
+    schedule_end: useWeeklyDetail
+      ? derived.schedule_end
+      : normalizeString(form.schedule_end),
+    scheduled_work_days: useWeeklyDetail
+      ? derived.scheduled_work_days
+      : form.scheduled_work_days,
+    planned_daily_hours: useWeeklyDetail
+      ? derived.planned_daily_hours
+      : normalizeNumber(form.planned_daily_hours),
+    planned_weekly_hours: useWeeklyDetail
+      ? derived.planned_weekly_hours
+      : normalizeNumber(form.planned_weekly_hours),
+    pause_minutes: useWeeklyDetail && bt ? bt.pauseMinutes : normalizeInteger(form.pause_minutes) ?? 15,
     expected_breaks_count: breakSummary.count,
     break_1_label: "Pause AM",
     break_1_minutes: breakAmMinutes,
-    break_1_paid: form.break_am_paid,
+    break_1_paid: useWeeklyDetail && bt ? bt.breakAm.paid : form.break_am_paid,
     break_2_label: "Diner",
     break_2_minutes: lunchMinutes,
-    break_2_paid: form.lunch_paid,
+    break_2_paid: useWeeklyDetail && bt ? bt.lunch.paid : form.lunch_paid,
     break_3_label: "Pause PM",
     break_3_minutes: breakPmMinutes,
-    break_3_paid: form.break_pm_paid,
-    break_am_enabled: form.break_am_enabled,
-    break_am_time: normalizeString(form.break_am_time),
+    break_3_paid: useWeeklyDetail && bt ? bt.breakPm.paid : form.break_pm_paid,
+    break_am_enabled: useWeeklyDetail && bt ? bt.breakAm.enabled : form.break_am_enabled,
+    break_am_time: useWeeklyDetail && bt
+      ? normalizeString(bt.breakAm.time)
+      : normalizeString(form.break_am_time),
     break_am_minutes: breakAmMinutes,
-    break_am_paid: form.break_am_paid,
-    lunch_enabled: form.lunch_enabled,
-    lunch_time: normalizeString(form.lunch_time),
+    break_am_paid: useWeeklyDetail && bt ? bt.breakAm.paid : form.break_am_paid,
+    lunch_enabled: useWeeklyDetail && bt ? bt.lunch.enabled : form.lunch_enabled,
+    lunch_time: useWeeklyDetail && bt
+      ? normalizeString(bt.lunch.time)
+      : normalizeString(form.lunch_time),
     lunch_minutes: lunchMinutes,
-    lunch_paid: form.lunch_paid,
-    break_pm_enabled: form.break_pm_enabled,
-    break_pm_time: normalizeString(form.break_pm_time),
+    lunch_paid: useWeeklyDetail && bt ? bt.lunch.paid : form.lunch_paid,
+    break_pm_enabled: useWeeklyDetail && bt ? bt.breakPm.enabled : form.break_pm_enabled,
+    break_pm_time: useWeeklyDetail && bt
+      ? normalizeString(bt.breakPm.time)
+      : normalizeString(form.break_pm_time),
     break_pm_minutes: breakPmMinutes,
-    break_pm_paid: form.break_pm_paid,
+    break_pm_paid: useWeeklyDetail && bt ? bt.breakPm.paid : form.break_pm_paid,
     sms_alert_depart_terrain: form.sms_alert_depart_terrain,
     sms_alert_arrivee_terrain: form.sms_alert_arrivee_terrain,
     sms_alert_sortie: form.sms_alert_sortie,
@@ -323,7 +437,22 @@ export function buildEmployePayload(form: EmployeFormState) {
     alert_email_enabled: form.alert_email_enabled,
     alert_sms_enabled: form.alert_sms_enabled,
     is_direction_alert_recipient: form.is_direction_alert_recipient,
+    weekly_schedule_config: weekly,
   };
+
+  if (includeEffectifs) {
+    payload.effectifs_department_key = primaryDept;
+    payload.effectifs_secondary_department_keys = secondaryDeptKeys;
+    payload.effectifs_primary_location = normalizeString(form.effectifsPrimaryLocation);
+    payload.effectifs_secondary_locations = sanitizeLocationKeyArray(
+      form.effectifsSecondaryLocations
+    );
+    payload.can_deliver = form.canDeliver;
+    payload.default_weekly_hours = normalizeNumber(form.defaultWeeklyHours);
+    payload.schedule_active = form.scheduleActive;
+  }
+
+  return payload;
 }
 
 export function formatMoney(value: number | null | undefined) {

@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import FeedbackMessage from "@/app/components/FeedbackMessage";
@@ -12,18 +13,33 @@ import {
 import type { AppRole } from "@/app/lib/auth/roles";
 import { supabase } from "@/app/lib/supabase/client";
 import AdminImprovementNotificationsAccountSection from "./AdminImprovementNotificationsAccountSection";
+import EmployeeLongLeaveSection from "./EmployeeLongLeaveSection";
+import { locationLabelFromKey } from "@/app/lib/effectifs-departments.shared";
+import {
+  computeWeeklyPlannedHours,
+  countActiveScheduleDays,
+  isWeeklyScheduleDetailConfigured,
+  recalculateWeeklyScheduleConfig,
+  validateWeeklyScheduleForSave,
+} from "@/app/lib/weekly-schedule";
 import {
   buildEmployeForm,
   buildEmployePayload,
   computeBreakSummary,
+  EFFECTIFS_DEPARTMENT_ENTRIES,
+  EFFECTIFS_LOCATION_ENTRIES,
   employeeWorkDays,
   formatMoney,
   type EmployeFormState,
   type EmployeProfile,
 } from "./employee-profile-shared";
+import EmployeeWeeklyScheduleGrid from "./EmployeeWeeklyScheduleGrid";
+import TagoraCollapsibleSection from "@/app/components/TagoraCollapsibleSection";
+import { cn } from "@/app/components/ui/cn";
 
 type EmployeeProfilePageClientProps = {
   employeeId?: number | null;
+  openEffectifsSection?: boolean;
 };
 type AssignablePortalRole = "employe" | "direction" | "manager" | "admin";
 
@@ -31,8 +47,12 @@ type EmployeeAccordionSection =
   | "identite"
   | "permis"
   | "horaire"
+  | "historique_travail"
+  | "effectifs"
   | "facturation"
-  | "alertes_sms";
+  | "alertes_sms"
+  | "actions_admin"
+  | null;
 
 function SummaryItem({
   label,
@@ -50,63 +70,36 @@ function SummaryItem({
 }
 
 
-function AccordionSection({
-  title,
-  description,
-  open,
-  onToggle,
-  children,
-}: {
-  title: string;
-  description: string;
-  open: boolean;
-  onToggle: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <section className="tagora-panel ui-stack-md">
-      <button
-        type="button"
-        onClick={onToggle}
-        style={{
-          width: "100%",
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          gap: 16,
-          padding: 0,
-          border: "none",
-          background: "transparent",
-          textAlign: "left",
-          cursor: "pointer",
-        }}
-      >
-        <div className="ui-stack-xs">
-          <h2 className="section-title" style={{ marginBottom: 0 }}>
-            {title}
-          </h2>
-          <p className="tagora-note" style={{ margin: 0 }}>
-            {description}
-          </p>
-        </div>
+type ScheduleNotificationResponse = {
+  scheduleChanged?: boolean;
+  emailStatus?: string;
+  smsStatus?: string;
+};
 
-        <div
-          className="tagora-panel-muted"
-          style={{
-            minWidth: 52,
-            padding: "10px 14px",
-            borderRadius: 14,
-            fontWeight: 800,
-            color: "#0f172a",
-          }}
-        >
-          {open ? "−" : "+"}
-        </div>
-      </button>
+function messageAfterEmployeSave(sn: ScheduleNotificationResponse | undefined): string {
+  if (!sn?.scheduleChanged) {
+    return "Profil employe enregistre.";
+  }
+  const e = sn.emailStatus;
+  const s = sn.smsStatus;
+  const anySent = e === "sent" || s === "sent";
+  const anyFailed = e === "failed" || s === "failed";
+  const skipRecipient =
+    e === "skipped_no_recipient" || s === "skipped_no_recipient";
 
-      {open ? children : null}
-    </section>
-  );
+  if (anyFailed && !anySent) {
+    return "Horaire enregistré. La notification n'a pas pu être envoyée.";
+  }
+
+  if (anySent && skipRecipient) {
+    return "Horaire enregistré. L'employé a été avisé. Notification partielle : courriel ou téléphone manquant.";
+  }
+
+  if (anySent) {
+    return "Horaire enregistré. L'employé a été avisé par courriel et/ou SMS.";
+  }
+
+  return "Horaire enregistré. Notification partielle : courriel ou téléphone manquant.";
 }
 
 function getErrorMessage(error: unknown) {
@@ -114,15 +107,30 @@ function getErrorMessage(error: unknown) {
     return error.message;
   }
 
-  return "Erreur inconnue.";
+  if (error && typeof error === "object" && !Array.isArray(error)) {
+    const o = error as Record<string, unknown>;
+    const msg = o.message;
+    if (typeof msg === "string" && msg.trim()) {
+      return msg.trim();
+    }
+  }
+
+  return "Détail d'erreur indisponible.";
 }
 
 
 export default function EmployeeProfilePageClient({
   employeeId = null,
+  openEffectifsSection = false,
 }: EmployeeProfilePageClientProps) {
   const router = useRouter();
-  const { role: viewerRole, loading: accessLoading } = useCurrentAccess();
+  const { role: viewerRole, loading: accessLoading, hasPermission } = useCurrentAccess();
+  const canEditEffectifs =
+    viewerRole === "direction" || viewerRole === "admin";
+  const canOpenRegistreFromProfile =
+    !accessLoading &&
+    (viewerRole === "direction" || viewerRole === "admin") &&
+    hasPermission("terrain");
   /** Section « notifications améliorations » : jamais pour direction / employé, ni pendant le chargement du rôle. */
   const viewerIsAppAdmin = !accessLoading && viewerRole === "admin";
   const isCreating = employeeId == null;
@@ -140,8 +148,10 @@ export default function EmployeeProfilePageClient({
   );
   const [form, setForm] = useState<EmployeFormState>(buildEmployeForm(null));
   const [isEditing, setIsEditing] = useState(isCreating);
-  const [openSection, setOpenSection] =
-    useState<EmployeeAccordionSection>("identite");
+  const [openSection, setOpenSection] = useState<EmployeeAccordionSection>(() =>
+    openEffectifsSection ? "effectifs" : "identite"
+  );
+  const [legacyScheduleOpen, setLegacyScheduleOpen] = useState(false);
   const [accountAccessToken, setAccountAccessToken] = useState<string | null>(null);
   const [portalAccount, setPortalAccount] = useState<{
     authUserId: string | null;
@@ -152,6 +162,14 @@ export default function EmployeeProfilePageClient({
   const [portalRoleSaving, setPortalRoleSaving] = useState(false);
 
   const breakSummary = useMemo(() => computeBreakSummary(form), [form]);
+  const weeklyScheduleSummary = useMemo(() => {
+    const w = recalculateWeeklyScheduleConfig(form.weeklySchedule);
+    return {
+      totalHours: computeWeeklyPlannedHours(w),
+      activeDays: countActiveScheduleDays(w),
+      detailConfigured: isWeeklyScheduleDetailConfigured(w),
+    };
+  }, [form.weeklySchedule]);
   const computedCost = useMemo(() => {
     const rate = Number(form.taux_base_titan);
     const benefits = Number(form.social_benefits_percent || "15");
@@ -226,6 +244,24 @@ export default function EmployeeProfilePageClient({
 
     void loadEmployeProfile(employeeId);
   }, [employeeId, isCreating, loadEmployeProfile]);
+
+  useEffect(() => {
+    if (openEffectifsSection) {
+      setOpenSection("effectifs");
+    }
+  }, [openEffectifsSection]);
+
+  useEffect(() => {
+    if (!openEffectifsSection || loading) {
+      return;
+    }
+    const id = window.requestAnimationFrame(() => {
+      document
+        .getElementById("affectation-effectifs")
+        ?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+    return () => window.cancelAnimationFrame(id);
+  }, [openEffectifsSection, loading]);
 
   useEffect(() => {
     if (accessLoading) {
@@ -458,7 +494,22 @@ export default function EmployeeProfilePageClient({
     setMessage("");
     setMessageType(null);
 
-    const payload = buildEmployePayload(form);
+    const payload = buildEmployePayload(form, {
+      includeEffectifsAssignment: canEditEffectifs,
+    });
+    if (canEditEffectifs && !isCreating) {
+      delete (payload as Record<string, unknown>).actif;
+    }
+
+    const weeklyCheck = validateWeeklyScheduleForSave(
+      recalculateWeeklyScheduleConfig(form.weeklySchedule)
+    );
+    if (!weeklyCheck.ok) {
+      setMessage(`Erreur sauvegarde : ${weeklyCheck.message}`);
+      setMessageType("error");
+      setSaving(false);
+      return;
+    }
 
     try {
       if (isCreating) {
@@ -476,44 +527,88 @@ export default function EmployeeProfilePageClient({
         return;
       }
 
-      const { error } = await supabase
-        .from("chauffeurs")
-        .update(payload)
-        .eq("id", employeeId);
-
-      if (error) {
-        throw error;
+      if (!employeeId || !Number.isFinite(employeeId)) {
+        setMessage("Erreur sauvegarde : Identifiant employé invalide.");
+        setMessageType("error");
+        return;
       }
 
-      const nextProfile = {
-        ...(originalProfile ?? ({ id: employeeId } as EmployeProfile)),
-        id: employeeId as number,
-        ...payload,
-      } as EmployeProfile;
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      if (!token) {
+        setMessage("Erreur sauvegarde : Session expirée. Reconnectez-vous.");
+        setMessageType("error");
+        return;
+      }
 
-      setOriginalProfile(nextProfile);
-      setForm(buildEmployeForm(nextProfile));
+      const response = await fetch(
+        `/api/direction/ressources/employes/${employeeId}`,
+        {
+          method: "PATCH",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(payload),
+        }
+      );
+
+      const json = (await response.json().catch(() => ({}))) as {
+        success?: boolean;
+        error?: string;
+        profile?: EmployeProfile;
+        scheduleNotification?: ScheduleNotificationResponse;
+      };
+
+      if (!response.ok || json.success === false) {
+        const errText =
+          (typeof json.error === "string" && json.error.trim()) ||
+          response.statusText ||
+          `HTTP ${response.status}`;
+        setMessage(`Erreur sauvegarde : ${errText}`);
+        setMessageType("error");
+        return;
+      }
+
+      if (json.profile) {
+        const next = json.profile as EmployeProfile;
+        setOriginalProfile(next);
+        setForm(buildEmployeForm(next));
+      } else {
+        await loadEmployeProfile(employeeId);
+      }
       setIsEditing(false);
-      setMessage("Profil employe enregistre.");
+      setMessage(messageAfterEmployeSave(json.scheduleNotification));
       setMessageType("success");
     } catch (error) {
-      setMessage(`Erreur sauvegarde: ${getErrorMessage(error)}`);
+      setMessage(`Erreur sauvegarde : ${getErrorMessage(error)}`);
       setMessageType("error");
     } finally {
       setSaving(false);
     }
   }
 
-  async function handleDelete() {
-    if (isCreating || !employeeId) {
-      return;
-    }
+  async function getSessionToken(): Promise<string | null> {
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    return session?.access_token ?? null;
+  }
 
-    const confirmed = window.confirm(
-      "Desactiver cet employe ? Son historique sera conserve."
-    );
+  function applyProfileFromActivation(profile: EmployeProfile) {
+    setOriginalProfile(profile);
+    setForm(buildEmployeForm(profile));
+    setIsEditing(false);
+  }
 
-    if (!confirmed) {
+  async function callActivationApi(action: "activate" | "deactivate") {
+    if (isCreating || !employeeId) return;
+    const token = await getSessionToken();
+    if (!token) {
+      setMessage("Session expirée. Reconnectez-vous.");
+      setMessageType("error");
       return;
     }
 
@@ -521,49 +616,126 @@ export default function EmployeeProfilePageClient({
     setMessage("");
     setMessageType(null);
 
-    const { error } = await supabase
-      .from("chauffeurs")
-      .update({ actif: false })
-      .eq("id", employeeId);
-
-    if (error) {
-      if (error.code === "23503") {
-        const fallback = await supabase
-          .from("chauffeurs")
-          .update({ actif: false })
-          .eq("id", employeeId);
-        if (!fallback.error) {
-          setMessage(
-            "Impossible de supprimer cet employe, car il possede deja un historique. Il a ete desactive a la place."
-          );
-          setMessageType("success");
-          setDeleting(false);
-          setForm((current) => ({ ...current, actif: false }));
-          setOriginalProfile((current) =>
-            current ? ({ ...current, actif: false } as EmployeProfile) : current
-          );
-          setIsEditing(false);
-          return;
-        }
+    const res = await fetch(
+      `/api/direction/ressources/employes/${employeeId}/activation`,
+      {
+        method: "PATCH",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ action }),
       }
-      setMessage(`Erreur suppression: ${error.message}`);
+    );
+
+    const json = (await res.json().catch(() => ({}))) as {
+      success?: boolean;
+      message?: string;
+      error?: string;
+      profile?: EmployeProfile;
+    };
+
+    setDeleting(false);
+
+    if (!res.ok || json.success === false) {
+      setMessage(
+        typeof json.error === "string" ? json.error : "Action impossible."
+      );
       setMessageType("error");
-      setDeleting(false);
       return;
     }
 
-    setMessage("Employe desactive. Son historique est conserve.");
-    setMessageType("success");
-    setDeleting(false);
-    setForm((current) => ({ ...current, actif: false }));
-    setOriginalProfile((current) =>
-      current ? ({ ...current, actif: false } as EmployeProfile) : current
+    if (json.profile) {
+      applyProfileFromActivation(json.profile as EmployeProfile);
+    } else {
+      await loadEmployeProfile(employeeId);
+    }
+
+    setMessage(
+      typeof json.message === "string"
+        ? json.message
+        : action === "activate"
+          ? "Compte réactivé."
+          : "Compte désactivé. L'historique est conservé."
     );
-    setIsEditing(false);
+    setMessageType("success");
+  }
+
+  function handleDeactivateProfile() {
+    if (isCreating || !employeeId) return;
+    const ok = window.confirm(
+      "Désactiver cet employé ? Il ne pourra plus utiliser le portail, mais son historique sera conservé."
+    );
+    if (!ok) return;
+    void callActivationApi("deactivate");
+  }
+
+  function handleReactivateProfile() {
+    if (isCreating || !employeeId) return;
+    void callActivationApi("activate");
+  }
+
+  async function handleDeleteOrArchive() {
+    if (isCreating || !employeeId) return;
+    const ok = window.confirm(
+      "Supprimer définitivement cet employé ? S'il existe des données liées, le compte sera uniquement désactivé."
+    );
+    if (!ok) return;
+
+    const token = await getSessionToken();
+    if (!token) {
+      setMessage("Session expirée.");
+      setMessageType("error");
+      return;
+    }
+
+    setDeleting(true);
+    setMessage("");
+    setMessageType(null);
+
+    const res = await fetch(`/api/direction/ressources/employes/${employeeId}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    const json = (await res.json().catch(() => ({}))) as {
+      success?: boolean;
+      message?: string;
+      error?: string;
+      softDeleted?: boolean;
+    };
+
+    setDeleting(false);
+
+    if (!res.ok || json.success === false) {
+      setMessage(typeof json.error === "string" ? json.error : "Action impossible.");
+      setMessageType("error");
+      return;
+    }
+
+    if (json.softDeleted) {
+      await loadEmployeProfile(employeeId);
+    } else {
+      router.push("/direction/ressources/employes");
+      return;
+    }
+
+    setMessage(
+      typeof json.message === "string"
+        ? json.message
+        : "Opération effectuée."
+    );
+    setMessageType("success");
   }
 
   const topActions = (
     <div className="tagora-actions">
+      <Link href="/direction/ressources/employes" className="tagora-dark-outline-action">
+        Retour
+      </Link>
+      <Link href="/direction/dashboard" className="tagora-dark-action">
+        Tableau de bord direction
+      </Link>
       {!isEditing ? (
         <button
           type="button"
@@ -586,7 +758,8 @@ export default function EmployeeProfilePageClient({
             disabled={
               saving ||
               uploadingRecto ||
-              uploadingVerso
+              uploadingVerso ||
+              accessLoading
             }
           >
             {saving ? "Enregistrement..." : isCreating ? "Creer" : "Enregistrer"}
@@ -609,11 +782,8 @@ export default function EmployeeProfilePageClient({
       <div className="tagora-app-content ui-stack-lg" style={{ maxWidth: 1320 }}>
         <HeaderTagora
           title={isCreating ? "Nouvel employe" : "Profil employe"}
-          subtitle={
-            isCreating
-              ? "Creez une fiche employee structuree."
-              : "Consultez la fiche employee puis passez en mode edition au besoin."
-          }
+          subtitle=""
+          showNavigation={false}
           actions={topActions}
         />
 
@@ -725,11 +895,11 @@ export default function EmployeeProfilePageClient({
                 />
               ) : null}
 
-              <AccordionSection
+              <TagoraCollapsibleSection
                 title="Identite"
-                description="Informations principales de l employe."
+                subtitle="Informations principales de l employe."
                 open={openSection === "identite"}
-                onToggle={() => setOpenSection("identite")}
+                onOpenChange={(v) => setOpenSection(v ? "identite" : null)}
               >
                 <div className="tagora-form-grid">
                   <div className="tagora-form-grid-2">
@@ -816,7 +986,7 @@ export default function EmployeeProfilePageClient({
                       <input
                         type="checkbox"
                         checked={form.actif}
-                        disabled={!isEditing}
+                        disabled={!isEditing || (canEditEffectifs && !isCreating)}
                         onChange={(event) =>
                           setForm((current) => ({
                             ...current,
@@ -826,6 +996,12 @@ export default function EmployeeProfilePageClient({
                       />
                       <span>Employe actif</span>
                     </label>
+                    {canEditEffectifs ? (
+                      <p className="tagora-note" style={{ margin: 0 }}>
+                        L activation et la desactivation se font via la section « Actions admin »
+                        (compte portail et historique).
+                      </p>
+                    ) : null}
 
                     <label className="account-requests-permission-option">
                       <input
@@ -875,13 +1051,13 @@ export default function EmployeeProfilePageClient({
                     />
                   </label>
                 </div>
-              </AccordionSection>
+              </TagoraCollapsibleSection>
 
-              <AccordionSection
+              <TagoraCollapsibleSection
                 title="Permis"
-                description="Information legale et pieces jointes."
+                subtitle="Information legale et pieces jointes."
                 open={openSection === "permis"}
-                onToggle={() => setOpenSection("permis")}
+                onOpenChange={(v) => setOpenSection(v ? "permis" : null)}
               >
                 <div className="tagora-form-grid">
                   <div className="tagora-form-grid-2">
@@ -1027,282 +1203,606 @@ export default function EmployeeProfilePageClient({
                     </div>
                   </div>
                 </div>
-              </AccordionSection>
+              </TagoraCollapsibleSection>
 
-              <AccordionSection
+              <TagoraCollapsibleSection
                 title="Horaire"
-                description="Horaires, pauses et jours travailles."
+                subtitle="Grille hebdomadaire jour par jour (JSON weekly_schedule_config). Les champs planchers classiques sont synchronises a l'enregistrement."
                 open={openSection === "horaire"}
-                onToggle={() => setOpenSection("horaire")}
+                onOpenChange={(v) => setOpenSection(v ? "horaire" : null)}
               >
-                <div className="tagora-form-grid">
-                  <div className="tagora-form-grid-2">
-                    <label className="tagora-field">
-                      <span className="tagora-label">Heure de debut</span>
-                      <input
-                        className="tagora-input"
-                        style={readOnlyFieldStyle}
-                        type="time"
-                        value={form.schedule_start}
-                        onChange={(event) =>
-                          setForm((current) => ({
-                            ...current,
-                            schedule_start: event.target.value,
-                          }))
-                        }
-                        readOnly={!isEditing}
-                      />
-                    </label>
-
-                    <label className="tagora-field">
-                      <span className="tagora-label">Heure de fin</span>
-                      <input
-                        className="tagora-input"
-                        style={readOnlyFieldStyle}
-                        type="time"
-                        value={form.schedule_end}
-                        onChange={(event) =>
-                          setForm((current) => ({
-                            ...current,
-                            schedule_end: event.target.value,
-                          }))
-                        }
-                        readOnly={!isEditing}
-                      />
-                    </label>
-                  </div>
-
-                  <div className="tagora-form-grid-2">
-                    <label className="tagora-field">
-                      <span className="tagora-label">Heures par jour</span>
-                      <input
-                        className="tagora-input"
-                        style={readOnlyFieldStyle}
-                        type="number"
-                        min="0"
-                        step="0.25"
-                        value={form.planned_daily_hours}
-                        onChange={(event) =>
-                          setForm((current) => ({
-                            ...current,
-                            planned_daily_hours: event.target.value,
-                          }))
-                        }
-                        readOnly={!isEditing}
-                      />
-                    </label>
-
-                    <label className="tagora-field">
-                      <span className="tagora-label">Heures hebdo</span>
-                      <input
-                        className="tagora-input"
-                        style={readOnlyFieldStyle}
-                        type="number"
-                        min="0"
-                        step="0.25"
-                        value={form.planned_weekly_hours}
-                        onChange={(event) =>
-                          setForm((current) => ({
-                            ...current,
-                            planned_weekly_hours: event.target.value,
-                          }))
-                        }
-                        readOnly={!isEditing}
-                      />
-                    </label>
-                  </div>
-
-                  <label className="tagora-field">
-                    <span className="tagora-label">Jours travailles</span>
-                    <div
-                      className="tagora-panel-muted"
-                      style={{ display: "flex", gap: 12, flexWrap: "wrap" }}
-                    >
-                      {employeeWorkDays.map(([value, label]) => (
-                        <label
-                          key={value}
-                          className="account-requests-permission-option"
-                        >
-                          <input
-                            type="checkbox"
-                            checked={form.scheduled_work_days.includes(value)}
-                            onChange={() => toggleDay(value)}
-                            disabled={!isEditing}
-                          />
-                          <span>{label}</span>
-                        </label>
-                      ))}
+                <div
+                  className="tagora-panel-muted ui-stack-sm"
+                  style={{
+                    borderRadius: 16,
+                    padding: 16,
+                    display: "grid",
+                    gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
+                    gap: 12,
+                  }}
+                >
+                  <div>
+                    <div className="tagora-label">Heures hebdo prevues</div>
+                    <div style={{ fontWeight: 800, fontSize: "1.15rem", color: "#0f172a" }}>
+                      {weeklyScheduleSummary.totalHours > 0
+                        ? `${weeklyScheduleSummary.totalHours} h`
+                        : "—"}
                     </div>
-                  </label>
-
-                  <label className="tagora-field">
-                    <span className="tagora-label">Pause par defaut (min)</span>
-                    <input
-                      className="tagora-input"
-                      style={readOnlyFieldStyle}
-                      type="number"
-                      min="0"
-                      step="1"
-                      value={form.pause_minutes}
-                      onChange={(event) =>
-                        setForm((current) => ({
-                          ...current,
-                          pause_minutes: event.target.value,
-                        }))
-                      }
-                      readOnly={!isEditing}
-                    />
-                  </label>
+                  </div>
+                  <div>
+                    <div className="tagora-label">Jours actifs</div>
+                    <div style={{ fontWeight: 800, fontSize: "1.15rem", color: "#0f172a" }}>
+                      {weeklyScheduleSummary.activeDays}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="tagora-label">Horaire detaille</div>
+                    <div style={{ fontWeight: 800, fontSize: "1.05rem", color: "#0f172a" }}>
+                      {weeklyScheduleSummary.detailConfigured
+                        ? "Active"
+                        : "Non configure (fallback legacy)"}
+                    </div>
+                  </div>
                 </div>
 
-                <div className="ui-stack-sm">
-                  <div className="tagora-label">Pauses et diner</div>
-                  {[
-                    {
-                      key: "break_am",
-                      label: "Pause AM",
-                      enabled: form.break_am_enabled,
-                      time: form.break_am_time,
-                      minutes: form.break_am_minutes,
-                      paid: form.break_am_paid,
-                    },
-                    {
-                      key: "lunch",
-                      label: "Diner",
-                      enabled: form.lunch_enabled,
-                      time: form.lunch_time,
-                      minutes: form.lunch_minutes,
-                      paid: form.lunch_paid,
-                    },
-                    {
-                      key: "break_pm",
-                      label: "Pause PM",
-                      enabled: form.break_pm_enabled,
-                      time: form.break_pm_time,
-                      minutes: form.break_pm_minutes,
-                      paid: form.break_pm_paid,
-                    },
-                  ].map((row) => (
-                    <div
-                      key={row.key}
-                      className="tagora-panel-muted"
-                      style={{
-                        display: "grid",
-                        gridTemplateColumns:
-                          "minmax(120px, 1.1fr) 100px 140px 120px 150px",
-                        gap: 12,
-                        alignItems: "center",
-                        padding: 16,
-                      }}
-                    >
-                      <div style={{ fontWeight: 700, color: "#0f172a" }}>
-                        {row.label}
-                      </div>
+                <EmployeeWeeklyScheduleGrid
+                  form={form}
+                  setForm={setForm}
+                  disabled={!isEditing}
+                />
 
-                      <label className="account-requests-permission-option">
+                <TagoraCollapsibleSection
+                  title="Horaire plancher (generation & compatibilite)"
+                  subtitle="Sert au bouton « Generer l'horaire detaille » et aux systemes qui lisent encore les colonnes historiques. A l'enregistrement, si la grille contient au moins un jour actif avec debut/fin, ces champs sont derives de la grille."
+                  open={legacyScheduleOpen}
+                  onOpenChange={setLegacyScheduleOpen}
+                  className="tagora-collapsible-nested-section"
+                >
+                  <div className="tagora-form-grid" style={{ marginTop: 12 }}>
+                    <div className="tagora-form-grid-2">
+                      <label className="tagora-field">
+                        <span className="tagora-label">Heure de debut (modele)</span>
                         <input
-                          type="checkbox"
-                          checked={row.enabled}
-                          disabled={!isEditing}
+                          className="tagora-input"
+                          style={readOnlyFieldStyle}
+                          type="time"
+                          value={form.schedule_start}
                           onChange={(event) =>
                             setForm((current) => ({
                               ...current,
-                              ...(row.key === "break_am"
-                                ? { break_am_enabled: event.target.checked }
-                                : {}),
-                              ...(row.key === "lunch"
-                                ? { lunch_enabled: event.target.checked }
-                                : {}),
-                              ...(row.key === "break_pm"
-                                ? { break_pm_enabled: event.target.checked }
-                                : {}),
+                              schedule_start: event.target.value,
                             }))
                           }
+                          readOnly={!isEditing}
                         />
-                        <span>Actif</span>
                       </label>
 
-                      <input
-                        className="tagora-input"
-                        style={readOnlyFieldStyle}
-                        type="time"
-                        value={row.time}
-                        onChange={(event) =>
-                          setForm((current) => ({
-                            ...current,
-                            ...(row.key === "break_am"
-                              ? { break_am_time: event.target.value }
-                              : {}),
-                            ...(row.key === "lunch"
-                              ? { lunch_time: event.target.value }
-                              : {}),
-                            ...(row.key === "break_pm"
-                              ? { break_pm_time: event.target.value }
-                              : {}),
-                          }))
-                        }
-                        readOnly={!isEditing}
-                      />
+                      <label className="tagora-field">
+                        <span className="tagora-label">Heure de fin (modele)</span>
+                        <input
+                          className="tagora-input"
+                          style={readOnlyFieldStyle}
+                          type="time"
+                          value={form.schedule_end}
+                          onChange={(event) =>
+                            setForm((current) => ({
+                              ...current,
+                              schedule_end: event.target.value,
+                            }))
+                          }
+                          readOnly={!isEditing}
+                        />
+                      </label>
+                    </div>
 
+                    <div className="tagora-form-grid-2">
+                      <label className="tagora-field">
+                        <span className="tagora-label">Heures par jour (legacy)</span>
+                        <input
+                          className="tagora-input"
+                          style={readOnlyFieldStyle}
+                          type="number"
+                          min="0"
+                          step="0.25"
+                          value={form.planned_daily_hours}
+                          onChange={(event) =>
+                            setForm((current) => ({
+                              ...current,
+                              planned_daily_hours: event.target.value,
+                            }))
+                          }
+                          readOnly={!isEditing}
+                        />
+                      </label>
+
+                      <label className="tagora-field">
+                        <span className="tagora-label">Heures hebdo (legacy)</span>
+                        <input
+                          className="tagora-input"
+                          style={readOnlyFieldStyle}
+                          type="number"
+                          min="0"
+                          step="0.25"
+                          value={form.planned_weekly_hours}
+                          onChange={(event) =>
+                            setForm((current) => ({
+                              ...current,
+                              planned_weekly_hours: event.target.value,
+                            }))
+                          }
+                          readOnly={!isEditing}
+                        />
+                      </label>
+                    </div>
+
+                    <label className="tagora-field">
+                      <span className="tagora-label">Jours travailles (modele)</span>
+                      <div
+                        className="tagora-panel-muted"
+                        style={{ display: "flex", gap: 12, flexWrap: "wrap" }}
+                      >
+                        {employeeWorkDays.map(([value, label]) => (
+                          <label
+                            key={value}
+                            className="account-requests-permission-option"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={form.scheduled_work_days.includes(value)}
+                              onChange={() => toggleDay(value)}
+                              disabled={!isEditing}
+                            />
+                            <span>{label}</span>
+                          </label>
+                        ))}
+                      </div>
+                    </label>
+
+                    <label className="tagora-field">
+                      <span className="tagora-label">Pause par defaut (min)</span>
                       <input
                         className="tagora-input"
                         style={readOnlyFieldStyle}
                         type="number"
                         min="0"
                         step="1"
-                        value={row.minutes}
+                        value={form.pause_minutes}
                         onChange={(event) =>
                           setForm((current) => ({
                             ...current,
-                            ...(row.key === "break_am"
-                              ? { break_am_minutes: event.target.value }
-                              : {}),
-                            ...(row.key === "lunch"
-                              ? { lunch_minutes: event.target.value }
-                              : {}),
-                            ...(row.key === "break_pm"
-                              ? { break_pm_minutes: event.target.value }
-                              : {}),
+                            pause_minutes: event.target.value,
                           }))
                         }
                         readOnly={!isEditing}
                       />
+                    </label>
+                  </div>
 
+                  <div className="ui-stack-sm" style={{ marginTop: 16 }}>
+                    <div className="tagora-label">Pauses et diner (modele global)</div>
+                    {[
+                      {
+                        key: "break_am",
+                        label: "Pause AM",
+                        enabled: form.break_am_enabled,
+                        time: form.break_am_time,
+                        minutes: form.break_am_minutes,
+                        paid: form.break_am_paid,
+                      },
+                      {
+                        key: "lunch",
+                        label: "Diner",
+                        enabled: form.lunch_enabled,
+                        time: form.lunch_time,
+                        minutes: form.lunch_minutes,
+                        paid: form.lunch_paid,
+                      },
+                      {
+                        key: "break_pm",
+                        label: "Pause PM",
+                        enabled: form.break_pm_enabled,
+                        time: form.break_pm_time,
+                        minutes: form.break_pm_minutes,
+                        paid: form.break_pm_paid,
+                      },
+                    ].map((row) => (
+                      <div
+                        key={row.key}
+                        className="tagora-panel-muted"
+                        style={{
+                          display: "grid",
+                          gridTemplateColumns:
+                            "minmax(120px, 1.1fr) 100px 140px 120px 150px",
+                          gap: 12,
+                          alignItems: "center",
+                          padding: 16,
+                        }}
+                      >
+                        <div style={{ fontWeight: 700, color: "#0f172a" }}>
+                          {row.label}
+                        </div>
+
+                        <label className="account-requests-permission-option">
+                          <input
+                            type="checkbox"
+                            checked={row.enabled}
+                            disabled={!isEditing}
+                            onChange={(event) =>
+                              setForm((current) => ({
+                                ...current,
+                                ...(row.key === "break_am"
+                                  ? { break_am_enabled: event.target.checked }
+                                  : {}),
+                                ...(row.key === "lunch"
+                                  ? { lunch_enabled: event.target.checked }
+                                  : {}),
+                                ...(row.key === "break_pm"
+                                  ? { break_pm_enabled: event.target.checked }
+                                  : {}),
+                              }))
+                            }
+                          />
+                          <span>Actif</span>
+                        </label>
+
+                        <input
+                          className="tagora-input"
+                          style={readOnlyFieldStyle}
+                          type="time"
+                          value={row.time}
+                          onChange={(event) =>
+                            setForm((current) => ({
+                              ...current,
+                              ...(row.key === "break_am"
+                                ? { break_am_time: event.target.value }
+                                : {}),
+                              ...(row.key === "lunch"
+                                ? { lunch_time: event.target.value }
+                                : {}),
+                              ...(row.key === "break_pm"
+                                ? { break_pm_time: event.target.value }
+                                : {}),
+                            }))
+                          }
+                          readOnly={!isEditing}
+                        />
+
+                        <input
+                          className="tagora-input"
+                          style={readOnlyFieldStyle}
+                          type="number"
+                          min="0"
+                          step="1"
+                          value={row.minutes}
+                          onChange={(event) =>
+                            setForm((current) => ({
+                              ...current,
+                              ...(row.key === "break_am"
+                                ? { break_am_minutes: event.target.value }
+                                : {}),
+                              ...(row.key === "lunch"
+                                ? { lunch_minutes: event.target.value }
+                                : {}),
+                              ...(row.key === "break_pm"
+                                ? { break_pm_minutes: event.target.value }
+                                : {}),
+                            }))
+                          }
+                          readOnly={!isEditing}
+                        />
+
+                        <select
+                          className="tagora-input"
+                          style={readOnlyFieldStyle}
+                          value={row.paid ? "paid" : "unpaid"}
+                          onChange={(event) =>
+                            setForm((current) => ({
+                              ...current,
+                              ...(row.key === "break_am"
+                                ? { break_am_paid: event.target.value === "paid" }
+                                : {}),
+                              ...(row.key === "lunch"
+                                ? { lunch_paid: event.target.value === "paid" }
+                                : {}),
+                              ...(row.key === "break_pm"
+                                ? { break_pm_paid: event.target.value === "paid" }
+                                : {}),
+                            }))
+                          }
+                          disabled={!isEditing}
+                        >
+                          <option value="paid">Payee</option>
+                          <option value="unpaid">Non payee</option>
+                        </select>
+                      </div>
+                    ))}
+                  </div>
+                </TagoraCollapsibleSection>
+              </TagoraCollapsibleSection>
+
+              {canOpenRegistreFromProfile && !isCreating && employeeId ? (
+                <TagoraCollapsibleSection
+                  title="Historique de travail"
+                  subtitle="Consulter les heures travaillées, punchs, exceptions et écarts dans le registre des heures."
+                  open={openSection === "historique_travail"}
+                  onOpenChange={(v) => setOpenSection(v ? "historique_travail" : null)}
+                >
+                  <p className="tagora-note" style={{ margin: "0 0 16px" }}>
+                    Le registre des heures est la vue officielle : soldes, exceptions,
+                    corrections et écarts y sont calculés de façon centralisée. Ouvrez-le
+                    ci-dessous avec l&apos;employé déjà sélectionné.
+                  </p>
+                  <div
+                    className="tagora-panel-muted"
+                    style={{
+                      display: "flex",
+                      flexWrap: "wrap",
+                      gap: 12,
+                      alignItems: "center",
+                      padding: 16,
+                      borderRadius: 16,
+                    }}
+                  >
+                    <Link
+                      href={`/direction/horodateur/registre?employeeId=${employeeId}&period=currentWeek`}
+                      className={cn("ui-button", "ui-button-primary")}
+                      style={{ textDecoration: "none" }}
+                    >
+                      Cette semaine
+                    </Link>
+                    <Link
+                      href={`/direction/horodateur/registre?employeeId=${employeeId}&period=currentMonth`}
+                      className={cn("ui-button", "ui-button-secondary")}
+                      style={{ textDecoration: "none" }}
+                    >
+                      Ce mois
+                    </Link>
+                    <Link
+                      href={`/direction/horodateur/registre?employeeId=${employeeId}`}
+                      className={cn("ui-button", "ui-button-secondary")}
+                      style={{ textDecoration: "none" }}
+                    >
+                      Ouvrir dans le registre des heures
+                    </Link>
+                  </div>
+                </TagoraCollapsibleSection>
+              ) : null}
+
+              {!isCreating && employeeId != null && canEditEffectifs ? (
+                <EmployeeLongLeaveSection employeeId={employeeId} />
+              ) : null}
+
+              <TagoraCollapsibleSection
+                  sectionId="affectation-effectifs"
+                  title="Affectation effectifs"
+                  subtitle="Departements, emplacements et parametres pour la page direction / effectifs (modifiable par direction ou admin uniquement)."
+                  open={openSection === "effectifs"}
+                  onOpenChange={(v) => setOpenSection(v ? "effectifs" : null)}
+                >
+                  <div className="tagora-form-grid">
+                    {!canEditEffectifs ? (
+                      <p className="tagora-note" style={{ margin: 0 }}>
+                        Lecture seule. Contactez la direction pour modifier
+                        l&apos;affectation effectifs.
+                      </p>
+                    ) : null}
+
+                    <label className="tagora-field">
+                      <span className="tagora-label">Departement principal</span>
                       <select
                         className="tagora-input"
                         style={readOnlyFieldStyle}
-                        value={row.paid ? "paid" : "unpaid"}
+                        value={form.effectifsDepartmentKey}
+                        onChange={(event) => {
+                          const v = event.target.value;
+                          setForm((current) => ({
+                            ...current,
+                            effectifsDepartmentKey: v,
+                            effectifsSecondaryDepartmentKeys:
+                              current.effectifsSecondaryDepartmentKeys.filter(
+                                (k) => k !== v
+                              ),
+                          }));
+                        }}
+                        disabled={!isEditing || !canEditEffectifs}
+                      >
+                        <option value="">Non assigne</option>
+                        {EFFECTIFS_DEPARTMENT_ENTRIES.map((d) => (
+                          <option key={d.key} value={d.key}>
+                            {d.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+
+                    <div className="tagora-field">
+                      <span className="tagora-label">Departements secondaires</span>
+                      <div
+                        className="tagora-panel-muted"
+                        style={{ display: "flex", gap: 12, flexWrap: "wrap" }}
+                      >
+                        {EFFECTIFS_DEPARTMENT_ENTRIES.map((d) => {
+                          if (d.key === form.effectifsDepartmentKey) {
+                            return null;
+                          }
+                          return (
+                            <label
+                              key={d.key}
+                              className="account-requests-permission-option"
+                            >
+                              <input
+                                type="checkbox"
+                                checked={form.effectifsSecondaryDepartmentKeys.includes(
+                                  d.key
+                                )}
+                                disabled={!isEditing || !canEditEffectifs}
+                                onChange={(event) => {
+                                  const on = event.target.checked;
+                                  setForm((current) => ({
+                                    ...current,
+                                    effectifsSecondaryDepartmentKeys: on
+                                      ? [...current.effectifsSecondaryDepartmentKeys, d.key]
+                                      : current.effectifsSecondaryDepartmentKeys.filter(
+                                          (k) => k !== d.key
+                                        ),
+                                  }));
+                                }}
+                              />
+                              <span>{d.label}</span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    <label className="tagora-field">
+                      <span className="tagora-label">Emplacement principal</span>
+                      <select
+                        className="tagora-input"
+                        style={readOnlyFieldStyle}
+                        value={form.effectifsPrimaryLocation}
+                        onChange={(event) => {
+                          const v = event.target.value;
+                          setForm((current) => ({
+                            ...current,
+                            effectifsPrimaryLocation: v,
+                            effectifsSecondaryLocations:
+                              current.effectifsSecondaryLocations.filter(
+                                (loc) => loc !== v
+                              ),
+                          }));
+                        }}
+                        disabled={!isEditing || !canEditEffectifs}
+                      >
+                        <option value="">Non renseigne</option>
+                        {EFFECTIFS_LOCATION_ENTRIES.map((loc) => (
+                          <option key={loc.key} value={loc.key}>
+                            {loc.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+
+                    <div className="tagora-field">
+                      <span className="tagora-label">Emplacements secondaires</span>
+                      <div
+                        className="tagora-panel-muted"
+                        style={{ display: "flex", gap: 12, flexWrap: "wrap" }}
+                      >
+                        {EFFECTIFS_LOCATION_ENTRIES.map((loc) => {
+                          if (loc.key === form.effectifsPrimaryLocation) {
+                            return null;
+                          }
+                          return (
+                            <label
+                              key={loc.key}
+                              className="account-requests-permission-option"
+                            >
+                              <input
+                                type="checkbox"
+                                checked={form.effectifsSecondaryLocations.includes(
+                                  loc.key
+                                )}
+                                disabled={!isEditing || !canEditEffectifs}
+                                onChange={(event) => {
+                                  const on = event.target.checked;
+                                  setForm((current) => ({
+                                    ...current,
+                                    effectifsSecondaryLocations: on
+                                      ? [...current.effectifsSecondaryLocations, loc.key]
+                                      : current.effectifsSecondaryLocations.filter(
+                                          (k) => k !== loc.key
+                                        ),
+                                  }));
+                                }}
+                              />
+                              <span>{loc.label}</span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    <label className="account-requests-permission-option">
+                      <input
+                        type="checkbox"
+                        checked={form.canDeliver}
+                        disabled={!isEditing || !canEditEffectifs}
                         onChange={(event) =>
                           setForm((current) => ({
                             ...current,
-                            ...(row.key === "break_am"
-                              ? { break_am_paid: event.target.value === "paid" }
-                              : {}),
-                            ...(row.key === "lunch"
-                              ? { lunch_paid: event.target.value === "paid" }
-                              : {}),
-                            ...(row.key === "break_pm"
-                              ? { break_pm_paid: event.target.value === "paid" }
-                              : {}),
+                            canDeliver: event.target.checked,
                           }))
                         }
-                        disabled={!isEditing}
+                      />
+                      <span>Peut faire des livraisons</span>
+                    </label>
+
+                    <label className="tagora-field">
+                      <span className="tagora-label">
+                        Heures hebdomadaires prevues (effectifs)
+                      </span>
+                      <input
+                        className="tagora-input"
+                        style={readOnlyFieldStyle}
+                        type="number"
+                        min="0"
+                        step="0.25"
+                        value={form.defaultWeeklyHours}
+                        onChange={(event) =>
+                          setForm((current) => ({
+                            ...current,
+                            defaultWeeklyHours: event.target.value,
+                          }))
+                        }
+                        readOnly={!isEditing || !canEditEffectifs}
+                      />
+                    </label>
+
+                    <label className="account-requests-permission-option">
+                      <input
+                        type="checkbox"
+                        checked={form.scheduleActive}
+                        disabled={!isEditing || !canEditEffectifs}
+                        onChange={(event) =>
+                          setForm((current) => ({
+                            ...current,
+                            scheduleActive: event.target.checked,
+                          }))
+                        }
+                      />
+                      <span>Horaire actif pour planification / couverture</span>
+                    </label>
+
+                    {!isEditing || !canEditEffectifs ? (
+                      <div
+                        className="tagora-panel-muted ui-stack-xs"
+                        style={{ fontSize: "0.9rem" }}
                       >
-                        <option value="paid">Payee</option>
-                        <option value="unpaid">Non payee</option>
-                      </select>
-                    </div>
-                  ))}
-                </div>
-              </AccordionSection>
+                        <div>
+                          <span className="tagora-label">Synthese emplacements</span>
+                          <div style={{ marginTop: 6 }}>
+                            Principal :{" "}
+                            {form.effectifsPrimaryLocation
+                              ? locationLabelFromKey(form.effectifsPrimaryLocation)
+                              : "—"}
+                            {form.effectifsSecondaryLocations.length > 0
+                              ? ` · Secondaires : ${form.effectifsSecondaryLocations.map((k) => locationLabelFromKey(k)).join(", ")}`
+                              : null}
+                          </div>
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                </TagoraCollapsibleSection>
             </div>
 
             <aside className="tagora-stack">
-              <AccordionSection
+              <TagoraCollapsibleSection
                 title="Facturation"
-                description="Donnees Titan, cout refacturable et resume pauses."
+                subtitle="Donnees Titan, cout refacturable et resume pauses."
                 open={openSection === "facturation"}
-                onToggle={() => setOpenSection("facturation")}
+                onOpenChange={(v) => setOpenSection(v ? "facturation" : null)}
               >
                 <div className="tagora-form-grid">
                   <label className="tagora-field">
@@ -1382,13 +1882,13 @@ export default function EmployeeProfilePageClient({
                     value={`${String(breakSummary.unpaid)} min`}
                   />
                 </div>
-              </AccordionSection>
+              </TagoraCollapsibleSection>
 
-              <AccordionSection
+              <TagoraCollapsibleSection
                 title="Alertes SMS"
-                description="Activez ou coupez les alertes SMS et les destinataires direction."
+                subtitle="Activez ou coupez les alertes SMS et les destinataires direction."
                 open={openSection === "alertes_sms"}
-                onToggle={() => setOpenSection("alertes_sms")}
+                onOpenChange={(v) => setOpenSection(v ? "alertes_sms" : null)}
               >
                 <div className="ui-stack-sm">
                   <div className="tagora-panel-muted" style={{ display: "grid", gap: 12, padding: 16 }}>
@@ -1478,17 +1978,55 @@ export default function EmployeeProfilePageClient({
                     </div>
                   ))}
                 </div>
-              </AccordionSection>
+              </TagoraCollapsibleSection>
 
-              {!isCreating ? (
-                <section className="tagora-panel ui-stack-md">
-                  <div className="ui-stack-xs">
-                    <h2 className="section-title" style={{ marginBottom: 0 }}>
-                      Actions admin
-                    </h2>
-                    <p className="tagora-note" style={{ margin: 0 }}>
-                      Gestion directe de la fiche.
-                    </p>
+              {!isCreating && canEditEffectifs ? (
+                <TagoraCollapsibleSection
+                  title="Actions admin"
+                  subtitle="Activer, desactiver ou retirer un employe (direction / admin uniquement)."
+                  open={openSection === "actions_admin"}
+                  onOpenChange={(v) => setOpenSection(v ? "actions_admin" : null)}
+                >
+                  <div
+                    className="tagora-panel-muted"
+                    style={{
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: 10,
+                      padding: 16,
+                      marginBottom: 12,
+                    }}
+                  >
+                    {form.actif ? (
+                      <button
+                        type="button"
+                        className="tagora-dark-action"
+                        onClick={() => handleDeactivateProfile()}
+                        disabled={saving || deleting}
+                        style={{ justifyContent: "center" }}
+                      >
+                        {deleting ? "Traitement..." : "Desactiver"}
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        className="tagora-dark-action"
+                        onClick={() => handleReactivateProfile()}
+                        disabled={saving || deleting}
+                        style={{ justifyContent: "center" }}
+                      >
+                        {deleting ? "Traitement..." : "Reactiver"}
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      className="tagora-dark-outline-action"
+                      onClick={() => void handleDeleteOrArchive()}
+                      disabled={saving || deleting}
+                      style={{ justifyContent: "center" }}
+                    >
+                      {deleting ? "Traitement..." : "Supprimer / Archiver"}
+                    </button>
                   </div>
 
                   {viewerIsAppAdmin && portalAccount?.authUserId ? (
@@ -1582,15 +2120,7 @@ export default function EmployeeProfilePageClient({
                     </div>
                   )}
 
-                  <button
-                    type="button"
-                    className="tagora-btn-danger"
-                    onClick={() => void handleDelete()}
-                    disabled={saving || deleting}
-                  >
-                    {deleting ? "Desactivation..." : "Desactiver"}
-                  </button>
-                </section>
+                </TagoraCollapsibleSection>
               ) : null}
             </aside>
           </div>

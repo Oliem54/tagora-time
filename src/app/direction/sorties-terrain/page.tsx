@@ -347,7 +347,7 @@ export default function Page() {
   if (accessLoading || (!blocked && loading)) {
     return (
       <main className="page-container">
-        <HeaderTagora title="Direction sorties terrain" subtitle="Execution reelle, kilometres et temps" />
+        <HeaderTagora title="Direction sorties terrain" subtitle="" showNavigation={false} />
         <AccessNotice description="Verification des acces terrain et chargement des donnees en cours." />
       </main>
     );
@@ -358,7 +358,7 @@ export default function Page() {
   if (blocked) {
     return (
       <main className="page-container">
-        <HeaderTagora title="Direction sorties terrain" subtitle="Execution reelle, kilometres et temps" />
+        <HeaderTagora title="Direction sorties terrain" subtitle="" showNavigation={false} />
         <AccessNotice description="La permission terrain n est pas active sur ce compte direction. Le module reste masque tant que cet acces n est pas ouvert." />
       </main>
     );
@@ -366,7 +366,25 @@ export default function Page() {
 
   return (
     <main className="page-container">
-      <HeaderTagora title="Direction sorties terrain" subtitle="Execution reelle d une livraison, kilometres et temps" />
+      <HeaderTagora
+        title="Direction sorties terrain"
+        subtitle=""
+        showNavigation={false}
+        actions={
+          <div
+            style={{
+              display: "flex",
+              gap: "var(--ui-space-3)",
+              flexWrap: "wrap",
+              alignItems: "center",
+            }}
+          >
+            <Link href="/direction/dashboard" className="tagora-dark-action" style={{ textDecoration: "none" }}>
+              Tableau de bord direction
+            </Link>
+          </div>
+        }
+      />
 
       <div className="tagora-panel" style={{ marginTop: 24 }}>
         <FeedbackMessage message={message} type={messageType} />

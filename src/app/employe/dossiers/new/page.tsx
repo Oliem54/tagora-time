@@ -178,20 +178,29 @@ export default function NewDossierPage() {
       .filter(Boolean)
       .join("\n");
 
-    const { error } = await supabase.from("dossiers").insert([
-      {
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+
+    const res = await fetch("/api/employe/dossiers", {
+      method: "POST",
+      credentials: "include",
+      headers: {
+        "Content-Type": "application/json",
+        ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
+      },
+      body: JSON.stringify({
         nom,
         client,
         description: descriptionValue,
-        statut: "Nouveau",
-        user_id: userData.user.id,
-      },
-    ]);
+      }),
+    });
 
     setSaving(false);
 
-    if (error) {
-      alert("Erreur : " + error.message);
+    if (!res.ok) {
+      const payload = (await res.json().catch(() => null)) as { error?: string } | null;
+      alert("Erreur : " + (payload?.error ?? res.statusText));
       return;
     }
 

@@ -15,7 +15,13 @@ export default function DirectionLayout({
   children: React.ReactNode;
 }) {
   return (
-    <AuthGate areaRole="direction" publicPaths={["/direction", "/direction/login"]}>
+    <AuthGate
+      areaRole="direction"
+      publicPaths={["/direction", "/direction/login"]}
+      crossAreaReadPaths={[
+        { pathPrefix: "/direction/effectifs", roles: ["employe"] },
+      ]}
+    >
       {children}
     </AuthGate>
   );

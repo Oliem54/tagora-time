@@ -18,8 +18,10 @@ export async function PATCH(
     const auth = await requireDirectionUser(req, "terrain");
 
     if (!auth.ok) {
+      const code =
+        "code" in auth.response ? (auth.response as { code?: string }).code : undefined;
       return NextResponse.json(
-        { error: auth.response.error },
+        { error: auth.response.error, ...(code ? { code } : {}) },
         { status: auth.response.status }
       );
     }

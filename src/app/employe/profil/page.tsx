@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import PasswordUpdateSection from "@/app/components/auth/PasswordUpdateSection";
@@ -65,6 +66,24 @@ export default function EmployeProfilPage() {
               />
             </AppCard>
           </div>
+        </SectionCard>
+
+        <SectionCard
+          title="Horaire prévu"
+          subtitle="Demandes d’ajustement (validation direction)."
+        >
+          <SecondaryButton type="button" onClick={() => router.push("/employe/effectifs/demandes")}>
+            Ouvrir mes demandes d’horaire
+          </SecondaryButton>
+        </SectionCard>
+
+        <SectionCard
+          title="Securite du compte"
+          subtitle="Verification en deux etapes optionnelle pour les employes."
+        >
+          <Link className="ui-button ui-button-secondary" href="/account/security">
+            Gerer la securite du compte
+          </Link>
         </SectionCard>
 
         <PasswordUpdateSection
