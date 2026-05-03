@@ -2342,6 +2342,76 @@ select {
   padding: 30px 24px 60px;
 }
 
+/* MFA setup / verify : champs code OTP (SMS ou TOTP) — commun, lisible, autofill WebKit. */
+.mfa-otp-code-form {
+  display: grid;
+  gap: var(--ui-space-4);
+}
+
+.mfa-otp-code-field {
+  display: grid;
+  gap: var(--ui-space-2);
+}
+
+.mfa-otp-code-label {
+  font-size: 14px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.mfa-otp-code-input {
+  box-sizing: border-box;
+  width: 100%;
+  height: 48px;
+  border: 1px solid #cbd5e1;
+  border-radius: 12px;
+  background-color: #ffffff;
+  color: #0f172a;
+  padding: 0 14px;
+  font-size: 1.1rem;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  line-height: 1.2;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.mfa-otp-code-input::placeholder {
+  color: #64748b;
+  letter-spacing: 0.12em;
+  font-weight: 500;
+}
+
+.mfa-otp-code-input:focus {
+  outline: none;
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.25);
+}
+
+.mfa-otp-code-input:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+  background-color: #f1f5f9;
+  color: #475569;
+}
+
+.mfa-otp-code-input:-webkit-autofill,
+.mfa-otp-code-input:-webkit-autofill:hover,
+.mfa-otp-code-input:-webkit-autofill:focus {
+  -webkit-text-fill-color: #0f172a !important;
+  caret-color: #0f172a;
+  transition: background-color 99999s ease-out 0s;
+  box-shadow: 0 0 0 1000px #ffffff inset !important;
+  border: 1px solid #cbd5e1 !important;
+}
+
+.mfa-otp-code-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 2px;
+}
+
 .ui-auth-content {
   width: min(1180px, 100%);
   margin: 0 auto;

@@ -379,11 +379,13 @@ export async function listEventsForEmployee(options: {
 
   let { data, error } = await query
     .order("occurred_at", { ascending: true })
+    .order("id", { ascending: true })
     .returns<EventRow[]>();
 
   if (error && isMissingColumnError(error, "occurred_at")) {
     const fallback = await query
       .order("event_time", { ascending: true })
+      .order("id", { ascending: true })
       .returns<EventRow[]>();
     data = fallback.data ?? null;
     error = fallback.error ?? null;
@@ -411,10 +413,12 @@ export async function listEventsForEmployee(options: {
 
     let legacyResult = await legacyQuery
       .order("occurred_at", { ascending: true })
+      .order("id", { ascending: true })
       .returns<EventRow[]>();
     if (legacyResult.error && isMissingColumnError(legacyResult.error, "occurred_at")) {
       legacyResult = await legacyQuery
         .order("event_time", { ascending: true })
+        .order("id", { ascending: true })
         .returns<EventRow[]>();
     }
     data = legacyResult.data ?? null;

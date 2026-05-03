@@ -79,12 +79,20 @@ export function useCurrentAccess() {
         }
 
         try {
-          const response = await fetch("/api/account-requests/sync-activation", {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${token}`,
-            },
-          });
+          const ac = new AbortController();
+          const syncTimeout = setTimeout(() => ac.abort(), 18_000);
+          let response: Response;
+          try {
+            response = await fetch("/api/account-requests/sync-activation", {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${token}`,
+              },
+              signal: ac.signal,
+            });
+          } finally {
+            clearTimeout(syncTimeout);
+          }
           const payload = await response.json().catch(() => null);
           devInfo("auth-cookie", "refresh sync-activation response", payload);
           if (response.ok) {

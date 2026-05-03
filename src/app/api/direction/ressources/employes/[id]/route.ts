@@ -135,6 +135,9 @@ function formatDbErrorForClient(error: SupabaseLikeError): string {
   if (code === "23502") {
     const m = (error.message ?? "").match(/column \"(\w+)\"/i);
     const c = m?.[1];
+    if (c === "effectifs_department_key") {
+      return "Veuillez sélectionner un département effectifs avant d'enregistrer.";
+    }
     if (c && EFFECTIFS_COLUMNS_FOR_NULL.has(c)) {
       return `Configuration effectifs incomplète : ${c}`;
     }
@@ -204,12 +207,16 @@ export async function PATCH(
     const hasPrimaryLoc =
       typeof body.effectifs_primary_location === "string" &&
       body.effectifs_primary_location.trim() !== "";
+    const hasSecondaryLoc =
+      Array.isArray(body.effectifs_secondary_locations) &&
+      (body.effectifs_secondary_locations as unknown[]).length > 0;
     if (
-      (hasSecondaryDept || hasPrimaryLoc) &&
+      (hasSecondaryDept || hasPrimaryLoc || hasSecondaryLoc) &&
       (primaryDept == null || primaryDept === "")
     ) {
       const err = {
-        message: "Configuration effectifs incomplète : effectifs_department_key",
+        message:
+          "Veuillez sélectionner un département effectifs avant d'enregistrer, ou retirez les emplacements / départements secondaires.",
         code: "effectifs_incomplete",
       };
       logEmployeeProfileSave("validate_effectifs", employeeId, body, err);

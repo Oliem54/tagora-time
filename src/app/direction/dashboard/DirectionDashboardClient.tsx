@@ -245,6 +245,8 @@ export default function DirectionDashboardClient() {
       return;
     }
 
+    const ac = new AbortController();
+
     const loadPendingBadges = async () => {
       const resetZeros = () => {
         setPendingAccountRequestsCount(0);
@@ -264,6 +266,7 @@ export default function DirectionDashboardClient() {
           headers: {
             Authorization: `Bearer ${accessToken}`,
           },
+          signal: ac.signal,
         });
 
         if (summaryResponse.ok) {
@@ -295,12 +298,18 @@ export default function DirectionDashboardClient() {
         }
 
         resetZeros();
-      } catch {
+      } catch (e) {
+        if (e instanceof DOMException && e.name === "AbortError") {
+          return;
+        }
         resetZeros();
       }
     };
 
     void loadPendingBadges();
+    return () => {
+      ac.abort();
+    };
   }, [accessToken, user, role, loading]);
 
   const isDirectionCoreRole = role === "admin" || role === "direction";

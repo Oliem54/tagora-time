@@ -466,6 +466,8 @@ export default function DirectionHorodateurPage() {
     useState<(typeof DIRECTION_EVENT_TYPES)[number]>("punch_in");
   const [note, setNote] = useState("");
   const [liveFilter, setLiveFilter] = useState<LiveFilter>("tous");
+  /** Date `work_date` utilisée pour la colonne « Quart du jour » (alignée sur l’API live, Toronto). */
+  const [liveTodayWorkDate, setLiveTodayWorkDate] = useState<string | null>(null);
   const [config, setConfig] = useState<AlertConfig>({
     email_enabled: false,
     sms_enabled: false,
@@ -597,6 +599,7 @@ export default function DirectionHorodateurPage() {
                 details?: string;
                 hint?: string;
                 board?: LiveRow[];
+                todayWorkDate?: string;
                 debug?: RouteDebugPayload;
               },
             },
@@ -623,12 +626,15 @@ export default function DirectionHorodateurPage() {
         });
 
         if (result.live.ok) {
+          const twd = result.live.payload.todayWorkDate;
+          setLiveTodayWorkDate(typeof twd === "string" && /^\d{4}-\d{2}-\d{2}$/.test(twd) ? twd : null);
           setBoard(
             Array.isArray(result.live.payload.board)
               ? result.live.payload.board.map(normalizeLiveRow)
               : []
           );
         } else {
+          setLiveTodayWorkDate(null);
           setBoard([]);
         }
 
@@ -1476,7 +1482,16 @@ export default function DirectionHorodateurPage() {
                     <th style={thStyle}>Compagnie</th>
                     <th style={thStyle}>Etat</th>
                     <th style={thStyle}>Dernier evenement</th>
-                    <th style={thStyle}>Quart du jour</th>
+                    <th style={thStyle}>
+                      <div className="ui-stack-xs" style={{ alignItems: "flex-start" }}>
+                        <span>Quart du jour</span>
+                        {liveTodayWorkDate ? (
+                          <span className="ui-text-muted" style={{ fontSize: 11, fontWeight: 500 }}>
+                            Jour (Toronto) : {liveTodayWorkDate}
+                          </span>
+                        ) : null}
+                      </div>
+                    </th>
                     <th style={thStyle}>Semaine</th>
                     <th style={thStyle}>Projection</th>
                     <th style={thStyle}>Exceptions</th>

@@ -16,7 +16,8 @@ export type MfaAuditEvent =
   | "mfa_disabled"
   | "mfa_verify_failed"
   | "mfa_verify_failed_repeated"
-  | "mfa_access_blocked";
+  | "mfa_access_blocked"
+  | "mfa_verify_succeeded";
 
 type ListedFactor = {
   id: string;

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { listDirectionLiveBoard } from "@/app/lib/horodateur-v1/service";
+import { getLocalWorkDate } from "@/app/lib/horodateur-v1/rules";
 import {
   buildHorodateurErrorResponse,
   requireDirectionHorodateurAccess,
@@ -120,10 +121,14 @@ export async function GET(req: NextRequest) {
       boardCount: normalizedBoard.length,
     });
 
+    const todayWorkDate = getLocalWorkDate(new Date().toISOString());
+
     return NextResponse.json({
       success: true,
       board: normalizedBoard,
       grouped: groupedCounts,
+      /** Même `work_date` que `getShiftByEmployeeAndWorkDate` dans le live board (America/Toronto). */
+      todayWorkDate,
       ...(process.env.NODE_ENV !== "production"
         ? {
             debug: auth.debug,

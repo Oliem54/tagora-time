@@ -12,7 +12,8 @@
     "test:ci": "vitest run",
     "sync:auth-email-templates": "node scripts/sync-supabase-auth-email-templates.mjs",
     "db:push": "supabase db push",
-    "db:link": "supabase link"
+    "db:link": "supabase link",
+    "db:diagnose-horodateur": "node --env-file=.env.local scripts/diagnose-horodateur-employee.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.103.3",

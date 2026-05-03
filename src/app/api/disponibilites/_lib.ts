@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
   getAuthenticatedRequestUser,
-  getJwtAal,
   getRequestAccessToken,
 } from "@/app/lib/account-requests.server";
+import { isJwtExplicitlyAal1Only } from "@/app/lib/auth/jwt-access-token";
 
 export type DisponibiliteReason =
   | "journee_complete"
@@ -91,7 +91,7 @@ export async function requireDirectionOrAdmin(req: NextRequest) {
   }
 
   const token = getRequestAccessToken(req).token;
-  if (getJwtAal(token) !== "aal2") {
+  if (isJwtExplicitlyAal1Only(token)) {
     return {
       ok: false as const,
       response: NextResponse.json(

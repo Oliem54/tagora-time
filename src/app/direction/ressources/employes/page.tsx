@@ -39,41 +39,66 @@ export default function Page() {
     setMessage("");
     setMessageType(null);
 
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
-    const token = session?.access_token;
-    if (!token) {
-      setMessage("Session expirée. Reconnectez-vous.");
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      if (!token) {
+        setMessage("Session expirée. Reconnectez-vous.");
+        setMessageType("error");
+        setEmployes([]);
+        return;
+      }
+
+      const params = new URLSearchParams();
+      params.set("status", statusFilter);
+
+      const ac = new AbortController();
+      const t = setTimeout(() => ac.abort(), 45_000);
+
+      let res: Response;
+      try {
+        res = await fetch(`/api/direction/ressources/employes?${params.toString()}`, {
+          headers: { Authorization: `Bearer ${token}` },
+          signal: ac.signal,
+        });
+      } finally {
+        clearTimeout(t);
+      }
+
+      const json = (await res.json().catch(() => ({}))) as {
+        success?: boolean;
+        employees?: EmployeListRow[];
+        error?: string;
+        code?: string;
+      };
+
+      if (!res.ok || json.success === false) {
+        let err = typeof json.error === "string" ? json.error : "Erreur de chargement.";
+        if (json.code === "MFA_AAL2_REQUIRED") {
+          err =
+            "Vérification en deux étapes requise. Complétez le MFA (/auth/mfa/verify), puis actualisez cette page.";
+        }
+        setMessage(err);
+        setMessageType("error");
+        setEmployes([]);
+        return;
+      }
+
+      setEmployes(json.employees ?? []);
+    } catch (e) {
+      const aborted = e instanceof Error && e.name === "AbortError";
+      setMessage(
+        aborted
+          ? "Le chargement a pris trop de temps. Réessayez ou vérifiez le serveur."
+          : "Impossible de joindre le serveur. Vérifiez la connexion et que `npm run dev` est actif."
+      );
       setMessageType("error");
       setEmployes([]);
+    } finally {
       setLoading(false);
-      return;
     }
-
-    const params = new URLSearchParams();
-    params.set("status", statusFilter);
-
-    const res = await fetch(`/api/direction/ressources/employes?${params.toString()}`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-
-    const json = (await res.json().catch(() => ({}))) as {
-      success?: boolean;
-      employees?: EmployeListRow[];
-      error?: string;
-    };
-
-    if (!res.ok || json.success === false) {
-      setMessage(typeof json.error === "string" ? json.error : "Erreur de chargement.");
-      setMessageType("error");
-      setEmployes([]);
-      setLoading(false);
-      return;
-    }
-
-    setEmployes(json.employees ?? []);
-    setLoading(false);
   }, [statusFilter]);
 
   useEffect(() => {

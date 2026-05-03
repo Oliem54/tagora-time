@@ -195,6 +195,7 @@ export default function AdminDashboardClient() {
       return;
     }
     let cancelled = false;
+    const ac = new AbortController();
     (async () => {
       try {
         const {
@@ -206,6 +207,7 @@ export default function AdminDashboardClient() {
         const token = session.access_token;
         const summaryRes = await fetch("/api/direction/alert-center/summary", {
           headers: { Authorization: `Bearer ${token}` },
+          signal: ac.signal,
         });
 
         if (cancelled) return;
@@ -243,7 +245,10 @@ export default function AdminDashboardClient() {
         });
         const os = Number(s.open?.sum);
         setAlertOpenSum(Number.isFinite(os) ? Math.max(0, os) : 0);
-      } catch {
+      } catch (e) {
+        if (e instanceof DOMException && e.name === "AbortError") {
+          return;
+        }
         if (!cancelled) {
           setAmeliorationsPending(null);
           setEffectifsSchedulePending(null);
@@ -254,6 +259,7 @@ export default function AdminDashboardClient() {
     })();
     return () => {
       cancelled = true;
+      ac.abort();
     };
   }, [loading, user]);
 

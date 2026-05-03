@@ -228,6 +228,7 @@ export default function MfaSetupPage() {
         data: { session },
       } = await supabase.auth.getSession();
       void postMfaAuditEvent("mfa_enabled", session?.access_token ?? null);
+      void postMfaAuditEvent("mfa_verify_succeeded", session?.access_token ?? null);
 
       if (typeof window !== "undefined") {
         sessionStorage.removeItem("tagora_mfa_gate_audit");
@@ -315,6 +316,7 @@ export default function MfaSetupPage() {
         data: { session },
       } = await supabase.auth.getSession();
       void postMfaAuditEvent("mfa_enabled", session?.access_token ?? null);
+      void postMfaAuditEvent("mfa_verify_succeeded", session?.access_token ?? null);
 
       if (typeof window !== "undefined") {
         sessionStorage.removeItem("tagora_mfa_gate_audit");
@@ -332,7 +334,7 @@ export default function MfaSetupPage() {
 
   if (checkingUser) {
     return (
-      <main className="ui-auth-shell">
+      <main className="ui-auth-shell mfa-setup-page">
         <div className="ui-auth-content">
           <PageHeader title="Vérification en deux étapes" subtitle="Préparation…" compact />
         </div>
@@ -341,7 +343,7 @@ export default function MfaSetupPage() {
   }
 
   return (
-    <main className="ui-auth-shell">
+    <main className="ui-auth-shell mfa-setup-page">
       <div className="ui-auth-content ui-stack-lg">
         <PageHeader
           title="Vérification en deux étapes"
@@ -394,18 +396,27 @@ export default function MfaSetupPage() {
               <p style={{ margin: "0 0 12px", fontSize: 13, fontWeight: 600 }}>
                 Étape 2 — Code reçu par texto
               </p>
-              <form className="ui-stack-md" onSubmit={(e) => void onConfirmSms(e)}>
-                <FormField label="Code à 6 chiffres">
+              <form className="ui-stack-md mfa-otp-code-form" onSubmit={(e) => void onConfirmSms(e)}>
+                <div className="mfa-otp-code-field">
+                  <label className="mfa-otp-code-label" htmlFor="mfa-setup-sms-otp-input">
+                    Code à 6 chiffres
+                  </label>
                   <input
-                    className="ui-input"
+                    id="mfa-setup-sms-otp-input"
+                    name="mfa-setup-sms-otp"
+                    className="mfa-otp-code-input"
+                    type="text"
                     inputMode="numeric"
+                    pattern="[0-9]*"
                     autoComplete="one-time-code"
+                    placeholder="123456"
                     maxLength={8}
+                    spellCheck={false}
                     value={smsCode}
                     onChange={(e) => setSmsCode(e.target.value)}
                   />
-                </FormField>
-                <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+                </div>
+                <div className="mfa-otp-code-actions">
                   <PrimaryButton type="submit" disabled={smsBusy || !smsChallengeId}>
                     Confirmer et activer
                   </PrimaryButton>
@@ -461,20 +472,31 @@ export default function MfaSetupPage() {
                         <code style={{ wordBreak: "break-all", fontSize: 13 }}>{secret}</code>
                       </AppCard>
                     ) : null}
-                    <form className="ui-stack-md" onSubmit={(e) => void onConfirmTotp(e)}>
-                      <FormField label="Code à 6 chiffres">
+                    <form className="ui-stack-md mfa-otp-code-form" onSubmit={(e) => void onConfirmTotp(e)}>
+                      <div className="mfa-otp-code-field">
+                        <label className="mfa-otp-code-label" htmlFor="mfa-setup-totp-otp-input">
+                          Code à 6 chiffres
+                        </label>
                         <input
-                          className="ui-input"
+                          id="mfa-setup-totp-otp-input"
+                          name="mfa-setup-totp-otp"
+                          className="mfa-otp-code-input"
+                          type="text"
                           inputMode="numeric"
+                          pattern="[0-9]*"
                           autoComplete="one-time-code"
+                          placeholder="123456"
                           maxLength={8}
+                          spellCheck={false}
                           value={totpCode}
                           onChange={(e) => setTotpCode(e.target.value)}
                         />
-                      </FormField>
-                      <PrimaryButton type="submit" disabled={totpBusy}>
-                        Confirmer et activer (Authenticator)
-                      </PrimaryButton>
+                      </div>
+                      <div className="mfa-otp-code-actions">
+                        <PrimaryButton type="submit" disabled={totpBusy}>
+                          Confirmer et activer (Authenticator)
+                        </PrimaryButton>
+                      </div>
                     </form>
                   </>
                 )}

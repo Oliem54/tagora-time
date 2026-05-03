@@ -25,6 +25,8 @@ type AppAlertRow = {
   employee_id: number | null;
   company_key: string | null;
   handled_at: string | null;
+  metadata: Record<string, unknown> | null;
+  dedupe_key: string | null;
 };
 
 type ChauffeurMini = { id: number; nom: string | null; prenom: string | null };
@@ -43,20 +45,23 @@ export async function GET(req: NextRequest) {
   }
 
   const url = new URL(req.url);
-  const filter = url.searchParams.get("filter") ?? "actionable";
+  const journal =
+    url.searchParams.get("journal") ?? url.searchParams.get("filter") ?? "actionable";
 
   const supabase = createAdminSupabaseClient();
 
   let query = supabase.from("app_alerts").select(
-    "id, created_at, category, priority, status, title, body, link_href, source_module, employee_id, company_key, handled_at"
+    "id, created_at, category, priority, status, title, body, link_href, source_module, employee_id, company_key, handled_at, metadata, dedupe_key"
   );
 
-  if (filter === "actionable" || filter === "open") {
+  if (journal === "actionable") {
     query = query.in("status", ["open", "failed"]);
-  } else if (filter === "all") {
+  } else if (journal === "all") {
     // no status filter
+  } else if (journal === "open" || journal === "failed" || journal === "handled" || journal === "archived" || journal === "cancelled") {
+    query = query.eq("status", journal);
   } else {
-    query = query.eq("status", filter);
+    query = query.in("status", ["open", "failed"]);
   }
 
   const { data: alerts, error } = await query.order("created_at", { ascending: false }).limit(200);
@@ -131,6 +136,12 @@ export async function GET(req: NextRequest) {
           ? `Employé #${r.employee_id}`
           : "—";
     const del = deliveryByAlert.get(r.id);
+    const meta = r.metadata ?? {};
+    const failureCount =
+      typeof meta.failure_count === "number" && Number.isFinite(meta.failure_count)
+        ? meta.failure_count
+        : null;
+
     return {
       id: r.id,
       createdAt: r.created_at,
@@ -147,6 +158,8 @@ export async function GET(req: NextRequest) {
       linkHref: r.link_href,
       sourceModule: r.source_module,
       handledAt: r.handled_at,
+      dedupeKey: r.dedupe_key,
+      failureCount,
     };
   });
 

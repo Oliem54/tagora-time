@@ -27,6 +27,7 @@ export const APP_ALERT_PRIORITY = {
 
 export const APP_ALERT_STATUS = {
   open: "open",
+  failed: "failed",
   handled: "handled",
   archived: "archived",
   cancelled: "cancelled",

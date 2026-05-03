@@ -66,6 +66,7 @@ export async function insertAppAlert(
   };
 }
 
+/** Alerte encore visible au centre (ouverte ou échec technique). */
 export async function findOpenAppAlertIdByDedupeKey(
   supabase: SupabaseClient,
   dedupeKey: string
@@ -74,11 +75,42 @@ export async function findOpenAppAlertIdByDedupeKey(
     .from("app_alerts")
     .select("id")
     .eq("dedupe_key", dedupeKey)
-    .eq("status", "open")
+    .in("status", ["open", "failed"])
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle<{ id: string }>();
   return data?.id ?? null;
+}
+
+/**
+ * Incrémente failure_count et fusionne des champs metadata sur une alerte open/failed existante.
+ */
+export async function bumpAppAlertByDedupeKey(
+  supabase: SupabaseClient,
+  dedupeKey: string,
+  mergeMetadata: Record<string, unknown>
+): Promise<boolean> {
+  const { data, error } = await supabase
+    .from("app_alerts")
+    .select("id, metadata")
+    .eq("dedupe_key", dedupeKey)
+    .in("status", ["open", "failed"])
+    .order("created_at", { ascending: true })
+    .limit(1)
+    .maybeSingle<{ id: string; metadata: Record<string, unknown> | null }>();
+
+  if (error || !data?.id) {
+    return false;
+  }
+
+  const meta = { ...(data.metadata ?? {}) };
+  const prev = Number(meta.failure_count ?? 1);
+  meta.failure_count = prev + 1;
+  Object.assign(meta, mergeMetadata);
+
+  const { error: upErr } = await supabase.from("app_alerts").update({ metadata: meta }).eq("id", data.id);
+
+  return !upErr;
 }
 
 export type RecordAppAlertDeliveryInput = {
@@ -89,6 +121,34 @@ export type RecordAppAlertDeliveryInput = {
   errorMessage?: string | null;
   metadata?: Record<string, unknown>;
 };
+
+/**
+ * Après MFA réussi : clôturer les alertes bruyantes (sans AAL2, échecs répétés), pas les alertes lifecycle (enabled/disabled).
+ */
+export async function markOpenMfaSecurityAlertsHandled(
+  supabase: SupabaseClient,
+  params: { userId: string; handledByUserId: string }
+): Promise<void> {
+  const now = new Date().toISOString();
+  const closableEvents = ["mfa_access_blocked", "mfa_verify_failed_repeated"] as const;
+
+  for (const event of closableEvents) {
+    const { error } = await supabase
+      .from("app_alerts")
+      .update({
+        status: "handled",
+        handled_at: now,
+        handled_by: params.handledByUserId,
+      })
+      .eq("source_module", "security_mfa")
+      .contains("metadata", { kind: "mfa_audit", userId: params.userId, event })
+      .in("status", ["open", "failed"]);
+
+    if (error) {
+      console.warn("[app_alerts] mark_mfa_handled", event, error.message);
+    }
+  }
+}
 
 export async function recordAppAlertDelivery(
   supabase: SupabaseClient,

@@ -30,6 +30,7 @@ import {
   EFFECTIFS_LOCATION_ENTRIES,
   employeeWorkDays,
   formatMoney,
+  validateEffectifsFormForSave,
   type EmployeFormState,
   type EmployeProfile,
 } from "./employee-profile-shared";
@@ -486,6 +487,15 @@ export default function EmployeeProfilePageClient({
   async function handleSave() {
     if (!form.nom.trim()) {
       setMessage("Le nom est obligatoire.");
+      setMessageType("error");
+      return;
+    }
+
+    const effMsg = validateEffectifsFormForSave(form, {
+      includeEffectifs: canEditEffectifs,
+    });
+    if (effMsg) {
+      setMessage(effMsg);
       setMessageType("error");
       return;
     }
@@ -1575,7 +1585,7 @@ export default function EmployeeProfilePageClient({
               <TagoraCollapsibleSection
                   sectionId="affectation-effectifs"
                   title="Affectation effectifs"
-                  subtitle="Departements, emplacements et parametres pour la page direction / effectifs (modifiable par direction ou admin uniquement)."
+                  subtitle="Département et emplacements utilisés pour le planning direction / effectifs. Obligatoire dès qu’un emplacement ou un département secondaire est renseigné."
                   open={openSection === "effectifs"}
                   onOpenChange={(v) => setOpenSection(v ? "effectifs" : null)}
                 >
@@ -1587,8 +1597,40 @@ export default function EmployeeProfilePageClient({
                       </p>
                     ) : null}
 
+                    {canEditEffectifs ? (
+                      <label
+                        className="account-requests-permission-option"
+                        style={{ gridColumn: "1 / -1" }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={form.effectifsExcludeFromPlanning}
+                          disabled={!isEditing}
+                          onChange={(event) => {
+                            const excluded = event.target.checked;
+                            setForm((current) => ({
+                              ...current,
+                              effectifsExcludeFromPlanning: excluded,
+                              ...(excluded
+                                ? {
+                                    effectifsDepartmentKey: "",
+                                    effectifsSecondaryDepartmentKeys: [],
+                                    effectifsPrimaryLocation: "",
+                                    effectifsSecondaryLocations: [],
+                                  }
+                                : {}),
+                            }));
+                          }}
+                        />
+                        <span>
+                          Ne pas inclure dans les effectifs (aucun département ni emplacement
+                          pour le planning)
+                        </span>
+                      </label>
+                    ) : null}
+
                     <label className="tagora-field">
-                      <span className="tagora-label">Departement principal</span>
+                      <span className="tagora-label">Département effectifs (principal)</span>
                       <select
                         className="tagora-input"
                         style={readOnlyFieldStyle}
@@ -1597,6 +1639,7 @@ export default function EmployeeProfilePageClient({
                           const v = event.target.value;
                           setForm((current) => ({
                             ...current,
+                            effectifsExcludeFromPlanning: false,
                             effectifsDepartmentKey: v,
                             effectifsSecondaryDepartmentKeys:
                               current.effectifsSecondaryDepartmentKeys.filter(
@@ -1604,9 +1647,11 @@ export default function EmployeeProfilePageClient({
                               ),
                           }));
                         }}
-                        disabled={!isEditing || !canEditEffectifs}
+                        disabled={
+                          !isEditing || !canEditEffectifs || form.effectifsExcludeFromPlanning
+                        }
                       >
-                        <option value="">Non assigne</option>
+                        <option value="">— Choisir un département —</option>
                         {EFFECTIFS_DEPARTMENT_ENTRIES.map((d) => (
                           <option key={d.key} value={d.key}>
                             {d.label}
@@ -1635,11 +1680,16 @@ export default function EmployeeProfilePageClient({
                                 checked={form.effectifsSecondaryDepartmentKeys.includes(
                                   d.key
                                 )}
-                                disabled={!isEditing || !canEditEffectifs}
+                                disabled={
+                                  !isEditing ||
+                                  !canEditEffectifs ||
+                                  form.effectifsExcludeFromPlanning
+                                }
                                 onChange={(event) => {
                                   const on = event.target.checked;
                                   setForm((current) => ({
                                     ...current,
+                                    effectifsExcludeFromPlanning: on ? false : current.effectifsExcludeFromPlanning,
                                     effectifsSecondaryDepartmentKeys: on
                                       ? [...current.effectifsSecondaryDepartmentKeys, d.key]
                                       : current.effectifsSecondaryDepartmentKeys.filter(
@@ -1665,6 +1715,7 @@ export default function EmployeeProfilePageClient({
                           const v = event.target.value;
                           setForm((current) => ({
                             ...current,
+                            effectifsExcludeFromPlanning: false,
                             effectifsPrimaryLocation: v,
                             effectifsSecondaryLocations:
                               current.effectifsSecondaryLocations.filter(
@@ -1672,9 +1723,11 @@ export default function EmployeeProfilePageClient({
                               ),
                           }));
                         }}
-                        disabled={!isEditing || !canEditEffectifs}
+                        disabled={
+                          !isEditing || !canEditEffectifs || form.effectifsExcludeFromPlanning
+                        }
                       >
-                        <option value="">Non renseigne</option>
+                        <option value="">— Aucun emplacement principal —</option>
                         {EFFECTIFS_LOCATION_ENTRIES.map((loc) => (
                           <option key={loc.key} value={loc.key}>
                             {loc.label}
@@ -1703,11 +1756,16 @@ export default function EmployeeProfilePageClient({
                                 checked={form.effectifsSecondaryLocations.includes(
                                   loc.key
                                 )}
-                                disabled={!isEditing || !canEditEffectifs}
+                                disabled={
+                                  !isEditing ||
+                                  !canEditEffectifs ||
+                                  form.effectifsExcludeFromPlanning
+                                }
                                 onChange={(event) => {
                                   const on = event.target.checked;
                                   setForm((current) => ({
                                     ...current,
+                                    effectifsExcludeFromPlanning: on ? false : current.effectifsExcludeFromPlanning,
                                     effectifsSecondaryLocations: on
                                       ? [...current.effectifsSecondaryLocations, loc.key]
                                       : current.effectifsSecondaryLocations.filter(

@@ -3,7 +3,6 @@
 import { type FormEvent, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import FeedbackMessage from "@/app/components/FeedbackMessage";
-import FormField from "@/app/components/ui/FormField";
 import PageHeader from "@/app/components/ui/PageHeader";
 import PrimaryButton from "@/app/components/ui/PrimaryButton";
 import SecondaryButton from "@/app/components/ui/SecondaryButton";
@@ -202,6 +201,13 @@ export default function MfaVerifyPage() {
       }
       await syncCookie();
 
+      {
+        const {
+          data: { session: postSession },
+        } = await supabase.auth.getSession();
+        void postMfaAuditEvent("mfa_verify_succeeded", postSession?.access_token ?? null);
+      }
+
       if (typeof window !== "undefined") {
         sessionStorage.removeItem("tagora_mfa_gate_audit");
       }
@@ -216,7 +222,7 @@ export default function MfaVerifyPage() {
 
   if (loading) {
     return (
-      <main className="ui-auth-shell">
+      <main className="ui-auth-shell mfa-verify-page">
         <div className="ui-auth-content">
           <PageHeader title="Vérification en deux étapes" subtitle="Chargement…" compact />
         </div>
@@ -229,7 +235,7 @@ export default function MfaVerifyPage() {
   const canSwitchToPhone = Boolean(phoneFactorId && totpFactorId);
 
   return (
-    <main className="ui-auth-shell">
+    <main className="ui-auth-shell mfa-verify-page">
       <div className="ui-auth-content ui-stack-lg">
         <PageHeader
           title="Vérification en deux étapes"
@@ -269,20 +275,29 @@ export default function MfaVerifyPage() {
           </SectionCard>
         ) : null}
 
-        <SectionCard title="Code à 6 chiffres">
-          <form className="ui-stack-md" onSubmit={(e) => void onSubmit(e)}>
-            <FormField label="Code">
+        <SectionCard title="Saisie du code">
+          <form className="ui-stack-md mfa-otp-code-form" onSubmit={(e) => void onSubmit(e)}>
+            <div className="mfa-otp-code-field">
+              <label className="mfa-otp-code-label" htmlFor="mfa-verify-otp-input">
+                Code à 6 chiffres
+              </label>
               <input
-                className="ui-input"
+                id="mfa-verify-otp-input"
+                name="mfa-verify-otp"
+                className="mfa-otp-code-input"
+                type="text"
                 inputMode="numeric"
+                pattern="[0-9]*"
                 autoComplete="one-time-code"
+                placeholder="123456"
                 maxLength={8}
+                spellCheck={false}
                 value={code}
                 onChange={(e) => setCode(e.target.value)}
                 disabled={!activeFactorId}
               />
-            </FormField>
-            <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+            </div>
+            <div className="mfa-otp-code-actions">
               <PrimaryButton type="submit" disabled={busy || !activeFactorId}>
                 Vérifier
               </PrimaryButton>

@@ -147,7 +147,28 @@ export type EmployeFormState = {
   defaultWeeklyHours: string;
   scheduleActive: boolean;
   weeklySchedule: WeeklyScheduleConfig;
+  /**
+   * Si vrai : enregistrement sans affectation effectifs (départements / emplacements vides).
+   * Défaut : vrai lorsqu’aucune donnée d’affectation n’existe encore sur le profil.
+   */
+  effectifsExcludeFromPlanning: boolean;
 };
+
+function profileHasEffectifsAssignment(
+  profile: Partial<EmployeProfile> | null | undefined
+): boolean {
+  if (!profile) return false;
+  if (profile.effectifs_department_key && String(profile.effectifs_department_key).trim()) {
+    return true;
+  }
+  const secDept = sanitizeDepartmentKeyArray(profile.effectifs_secondary_department_keys);
+  if (secDept.length > 0) return true;
+  if (profile.effectifs_primary_location && String(profile.effectifs_primary_location).trim()) {
+    return true;
+  }
+  const secLoc = sanitizeLocationKeyArray(profile.effectifs_secondary_locations);
+  return secLoc.length > 0;
+}
 
 export const employeeWorkDays = [
   ["lundi", "Lun"],
@@ -257,6 +278,7 @@ export function buildEmployeForm(
         : "",
     scheduleActive: profile?.schedule_active !== false,
     weeklySchedule: initialWeeklySchedule(profile),
+    effectifsExcludeFromPlanning: !profileHasEffectifsAssignment(profile),
   };
 }
 
@@ -441,18 +463,44 @@ export function buildEmployePayload(
   };
 
   if (includeEffectifs) {
-    payload.effectifs_department_key = primaryDept;
-    payload.effectifs_secondary_department_keys = secondaryDeptKeys;
-    payload.effectifs_primary_location = normalizeString(form.effectifsPrimaryLocation);
-    payload.effectifs_secondary_locations = sanitizeLocationKeyArray(
-      form.effectifsSecondaryLocations
-    );
+    if (form.effectifsExcludeFromPlanning) {
+      payload.effectifs_department_key = null;
+      payload.effectifs_secondary_department_keys = [];
+      payload.effectifs_primary_location = null;
+      payload.effectifs_secondary_locations = [];
+    } else {
+      payload.effectifs_department_key = primaryDept;
+      payload.effectifs_secondary_department_keys = secondaryDeptKeys;
+      payload.effectifs_primary_location = normalizeString(form.effectifsPrimaryLocation);
+      payload.effectifs_secondary_locations = sanitizeLocationKeyArray(
+        form.effectifsSecondaryLocations
+      );
+    }
     payload.can_deliver = form.canDeliver;
     payload.default_weekly_hours = normalizeNumber(form.defaultWeeklyHours);
     payload.schedule_active = form.scheduleActive;
   }
 
   return payload;
+}
+
+/** Erreur à afficher avant envoi API, ou null si OK. */
+export function validateEffectifsFormForSave(
+  form: EmployeFormState,
+  opts?: { includeEffectifs?: boolean }
+): string | null {
+  if (opts?.includeEffectifs === false) return null;
+  if (form.effectifsExcludeFromPlanning) return null;
+  const primaryDept = normalizeEffectifsDepartmentKey(form.effectifsDepartmentKey);
+  const hasSecDept = form.effectifsSecondaryDepartmentKeys.length > 0;
+  const hasPrimaryLoc = Boolean(normalizeString(form.effectifsPrimaryLocation));
+  const hasSecLoc = form.effectifsSecondaryLocations.length > 0;
+  if (!hasSecDept && !hasPrimaryLoc && !hasSecLoc) return null;
+  if (primaryDept) return null;
+  if (form.effectifsDepartmentKey.trim()) {
+    return "Le département effectifs enregistré n'est plus reconnu. Sélectionnez une valeur dans la liste.";
+  }
+  return "Veuillez sélectionner un département effectifs avant d'enregistrer, ou cochez « Ne pas inclure dans les effectifs (planning) ».";
 }
 
 export function formatMoney(value: number | null | undefined) {

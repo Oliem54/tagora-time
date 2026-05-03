@@ -998,7 +998,7 @@ export async function recomputeShiftForDate(
       const leftAt = getEventOccurredAt(left);
       const rightAt = getEventOccurredAt(right);
       if (!leftAt && !rightAt) {
-        return 0;
+        return String(left.id).localeCompare(String(right.id));
       }
       if (!leftAt) {
         return -1;
@@ -1006,7 +1006,11 @@ export async function recomputeShiftForDate(
       if (!rightAt) {
         return 1;
       }
-      return new Date(leftAt).getTime() - new Date(rightAt).getTime();
+      const delta = new Date(leftAt).getTime() - new Date(rightAt).getTime();
+      if (delta !== 0) {
+        return delta;
+      }
+      return String(left.id).localeCompare(String(right.id));
     });
   const lastOccurredAt =
     getEventOccurredAt(orderedEvents[orderedEvents.length - 1]) ?? null;
@@ -1448,6 +1452,12 @@ export async function createDirectionPunch(options: {
     employee
   );
 
+  /** Même logique métier qu'un punch employé : seules les entrées « correction / rétroactif » sont des corrections manuelles. */
+  const canonicalDirectionType = toCanonicalEventType(options.eventType);
+  const isManualCorrectionEvent =
+    canonicalDirectionType === "manual_correction" ||
+    canonicalDirectionType === "retroactive_entry";
+
   const event = await insertHorodateurEvent({
     userId: requireEmployeeAuthUserId(employee),
     employeeId: employee.employeeId,
@@ -1460,7 +1470,7 @@ export async function createDirectionPunch(options: {
     companyContext,
     note: normalizedNote,
     relatedEventId: options.relatedEventId,
-    isManualCorrection: true,
+    isManualCorrection: isManualCorrectionEvent,
     status: classification.status,
     requiresApproval: classification.requiresApproval,
     exceptionCode: classification.exceptionType,

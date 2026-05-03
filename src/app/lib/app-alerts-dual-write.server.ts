@@ -4,6 +4,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { APP_ALERT_CATEGORY } from "@/app/lib/app-alerts.shared";
 import {
+  bumpAppAlertByDedupeKey,
   findOpenAppAlertIdByDedupeKey,
   insertAppAlert,
   recordAppAlertDelivery,
@@ -328,11 +329,31 @@ export async function markHorodateurExceptionAppAlertHandled(
       handled_by: handledByUserId,
     })
     .eq("dedupe_key", dedupeKey)
-    .eq("status", "open");
+    .in("status", ["open", "failed"]);
 
   if (error) {
     console.warn("[app_alerts] mark_horodateur_handled", error.message);
   }
+}
+
+function normalizeRecipientForDedupe(recipient: string | null | undefined): string {
+  const raw = (recipient ?? "").trim().toLowerCase();
+  return raw || "unknown";
+}
+
+/** Erreur Resend 403 « testing emails » / domaine non validé — une seule alerte dédupliquée. */
+function isResendConfigurationForbiddenError(errorMessage: string): boolean {
+  const m = errorMessage.toLowerCase();
+  if (m.includes("you can only send testing emails to your own email address")) {
+    return true;
+  }
+  if (m.includes("validation_error") && (m.includes("403") || m.includes("forbidden"))) {
+    return true;
+  }
+  if (m.includes("resend") && m.includes("403") && m.includes("forbidden")) {
+    return true;
+  }
+  return false;
 }
 
 export async function logNotificationFailureAppAlert(params: {
@@ -344,23 +365,74 @@ export async function logNotificationFailureAppAlert(params: {
   recipient?: string | null;
 }) {
   const { supabase, sourceModule, sourceId, channel, errorMessage, recipient } = params;
-  const dedupeKey = `notification_failure:${sourceModule}:${sourceId}:${channel}`;
+  const msg = errorMessage ?? "";
 
-  return insertAppAlert(supabase, {
-    category: APP_ALERT_CATEGORY.notification_failure,
-    priority: "high",
-    status: "failed",
-    title: "Échec d’envoi notification",
-    body: [
+  const resendConfig403 = channel === "email" && isResendConfigurationForbiddenError(msg);
+  const recipientNorm = normalizeRecipientForDedupe(recipient);
+
+  let dedupeKey: string;
+  let title: string;
+  let body: string;
+  let priority: InsertAppAlertInput["priority"];
+  let metadata: Record<string, unknown>;
+
+  if (resendConfig403) {
+    dedupeKey = `notification_failure:email:resend_403:recipient:${recipientNorm}`;
+    title = "Configuration Resend à corriger";
+    body = [
+      "Domaine Resend non validé ou adresse From / destinataires non conformes au mode test.",
+      `Détail : ${msg.slice(0, 520)}`,
+      `Source : ${sourceModule} / ${sourceId}`,
+    ].join("\n");
+    priority = "medium";
+    metadata = {
+      channel,
+      recipient: recipient ?? null,
+      configuration_issue: true,
+      resend_403: true,
+      failure_count: 1,
+      source_module: sourceModule,
+      source_id: sourceId,
+    };
+  } else {
+    dedupeKey = `notification_failure:${sourceModule}:${sourceId}:${channel}`;
+    title = "Échec d’envoi notification";
+    body = [
       `Canal : ${channel}`,
       `Destinataire : ${recipient ?? "—"}`,
-      `Erreur : ${errorMessage}`,
+      `Erreur : ${msg}`,
       `Source : ${sourceModule} / ${sourceId}`,
-    ].join("\n"),
+    ].join("\n");
+    priority = "high";
+    metadata = {
+      channel,
+      recipient: recipient ?? null,
+      failure_count: 1,
+      source_module: sourceModule,
+      source_id: sourceId,
+    };
+  }
+
+  const input: InsertAppAlertInput = {
+    category: APP_ALERT_CATEGORY.notification_failure,
+    priority,
+    status: "failed",
+    title,
+    body,
     sourceModule,
     refTable: sourceModule,
     refId: sourceId,
     dedupeKey,
-    metadata: { channel, recipient },
-  });
+    metadata,
+  };
+
+  const ins = await insertAppAlert(supabase, input);
+  if (ins.skippedDuplicate && dedupeKey) {
+    await bumpAppAlertByDedupeKey(supabase, dedupeKey, {
+      last_error_excerpt: msg.slice(0, 400),
+      last_source_module: sourceModule,
+      last_source_id: sourceId,
+    });
+  }
+  return ins;
 }

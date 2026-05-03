@@ -58,6 +58,15 @@ export function getJwtAal(token: string | null | undefined): "aal1" | "aal2" | n
   return null;
 }
 
+/**
+ * MFA sessionnel requis : on ne bloque que si le JWT affiche explicitement `aal1`.
+ * Si `aal` est absent (null), on ne bloque pas ici — sinon les clients dont le JWT
+ * n’expose pas encore la revendication restent avec toutes les API en 403.
+ */
+export function isJwtExplicitlyAal1Only(token: string | null | undefined): boolean {
+  return getJwtAal(token) === "aal1";
+}
+
 export function getJwtAppRole(token: string | null | undefined): AppRole | null {
   if (!token) return null;
   const payload = decodeSupabaseJwtPayload(token);

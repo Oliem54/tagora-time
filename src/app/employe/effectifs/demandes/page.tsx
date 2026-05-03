@@ -14,9 +14,211 @@ import {
   EFFECTIFS_SCHEDULE_REQUEST_TYPES,
   scheduleRequestStatusLabel,
   scheduleRequestTypeLabel,
+  type EffectifsScheduleRequestType,
 } from "@/app/lib/effectifs-schedule-request.shared";
 import type { DirectionEffectifsPayload } from "@/app/lib/effectifs-payload.shared";
 import { supabase } from "@/app/lib/supabase/client";
+
+type DemandesFormState = {
+  request_type: EffectifsScheduleRequestType;
+  requested_date: string;
+  requested_start_date: string;
+  requested_end_date: string;
+  is_full_day: boolean;
+  start_time: string;
+  end_time: string;
+  reason: string;
+};
+
+function trimTime(value: string): string {
+  return value.trim().slice(0, 5);
+}
+
+function timeToMinutes(hhmm: string): number | null {
+  const t = trimTime(hhmm);
+  if (!/^\d{2}:\d{2}$/.test(t)) return null;
+  const [h, m] = t.split(":").map((x) => Number(x));
+  if (!Number.isFinite(h) || !Number.isFinite(m)) return null;
+  return h * 60 + m;
+}
+
+/** Payload normalisé selon le type (contrainte DB : deux heures null ou fin > début). */
+function normalizeScheduleRequestPayload(form: DemandesFormState): {
+  error: string | null;
+  body: Record<string, unknown> | null;
+} {
+  const request_type = form.request_type;
+  const justification = form.reason.trim();
+  const rd = form.requested_date.trim().slice(0, 10);
+  const rs = form.requested_start_date.trim().slice(0, 10);
+  const re = form.requested_end_date.trim().slice(0, 10);
+  const stRaw = trimTime(form.start_time);
+  const enRaw = trimTime(form.end_time);
+
+  if (request_type === "vacation") {
+    if (!rs || !re) {
+      return {
+        error:
+          "Une demande de vacances doit contenir une date de début et une date de fin.",
+        body: null,
+      };
+    }
+    if (re < rs) {
+      return { error: "La date de fin ne peut pas être avant la date de début.", body: null };
+    }
+    return {
+      error: null,
+      body: {
+        request_type,
+        requested_date: null,
+        requested_start_date: rs,
+        requested_end_date: re,
+        is_full_day: true,
+        start_time: null,
+        end_time: null,
+        reason: justification,
+      },
+    };
+  }
+
+  if (request_type === "day_off") {
+    if (!rd || !/^\d{4}-\d{2}-\d{2}$/.test(rd)) {
+      return { error: "Indiquez la date du congé.", body: null };
+    }
+    return {
+      error: null,
+      body: {
+        request_type,
+        requested_date: rd,
+        requested_start_date: null,
+        requested_end_date: null,
+        is_full_day: true,
+        start_time: null,
+        end_time: null,
+        reason: justification,
+      },
+    };
+  }
+
+  if (request_type === "late_arrival" || request_type === "start_later") {
+    if (!rd || !/^\d{4}-\d{2}-\d{2}$/.test(rd)) {
+      return { error: "Indiquez la date concernée.", body: null };
+    }
+    if (!stRaw || !/^\d{2}:\d{2}$/.test(stRaw)) {
+      return { error: "Indiquez la nouvelle heure d’arrivée.", body: null };
+    }
+    return {
+      error: null,
+      body: {
+        request_type,
+        requested_date: rd,
+        requested_start_date: null,
+        requested_end_date: null,
+        is_full_day: false,
+        start_time: stRaw,
+        end_time: null,
+        reason: justification,
+      },
+    };
+  }
+
+  if (request_type === "leave_early") {
+    if (!rd || !/^\d{4}-\d{2}-\d{2}$/.test(rd)) {
+      return { error: "Indiquez la date concernée.", body: null };
+    }
+    if (!enRaw || !/^\d{2}:\d{2}$/.test(enRaw)) {
+      return { error: "Indiquez l’heure de fin souhaitée.", body: null };
+    }
+    return {
+      error: null,
+      body: {
+        request_type,
+        requested_date: rd,
+        requested_start_date: null,
+        requested_end_date: null,
+        is_full_day: false,
+        start_time: null,
+        end_time: enRaw,
+        reason: justification,
+      },
+    };
+  }
+
+  if (request_type === "partial_absence" || request_type === "change_shift") {
+    if (!rd || !/^\d{4}-\d{2}-\d{2}$/.test(rd)) {
+      return { error: "Indiquez la date concernée.", body: null };
+    }
+    if (!stRaw || !enRaw || !/^\d{2}:\d{2}$/.test(stRaw) || !/^\d{2}:\d{2}$/.test(enRaw)) {
+      return { error: "Indiquez l’heure de début et l’heure de fin.", body: null };
+    }
+    const sm = timeToMinutes(stRaw);
+    const em = timeToMinutes(enRaw);
+    if (sm == null || em == null) {
+      return { error: "Heures invalides.", body: null };
+    }
+    if (em <= sm) {
+      return {
+        error: "L’heure de fin doit être après l’heure de début.",
+        body: null,
+      };
+    }
+    return {
+      error: null,
+      body: {
+        request_type,
+        requested_date: rd,
+        requested_start_date: null,
+        requested_end_date: null,
+        is_full_day: false,
+        start_time: stRaw,
+        end_time: enRaw,
+        reason: justification,
+      },
+    };
+  }
+
+  if (!rd || !/^\d{4}-\d{2}-\d{2}$/.test(rd)) {
+    return { error: "Indiquez la date concernée.", body: null };
+  }
+
+  let start_time: string | null = null;
+  let end_time: string | null = null;
+  if (stRaw || enRaw) {
+    if (!stRaw || !enRaw || !/^\d{2}:\d{2}$/.test(stRaw) || !/^\d{2}:\d{2}$/.test(enRaw)) {
+      return {
+        error: "Renseignez les deux heures ou laissez les deux champs vides.",
+        body: null,
+      };
+    }
+    const sm = timeToMinutes(stRaw);
+    const em = timeToMinutes(enRaw);
+    if (sm == null || em == null) {
+      return { error: "Heures invalides.", body: null };
+    }
+    if (em <= sm) {
+      return {
+        error: "L’heure de fin doit être après l’heure de début.",
+        body: null,
+      };
+    }
+    start_time = stRaw;
+    end_time = enRaw;
+  }
+
+  return {
+    error: null,
+    body: {
+      request_type,
+      requested_date: rd,
+      requested_start_date: null,
+      requested_end_date: null,
+      is_full_day: form.is_full_day === true,
+      start_time,
+      end_time,
+      reason: justification,
+    },
+  };
+}
 
 export default function EmployeEffectifsDemandesPage() {
   const router = useRouter();
@@ -26,12 +228,12 @@ export default function EmployeEffectifsDemandesPage() {
   const [message, setMessage] = useState("");
   const [messageType, setMessageType] = useState<"success" | "error" | null>(null);
   const [saving, setSaving] = useState(false);
-  const [form, setForm] = useState({
+  const [form, setForm] = useState<DemandesFormState>({
     request_type: "day_off",
     requested_date: "",
     requested_start_date: "",
     requested_end_date: "",
-    is_full_day: false,
+    is_full_day: true,
     start_time: "",
     end_time: "",
     reason: "",
@@ -101,23 +303,24 @@ export default function EmployeEffectifsDemandesPage() {
     setMessage("");
     setMessageType(null);
     try {
+      const { error: normError, body: requestBody } = normalizeScheduleRequestPayload({
+        ...form,
+        reason: justification,
+      });
+      if (normError || !requestBody) {
+        setMessage(normError ?? "Demande invalide.");
+        setMessageType("error");
+        return;
+      }
+
       const res = await fetch("/api/employe/effectifs/schedule-requests", {
         method: "POST",
         headers: await authJsonHeaders(),
-        body: JSON.stringify({
-          request_type: form.request_type,
-          requested_date: form.requested_date,
-          requested_start_date: form.requested_start_date || null,
-          requested_end_date: form.requested_end_date || null,
-          is_full_day: form.is_full_day,
-          start_time: form.start_time.trim() || null,
-          end_time: form.end_time.trim() || null,
-          reason: justification,
-        }),
+        body: JSON.stringify(requestBody),
       });
-      const body = (await res.json().catch(() => null)) as { error?: string } | null;
+      const resBody = (await res.json().catch(() => null)) as { error?: string } | null;
       if (!res.ok) {
-        setMessage(body?.error ?? "Erreur envoi.");
+        setMessage(resBody?.error ?? "Erreur envoi.");
         setMessageType("error");
         return;
       }
@@ -128,6 +331,7 @@ export default function EmployeEffectifsDemandesPage() {
         reason: "",
         start_time: "",
         end_time: "",
+        requested_date: "",
         requested_start_date: "",
         requested_end_date: "",
       }));
@@ -146,6 +350,29 @@ export default function EmployeEffectifsDemandesPage() {
   }
 
   const mine = payload.scheduleRequests;
+
+  const rt = form.request_type;
+  const showSingleDate = rt !== "vacation";
+  const showVacationRange = rt === "vacation";
+  const showStartTime =
+    rt === "partial_absence" ||
+    rt === "change_shift" ||
+    rt === "late_arrival" ||
+    rt === "start_later" ||
+    rt === "swap_shift" ||
+    rt === "unavailable" ||
+    rt === "available_extra" ||
+    rt === "remote_work" ||
+    rt === "other";
+  const showEndTime =
+    rt === "partial_absence" ||
+    rt === "change_shift" ||
+    rt === "leave_early" ||
+    rt === "swap_shift" ||
+    rt === "unavailable" ||
+    rt === "available_extra" ||
+    rt === "remote_work" ||
+    rt === "other";
 
   return (
     <main className="tagora-app-shell">
@@ -195,7 +422,19 @@ export default function EmployeEffectifsDemandesPage() {
                 <select
                   className="tagora-input"
                   value={form.request_type}
-                  onChange={(e) => setForm((f) => ({ ...f, request_type: e.target.value }))}
+                  onChange={(e) => {
+                    const next = e.target.value as EffectifsScheduleRequestType;
+                    setForm((f) => ({
+                      ...f,
+                      request_type: next,
+                      start_time: "",
+                      end_time: "",
+                      is_full_day: next === "day_off" || next === "vacation",
+                      ...(next === "vacation"
+                        ? { requested_date: "" }
+                        : { requested_start_date: "", requested_end_date: "" }),
+                    }));
+                  }}
                 >
                   {EFFECTIFS_SCHEDULE_REQUEST_TYPES.map((t) => (
                     <option key={t} value={t}>
@@ -204,17 +443,19 @@ export default function EmployeEffectifsDemandesPage() {
                   ))}
                 </select>
               </label>
-              <label className="ui-stack-xs">
-                <span className="ui-eyebrow">Date ou période</span>
-                <input
-                  className="tagora-input"
-                  type="date"
-                  required={form.request_type !== "vacation"}
-                  value={form.requested_date}
-                  onChange={(e) => setForm((f) => ({ ...f, requested_date: e.target.value }))}
-                />
-              </label>
-              {form.request_type === "vacation" ? (
+              {showSingleDate ? (
+                <label className="ui-stack-xs">
+                  <span className="ui-eyebrow">{rt === "day_off" ? "Date" : "Date concernée"}</span>
+                  <input
+                    className="tagora-input"
+                    type="date"
+                    required
+                    value={form.requested_date}
+                    onChange={(e) => setForm((f) => ({ ...f, requested_date: e.target.value }))}
+                  />
+                </label>
+              ) : null}
+              {showVacationRange ? (
                 <div
                   style={{
                     display: "grid",
@@ -248,32 +489,56 @@ export default function EmployeEffectifsDemandesPage() {
                   </label>
                 </div>
               ) : null}
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "1fr 1fr",
-                  gap: 12,
-                }}
-              >
-                <label className="ui-stack-xs">
-                  <span className="ui-eyebrow">Heure début (si applicable)</span>
-                  <input
-                    className="tagora-input"
-                    type="time"
-                    value={form.start_time}
-                    onChange={(e) => setForm((f) => ({ ...f, start_time: e.target.value }))}
-                  />
-                </label>
-                <label className="ui-stack-xs">
-                  <span className="ui-eyebrow">Heure fin (si applicable)</span>
-                  <input
-                    className="tagora-input"
-                    type="time"
-                    value={form.end_time}
-                    onChange={(e) => setForm((f) => ({ ...f, end_time: e.target.value }))}
-                  />
-                </label>
-              </div>
+              {showStartTime || showEndTime ? (
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns:
+                      showStartTime && showEndTime ? "1fr 1fr" : "1fr",
+                    gap: 12,
+                  }}
+                >
+                  {showStartTime ? (
+                    <label className="ui-stack-xs">
+                      <span className="ui-eyebrow">
+                        {rt === "late_arrival" || rt === "start_later"
+                          ? "Nouvelle heure d’arrivée"
+                          : "Heure début"}
+                      </span>
+                      <input
+                        className="tagora-input"
+                        type="time"
+                        required={
+                          rt === "late_arrival" ||
+                          rt === "start_later" ||
+                          rt === "partial_absence" ||
+                          rt === "change_shift"
+                        }
+                        value={form.start_time}
+                        onChange={(e) => setForm((f) => ({ ...f, start_time: e.target.value }))}
+                      />
+                    </label>
+                  ) : null}
+                  {showEndTime ? (
+                    <label className="ui-stack-xs">
+                      <span className="ui-eyebrow">
+                        {rt === "leave_early" ? "Heure de fin souhaitée" : "Heure fin"}
+                      </span>
+                      <input
+                        className="tagora-input"
+                        type="time"
+                        required={
+                          rt === "leave_early" ||
+                          rt === "partial_absence" ||
+                          rt === "change_shift"
+                        }
+                        value={form.end_time}
+                        onChange={(e) => setForm((f) => ({ ...f, end_time: e.target.value }))}
+                      />
+                    </label>
+                  ) : null}
+                </div>
+              ) : null}
               <label className="ui-stack-xs">
                 <span className="ui-eyebrow">Justification (obligatoire)</span>
                 <textarea

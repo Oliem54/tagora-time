@@ -9,6 +9,7 @@ import { APP_SESSION_COOKIE_NAME } from "@/app/lib/auth/session-cookie";
 import {
   decodeSupabaseJwtPayload,
   getJwtAal,
+  isJwtExplicitlyAal1Only,
 } from "@/app/lib/auth/jwt-access-token";
 
 export { getJwtAal };
@@ -306,7 +307,7 @@ export async function getStrictDirectionRequestUser(req: NextRequest) {
     result.user &&
     result.role &&
     (result.role === "direction" || result.role === "admin") &&
-    getJwtAal(token) !== "aal2"
+    isJwtExplicitlyAal1Only(token)
   ) {
     return {
       user: result.user,
