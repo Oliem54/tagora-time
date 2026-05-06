@@ -49,6 +49,30 @@ export function normalizePhoneNumber(value: unknown) {
     .replace(/[^\d+]/g, "");
 }
 
+/**
+ * Format Twilio (E.164). Garde les numeros deja en +... ; ajoute +1 aux numeros nord-americains 10/11 chiffres.
+ */
+export function normalizePhoneToTwilioE164(value: unknown): string {
+  const base = normalizePhoneNumber(value);
+  if (!base) {
+    return "";
+  }
+  if (base.startsWith("+")) {
+    return base;
+  }
+  const digits = base.replace(/\D/g, "");
+  if (digits.length === 10) {
+    return `+1${digits}`;
+  }
+  if (digits.length === 11 && digits.startsWith("1")) {
+    return `+${digits}`;
+  }
+  if (digits.length >= 10) {
+    return `+${digits}`;
+  }
+  return "";
+}
+
 export function resolveCompanyContext(
   user: User,
   requestedCompany: unknown

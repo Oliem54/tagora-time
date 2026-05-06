@@ -1434,6 +1434,20 @@ export default function EmployeeProfilePageClient({
                       />
                       <span>Alerte direction</span>
                     </label>
+                    <label className="account-requests-permission-option">
+                      <input
+                        type="checkbox"
+                        checked={form.receive_pickup_reminder_email_alerts}
+                        disabled={!isEditing}
+                        onChange={(event) =>
+                          setForm((current) => ({
+                            ...current,
+                            receive_pickup_reminder_email_alerts: event.target.checked,
+                          }))
+                        }
+                      />
+                      <span>Recevoir les alertes courriel de ramassage oublié</span>
+                    </label>
                   </div>
                   {[
                     ["sms_alert_depart_terrain", "Depart terrain"],

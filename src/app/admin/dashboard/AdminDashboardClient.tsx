@@ -161,6 +161,9 @@ export default function AdminDashboardClient() {
   const router = useRouter();
   const { user, loading } = useCurrentAccess();
   const [ameliorationsPending, setAmeliorationsPending] = useState<number | null>(null);
+  const profileLoading = loading;
+  const permissionsLoading = loading;
+  const dashboardReady = !profileLoading && !permissionsLoading && Boolean(user);
 
   useEffect(() => {
     if (loading || !user) {
@@ -238,6 +241,20 @@ export default function AdminDashboardClient() {
     }
     return null;
   }
+
+  useEffect(() => {
+    if (process.env.NODE_ENV !== "development") {
+      return;
+    }
+    console.log("[dashboard modules]", {
+      role: "admin",
+      profileLoading,
+      permissionsLoading,
+      permissions: "admin-all",
+      visibleModules: MODULES.map((module) => module.id),
+      dashboardReady,
+    });
+  }, [dashboardReady, permissionsLoading, profileLoading]);
 
   if (loading) {
     return (

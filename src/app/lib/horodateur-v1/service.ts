@@ -3,8 +3,11 @@ import "server-only";
 import { getCompanyLabel, type AccountRequestCompany } from "@/app/lib/account-requests.shared";
 import {
   notifyDirectionOfHorodateurException,
+  notifyDirectionHorodateurPunchSms,
+  notifyEmployeeHorodateurPunchSms,
   notifyHorodateurLateness,
 } from "@/app/lib/notifications";
+import { normalizePhoneToTwilioE164 } from "@/app/lib/timeclock-api.shared";
 import {
   attachShiftToException,
   countPendingExceptionsForEmployee,
@@ -32,6 +35,7 @@ import {
   upsertCurrentState,
   upsertLatenessNotification,
   upsertShift,
+  insertHorodateurSmsAlertLog,
 } from "./repository";
 import {
   classifyEventPhase1,
@@ -62,9 +66,226 @@ import type {
   HorodateurPhase1InsertEventInput,
   HorodateurPhase1ShiftRecord,
   HorodateurPhase1StateKind,
+  HorodateurPhase1EventType,
 } from "./types";
 
 const HORODATEUR_DEFAULT_LATENESS_TOLERANCE_MINUTES = 5;
+
+const HORODATEUR_PUNCH_SMS_SKIP_EVENT_TYPES = new Set<HorodateurPhase1EventType>([
+  "correction",
+  "exception",
+  "anomalie",
+]);
+
+const HORODATEUR_PUNCH_SMS_LABELS: Partial<
+  Record<HorodateurPhase1EventType, string>
+> = {
+  quart_debut: "Debut de quart",
+  quart_fin: "Fin de quart",
+  pause_debut: "Debut de pause",
+  pause_fin: "Fin de pause",
+  dinner_debut: "Debut de diner",
+  dinner_fin: "Fin de diner",
+  sortie_depart: "Depart terrain",
+  sortie_retour: "Retour terrain",
+};
+
+/** Preferences Alertes SMS (chauffeurs.sms_alert_*) : direction et SMS personnel utilisent les memes cases. */
+function employeeWantsPunchSmsForEvent(
+  employee: HorodateurPhase1EmployeeProfile,
+  eventType: HorodateurPhase1EventType
+) {
+  switch (eventType) {
+    case "quart_debut":
+      return employee.smsAlertQuartDebut;
+    case "quart_fin":
+      return employee.smsAlertQuartFin;
+    case "pause_debut":
+      return employee.smsAlertPauseDebut;
+    case "pause_fin":
+      return employee.smsAlertPauseFin;
+    case "dinner_debut":
+      return employee.smsAlertDinnerDebut;
+    case "dinner_fin":
+      return employee.smsAlertDinnerFin;
+    case "sortie_depart":
+      return employee.smsAlertDepartTerrain || employee.smsAlertSortie;
+    case "sortie_retour":
+      return employee.smsAlertArriveeTerrain || employee.smsAlertRetour;
+    default:
+      return false;
+  }
+}
+
+async function maybeNotifyDirectionOfHorodateurPunch(options: {
+  employee: HorodateurPhase1EmployeeProfile;
+  event: HorodateurPhase1EventRecord;
+  exception: HorodateurPhase1ExceptionRecord | null;
+  actorUserId: string;
+}) {
+  if (options.exception) {
+    console.info("[horodateur-punch-sms] skip_pending_exception_duplicate", {
+      eventId: options.event.id,
+    });
+    return;
+  }
+
+  const eventType = options.event.event_type;
+
+  if (HORODATEUR_PUNCH_SMS_SKIP_EVENT_TYPES.has(eventType)) {
+    console.info("[horodateur-punch-sms] skip_event_category", { eventType });
+    return;
+  }
+
+  if (!options.employee.alertSmsEnabled) {
+    console.info("[horodateur-punch-sms] skip_employee_alert_sms_disabled", {
+      eventId: options.event.id,
+    });
+    return;
+  }
+
+  if (!employeeWantsPunchSmsForEvent(options.employee, eventType)) {
+    console.info("[horodateur-punch-sms] skip_per_event_sms_disabled", {
+      eventType,
+      eventId: options.event.id,
+    });
+    return;
+  }
+
+  const label = HORODATEUR_PUNCH_SMS_LABELS[eventType];
+  if (!label) {
+    console.info("[horodateur-punch-sms] skip_no_label", { eventType });
+    return;
+  }
+
+  const config = await getHorodateurDirectionAlertConfig();
+  if (!config.sms_enabled) {
+    console.warn("[horodateur-punch-sms] skip_direction_config_sms_disabled", {
+      eventId: options.event.id,
+    });
+    return;
+  }
+
+  const recipients = await resolveDirectionRecipients(config);
+
+  console.info("[horodateur-punch-sms] dispatch", {
+    sms_target_type: "direction",
+    eventType,
+    eventId: options.event.id,
+    recipientCount: recipients.directionSmsNumbers.length,
+  });
+
+  try {
+    const smsResult = await notifyDirectionHorodateurPunchSms({
+      employeeName: options.employee.fullName,
+      eventLabelFr: label,
+      occurredAt: getEventOccurredAt(options.event),
+      company: options.employee.primaryCompany,
+      smsEnabled: true,
+      recipientSmsNumbers: recipients.directionSmsNumbers,
+    });
+
+    const sentAt = new Date().toISOString();
+    await insertHorodateurSmsAlertLog({
+      userId: options.actorUserId,
+      chauffeurId: options.employee.employeeId,
+      companyContext: options.employee.primaryCompany,
+      alertType: `horodateur_punch:${eventType}`,
+      message: label,
+      status: smsResult.sent ? "sent" : "failed",
+      relatedTable: "horodateur_events",
+      relatedId: options.event.id,
+      metadata: {
+        sms_target_type: "direction",
+        sms_skipped: smsResult.skipped,
+        sms_reason: smsResult.reason,
+        recipient_count: recipients.directionSmsNumbers.length,
+      },
+      sentAt: smsResult.sent ? sentAt : null,
+    });
+  } catch (error) {
+    console.error("[horodateur-punch-sms] failure", {
+      eventId: options.event.id,
+      errorMessage: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+/** SMS personnel : telephone de la fiche employe uniquement, independant de horodateur_direction_alert_config.sms_enabled. */
+async function maybeNotifyEmployeeOfHorodateurPunch(options: {
+  employee: HorodateurPhase1EmployeeProfile;
+  event: HorodateurPhase1EventRecord;
+  exception: HorodateurPhase1ExceptionRecord | null;
+  actorUserId: string;
+}) {
+  if (options.exception) {
+    console.info("[horodateur-employee-sms] skip_pending_exception", {
+      eventId: options.event.id,
+    });
+    return;
+  }
+
+  const eventType = options.event.event_type;
+
+  if (HORODATEUR_PUNCH_SMS_SKIP_EVENT_TYPES.has(eventType)) {
+    return;
+  }
+
+  const label = HORODATEUR_PUNCH_SMS_LABELS[eventType];
+  if (!label) {
+    return;
+  }
+
+  const preferenceEnabled =
+    options.employee.alertSmsEnabled !== false &&
+    employeeWantsPunchSmsForEvent(options.employee, eventType);
+
+  const phonePresent = Boolean(
+    normalizePhoneToTwilioE164(options.employee.phoneNumber)
+  );
+
+  try {
+    const smsResult = await notifyEmployeeHorodateurPunchSms({
+      employeeId: options.employee.employeeId,
+      employeeName: options.employee.fullName,
+      phoneRaw: options.employee.phoneNumber,
+      eventType,
+      eventLabelFr: label,
+      occurredAt: getEventOccurredAt(options.event),
+      company: options.employee.primaryCompany,
+      preferenceEnabled,
+    });
+
+    const sentAt = new Date().toISOString();
+    await insertHorodateurSmsAlertLog({
+      userId: options.actorUserId,
+      chauffeurId: options.employee.employeeId,
+      companyContext: options.employee.primaryCompany,
+      alertType: `horodateur_punch_employee:${eventType}`,
+      message: label,
+      status: smsResult.sent ? "sent" : "failed",
+      relatedTable: "horodateur_events",
+      relatedId: options.event.id,
+      metadata: {
+        sms_target_type: "employee",
+        employee_id: options.employee.employeeId,
+        event_type: eventType,
+        phone_present: phonePresent,
+        preference_enabled: preferenceEnabled,
+        sms_sent: smsResult.sent,
+        sms_skipped: smsResult.skipped,
+        reason: smsResult.reason,
+      },
+      sentAt: smsResult.sent ? sentAt : null,
+    });
+  } catch (error) {
+    console.error("[horodateur-employee-sms] unexpected_failure", {
+      employee_id: options.employee.employeeId,
+      eventId: options.event.id,
+      errorMessage: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
 const TORONTO_TIMEZONE = "America/Toronto";
 const SHIFT_RECOMPUTE_DEFAULT_MAX_BREAK_MINUTES = 120;
 const SHIFT_RECOMPUTE_DEFAULT_MAX_MEAL_MINUTES = 180;
@@ -1187,6 +1408,20 @@ export async function createEmployeePunch(options: {
     event.work_date ?? getLocalWorkDate(occurredAt)
   );
   const refreshedState = await recomputeCurrentState(employee.employeeId);
+
+  await maybeNotifyDirectionOfHorodateurPunch({
+    employee,
+    event,
+    exception,
+    actorUserId: options.actorUserId,
+  });
+
+  await maybeNotifyEmployeeOfHorodateurPunch({
+    employee,
+    event,
+    exception,
+    actorUserId: options.actorUserId,
+  });
 
   return {
     event,

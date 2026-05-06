@@ -1,15 +1,22 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import HeaderTagora from "@/app/components/HeaderTagora";
 import FeedbackMessage from "@/app/components/FeedbackMessage";
 import AccessNotice from "@/app/components/AccessNotice";
 import TagoraLoadingScreen from "@/app/components/ui/TagoraLoadingScreen";
 import { supabase } from "@/app/lib/supabase/client";
 import { useCurrentAccess } from "@/app/hooks/useCurrentAccess";
-import OperationProofsPanel from "@/app/components/proofs/OperationProofsPanel";
-import InternalMentionsPanel from "@/app/components/internal/InternalMentionsPanel";
+const OperationProofsPanel = dynamic(
+  () => import("@/app/components/proofs/OperationProofsPanel"),
+  { ssr: false }
+);
+const InternalMentionsPanel = dynamic(
+  () => import("@/app/components/internal/InternalMentionsPanel"),
+  { ssr: false }
+);
 import {
   ACCOUNT_REQUEST_COMPANIES,
   getCompanyLabel,
@@ -101,6 +108,22 @@ export default function Page() {
 
   const [newForm, setNewForm] = useState<LivraisonFormState>(
     createLivraisonForm({ statut: "planifiee" })
+  );
+  const dossiersById = useMemo(
+    () => new Map(dossiers.map((item) => [String(item.id), item] as const)),
+    [dossiers]
+  );
+  const chauffeursById = useMemo(
+    () => new Map(chauffeurs.map((item) => [String(item.id), item] as const)),
+    [chauffeurs]
+  );
+  const vehiculesById = useMemo(
+    () => new Map(vehicules.map((item) => [String(item.id), item] as const)),
+    [vehicules]
+  );
+  const remorquesById = useMemo(
+    () => new Map(remorques.map((item) => [String(item.id), item] as const)),
+    [remorques]
   );
 
   function setFeedbackMessage(msg: string, type: "success" | "error") {
@@ -227,7 +250,7 @@ export default function Page() {
   }
 
   function getDossierById(id: unknown) {
-    return dossiers.find((item) => String(item.id) === String(id));
+    return dossiersById.get(String(id));
   }
 
   function getStringField(item: Row | undefined, field: string) {
@@ -251,15 +274,15 @@ export default function Page() {
   }
 
   function getChauffeurById(id: unknown) {
-    return chauffeurs.find((item) => String(item.id) === String(id));
+    return chauffeursById.get(String(id));
   }
 
   function getVehiculeById(id: unknown) {
-    return vehicules.find((item) => String(item.id) === String(id));
+    return vehiculesById.get(String(id));
   }
 
   function getRemorqueById(id: unknown) {
-    return remorques.find((item) => String(item.id) === String(id));
+    return remorquesById.get(String(id));
   }
 
   function getStatusBadge(statut: string) {
@@ -319,8 +342,39 @@ export default function Page() {
     return `${year}-${month}-${d}`;
   }
 
+  const livraisonsFiltrees = useMemo(
+    () =>
+      livraisons.filter((item) => {
+        const okChauffeur =
+          !filtre.chauffeur_id || String(item.chauffeur_id) === String(filtre.chauffeur_id);
+        const okVehicule =
+          !filtre.vehicule_id || String(item.vehicule_id) === String(filtre.vehicule_id);
+        const okRemorque =
+          !filtre.remorque_id || String(item.remorque_id) === String(filtre.remorque_id);
+        const okStatut = !filtre.statut || item.statut === filtre.statut;
+        return okChauffeur && okVehicule && okRemorque && okStatut;
+      }),
+    [livraisons, filtre]
+  );
+  const livraisonsByDate = useMemo(() => {
+    const map = new Map<string, Row[]>();
+    for (const item of livraisonsFiltrees) {
+      const key = typeof item.date_livraison === "string" ? item.date_livraison : "";
+      if (!key) {
+        continue;
+      }
+      const list = map.get(key);
+      if (list) {
+        list.push(item);
+      } else {
+        map.set(key, [item]);
+      }
+    }
+    return map;
+  }, [livraisonsFiltrees]);
+
   function getLivraisonsByDate(dateStr: string) {
-    return livraisonsFiltrees.filter((l) => l.date_livraison === dateStr);
+    return livraisonsByDate.get(dateStr) ?? [];
   }
 
   function prevMonth() {
@@ -331,8 +385,9 @@ export default function Page() {
     setCalendarDate(new Date(calendarDate.getFullYear(), calendarDate.getMonth() + 1, 1));
   }
 
-  const canEditLivraisonNotes = livraisons.some((item) =>
-    Object.prototype.hasOwnProperty.call(item, "notes")
+  const canEditLivraisonNotes = useMemo(
+    () => livraisons.some((item) => Object.prototype.hasOwnProperty.call(item, "notes")),
+    [livraisons]
   );
 
   function buildPayload(source: LivraisonFormState) {
@@ -353,13 +408,21 @@ export default function Page() {
     };
   }
 
-  const livraisonsFiltrees = livraisons.filter((item) => {
-    const okChauffeur = !filtre.chauffeur_id || String(item.chauffeur_id) === String(filtre.chauffeur_id);
-    const okVehicule = !filtre.vehicule_id || String(item.vehicule_id) === String(filtre.vehicule_id);
-    const okRemorque = !filtre.remorque_id || String(item.remorque_id) === String(filtre.remorque_id);
-    const okStatut = !filtre.statut || item.statut === filtre.statut;
-    return okChauffeur && okVehicule && okRemorque && okStatut;
-  });
+  const internalMentionRecipients = useMemo(
+    () =>
+      chauffeurs
+        .filter((item) => {
+          const actifValue = String(item.actif ?? "true").toLowerCase();
+          return actifValue !== "false" && actifValue !== "0";
+        })
+        .map((item) => ({
+          id: Number(item.id),
+          name: getPersonLabel(item),
+          email: typeof item.courriel === "string" ? item.courriel : null,
+          active: true,
+        })),
+    [chauffeurs]
+  );
 
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
@@ -789,17 +852,7 @@ export default function Page() {
             <InternalMentionsPanel
               entityType="livraison"
               entityId={editingId}
-              recipients={chauffeurs
-                .filter((item) => {
-                  const actifValue = String(item.actif ?? "true").toLowerCase();
-                  return actifValue !== "false" && actifValue !== "0";
-                })
-                .map((item) => ({
-                  id: Number(item.id),
-                  name: getPersonLabel(item),
-                  email: typeof item.courriel === "string" ? item.courriel : null,
-                  active: true,
-                }))}
+              recipients={internalMentionRecipients}
               context={{
                 title: form.client || undefined,
                 client: form.client || undefined,

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   ArrowLeft,
@@ -17,6 +17,7 @@ import {
   Wallet,
   X,
 } from "lucide-react";
+import AuthenticatedPageHeader from "@/app/components/ui/AuthenticatedPageHeader";
 import AppCard from "@/app/components/ui/AppCard";
 import PrimaryButton from "@/app/components/ui/PrimaryButton";
 import SecondaryButton from "@/app/components/ui/SecondaryButton";
@@ -242,6 +243,7 @@ function lastExceptionTouch(ex: HorodateurRegistreExceptionDetail) {
 
 export default function DirectionHorodateurRegistreClient() {
   const { user, loading, hasPermission } = useCurrentAccess();
+  const canUseTerrain = hasPermission("terrain");
   const [activeTab, setActiveTab] = useState<RegistrerTabId>("global");
 
   const [preset, setPreset] = useState<PeriodPreset>("week_current");
@@ -274,9 +276,53 @@ export default function DirectionHorodateurRegistreClient() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [detailBody, setDetailBody] = useState<DetailBody | null>(null);
+  const registerFetchAbortRef = useRef<AbortController | null>(null);
+  const detailFetchAbortRef = useRef<AbortController | null>(null);
 
   const range = useMemo(() => presetRange(preset), [preset]);
   const exLookup = useMemo(() => exceptionEmployerLookup(data), [data]);
+  const employeeOptionsById = useMemo(() => {
+    const map = new Map<number, string | null>();
+    for (const option of data?.employeeOptions ?? []) {
+      map.set(option.id, option.name ?? null);
+    }
+    return map;
+  }, [data?.employeeOptions]);
+  const reportShiftsRaw = useMemo(
+    () => (Array.isArray(reportDetail.shifts) ? reportDetail.shifts : []),
+    [reportDetail.shifts]
+  );
+  const reportShiftTotals = useMemo(
+    () =>
+      reportShiftsRaw.reduce<{ worked: number; payable: number; days: number }>(
+        (acc, raw) => {
+          const row = raw as Record<string, number | undefined>;
+          return {
+            worked: acc.worked + Number(row.workedMinutes ?? row.worked_minutes ?? 0),
+            payable: acc.payable + Number(row.payableMinutes ?? row.payable_minutes ?? 0),
+            days: acc.days + 1,
+          };
+        },
+        { worked: 0, payable: 0, days: 0 }
+      ),
+    [reportShiftsRaw]
+  );
+  const sortedExceptions = useMemo(
+    () =>
+      [...(data?.exceptions ?? [])].sort((a, b) =>
+        lastExceptionTouch(b).localeCompare(lastExceptionTouch(a))
+      ),
+    [data?.exceptions]
+  );
+  const sortedReportEvents = useMemo(
+    () =>
+      [...(reportDetail.events ?? [])].sort((a, b) => {
+        const ta = a.occurredAt ? Date.parse(a.occurredAt) : 0;
+        const tb = b.occurredAt ? Date.parse(b.occurredAt) : 0;
+        return ta - tb;
+      }),
+    [reportDetail.events]
+  );
 
   useEffect(() => {
     if (preset !== "custom") {
@@ -313,6 +359,9 @@ export default function DirectionHorodateurRegistreClient() {
     setFetching(true);
     setError(null);
     try {
+      registerFetchAbortRef.current?.abort();
+      const controller = new AbortController();
+      registerFetchAbortRef.current = controller;
       const qs = new URLSearchParams({
         startDate,
         endDate,
@@ -325,6 +374,7 @@ export default function DirectionHorodateurRegistreClient() {
 
       const res = await fetch(`/api/direction/horodateur/registre?${qs}`, {
         headers: { Authorization: `Bearer ${token}` },
+        signal: controller.signal,
       });
       const json = (await res.json()) as { success?: boolean; error?: string };
 
@@ -335,7 +385,10 @@ export default function DirectionHorodateurRegistreClient() {
       }
 
       setData(json as unknown as HorodateurRegistrePayload);
-    } catch {
+    } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") {
+        return;
+      }
       setData(null);
       setError("Erreur reseau.");
     } finally {
@@ -344,10 +397,10 @@ export default function DirectionHorodateurRegistreClient() {
   }, [user, startDate, endDate, employeeId, company, status]);
 
   useEffect(() => {
-    if (!loading && user && hasPermission("terrain")) {
+    if (!loading && user && canUseTerrain) {
       void loadRegister();
     }
-  }, [loading, user, hasPermission, loadRegister]);
+  }, [loading, user, canUseTerrain, loadRegister]);
 
   const loadEmployeePeriodDetail = useCallback(
     async (
@@ -379,9 +432,13 @@ export default function DirectionHorodateurRegistreClient() {
       }
 
       try {
+        detailFetchAbortRef.current?.abort();
+        const controller = new AbortController();
+        detailFetchAbortRef.current = controller;
         const qs = new URLSearchParams({ startDate, endDate });
         const res = await fetch(`/api/direction/horodateur/registre/${empId}?${qs}`, {
           headers: { Authorization: `Bearer ${token}` },
+          signal: controller.signal,
         });
         const json = (await res.json()) as {
           error?: string;
@@ -419,7 +476,10 @@ export default function DirectionHorodateurRegistreClient() {
               : [],
           });
         }
-      } catch {
+      } catch (err) {
+        if (err instanceof DOMException && err.name === "AbortError") {
+          return;
+        }
         if (mode === "drawer") {
           setDetailError("Erreur reseau.");
         } else {
@@ -442,19 +502,25 @@ export default function DirectionHorodateurRegistreClient() {
     }
     const idNum = Number(reportEmployeeId);
     if (!reportEmployeeId || !Number.isFinite(idNum) || idNum <= 0) {
-        setReportDetail({
-          employeeName: null,
-          events: [],
-          exceptions: [],
-          notes: [],
-          shifts: [],
-        });
+      setReportDetail({
+        employeeName: null,
+        events: [],
+        exceptions: [],
+        notes: [],
+        shifts: [],
+      });
       setReportLoading(false);
       return;
     }
-    const emp = data?.employeeOptions?.find((e) => e.id === idNum);
-    void loadEmployeePeriodDetail(idNum, emp?.name ?? null, "report");
-  }, [activeTab, reportEmployeeId, data?.employeeOptions, loadEmployeePeriodDetail]);
+    void loadEmployeePeriodDetail(idNum, employeeOptionsById.get(idNum) ?? null, "report");
+  }, [activeTab, reportEmployeeId, employeeOptionsById, loadEmployeePeriodDetail]);
+
+  useEffect(() => {
+    return () => {
+      registerFetchAbortRef.current?.abort();
+      detailFetchAbortRef.current?.abort();
+    };
+  }, []);
 
   if (loading) {
     return (
@@ -470,7 +536,7 @@ export default function DirectionHorodateurRegistreClient() {
     return null;
   }
 
-  if (!hasPermission("terrain")) {
+  if (!canUseTerrain) {
     return (
       <main className="tagora-app-shell min-h-screen bg-[linear-gradient(180deg,#f1f5f9_0%,#eef4ff_100%)]">
         <div className="mx-auto max-w-7xl px-4 py-10 sm:px-6 lg:px-8">
@@ -489,22 +555,6 @@ export default function DirectionHorodateurRegistreClient() {
   }
 
   const summary = data?.summary;
-  const reportShiftsRaw = Array.isArray(reportDetail.shifts) ? reportDetail.shifts : [];
-  const reportShiftTotals = reportShiftsRaw.reduce<{ worked: number; payable: number; days: number }>(
-    (acc, raw) => {
-      const row = raw as Record<string, number | undefined>;
-      return {
-        worked: acc.worked + Number(row.workedMinutes ?? row.worked_minutes ?? 0),
-        payable: acc.payable + Number(row.payableMinutes ?? row.payable_minutes ?? 0),
-        days: acc.days + 1,
-      };
-    },
-    { worked: 0, payable: 0, days: 0 }
-  );
-
-  const sortedExceptions = [...(data?.exceptions ?? [])].sort((a, b) =>
-    lastExceptionTouch(b).localeCompare(lastExceptionTouch(a))
-  );
 
   const inputClass =
     "w-full rounded-xl border border-slate-200/90 bg-white px-3.5 py-3 text-[15px] text-slate-900 shadow-inner shadow-slate-900/5 outline-none ring-slate-300/80 transition focus:border-sky-400 focus:ring-2 focus:ring-sky-200/70";
@@ -512,47 +562,42 @@ export default function DirectionHorodateurRegistreClient() {
   return (
     <main className="tagora-app-shell min-h-screen bg-[linear-gradient(180deg,#eef2ff_0%,#f8fafc_45%,#f1f5f9_100%)]">
       <div className="mx-auto max-w-7xl px-4 pb-14 pt-8 sm:px-6 lg:px-10">
-        {/* En-tête large */}
-        <header className="mb-8 flex flex-col gap-6 rounded-3xl border border-white/70 bg-white/90 px-5 py-6 shadow-[0_20px_60px_-16px_rgba(15,23,42,0.12)] backdrop-blur sm:px-8 sm:py-8">
-          <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
-            <div className="flex flex-1 flex-col gap-4 sm:flex-row sm:items-start sm:gap-6">
+        <div className="mb-8">
+          <AuthenticatedPageHeader
+            title="Registre des heures"
+            subtitle="Consultation des heures par semaine, mois et employé"
+            showNavigation={false}
+            compact
+            actions={
               <div
-                aria-hidden
-                className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-[linear-gradient(145deg,#0f3557_0%,#1e4b7c_48%,#102a52_100%)] text-lg font-black tracking-tight text-white shadow-lg shadow-slate-900/25"
+                style={{
+                  display: "flex",
+                  gap: "var(--ui-space-3)",
+                  flexWrap: "wrap",
+                  alignItems: "center",
+                  justifyContent: "flex-end",
+                }}
               >
-                T
+                <Link
+                  href="/direction/horodateur"
+                  className="tagora-dark-outline-action"
+                  style={{ textDecoration: "none" }}
+                >
+                  <ArrowLeft className="h-4 w-4" aria-hidden />
+                  <span>Retour horodateur</span>
+                </Link>
+                <Link
+                  href="/direction/dashboard"
+                  className="tagora-dark-action"
+                  style={{ textDecoration: "none" }}
+                >
+                  <LayoutDashboard className="h-4 w-4" aria-hidden />
+                  <span>Tableau de bord direction</span>
+                </Link>
               </div>
-              <div className="min-w-0">
-                <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-                  <h1 className="text-[1.85rem] font-bold leading-tight tracking-tight text-slate-900 sm:text-[2.1rem]">
-                    Registre des heures
-                  </h1>
-                  <span className="hidden rounded-full border border-sky-100 bg-sky-50 px-3 py-0.5 text-xs font-semibold uppercase tracking-wide text-sky-800 sm:inline">
-                    Direction
-                  </span>
-                </div>
-                <p className="mt-2 max-w-3xl text-base leading-relaxed text-slate-600 sm:text-lg">
-                  Consultation des heures par semaine, mois et employe — registre administratif consolidé.
-                </p>
-              </div>
-            </div>
-            <div className="flex flex-shrink-0 flex-wrap items-center gap-3 lg:justify-end">
-              <Link
-                href="/direction/horodateur"
-                className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-slate-300 hover:bg-slate-50"
-              >
-                <ArrowLeft className="h-4 w-4" aria-hidden /> Retour horodateur
-              </Link>
-              <Link
-                href="/direction/dashboard"
-                className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-[linear-gradient(145deg,#0f3557,#1c4f85)] px-5 text-sm font-semibold text-white shadow-md shadow-slate-900/20 transition hover:opacity-95"
-              >
-                <LayoutDashboard className="h-4 w-4" aria-hidden />
-                Tableau de bord direction
-              </Link>
-            </div>
-          </div>
-        </header>
+            }
+          />
+        </div>
 
         {/* Onglets */}
         <div className="mb-6 inline-flex rounded-2xl border border-slate-200/80 bg-slate-200/35 p-1.5 shadow-inner">
@@ -1030,13 +1075,7 @@ export default function DirectionHorodateurRegistreClient() {
 
                 <div className="rounded-2xl border border-slate-100 bg-slate-50/40 p-5">
                   <div className="space-y-3">
-                    {[...(reportDetail.events ?? [])]
-                      .sort((a, b) => {
-                        const ta = a.occurredAt ? Date.parse(a.occurredAt) : 0;
-                        const tb = b.occurredAt ? Date.parse(b.occurredAt) : 0;
-                        return ta - tb;
-                      })
-                      .map((ev) => (
+                    {sortedReportEvents.map((ev) => (
                         <div
                           key={ev.id}
                           className="flex flex-wrap items-start justify-between gap-3 rounded-xl border border-white bg-white px-4 py-3.5 shadow-sm"

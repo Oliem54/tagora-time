@@ -81,6 +81,18 @@ export async function POST(req: NextRequest) {
       throw error;
     }
 
+    const uid = auth.user.id;
+    console.info("[gps-positions]", "position_saved", {
+      userIdPrefix: uid.length > 8 ? `${uid.slice(0, 8)}…` : uid,
+      companyContext,
+      lat: Math.round(latitude * 1e5) / 1e5,
+      lng: Math.round(longitude * 1e5) / 1e5,
+      positionId:
+        data && typeof data === "object" && "id" in data
+          ? String((data as { id?: unknown }).id ?? "")
+          : null,
+    });
+
     return NextResponse.json({ success: true, position: data });
   } catch (error) {
     return NextResponse.json(

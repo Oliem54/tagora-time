@@ -476,20 +476,55 @@ export default function DirectionHorodateurPage() {
     direction_sms_numbers: [],
   });
 
-  const counts = useMemo(() => {
-    const active = board.filter((row) => getRowState(row) === "en_quart").length;
-    const paused = board.filter(
-      (row) => getRowState(row) === "en_pause" || getRowState(row) === "en_diner"
-    ).length;
-    const pending = exceptions.length;
+  const boardStats = useMemo(() => {
+    return board.reduce(
+      (acc, row) => {
+        const state = getRowState(row);
+        const todayMinutes = Math.max(0, row.todayShift?.payable_minutes ?? 0);
+        const weekWorked = Math.max(0, row.weekWorkedMinutes ?? 0);
+        const weekTarget = Math.max(0, row.weekTargetMinutes ?? 0);
+        const hasException = row.hasOpenException || (row.activeExceptionCount ?? 0) > 0;
 
-    return {
+        acc.totalTodayMinutes += todayMinutes;
+        acc.totalWeekWorkedMinutes += weekWorked;
+        acc.totalWeekTargetMinutes += weekTarget;
+
+        if (state === "en_quart") {
+          acc.active += 1;
+        }
+        if (state === "en_pause" || state === "en_diner") {
+          acc.paused += 1;
+        }
+        if (row.todayShift?.status === "en_attente") {
+          acc.pendingRows += 1;
+        }
+        if (hasException) {
+          acc.exceptionRows += 1;
+        }
+
+        return acc;
+      },
+      {
+        active: 0,
+        paused: 0,
+        pendingRows: 0,
+        exceptionRows: 0,
+        totalTodayMinutes: 0,
+        totalWeekWorkedMinutes: 0,
+        totalWeekTargetMinutes: 0,
+      }
+    );
+  }, [board]);
+
+  const counts = useMemo(
+    () => ({
       employees: board.length,
-      active,
-      paused,
-      pending,
-    };
-  }, [board, exceptions.length]);
+      active: boardStats.active,
+      paused: boardStats.paused,
+      pending: exceptions.length,
+    }),
+    [board.length, boardStats.active, boardStats.paused, exceptions.length]
+  );
 
   const hasEmployees = board.length > 0;
   const hasExceptions = exceptions.length > 0;
@@ -500,33 +535,42 @@ export default function DirectionHorodateurPage() {
     [config.direction_emails]
   );
   const globalMetrics = useMemo(() => {
-    const employeesInShift = board.filter((row) => getRowState(row) === "en_quart").length;
-    const totalTodayMinutes = board.reduce(
-      (sum, row) => sum + Math.max(0, row.todayShift?.payable_minutes ?? 0),
-      0
-    );
-    const totalWeekWorkedMinutes = board.reduce(
-      (sum, row) => sum + Math.max(0, row.weekWorkedMinutes ?? 0),
-      0
-    );
-    const totalWeekTargetMinutes = board.reduce(
-      (sum, row) => sum + Math.max(0, row.weekTargetMinutes ?? 0),
-      0
-    );
-
     return {
-      employeesInShift,
+      employeesInShift: boardStats.active,
       inShiftPercent:
-        board.length > 0 ? Math.round((employeesInShift / board.length) * 100) : 0,
-      totalTodayMinutes,
-      totalWeekWorkedMinutes,
-      totalWeekTargetMinutes,
+        board.length > 0 ? Math.round((boardStats.active / board.length) * 100) : 0,
+      totalTodayMinutes: boardStats.totalTodayMinutes,
+      totalWeekWorkedMinutes: boardStats.totalWeekWorkedMinutes,
+      totalWeekTargetMinutes: boardStats.totalWeekTargetMinutes,
       teamProgressPercent:
-        totalWeekTargetMinutes > 0
-          ? Math.round((totalWeekWorkedMinutes / totalWeekTargetMinutes) * 100)
+        boardStats.totalWeekTargetMinutes > 0
+          ? Math.round(
+              (boardStats.totalWeekWorkedMinutes / boardStats.totalWeekTargetMinutes) * 100
+            )
           : 0,
     };
-  }, [board]);
+  }, [board.length, boardStats]);
+
+  const tableFilterCounts = useMemo(
+    () => ({
+      enQuart: boardStats.active,
+      enAttente: boardStats.pendingRows,
+      exceptions: boardStats.exceptionRows,
+    }),
+    [boardStats.active, boardStats.pendingRows, boardStats.exceptionRows]
+  );
+
+  const exceptionsByEmployeeId = useMemo(() => {
+    const map = new Map<number, number>();
+    for (const item of exceptions) {
+      const key = Number(item.employee_id || 0);
+      if (!Number.isFinite(key) || key <= 0) {
+        continue;
+      }
+      map.set(key, (map.get(key) ?? 0) + 1);
+    }
+    return map;
+  }, [exceptions]);
   const filteredBoard = useMemo(() => {
     switch (liveFilter) {
       case "en_quart":
@@ -969,7 +1013,6 @@ export default function DirectionHorodateurPage() {
       }
 
       setNote("");
-      await loadData("refresh", { preserveMessage: true });
     } catch (submitError) {
       setError(
         submitError instanceof Error ? submitError.message : "Erreur de pointage."
@@ -1014,7 +1057,6 @@ export default function DirectionHorodateurPage() {
       patchBoardRow(payload.exception.employee_id, payload);
       setExceptions((current) => current.filter((item) => item.id !== exceptionId));
       setMessage("Exception approuvee.");
-      await loadData("refresh", { preserveMessage: true });
     } catch (approveError) {
       setError(
         approveError instanceof Error
@@ -1066,7 +1108,6 @@ export default function DirectionHorodateurPage() {
       patchBoardRow(payload.exception.employee_id, payload);
       setExceptions((current) => current.filter((item) => item.id !== exceptionId));
       setMessage("Exception refusee.");
-      await loadData("refresh", { preserveMessage: true });
     } catch (refuseError) {
       setError(
         refuseError instanceof Error ? refuseError.message : "Erreur de refus."
@@ -1436,9 +1477,9 @@ export default function DirectionHorodateurPage() {
           >
             {[
               ["tous", `Tous (${board.length})`],
-              ["en_quart", `En quart (${board.filter((row) => getRowState(row) === "en_quart").length})`],
-              ["en_attente", `En attente (${board.filter((row) => row.todayShift?.status === "en_attente").length})`],
-              ["exceptions", `Exceptions (${board.filter((row) => row.hasOpenException || (row.activeExceptionCount ?? 0) > 0).length})`],
+              ["en_quart", `En quart (${tableFilterCounts.enQuart})`],
+              ["en_attente", `En attente (${tableFilterCounts.enAttente})`],
+              ["exceptions", `Exceptions (${tableFilterCounts.exceptions})`],
             ].map(([value, label]) => {
               const active = liveFilter === value;
 
@@ -1488,8 +1529,9 @@ export default function DirectionHorodateurPage() {
                 </thead>
                 <tbody>
                   {filteredBoard.map((row) => {
+                    const rowEmployeeId = row.employeeId || row.employee_id || 0;
                     const rowExceptionCount = Math.max(
-                      exceptions.filter((item) => item.employee_id === (row.employeeId || row.employee_id || 0)).length,
+                      exceptionsByEmployeeId.get(rowEmployeeId) ?? 0,
                       row.activeExceptionCount ?? 0,
                       row.alertFlags?.hasOpenException ? 1 : 0
                     );

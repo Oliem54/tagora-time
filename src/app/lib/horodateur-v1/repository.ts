@@ -1,6 +1,7 @@
 import "server-only";
 
 import { createAdminSupabaseClient } from "@/app/lib/supabase/admin";
+import type { AccountRequestCompany } from "@/app/lib/account-requests.shared";
 import type {
   HorodateurCanonicalEventType,
   HorodateurDirectionAlertConfigRecord,
@@ -37,6 +38,15 @@ type ChauffeurProfileRow = {
   horodateur_tolerance_after_end_minutes?: number | null;
   horodateur_max_shift_minutes?: number | null;
   sms_alert_quart_debut: boolean | null;
+  sms_alert_quart_fin: boolean | null;
+  sms_alert_pause_debut: boolean | null;
+  sms_alert_pause_fin: boolean | null;
+  sms_alert_dinner_debut: boolean | null;
+  sms_alert_dinner_fin: boolean | null;
+  sms_alert_depart_terrain: boolean | null;
+  sms_alert_arrivee_terrain: boolean | null;
+  sms_alert_sortie: boolean | null;
+  sms_alert_retour: boolean | null;
   alert_email_enabled?: boolean | null;
   alert_sms_enabled?: boolean | null;
   is_direction_alert_recipient?: boolean | null;
@@ -63,6 +73,15 @@ const CHAUFFEUR_PHASE1_SELECT_CANONICAL = `
   lunch_minutes,
   expected_breaks_count,
   sms_alert_quart_debut,
+  sms_alert_quart_fin,
+  sms_alert_pause_debut,
+  sms_alert_pause_fin,
+  sms_alert_dinner_debut,
+  sms_alert_dinner_fin,
+  sms_alert_depart_terrain,
+  sms_alert_arrivee_terrain,
+  sms_alert_sortie,
+  sms_alert_retour,
   alert_email_enabled,
   alert_sms_enabled,
   is_direction_alert_recipient
@@ -87,6 +106,15 @@ const CHAUFFEUR_PHASE1_SELECT_LEGACY_PHONE = `
   lunch_minutes,
   expected_breaks_count,
   sms_alert_quart_debut,
+  sms_alert_quart_fin,
+  sms_alert_pause_debut,
+  sms_alert_pause_fin,
+  sms_alert_dinner_debut,
+  sms_alert_dinner_fin,
+  sms_alert_depart_terrain,
+  sms_alert_arrivee_terrain,
+  sms_alert_sortie,
+  sms_alert_retour,
   alert_email_enabled,
   alert_sms_enabled,
   is_direction_alert_recipient
@@ -197,6 +225,15 @@ function mapProfile(row: ChauffeurProfileRow): HorodateurPhase1EmployeeProfile {
     toleranceAfterEndMinutes: row.horodateur_tolerance_after_end_minutes ?? 0,
     maxShiftMinutes: row.horodateur_max_shift_minutes ?? 720,
     smsAlertQuartDebut: row.sms_alert_quart_debut !== false,
+    smsAlertQuartFin: row.sms_alert_quart_fin !== false,
+    smsAlertPauseDebut: row.sms_alert_pause_debut !== false,
+    smsAlertPauseFin: row.sms_alert_pause_fin !== false,
+    smsAlertDinnerDebut: row.sms_alert_dinner_debut !== false,
+    smsAlertDinnerFin: row.sms_alert_dinner_fin !== false,
+    smsAlertDepartTerrain: row.sms_alert_depart_terrain !== false,
+    smsAlertArriveeTerrain: row.sms_alert_arrivee_terrain !== false,
+    smsAlertSortie: row.sms_alert_sortie !== false,
+    smsAlertRetour: row.sms_alert_retour !== false,
     alertEmailEnabled: row.alert_email_enabled !== false,
     alertSmsEnabled: row.alert_sms_enabled !== false,
     isDirectionAlertRecipient: row.is_direction_alert_recipient === true,
@@ -1142,4 +1179,40 @@ export async function listHorodateurExceptionsForEmployees(
   }
 
   return data ?? [];
+}
+
+export async function insertHorodateurSmsAlertLog(input: {
+  userId: string | null;
+  chauffeurId: number | null;
+  companyContext: AccountRequestCompany | null;
+  alertType: string;
+  message: string;
+  status: "queued" | "sent" | "failed";
+  relatedTable: string | null;
+  relatedId: string | null;
+  metadata: Record<string, unknown>;
+  sentAt?: string | null;
+}) {
+  const supabase = createAdminSupabaseClient();
+  const { error } = await supabase.from("sms_alerts_log").insert([
+    {
+      user_id: input.userId,
+      chauffeur_id: input.chauffeurId,
+      company_context: input.companyContext,
+      alert_type: input.alertType,
+      message: input.message,
+      status: input.status,
+      related_table: input.relatedTable,
+      related_id: input.relatedId,
+      metadata: input.metadata,
+      sent_at: input.sentAt ?? null,
+    },
+  ]);
+
+  if (error) {
+    console.error("[horodateur-sms] sms_alerts_log insert failed", {
+      message: error.message,
+      code: (error as { code?: string }).code,
+    });
+  }
 }

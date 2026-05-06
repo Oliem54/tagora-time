@@ -5,6 +5,7 @@ import { motion } from "framer-motion";
 import {
   ArrowUpRight,
   BriefcaseBusiness,
+  Clock3,
   FileStack,
   Files,
   Route,
@@ -27,7 +28,21 @@ import TagoraLoadingScreen from "@/app/components/ui/TagoraLoadingScreen";
 type ModulePermission = "documents" | "livraisons" | "terrain" | "ressources" | null;
 type ModuleGroupId = "operations" | "gestion";
 
+type ModuleId =
+  | "livraisons"
+  | "horodateur"
+  | "terrain"
+  | "sorties-terrain"
+  | "registre-heures"
+  | "calendrier-effectifs"
+  | "temps-titan"
+  | "documents"
+  | "ressources"
+  | "gestion-comptes"
+  | "ameliorations";
+
 type ModuleDefinition = {
+  id: ModuleId;
   href: string;
   label: string;
   description: string;
@@ -58,6 +73,7 @@ const MODULE_GROUPS: ModuleGroup[] = [
 
 const MODULES: ModuleDefinition[] = [
   {
+    id: "livraisons",
     href: "/direction/livraisons",
     label: "Livraison & ramassage",
     description: "Planification livraisons et ramassages.",
@@ -68,26 +84,18 @@ const MODULES: ModuleDefinition[] = [
       "linear-gradient(135deg, rgba(59,130,246,0.16) 0%, rgba(15,41,72,0.08) 100%)",
   },
   {
-    href: "/direction/terrain",
-    label: "Terrain",
-    description: "Carte en direct et equipes.",
+    id: "horodateur",
+    href: "/direction/horodateur",
+    label: "Horodateur",
+    description: "Suivi live des punchs, pauses et exceptions.",
     permission: "terrain",
     group: "operations",
-    icon: Waypoints,
+    icon: Clock3,
     accent:
-      "linear-gradient(135deg, rgba(16,185,129,0.18) 0%, rgba(15,41,72,0.08) 100%)",
+      "linear-gradient(135deg, rgba(34,197,94,0.18) 0%, rgba(15,41,72,0.08) 100%)",
   },
   {
-    href: "/direction/sorties-terrain",
-    label: "Sorties terrain",
-    description: "Kilomètres et temps.",
-    permission: "terrain",
-    group: "operations",
-    icon: Route,
-    accent:
-      "linear-gradient(135deg, rgba(245,158,11,0.18) 0%, rgba(15,41,72,0.08) 100%)",
-  },
-  {
+    id: "registre-heures",
     href: "/direction/horodateur/registre",
     label: "Registre des heures",
     description: "Historique des quarts, punchs et exceptions.",
@@ -98,6 +106,40 @@ const MODULES: ModuleDefinition[] = [
       "linear-gradient(135deg, rgba(14,165,233,0.2) 0%, rgba(15,41,72,0.08) 100%)",
   },
   {
+    id: "calendrier-effectifs",
+    href: "/direction/effectifs",
+    label: "Calendrier des effectifs",
+    description: "Couverture des équipes par département.",
+    permission: "terrain",
+    group: "operations",
+    icon: ClipboardList,
+    accent:
+      "linear-gradient(135deg, rgba(14,165,233,0.2) 0%, rgba(59,130,246,0.08) 100%)",
+  },
+  {
+    id: "terrain",
+    href: "/direction/terrain",
+    label: "Terrain",
+    description: "Carte en direct et equipes.",
+    permission: "terrain",
+    group: "operations",
+    icon: Waypoints,
+    accent:
+      "linear-gradient(135deg, rgba(16,185,129,0.18) 0%, rgba(15,41,72,0.08) 100%)",
+  },
+  {
+    id: "sorties-terrain",
+    href: "/direction/sorties-terrain",
+    label: "Sorties terrain",
+    description: "Kilomètres et temps.",
+    permission: "terrain",
+    group: "operations",
+    icon: Route,
+    accent:
+      "linear-gradient(135deg, rgba(245,158,11,0.18) 0%, rgba(15,41,72,0.08) 100%)",
+  },
+  {
+    id: "temps-titan",
     href: "/direction/temps-titan",
     label: "Temps Titan",
     description: "Heures et refacturation.",
@@ -108,6 +150,7 @@ const MODULES: ModuleDefinition[] = [
       "linear-gradient(135deg, rgba(99,102,241,0.18) 0%, rgba(15,41,72,0.08) 100%)",
   },
   {
+    id: "documents",
     href: "/direction/documents",
     label: "Documents",
     description: "Dossiers et pièces.",
@@ -118,6 +161,7 @@ const MODULES: ModuleDefinition[] = [
       "linear-gradient(135deg, rgba(14,165,233,0.18) 0%, rgba(15,41,72,0.08) 100%)",
   },
   {
+    id: "ressources",
     href: "/direction/ressources",
     label: "Ressources",
     description: "Employés et flotte.",
@@ -128,6 +172,7 @@ const MODULES: ModuleDefinition[] = [
       "linear-gradient(135deg, rgba(236,72,153,0.16) 0%, rgba(15,41,72,0.08) 100%)",
   },
   {
+    id: "gestion-comptes",
     href: "/direction/demandes-comptes",
     label: "Gestion des comptes",
     description: "Comptes employés, accès opérationnels et préférences d alertes.",
@@ -138,6 +183,7 @@ const MODULES: ModuleDefinition[] = [
       "linear-gradient(135deg, rgba(14,165,233,0.18) 0%, rgba(59,130,246,0.08) 100%)",
   },
   {
+    id: "ameliorations",
     href: "/ameliorations",
     label: "Améliorations",
     description: "Suggestions, demandes d'amélioration et suivis internes.",
@@ -152,12 +198,13 @@ const MODULES: ModuleDefinition[] = [
 export default function DirectionDashboardClient() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { user, loading, hasPermission } = useCurrentAccess();
+  const { user, role, permissions, loading } = useCurrentAccess();
   const [archiveSearch, setArchiveSearch] = useState("");
   const [forceShowLoader, setForceShowLoader] = useState(false);
   const [accessToken, setAccessToken] = useState<string | null>(null);
   const [pendingAccountRequestsCount, setPendingAccountRequestsCount] = useState(0);
   const [pendingImprovementsCount, setPendingImprovementsCount] = useState(0);
+  const [coverageAlertsCount, setCoverageAlertsCount] = useState(0);
 
   const debugShowLoader = searchParams.get("showLoader") === "1";
 
@@ -198,7 +245,19 @@ export default function DirectionDashboardClient() {
 
     const loadPendingBadges = async () => {
       try {
-        const [accountsResponse, improvementsResponse] = await Promise.all([
+        const currentWeekStart = (() => {
+          const today = new Date();
+          const day = today.getDay();
+          const shift = day === 0 ? -6 : 1 - day;
+          const monday = new Date(today);
+          monday.setDate(today.getDate() + shift);
+          const y = monday.getFullYear();
+          const m = String(monday.getMonth() + 1).padStart(2, "0");
+          const d = String(monday.getDate()).padStart(2, "0");
+          return `${y}-${m}-${d}`;
+        })();
+
+        const [accountsResponse, improvementsResponse, effectifsResponse] = await Promise.all([
           fetch("/api/account-requests/pending-count", {
             method: "GET",
             headers: {
@@ -206,6 +265,12 @@ export default function DirectionDashboardClient() {
             },
           }),
           fetch("/api/admin/ameliorations-pending-count", {
+            method: "GET",
+            headers: {
+              Authorization: `Bearer ${accessToken}`,
+            },
+          }),
+          fetch(`/api/direction/effectifs?weekStart=${encodeURIComponent(currentWeekStart)}`, {
             method: "GET",
             headers: {
               Authorization: `Bearer ${accessToken}`,
@@ -228,19 +293,57 @@ export default function DirectionDashboardClient() {
         } else {
           setPendingImprovementsCount(0);
         }
+
+        if (effectifsResponse.ok) {
+          const effectifsPayload = (await effectifsResponse.json()) as {
+            summary?: { totalCoverageAlerts?: unknown };
+          };
+          const nextCount = Number(effectifsPayload.summary?.totalCoverageAlerts);
+          setCoverageAlertsCount(Number.isFinite(nextCount) ? Math.max(0, nextCount) : 0);
+        } else {
+          setCoverageAlertsCount(0);
+        }
       } catch {
         setPendingAccountRequestsCount(0);
         setPendingImprovementsCount(0);
+        setCoverageAlertsCount(0);
       }
     };
 
     void loadPendingBadges();
   }, [accessToken, user]);
 
-  const visibleModules = useMemo(
-    () => MODULES.filter((item) => (item.permission ? hasPermission(item.permission) : true)),
-    [hasPermission]
-  );
+  const profileLoading = loading;
+  const permissionsLoading = loading;
+  const dashboardReady = !profileLoading && !permissionsLoading && Boolean(user);
+
+  const visibleModules = useMemo(() => {
+    const canSeeByRole = (module: ModuleDefinition) => {
+      if (role === "admin") {
+        return true;
+      }
+      if (role === "direction") {
+        if (
+          module.id === "livraisons" ||
+          module.id === "horodateur" ||
+          module.id === "terrain" ||
+          module.id === "sorties-terrain" ||
+          module.id === "registre-heures" ||
+          module.id === "calendrier-effectifs" ||
+          module.id === "temps-titan" ||
+          module.id === "ameliorations"
+        ) {
+          return true;
+        }
+        if (module.id === "gestion-comptes") {
+          return false;
+        }
+      }
+      return module.permission ? permissions.includes(module.permission) : true;
+    };
+
+    return MODULES.filter((item) => canSeeByRole(item));
+  }, [permissions, role]);
 
   const groupedModules = useMemo(
     () =>
@@ -256,8 +359,9 @@ export default function DirectionDashboardClient() {
       new Map<string, number>([
         ["/direction/demandes-comptes", pendingAccountRequestsCount],
         ["/ameliorations", pendingImprovementsCount],
+        ["/direction/effectifs", coverageAlertsCount],
       ]),
-    [pendingAccountRequestsCount, pendingImprovementsCount]
+    [coverageAlertsCount, pendingAccountRequestsCount, pendingImprovementsCount]
   );
 
   async function handleLogout() {
@@ -273,6 +377,20 @@ export default function DirectionDashboardClient() {
     }
     router.push(`/direction/livraisons/archives?search=${encodeURIComponent(value)}`);
   }
+
+  useEffect(() => {
+    if (process.env.NODE_ENV !== "development") {
+      return;
+    }
+    // Debug dashboard visibility transitions without impacting prod.
+    console.log("[dashboard modules]", {
+      role,
+      profileLoading,
+      permissionsLoading,
+      permissions,
+      visibleModules: visibleModules.map((module) => module.id),
+    });
+  }, [permissions, permissionsLoading, profileLoading, role, visibleModules]);
 
   if (loading || forceShowLoader) {
     return (
@@ -470,7 +588,7 @@ export default function DirectionDashboardClient() {
           </motion.section>
         ))}
 
-        {hasPermission("livraisons") ? (
+        {(dashboardReady ? visibleModules.some((module) => module.id === "livraisons") : true) ? (
           <motion.section
             initial={{ opacity: 0, y: 18 }}
             animate={{ opacity: 1, y: 0 }}

@@ -61,6 +61,7 @@ export type EmployeProfile = {
   alert_email_enabled: boolean | null;
   alert_sms_enabled: boolean | null;
   is_direction_alert_recipient: boolean | null;
+  receive_pickup_reminder_email_alerts: boolean | null;
 };
 
 export type EmployeFormState = {
@@ -112,6 +113,7 @@ export type EmployeFormState = {
   alert_email_enabled: boolean;
   alert_sms_enabled: boolean;
   is_direction_alert_recipient: boolean;
+  receive_pickup_reminder_email_alerts: boolean;
 };
 
 export const employeeWorkDays = [
@@ -192,6 +194,8 @@ export function buildEmployeForm(
     alert_email_enabled: profile?.alert_email_enabled ?? true,
     alert_sms_enabled: profile?.alert_sms_enabled ?? true,
     is_direction_alert_recipient: profile?.is_direction_alert_recipient ?? false,
+    receive_pickup_reminder_email_alerts:
+      profile?.receive_pickup_reminder_email_alerts ?? false,
   };
 }
 
@@ -323,6 +327,8 @@ export function buildEmployePayload(form: EmployeFormState) {
     alert_email_enabled: form.alert_email_enabled,
     alert_sms_enabled: form.alert_sms_enabled,
     is_direction_alert_recipient: form.is_direction_alert_recipient,
+    receive_pickup_reminder_email_alerts:
+      form.receive_pickup_reminder_email_alerts,
   };
 }
 
