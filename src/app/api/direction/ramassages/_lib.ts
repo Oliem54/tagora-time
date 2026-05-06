@@ -7,10 +7,13 @@ import { isJwtExplicitlyAal1Only } from "@/app/lib/auth/jwt-access-token";
 import { createAdminSupabaseClient } from "@/app/lib/supabase/admin";
 
 export type RamassageAlertConfig = {
-  delayDays: number;
-  warningDays: number;
-  emailEnabled: boolean;
-  smsEnabled: boolean;
+  pickupReminderEnabled: boolean;
+  pickupReminderAlert1DelayHours: number;
+  pickupReminderAlert2DelayHours: number;
+  pickupReminderRecurringDelayHours: number;
+  pickupReminderNotifyDirectionAdminEmail: boolean;
+  pickupReminderNotifyClientEmail: boolean;
+  pickupReminderNotifyClientSms: boolean;
 };
 
 export async function requireDirectionOrAdmin(req: NextRequest) {
@@ -80,15 +83,53 @@ export async function getRamassageAlertConfig(
 ): Promise<RamassageAlertConfig> {
   const { data } = await supabase
     .from("direction_ramassage_alert_config")
-    .select("delay_days, warning_days, email_enabled, sms_enabled")
+    .select(
+      [
+        "pickup_reminder_enabled",
+        "pickup_reminder_alert_1_delay_hours",
+        "pickup_reminder_alert_2_delay_hours",
+        "pickup_reminder_recurring_delay_hours",
+        "pickup_reminder_notify_direction_admin_email",
+        "pickup_reminder_notify_client_email",
+        "pickup_reminder_notify_client_sms",
+      ].join(",")
+    )
     .eq("config_key", "default")
     .maybeSingle();
 
   return {
-    delayDays: Math.max(1, Number((data as { delay_days?: number } | null)?.delay_days ?? 2)),
-    warningDays: Math.max(0, Number((data as { warning_days?: number } | null)?.warning_days ?? 1)),
-    emailEnabled: (data as { email_enabled?: boolean } | null)?.email_enabled !== false,
-    smsEnabled: (data as { sms_enabled?: boolean } | null)?.sms_enabled !== false,
+    pickupReminderEnabled:
+      (data as { pickup_reminder_enabled?: boolean } | null)?.pickup_reminder_enabled !== false,
+    pickupReminderAlert1DelayHours: Math.max(
+      1,
+      Number(
+        (data as { pickup_reminder_alert_1_delay_hours?: number } | null)
+          ?.pickup_reminder_alert_1_delay_hours ?? 48
+      )
+    ),
+    pickupReminderAlert2DelayHours: Math.max(
+      1,
+      Number(
+        (data as { pickup_reminder_alert_2_delay_hours?: number } | null)
+          ?.pickup_reminder_alert_2_delay_hours ?? 36
+      )
+    ),
+    pickupReminderRecurringDelayHours: Math.max(
+      1,
+      Number(
+        (data as { pickup_reminder_recurring_delay_hours?: number } | null)
+          ?.pickup_reminder_recurring_delay_hours ?? 36
+      )
+    ),
+    pickupReminderNotifyDirectionAdminEmail:
+      (data as { pickup_reminder_notify_direction_admin_email?: boolean } | null)
+        ?.pickup_reminder_notify_direction_admin_email !== false,
+    pickupReminderNotifyClientEmail:
+      (data as { pickup_reminder_notify_client_email?: boolean } | null)
+        ?.pickup_reminder_notify_client_email !== false,
+    pickupReminderNotifyClientSms:
+      (data as { pickup_reminder_notify_client_sms?: boolean } | null)
+        ?.pickup_reminder_notify_client_sms !== false,
   };
 }
 

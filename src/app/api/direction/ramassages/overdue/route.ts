@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
-  dayDiff,
   getRamassageAlertConfig,
   parseClientContact,
   requireAdmin,
@@ -8,6 +7,32 @@ import {
 } from "@/app/api/direction/ramassages/_lib";
 
 type Row = Record<string, string | number | null | undefined>;
+
+function computeDelayHours(expectedDate: string, expectedTime: string | null | undefined) {
+  if (!expectedDate) {
+    return 0;
+  }
+  const safeTime = typeof expectedTime === "string" && expectedTime.trim() ? expectedTime : "00:00";
+  const expectedTs = new Date(`${expectedDate}T${safeTime}:00`);
+  const nowTs = new Date();
+  if (Number.isNaN(expectedTs.getTime())) {
+    return 0;
+  }
+  return Math.max(0, Math.floor((nowTs.getTime() - expectedTs.getTime()) / (1000 * 60 * 60)));
+}
+
+function resolveAlertLevel(delayHours: number, config: Awaited<ReturnType<typeof getRamassageAlertConfig>>) {
+  const level2Hours = config.pickupReminderAlert2DelayHours;
+  const level1Hours = config.pickupReminderAlert1DelayHours;
+  if (delayHours >= level2Hours) {
+    return Math.max(
+      2,
+      2 + Math.floor((delayHours - level2Hours) / config.pickupReminderRecurringDelayHours)
+    );
+  }
+  if (delayHours >= level1Hours) return 1 as const;
+  return 0 as const;
+}
 
 export async function GET(req: NextRequest) {
   try {
@@ -30,16 +55,30 @@ export async function GET(req: NextRequest) {
     const rows = (data ?? []) as Row[];
     const pending = rows.filter((item) => {
       const rawStatus = String(item.statut || "").toLowerCase();
-      return !["livree", "ramassee", "ramasse"].includes(rawStatus);
+      return ![
+        "livree",
+        "ramassee",
+        "ramasse",
+        "completee",
+        "complete",
+        "annulee",
+        "annule",
+        "a_replanifier",
+        "replanifiee",
+        "replanifie",
+      ].includes(rawStatus);
     });
 
     const items = pending
       .map((item) => {
         const expectedDate = String(item.date_livraison || "");
-        const diffDays = expectedDate ? dayDiff(todayIso, expectedDate) : 0;
-        const isOverdue = diffDays >= config.delayDays;
-        const isNearLimit = !isOverdue && diffDays >= Math.max(0, config.delayDays - config.warningDays);
-        const severity = isOverdue ? "overdue" : isNearLimit ? "warning" : "normal";
+        const delayHours = computeDelayHours(
+          expectedDate,
+          typeof item.heure_prevue === "string" ? item.heure_prevue : null
+        );
+        const currentAlertLevel = resolveAlertLevel(delayHours, config);
+        const diffDays = Math.floor(delayHours / 24);
+        const severity = currentAlertLevel > 0 ? "overdue" : "normal";
         const { email, phone } = parseClientContact(item as Record<string, unknown>);
         return {
           id: Number(item.id),
@@ -48,7 +87,9 @@ export async function GET(req: NextRequest) {
           facture: String(item.numero_facture || item.facture || ""),
           expectedDate,
           diffDays,
-          lateDays: Math.max(0, diffDays - config.delayDays + 1),
+          delayHours,
+          lateDays: diffDays,
+          currentAlertLevel: Number(currentAlertLevel || 0),
           status: String(item.statut || ""),
           phone,
           email,
@@ -77,23 +118,45 @@ export async function PUT(req: NextRequest) {
     if (!auth.ok) return auth.response;
     const { supabase } = auth;
     const body = (await req.json().catch(() => ({}))) as {
-      delayDays?: number;
-      warningDays?: number;
-      emailEnabled?: boolean;
-      smsEnabled?: boolean;
+      pickupReminderEnabled?: boolean;
+      pickupReminderAlert1DelayHours?: number;
+      pickupReminderAlert2DelayHours?: number;
+      pickupReminderRecurringDelayHours?: number;
+      pickupReminderNotifyDirectionAdminEmail?: boolean;
+      pickupReminderNotifyClientEmail?: boolean;
+      pickupReminderNotifyClientSms?: boolean;
     };
 
-    const delayDays = Math.max(1, Math.floor(Number(body.delayDays ?? 2)));
-    const warningDays = Math.max(0, Math.floor(Number(body.warningDays ?? 1)));
-    const emailEnabled = body.emailEnabled !== false;
-    const smsEnabled = body.smsEnabled !== false;
+    const pickupReminderEnabled = body.pickupReminderEnabled !== false;
+    const pickupReminderAlert1DelayHours = Math.max(
+      1,
+      Math.floor(Number(body.pickupReminderAlert1DelayHours ?? 48))
+    );
+    const pickupReminderAlert2DelayHours = Math.max(
+      1,
+      Math.floor(Number(body.pickupReminderAlert2DelayHours ?? 36))
+    );
+    const pickupReminderRecurringDelayHours = Math.max(
+      1,
+      Math.floor(Number(body.pickupReminderRecurringDelayHours ?? 36))
+    );
+    const pickupReminderNotifyDirectionAdminEmail =
+      body.pickupReminderNotifyDirectionAdminEmail !== false;
+    const pickupReminderNotifyClientEmail =
+      body.pickupReminderNotifyClientEmail !== false;
+    const pickupReminderNotifyClientSms =
+      body.pickupReminderNotifyClientSms !== false;
 
     const { error } = await supabase.from("direction_ramassage_alert_config").upsert({
       config_key: "default",
-      delay_days: delayDays,
-      warning_days: warningDays,
-      email_enabled: emailEnabled,
-      sms_enabled: smsEnabled,
+      pickup_reminder_enabled: pickupReminderEnabled,
+      pickup_reminder_alert_1_delay_hours: pickupReminderAlert1DelayHours,
+      pickup_reminder_alert_2_delay_hours: pickupReminderAlert2DelayHours,
+      pickup_reminder_recurring_delay_hours: pickupReminderRecurringDelayHours,
+      pickup_reminder_notify_direction_admin_email:
+        pickupReminderNotifyDirectionAdminEmail,
+      pickup_reminder_notify_client_email: pickupReminderNotifyClientEmail,
+      pickup_reminder_notify_client_sms: pickupReminderNotifyClientSms,
       updated_at: new Date().toISOString(),
     });
     if (error) {
@@ -102,7 +165,15 @@ export async function PUT(req: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      config: { delayDays, warningDays, emailEnabled, smsEnabled },
+      config: {
+        pickupReminderEnabled,
+        pickupReminderAlert1DelayHours,
+        pickupReminderAlert2DelayHours,
+        pickupReminderRecurringDelayHours,
+        pickupReminderNotifyDirectionAdminEmail,
+        pickupReminderNotifyClientEmail,
+        pickupReminderNotifyClientSms,
+      },
     });
   } catch (error) {
     return NextResponse.json(

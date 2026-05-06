@@ -2585,11 +2585,11 @@ select {
   bottom: 24px;
   z-index: 1000;
   display: grid;
-  gap: 4px;
-  min-width: 168px;
-  max-width: 220px;
-  padding: 14px 16px;
-  border-radius: 18px;
+  gap: 6px;
+  min-width: 188px;
+  max-width: 244px;
+  padding: 16px 18px;
+  border-radius: 20px;
   background: rgba(15, 41, 72, 0.96);
   color: #ffffff;
   border: 1px solid rgba(255, 255, 255, 0.14);
@@ -2612,7 +2612,7 @@ select {
 }
 
 .tagora-improvements-fab-eyebrow {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 800;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -2620,7 +2620,7 @@ select {
 }
 
 .tagora-improvements-fab-label {
-  font-size: 15px;
+  font-size: 16px;
   font-weight: 800;
   letter-spacing: -0.01em;
 }
@@ -2806,9 +2806,9 @@ select {
   .tagora-improvements-fab {
     right: 16px;
     bottom: 16px;
-    min-width: 152px;
-    padding: 12px 14px;
-    border-radius: 16px;
+    min-width: 168px;
+    padding: 14px 16px;
+    border-radius: 18px;
   }
 
   .direction-dashboard-quickdock {

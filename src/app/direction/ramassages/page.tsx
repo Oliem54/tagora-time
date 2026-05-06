@@ -44,11 +44,40 @@ type OverdueItem = {
   facture: string;
   expectedDate: string;
   diffDays: number;
+  delayHours: number;
   lateDays: number;
+  currentAlertLevel: number;
   status: string;
   phone: string;
   email: string;
   severity: OverdueSeverity;
+};
+
+type PendingSummary = {
+  totalPending: number;
+  totalOverdue: number;
+  totalNeedsReminderToday: number;
+  totalRescheduleRecommended: number;
+  totalClientNotified: number;
+};
+
+type PendingItem = {
+  id: number;
+  commandeNumero: string;
+  clientName: string;
+  clientEmail: string;
+  clientPhone: string;
+  scheduledPickupDate: string;
+  hoursOverdue: number;
+  daysOverdue: number;
+  status: string;
+  isOverdue: boolean;
+  needsReminderToday: boolean;
+  lastReminderAt: string | null;
+  nextReminderAt: string | null;
+  reminderCount: number;
+  lastReminderSequence: number;
+  recommendedAction: string;
 };
 
 function toIsoDate(date: Date) {
@@ -166,9 +195,101 @@ export default function DirectionRamassagesPage() {
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [overdueItems, setOverdueItems] = useState<OverdueItem[]>([]);
   const [overdueLoading, setOverdueLoading] = useState(false);
-  const [delayDays, setDelayDays] = useState(2);
-  const [warningDays, setWarningDays] = useState(1);
+  const [pickupReminderEnabled, setPickupReminderEnabled] = useState(true);
+  const [alert1DelayHours, setAlert1DelayHours] = useState(24);
+  const [alert2DelayHours, setAlert2DelayHours] = useState(36);
+  const [recurringDelayHours, setRecurringDelayHours] = useState(36);
+  const [notifyDirectionAdminEmail, setNotifyDirectionAdminEmail] = useState(true);
+  const [notifyClientEmail, setNotifyClientEmail] = useState(true);
+  const [notifyClientSms, setNotifyClientSms] = useState(true);
   const [configSaving, setConfigSaving] = useState(false);
+  const [pendingSummary, setPendingSummary] = useState<PendingSummary>({
+    totalPending: 0,
+    totalOverdue: 0,
+    totalNeedsReminderToday: 0,
+    totalRescheduleRecommended: 0,
+    totalClientNotified: 0,
+  });
+  const [pendingItems, setPendingItems] = useState<PendingItem[]>([]);
+  const [pendingLoading, setPendingLoading] = useState(false);
+  const [pendingViewMode, setPendingViewMode] = useState<"en_attente" | "en_retard" | "a_replanifier">("en_attente");
+  const [pendingFilter, setPendingFilter] = useState<
+    "" | "en_attente" | "en_retard" | "a_relancer" | "relances" | "a_replanifier" | "ramasses" | "annules"
+  >("");
+  const [pendingClientFilter, setPendingClientFilter] = useState("");
+  const [pendingStartDate, setPendingStartDate] = useState("");
+  const [pendingEndDate, setPendingEndDate] = useState("");
+  const [selectedPending, setSelectedPending] = useState<PendingItem | null>(null);
+
+  function mapPendingFilterToApiStatus(value: typeof pendingFilter) {
+    if (value === "ramasses") return "ramassee";
+    if (value === "annules") return "annulee";
+    if (value === "a_replanifier") return "a_replanifier";
+    if (value === "en_attente") return "planifiee";
+    return "";
+  }
+
+  const fetchPendingOverview = useCallback(async () => {
+    setPendingLoading(true);
+    try {
+      const query = new URLSearchParams();
+      const status = mapPendingFilterToApiStatus(pendingFilter);
+      if (status) query.set("status", status);
+      if (pendingStartDate) query.set("startDate", pendingStartDate);
+      if (pendingEndDate) query.set("endDate", pendingEndDate);
+      if (pendingClientFilter.trim()) query.set("client", pendingClientFilter.trim());
+      if (pendingFilter === "en_retard" || pendingViewMode === "en_retard") {
+        query.set("overdueOnly", "true");
+      }
+      if (pendingFilter === "a_relancer") {
+        query.set("needsReminderOnly", "true");
+      }
+      if (pendingViewMode === "a_replanifier") {
+        query.set("overdueOnly", "true");
+      }
+
+      const response = await fetch(
+        `/api/direction/livraisons/ramassages-en-attente?${query.toString()}`,
+        { cache: "no-store" }
+      );
+      const payload = (await response.json().catch(() => ({}))) as {
+        summary?: PendingSummary;
+        items?: PendingItem[];
+        error?: string;
+      };
+      if (!response.ok) {
+        throw new Error(payload.error || "Erreur chargement ramassages en attente.");
+      }
+
+      setPendingSummary(
+        payload.summary ?? {
+          totalPending: 0,
+          totalOverdue: 0,
+          totalNeedsReminderToday: 0,
+          totalRescheduleRecommended: 0,
+          totalClientNotified: 0,
+        }
+      );
+      setPendingItems(Array.isArray(payload.items) ? payload.items : []);
+      setSelectedPending((current) => {
+        if (!payload.items || payload.items.length === 0) return null;
+        if (!current) return payload.items[0] ?? null;
+        return payload.items.find((item) => item.id === current.id) ?? payload.items[0] ?? null;
+      });
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Erreur vue rapide ramassages.");
+      setMessageType("error");
+      setPendingItems([]);
+    } finally {
+      setPendingLoading(false);
+    }
+  }, [
+    pendingClientFilter,
+    pendingEndDate,
+    pendingFilter,
+    pendingStartDate,
+    pendingViewMode,
+  ]);
 
   const todayIso = toIsoDate(new Date());
 
@@ -178,12 +299,29 @@ export default function DirectionRamassagesPage() {
       const res = await fetch("/api/direction/ramassages/overdue", { cache: "no-store" });
       const payload = (await res.json().catch(() => ({}))) as {
         items?: OverdueItem[];
-        config?: { delayDays?: number; warningDays?: number };
+        config?: {
+          pickupReminderEnabled?: boolean;
+          pickupReminderAlert1DelayHours?: number;
+          pickupReminderAlert2DelayHours?: number;
+          pickupReminderRecurringDelayHours?: number;
+          pickupReminderNotifyDirectionAdminEmail?: boolean;
+          pickupReminderNotifyClientEmail?: boolean;
+          pickupReminderNotifyClientSms?: boolean;
+        };
       };
       if (!res.ok) throw new Error((payload as { error?: string }).error ?? "Erreur overdue");
       setOverdueItems(Array.isArray(payload.items) ? payload.items : []);
-      setDelayDays(Number(payload.config?.delayDays ?? 2));
-      setWarningDays(Number(payload.config?.warningDays ?? 1));
+      setPickupReminderEnabled(payload.config?.pickupReminderEnabled !== false);
+      setAlert1DelayHours(Number(payload.config?.pickupReminderAlert1DelayHours ?? 24));
+      setAlert2DelayHours(Number(payload.config?.pickupReminderAlert2DelayHours ?? 36));
+      setRecurringDelayHours(
+        Number(payload.config?.pickupReminderRecurringDelayHours ?? 36)
+      );
+      setNotifyDirectionAdminEmail(
+        payload.config?.pickupReminderNotifyDirectionAdminEmail !== false
+      );
+      setNotifyClientEmail(payload.config?.pickupReminderNotifyClientEmail !== false);
+      setNotifyClientSms(payload.config?.pickupReminderNotifyClientSms !== false);
     } catch {
       setOverdueItems([]);
     } finally {
@@ -214,9 +352,12 @@ export default function DirectionRamassagesPage() {
     } else {
       const nextRows = (ramassagesRes.data ?? []) as Row[];
       setRows(nextRows);
-      if (selectedId == null && nextRows.length > 0) {
-        setSelectedId(Number(nextRows[0].id));
-      }
+      setSelectedId((current) => {
+        if (current == null && nextRows.length > 0) {
+          return Number(nextRows[0].id);
+        }
+        return current;
+      });
     }
 
     if (!dossiersRes.error) {
@@ -234,7 +375,7 @@ export default function DirectionRamassagesPage() {
     setChauffeurs(chauffeursRes.error ? [] : ((chauffeursRes.data ?? []) as Row[]));
 
     setLoading(false);
-  }, [selectedId]);
+  }, []);
 
   async function saveOverdueConfig() {
     setConfigSaving(true);
@@ -242,14 +383,22 @@ export default function DirectionRamassagesPage() {
       const response = await fetch("/api/direction/ramassages/overdue", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ delayDays, warningDays }),
+        body: JSON.stringify({
+          pickupReminderEnabled,
+          pickupReminderAlert1DelayHours: alert1DelayHours,
+          pickupReminderAlert2DelayHours: alert2DelayHours,
+          pickupReminderRecurringDelayHours: recurringDelayHours,
+          pickupReminderNotifyDirectionAdminEmail: notifyDirectionAdminEmail,
+          pickupReminderNotifyClientEmail: notifyClientEmail,
+          pickupReminderNotifyClientSms: notifyClientSms,
+        }),
       });
       if (!response.ok) {
         const payload = (await response.json().catch(() => ({}))) as { error?: string };
         throw new Error(payload.error || "Sauvegarde refusee.");
       }
       await fetchOverdue();
-      setMessage("Delai d alerte ramassage mis a jour.");
+      setMessage("Configuration des relances ramassage mise a jour.");
       setMessageType("success");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Impossible de sauvegarder la configuration d alerte.");
@@ -264,9 +413,10 @@ export default function DirectionRamassagesPage() {
     const timer = window.setTimeout(() => {
       void fetchData();
       void fetchOverdue();
+      void fetchPendingOverview();
     }, 0);
     return () => window.clearTimeout(timer);
-  }, [accessLoading, canUseLivraisons, fetchData, fetchOverdue, user]);
+  }, [accessLoading, canUseLivraisons, fetchData, fetchOverdue, fetchPendingOverview, user]);
 
   const computed = useMemo(() => {
     return rows.map((item) => ({
@@ -549,49 +699,279 @@ export default function DirectionRamassagesPage() {
 
       <FeedbackMessage message={message} type={messageType} />
 
+      <section className="tagora-panel" style={{ marginTop: 16 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+          <div>
+            <h2 className="section-title" style={{ marginBottom: 6 }}>Ramassages en attente</h2>
+            <p className="ui-text-muted" style={{ margin: 0 }}>
+              Vue rapide des commandes en attente, en retard et a replanifier.
+            </p>
+          </div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <button
+              type="button"
+              className="tagora-dark-outline-action"
+              style={
+                pendingViewMode === "en_attente"
+                  ? {
+                      background: "#0f3b78",
+                      color: "#ffffff",
+                      borderColor: "#0f3b78",
+                      fontWeight: 700,
+                      opacity: 1,
+                      outline: "none",
+                    }
+                  : undefined
+              }
+              onClick={() => setPendingViewMode("en_attente")}
+            >
+              Ramassages en attente
+            </button>
+            <button
+              type="button"
+              className="tagora-dark-outline-action"
+              style={
+                pendingViewMode === "en_retard"
+                  ? {
+                      background: "#0f3b78",
+                      color: "#ffffff",
+                      borderColor: "#0f3b78",
+                      fontWeight: 700,
+                      opacity: 1,
+                      outline: "none",
+                    }
+                  : undefined
+              }
+              onClick={() => setPendingViewMode("en_retard")}
+            >
+              Ramassages en retard
+            </button>
+            <button
+              type="button"
+              className="tagora-dark-outline-action"
+              style={
+                pendingViewMode === "a_replanifier"
+                  ? {
+                      background: "#0f3b78",
+                      color: "#ffffff",
+                      borderColor: "#0f3b78",
+                      fontWeight: 700,
+                      opacity: 1,
+                      outline: "none",
+                    }
+                  : undefined
+              }
+              onClick={() => setPendingViewMode("a_replanifier")}
+            >
+              A replanifier
+            </button>
+          </div>
+        </div>
+
+        <div className="ui-grid-auto" style={{ marginTop: 12 }}>
+          <SectionCard title="Total en attente de ramassage" subtitle={String(pendingSummary.totalPending)} />
+          <SectionCard title="Ramassages depasses" subtitle={String(pendingSummary.totalOverdue)} />
+          <SectionCard title="A replanifier" subtitle={String(pendingSummary.totalRescheduleRecommended)} />
+          <SectionCard title="Clients relances" subtitle={String(pendingSummary.totalClientNotified)} />
+          <SectionCard title="Relances a envoyer aujourd hui" subtitle={String(pendingSummary.totalNeedsReminderToday)} />
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10, marginTop: 12 }}>
+          <select
+            value={pendingFilter}
+            onChange={(e) => setPendingFilter(e.target.value as typeof pendingFilter)}
+            className="tagora-input"
+          >
+            <option value="">Tous</option>
+            <option value="en_attente">En attente</option>
+            <option value="en_retard">En retard</option>
+            <option value="a_relancer">A relancer aujourd hui</option>
+            <option value="relances">Relances</option>
+            <option value="a_replanifier">A replanifier</option>
+            <option value="ramasses">Ramasses</option>
+            <option value="annules">Annules</option>
+          </select>
+          <input
+            className="tagora-input"
+            placeholder="Filtrer par client"
+            value={pendingClientFilter}
+            onChange={(e) => setPendingClientFilter(e.target.value)}
+          />
+          <input
+            type="date"
+            className="tagora-input"
+            value={pendingStartDate}
+            onChange={(e) => setPendingStartDate(e.target.value)}
+          />
+          <input
+            type="date"
+            className="tagora-input"
+            value={pendingEndDate}
+            onChange={(e) => setPendingEndDate(e.target.value)}
+          />
+          <button type="button" className="tagora-dark-outline-action" onClick={() => void fetchPendingOverview()}>
+            {pendingLoading ? "Chargement..." : "Appliquer les filtres"}
+          </button>
+        </div>
+
+        <div style={{ overflowX: "auto", marginTop: 12 }}>
+          <table style={tableStyle}>
+            <thead>
+              <tr>
+                <th style={thStyle}>Numero de commande</th>
+                <th style={thStyle}>Client</th>
+                <th style={thStyle}>Telephone client</th>
+                <th style={thStyle}>Courriel client</th>
+                <th style={thStyle}>Date prevue</th>
+                <th style={thStyle}>Retard</th>
+                <th style={thStyle}>Statut</th>
+                <th style={thStyle}>Derniere relance</th>
+                <th style={thStyle}>Prochaine relance</th>
+                <th style={thStyle}>Relances envoyees</th>
+                <th style={thStyle}>Action recommandee</th>
+                <th style={thStyle}>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {pendingItems.map((item) => {
+                const statusLabel = item.isOverdue ? "En retard" : "En attente";
+                const statusTone = item.isOverdue ? "danger" : "info";
+                const lateLabel = item.hoursOverdue > 0 ? `${item.hoursOverdue} h` : "-";
+                return (
+                  <tr key={`pending-${item.id}`}>
+                    <td style={tdStyle}>{item.commandeNumero}</td>
+                    <td style={tdStyle}>{item.clientName || "-"}</td>
+                    <td style={tdStyle}>{item.clientPhone || "-"}</td>
+                    <td style={tdStyle}>{item.clientEmail || "-"}</td>
+                    <td style={tdStyle}>{item.scheduledPickupDate || "-"}</td>
+                    <td style={tdStyle}>{lateLabel}</td>
+                    <td style={tdStyle}>
+                      <StatusBadge label={statusLabel} tone={statusTone} />
+                    </td>
+                    <td style={tdStyle}>{item.lastReminderAt ? new Date(item.lastReminderAt).toLocaleString("fr-CA") : "-"}</td>
+                    <td style={tdStyle}>{item.nextReminderAt ? new Date(item.nextReminderAt).toLocaleString("fr-CA") : "-"}</td>
+                    <td style={tdStyle}>{item.reminderCount}</td>
+                    <td style={tdStyle}>{item.recommendedAction}</td>
+                    <td style={tdStyle}>
+                      <div className="actions-row">
+                        <button
+                          type="button"
+                          className="tagora-dark-outline-action"
+                          onClick={() => setSelectedPending(item)}
+                        >
+                          Voir detail
+                        </button>
+                        <button
+                          type="button"
+                          className="tagora-dark-outline-action"
+                          onClick={() => void sendReminder(item.id)}
+                        >
+                          Relancer maintenant
+                        </button>
+                        <button
+                          type="button"
+                          className="tagora-dark-outline-action"
+                          onClick={() => void reschedulePickup(item.id, item.scheduledPickupDate)}
+                        >
+                          Replanifier
+                        </button>
+                        <button
+                          type="button"
+                          className="tagora-dark-outline-action"
+                          onClick={() => void updatePickupStatus(item.id, "ramasse")}
+                        >
+                          Marquer comme ramasse
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
       {canViewAlertSettings ? (
         <section className="tagora-panel" style={{ marginTop: 16 }}>
         <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
           <div>
             <h2 className="section-title" style={{ marginBottom: 6 }}>
-              Parametres alertes ramassage
+              Relances de ramassage non confirme
             </h2>
             <p className="ui-text-muted" style={{ margin: 0 }}>
-              Configuration du delai et actualisation des alertes direction.
+              Configuration des relances client et copie courriel direction/admin.
             </p>
           </div>
           <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
             {isAdmin ? (
               <>
-                <label className="ui-text-muted" style={{ fontSize: 12 }}>
-                  Delai (jours)
+                <label className="account-requests-permission-option" style={{ minWidth: 210 }}>
+                  <input
+                    type="checkbox"
+                    checked={pickupReminderEnabled}
+                    onChange={(e) => setPickupReminderEnabled(e.target.checked)}
+                  />
+                  <span>Activer les relances</span>
                 </label>
+                <label className="ui-text-muted" style={{ fontSize: 12 }}>Alerte 1 (heures)</label>
                 <input
                   type="number"
                   min={1}
-                  value={delayDays}
-                  onChange={(e) => setDelayDays(Number(e.target.value || 2))}
+                  value={alert1DelayHours}
+                  onChange={(e) => setAlert1DelayHours(Number(e.target.value || 24))}
                   className="tagora-input"
-                  style={{ width: 88 }}
+                  style={{ width: 92 }}
                 />
-                <label className="ui-text-muted" style={{ fontSize: 12 }}>
-                  Alerte avant (jours)
-                </label>
+                <label className="ui-text-muted" style={{ fontSize: 12 }}>Alerte 2 (heures)</label>
                 <input
                   type="number"
-                  min={0}
-                  value={warningDays}
-                  onChange={(e) => setWarningDays(Number(e.target.value || 1))}
+                  min={1}
+                  value={alert2DelayHours}
+                  onChange={(e) => setAlert2DelayHours(Number(e.target.value || 36))}
                   className="tagora-input"
-                  style={{ width: 88 }}
+                  style={{ width: 92 }}
                 />
+                <label className="ui-text-muted" style={{ fontSize: 12 }}>Relances suivantes (heures)</label>
+                <input
+                  type="number"
+                  min={1}
+                  value={recurringDelayHours}
+                  onChange={(e) => setRecurringDelayHours(Number(e.target.value || 36))}
+                  className="tagora-input"
+                  style={{ width: 92 }}
+                />
+                <label className="account-requests-permission-option" style={{ minWidth: 250 }}>
+                  <input
+                    type="checkbox"
+                    checked={notifyDirectionAdminEmail}
+                    onChange={(e) => setNotifyDirectionAdminEmail(e.target.checked)}
+                  />
+                  <span>Mettre direction/admin en CC courriel</span>
+                </label>
+                <label className="account-requests-permission-option" style={{ minWidth: 250 }}>
+                  <input
+                    type="checkbox"
+                    checked={notifyClientEmail}
+                    onChange={(e) => setNotifyClientEmail(e.target.checked)}
+                  />
+                  <span>Envoyer une relance courriel au client</span>
+                </label>
+                <label className="account-requests-permission-option" style={{ minWidth: 220 }}>
+                  <input
+                    type="checkbox"
+                    checked={notifyClientSms}
+                    onChange={(e) => setNotifyClientSms(e.target.checked)}
+                  />
+                  <span>Envoyer un texto au client</span>
+                </label>
                 <button type="button" className="tagora-dark-outline-action" onClick={() => void saveOverdueConfig()} disabled={configSaving}>
                   {configSaving ? "Sauvegarde..." : "Sauvegarder"}
                 </button>
               </>
             ) : (
               <span className="ui-text-muted" style={{ fontSize: 13 }}>
-                Delai actuel: {delayDays} jour(s) | Alerte avant: {warningDays} jour(s)
+                A1: {alert1DelayHours} h | A2: {alert2DelayHours} h | Recurrence: {recurringDelayHours} h
               </span>
             )}
             <button type="button" className="tagora-dark-outline-action" onClick={() => void fetchOverdue()} disabled={overdueLoading}>
@@ -651,7 +1031,9 @@ export default function DirectionRamassagesPage() {
                         background: "#ffffff",
                       }}
                     >
-                      {item.severity === "overdue" ? `En retard de ${item.lateDays} jour(s)` : "A relancer bientot"}
+                      {item.currentAlertLevel > 0
+                        ? `Niveau ${item.currentAlertLevel} - retard ${item.lateDays} jour(s)`
+                        : "A surveiller"}
                     </span>
                   </div>
                   <div className="ui-text-muted">
@@ -1065,6 +1447,100 @@ export default function DirectionRamassagesPage() {
           />
         </section>
       ) : null}
+
+      {selectedPending ? (
+        <div
+          style={{
+            position: "fixed",
+            top: 0,
+            right: 0,
+            width: "min(460px, 96vw)",
+            height: "100vh",
+            background: "#ffffff",
+            borderLeft: "1px solid #e2e8f0",
+            boxShadow: "-16px 0 40px rgba(15, 23, 42, 0.2)",
+            zIndex: 70,
+            overflowY: "auto",
+            padding: 18,
+          }}
+        >
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+            <h3 style={{ margin: 0, fontSize: 20, color: "#0f2948" }}>Detail commande</h3>
+            <button type="button" className="tagora-dark-outline-action" onClick={() => setSelectedPending(null)}>
+              Fermer
+            </button>
+          </div>
+          <div className="ui-stack-sm" style={{ marginTop: 14 }}>
+            <AppCard tone="muted" className="ui-stack-xs">
+              <strong>Numero de commande</strong>
+              <span>{selectedPending.commandeNumero}</span>
+            </AppCard>
+            <AppCard tone="muted" className="ui-stack-xs">
+              <strong>Client</strong>
+              <span>{selectedPending.clientName || "-"}</span>
+              <span className="ui-text-muted">{selectedPending.clientPhone || "-"}</span>
+              <span className="ui-text-muted">{selectedPending.clientEmail || "-"}</span>
+            </AppCard>
+            <AppCard tone="muted" className="ui-stack-xs">
+              <strong>Date prevue</strong>
+              <span>{selectedPending.scheduledPickupDate || "-"}</span>
+              <span className="ui-text-muted">Statut: {selectedPending.status || "-"}</span>
+              <span className="ui-text-muted">
+                Derniere relance: {selectedPending.lastReminderAt ? new Date(selectedPending.lastReminderAt).toLocaleString("fr-CA") : "-"}
+              </span>
+              <span className="ui-text-muted">
+                Prochaine relance: {selectedPending.nextReminderAt ? new Date(selectedPending.nextReminderAt).toLocaleString("fr-CA") : "-"}
+              </span>
+              <span className="ui-text-muted">Nombre de relances: {selectedPending.reminderCount}</span>
+              <span className="ui-text-muted">Action recommandee: {selectedPending.recommendedAction}</span>
+            </AppCard>
+            <div className="actions-row">
+              <button type="button" className="tagora-dark-outline-action" onClick={() => void sendReminder(selectedPending.id)}>
+                Relancer maintenant
+              </button>
+              <button
+                type="button"
+                className="tagora-dark-outline-action"
+                onClick={() => void reschedulePickup(selectedPending.id, selectedPending.scheduledPickupDate)}
+              >
+                Replanifier
+              </button>
+              <button
+                type="button"
+                className="tagora-dark-outline-action"
+                onClick={() => void updatePickupStatus(selectedPending.id, "ramasse")}
+              >
+                Marquer comme ramasse
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </main>
   );
 }
+
+const tableStyle: React.CSSProperties = {
+  width: "100%",
+  borderCollapse: "collapse",
+  minWidth: 1280,
+};
+
+const thStyle: React.CSSProperties = {
+  textAlign: "left",
+  padding: "12px 10px",
+  borderBottom: "1px solid #e5e7eb",
+  fontSize: 12,
+  fontWeight: 700,
+  color: "#475569",
+  background: "#f8fafc",
+  whiteSpace: "nowrap",
+};
+
+const tdStyle: React.CSSProperties = {
+  padding: "12px 10px",
+  borderBottom: "1px solid #e5e7eb",
+  fontSize: 13,
+  color: "#0f172a",
+  verticalAlign: "top",
+};
