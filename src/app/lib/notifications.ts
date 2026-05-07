@@ -11,7 +11,10 @@ import {
   issueHorodateurExceptionQuickActionPair,
   resolvePublicAppBaseUrl,
 } from "@/app/lib/horodateur-exception-quick-action.server";
-import { normalizePhoneNumber } from "@/app/lib/timeclock-api.shared";
+import {
+  normalizePhoneNumber,
+  normalizePhoneToTwilioE164,
+} from "@/app/lib/timeclock-api.shared";
 import {
   createMissingCommunicationTemplateAlert,
   trySendCommunicationDirectionEmail,
@@ -136,6 +139,7 @@ type HorodateurLatenessNotificationPayload = {
 };
 
 const DIRECTION_ALERT_LOG_PREFIX = "[direction-alert]";
+const HORODATEUR_PUNCH_SMS_LOG = "[horodateur-punch-sms]";
 const DEFAULT_DIRECTION_ALERT_TIMEZONE = "America/Toronto";
 const AUTHORIZATION_REQUEST_TYPE_LABELS: Record<string, string> = {
   early_start: "Début de quart hors horaire",
@@ -799,11 +803,12 @@ export async function sendDirectionSmsAlert(payload: {
   const recipients = normalizeDirectionSmsRecipients(options?.recipients);
 
   if (!accountSid || !authToken || !fromNumber) {
-    console.info(DIRECTION_ALERT_LOG_PREFIX, "sms_config_missing", {
+    const payload = {
       hasAccountSid: Boolean(accountSid),
       hasAuthToken: Boolean(authToken),
       hasFromNumber: Boolean(fromNumber),
-    });
+    };
+    console.warn(DIRECTION_ALERT_LOG_PREFIX, "sms_config_missing", payload);
 
     return {
       sent: false,
@@ -814,7 +819,7 @@ export async function sendDirectionSmsAlert(payload: {
   }
 
   if (recipients.length === 0) {
-    console.info(DIRECTION_ALERT_LOG_PREFIX, "sms_recipients_missing", {});
+    console.warn(DIRECTION_ALERT_LOG_PREFIX, "sms_recipients_missing", {});
 
     return {
       sent: false,
@@ -854,6 +859,10 @@ export async function sendDirectionSmsAlert(payload: {
       })
     );
 
+    console.info(DIRECTION_ALERT_LOG_PREFIX, "sms_send_success", {
+      recipientCount: recipients.length,
+    });
+
     return {
       sent: true,
       skipped: false,
@@ -875,11 +884,177 @@ export async function sendDirectionSmsAlert(payload: {
   }
 }
 
+function formatHorodateurPunchSmsDateTime(iso: string | null | undefined) {
+  if (!iso) {
+    return "";
+  }
+
+  try {
+    return new Intl.DateTimeFormat("fr-CA", {
+      timeZone: DEFAULT_DIRECTION_ALERT_TIMEZONE,
+      dateStyle: "short",
+      timeStyle: "short",
+    }).format(new Date(iso));
+  } catch {
+    return iso;
+  }
+}
+
+/** SMS direction apres pointage horodateur employe (hors fil exception deja notifiee). */
+export async function notifyDirectionHorodateurPunchSms(payload: {
+  employeeName: string | null;
+  eventLabelFr: string;
+  occurredAt: string | null;
+  company: AccountRequestCompany | null;
+  smsEnabled: boolean;
+  recipientSmsNumbers: string[];
+}): Promise<DirectionSmsResult> {
+  const companyLabel = payload.company
+    ? getCompanyLabel(payload.company)
+    : "Compagnie inconnue";
+  const when = formatHorodateurPunchSmsDateTime(payload.occurredAt);
+  const name = (payload.employeeName ?? "Employe").trim() || "Employe";
+  const body = [
+    "TAGORA Time — pointage",
+    `${name} — ${payload.eventLabelFr}`,
+    when,
+    companyLabel,
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  console.info(HORODATEUR_PUNCH_SMS_LOG, "attempt", {
+    eventLabel: payload.eventLabelFr,
+    smsEnabled: payload.smsEnabled,
+    recipientCount: payload.recipientSmsNumbers.length,
+    hasOccurredAt: Boolean(payload.occurredAt),
+  });
+
+  const result = await sendDirectionSmsAlert(
+    { body },
+    {
+      enabled: payload.smsEnabled,
+      recipients: payload.recipientSmsNumbers,
+    }
+  );
+
+  console.info(HORODATEUR_PUNCH_SMS_LOG, "result", {
+    sent: result.sent,
+    skipped: result.skipped,
+    reason: result.reason,
+    recipientCount: result.recipients.length,
+  });
+
+  return result;
+}
+
+type EmployeePunchSmsResult = {
+  sent: boolean;
+  skipped: boolean;
+  reason: string | null;
+  recipient: string | null;
+};
+
+/**
+ * SMS personnel employe apres pointage (telephone fiche chauffeur uniquement — jamais DIRECTION_ALERT_SMS_NUMBERS).
+ */
+export async function notifyEmployeeHorodateurPunchSms(payload: {
+  employeeId: number;
+  employeeName: string | null;
+  phoneRaw: string | null | undefined;
+  eventType: string;
+  eventLabelFr: string;
+  occurredAt: string | null;
+  company: AccountRequestCompany | null;
+  preferenceEnabled: boolean;
+}): Promise<EmployeePunchSmsResult> {
+  const phoneE164 = normalizePhoneToTwilioE164(payload.phoneRaw);
+  const phonePresent = Boolean(phoneE164);
+
+  const logBase = {
+    sms_target_type: "employee" as const,
+    employee_id: payload.employeeId,
+    event_type: payload.eventType,
+    phone_present: phonePresent,
+    preference_enabled: payload.preferenceEnabled,
+  };
+
+  if (!payload.preferenceEnabled) {
+    console.info("[horodateur-employee-sms]", {
+      ...logBase,
+      sms_skipped: true,
+      reason: "preference_disabled",
+    });
+    return {
+      sent: false,
+      skipped: true,
+      reason: "preference_disabled",
+      recipient: null,
+    };
+  }
+
+  if (!phonePresent) {
+    console.warn("[horodateur-employee-sms]", {
+      ...logBase,
+      sms_skipped: true,
+      reason: "phone_missing_or_invalid_e164",
+    });
+    return {
+      sent: false,
+      skipped: true,
+      reason: "sms_recipient_missing",
+      recipient: null,
+    };
+  }
+
+  const companyLabel = payload.company ? getCompanyLabel(payload.company) : "";
+  const when = formatHorodateurPunchSmsDateTime(payload.occurredAt);
+  const bodyText = [
+    "TAGORA Time — votre pointage",
+    payload.eventLabelFr,
+    when,
+    companyLabel,
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  console.info("[horodateur-employee-sms]", { ...logBase, sms_attempt: true });
+
+  const result = await sendSmsToPhone({ phone: phoneE164, body: bodyText });
+
+  if (result.sent) {
+    console.info("[horodateur-employee-sms]", {
+      ...logBase,
+      sms_sent: true,
+      to_suffix: phoneE164.length > 4 ? phoneE164.slice(-4) : null,
+    });
+  } else if (result.skipped) {
+    console.warn("[horodateur-employee-sms]", {
+      ...logBase,
+      sms_skipped: true,
+      reason: result.reason,
+    });
+  } else {
+    console.error("[horodateur-employee-sms]", {
+      ...logBase,
+      sms_failed: true,
+      reason: result.reason,
+    });
+  }
+
+  return {
+    sent: result.sent,
+    skipped: result.skipped,
+    reason: result.reason,
+    recipient: result.recipient,
+  };
+}
+
 export async function sendSmsToPhone(payload: {
   phone: string | null | undefined;
   body: string;
 }) {
-  const normalizedPhone = normalizePhoneNumber(payload.phone ?? "");
+  const normalizedPhone = normalizePhoneToTwilioE164(payload.phone ?? "");
   const accountSid = process.env.TWILIO_ACCOUNT_SID;
   const authToken = process.env.TWILIO_AUTH_TOKEN;
   const fromNumber = process.env.TWILIO_FROM_NUMBER;
