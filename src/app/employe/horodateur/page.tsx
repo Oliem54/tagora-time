@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import HeaderTagora from "@/app/components/HeaderTagora";
 import AccessNotice from "@/app/components/AccessNotice";
 import { useCurrentAccess } from "@/app/hooks/useCurrentAccess";
+import { useEmployeeGpsReporting } from "@/app/hooks/useEmployeeGpsReporting";
 import { supabase } from "@/app/lib/supabase/client";
 import { getCompanyLabel } from "@/app/lib/account-requests.shared";
 
@@ -302,6 +303,12 @@ export default function EmployeHorodateurPage() {
     returnSummary: string;
   } | null>(null);
 
+  const gpsReport = useEmployeeGpsReporting({
+    enabled: Boolean(user && canUseTerrain && !accessLoading),
+    companyContext: snapshot?.employee.primaryCompany ?? null,
+    pageSource: "employe_horodateur",
+  });
+
   const currentStateLabel = useMemo(() => {
     const value =
       snapshot?.currentState.current_state ??
@@ -531,6 +538,25 @@ export default function EmployeHorodateurPage() {
             .
           </p>
         </section>
+      ) : null}
+
+      {canUseTerrain ? (
+        <AccessNotice
+          title="Localisation"
+          description={
+            gpsReport.status === "active"
+              ? "GPS actif : la position est envoyee au tableau direction tant que cette page reste ouverte."
+              : gpsReport.status === "denied"
+                ? "GPS bloque : autorisez la localisation pour ce site dans les reglages du navigateur."
+                : gpsReport.status === "unsupported"
+                  ? "La geolocalisation n est pas disponible sur cet appareil."
+                  : gpsReport.status === "error"
+                    ? `GPS : ${gpsReport.lastError ?? "erreur d envoi ou de position."}`
+                    : gpsReport.status === "requesting"
+                      ? "Demande d acces a la localisation en cours..."
+                      : "En attente de la localisation..."
+          }
+        />
       ) : null}
 
       <section className="tagora-panel" style={{ marginTop: 24 }}>

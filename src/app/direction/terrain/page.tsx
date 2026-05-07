@@ -154,6 +154,17 @@ function getStatusTone(status: TerrainGpsStatus) {
   return "default" as const;
 }
 
+function formatPositionAge(recordedAt: string | null | undefined) {
+  if (!recordedAt) {
+    return "-";
+  }
+  const m = minutesBetween(recordedAt, new Date().toISOString());
+  if (m <= 0) {
+    return "A l instant";
+  }
+  return `Il y a ${formatDurationMinutes(m)}`;
+}
+
 export default function DirectionTerrainPage() {
   const router = useRouter();
   const { user, loading: accessLoading, hasPermission } = useCurrentAccess();
@@ -403,6 +414,7 @@ export default function DirectionTerrainPage() {
                     </div>
                     <div className="ui-grid-2">
                       <InfoRow label="Latitude / Longitude" value={formatCoordinates(item.latest)} compact />
+                      <InfoRow label="Derniere position" value={formatPositionAge(item.latest?.recorded_at)} compact />
                       <InfoRow label="Temps d arret" value={formatDurationMinutes(item.stopMinutes)} compact />
                     </div>
                   </AppCard>
@@ -412,7 +424,14 @@ export default function DirectionTerrainPage() {
           </SectionCard>
 
           <div className="ui-stack-lg">
-            <SectionCard title="Carte" subtitle="Position recente.">
+            <SectionCard
+              title="Carte"
+              subtitle={
+                selected?.latest?.recorded_at
+                  ? `Derniere position : ${formatPositionAge(selected.latest.recorded_at)} (pas un suivi temps reel si donnees stale).`
+                  : "Position recente."
+              }
+            >
               {selectedMapUrl ? (
                 <iframe src={selectedMapUrl} title="Carte terrain direction" loading="lazy" referrerPolicy="no-referrer-when-downgrade" style={{ width: "100%", minHeight: 420, border: 0, borderRadius: 18, background: "#e2e8f0" }} />
               ) : (
@@ -433,6 +452,10 @@ export default function DirectionTerrainPage() {
                     <InfoRow label="Chauffeur" value={selected.label} />
                     <InfoRow label="Vehicule" value={selected.vehicleLabel || "Non renseigne"} />
                     <InfoRow label="Latitude / Longitude" value={formatCoordinates(selected.latest)} />
+                    <InfoRow
+                      label="Age derniere position"
+                      value={formatPositionAge(selected.latest?.recorded_at)}
+                    />
                     <InfoRow label="Temps d arret" value={formatDurationMinutes(selected.stopMinutes)} />
                   </div>
 

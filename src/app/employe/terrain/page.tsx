@@ -7,6 +7,7 @@ import AccessNotice from "../../components/AccessNotice";
 import TagoraLoadingScreen from "@/app/components/ui/TagoraLoadingScreen";
 import { supabase } from "../../lib/supabase/client";
 import { useCurrentAccess } from "../../hooks/useCurrentAccess";
+import { useEmployeeGpsReporting } from "../../hooks/useEmployeeGpsReporting";
 import {
   buildBreakEntries,
   computeWorkTimeSummary,
@@ -102,6 +103,16 @@ export default function TerrainPage() {
   const [secondaryNotice, setSecondaryNotice] = useState("");
   const resolvedCompanyContext =
     companyContext || companyAccess.primaryCompany || "";
+  const gpsCompanyContext: AccountRequestCompany | null =
+    resolvedCompanyContext === "oliem_solutions" ||
+    resolvedCompanyContext === "titan_produits_industriels"
+      ? resolvedCompanyContext
+      : null;
+  const gpsReport = useEmployeeGpsReporting({
+    enabled: Boolean(userId && canUseTerrain && !accessLoading),
+    companyContext: gpsCompanyContext,
+    pageSource: "employe_terrain",
+  });
   const activeBreaks = useMemo(
     () =>
       buildBreakEntries({
@@ -440,6 +451,25 @@ export default function TerrainPage() {
           <AccessNotice title="Acces partiel" description={secondaryNotice} />
         </div>
       ) : null}
+
+      <div style={{ marginTop: 16 }}>
+        <AccessNotice
+          title="Localisation"
+          description={
+            gpsReport.status === "active"
+              ? "GPS actif : la position est envoyee au tableau direction tant que cette page reste ouverte."
+              : gpsReport.status === "denied"
+                ? "GPS bloque : autorisez la localisation pour ce site dans les reglages du navigateur."
+                : gpsReport.status === "unsupported"
+                  ? "La geolocalisation n est pas disponible sur cet appareil."
+                  : gpsReport.status === "error"
+                    ? `GPS : ${gpsReport.lastError ?? "erreur d envoi ou de position."}`
+                    : gpsReport.status === "requesting"
+                      ? "Demande d acces a la localisation en cours..."
+                      : "En attente de la localisation..."
+          }
+        />
+      </div>
 
       <div
         style={{

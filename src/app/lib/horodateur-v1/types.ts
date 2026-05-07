@@ -144,6 +144,15 @@ export type HorodateurPhase1EmployeeProfile = {
   toleranceAfterEndMinutes: number;
   maxShiftMinutes: number;
   smsAlertQuartDebut: boolean;
+  smsAlertQuartFin: boolean;
+  smsAlertPauseDebut: boolean;
+  smsAlertPauseFin: boolean;
+  smsAlertDinnerDebut: boolean;
+  smsAlertDinnerFin: boolean;
+  smsAlertDepartTerrain: boolean;
+  smsAlertArriveeTerrain: boolean;
+  smsAlertSortie: boolean;
+  smsAlertRetour: boolean;
   alertEmailEnabled: boolean;
   alertSmsEnabled: boolean;
   isDirectionAlertRecipient: boolean;
