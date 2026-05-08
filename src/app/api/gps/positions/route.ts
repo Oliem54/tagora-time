@@ -93,6 +93,24 @@ export async function POST(req: NextRequest) {
           : null,
     });
 
+    const { data: currentState } = await supabase
+      .from("horodateur_current_state")
+      .select("current_state, has_open_exception")
+      .eq("employee_id", Number.isFinite(chauffeurId) ? chauffeurId : -1)
+      .maybeSingle<{ current_state?: string | null; has_open_exception?: boolean | null }>();
+
+    if (
+      currentState?.has_open_exception === true &&
+      (currentState.current_state === "en_quart" ||
+        currentState.current_state === "en_pause" ||
+        currentState.current_state === "en_diner")
+    ) {
+      console.info("[gps-positions]", "gps_position_saved_for_pending_shift", {
+        userIdPrefix: uid.length > 8 ? `${uid.slice(0, 8)}…` : uid,
+        state: currentState.current_state,
+      });
+    }
+
     return NextResponse.json({ success: true, position: data });
   } catch (error) {
     return NextResponse.json(
