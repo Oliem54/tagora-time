@@ -6,7 +6,7 @@
     },
     {
       "path": "/api/internal/horodateur/lateness-check",
-      "schedule": "5 13 * * *"
+      "schedule": "*/5 * * * *"
     }
   ]
 }

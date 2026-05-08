@@ -484,6 +484,44 @@ export async function getEventById(eventId: string) {
   return data ? normalizeEventRow(data) : null;
 }
 
+export async function updateEventOccurredAt(input: {
+  eventId: string;
+  occurredAt: string;
+  updatedByUserId?: string | null;
+}) {
+  const supabase = createAdminSupabaseClient();
+  const payload: Record<string, unknown> = {
+    occurred_at: input.occurredAt,
+    updated_at: new Date().toISOString(),
+  };
+  if (input.updatedByUserId) {
+    payload.actor_user_id = input.updatedByUserId;
+  }
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const { data, error } = await supabase
+      .from("horodateur_events")
+      .update(payload)
+      .eq("id", input.eventId)
+      .select("*")
+      .single<EventRow>();
+
+    if (!error) {
+      return normalizeEventRow(data);
+    }
+
+    if (isMissingColumnError(error, "occurred_at") && "occurred_at" in payload) {
+      payload.event_time = payload.occurred_at;
+      delete payload.occurred_at;
+      continue;
+    }
+
+    throw error;
+  }
+
+  throw new Error("Impossible de corriger l heure de l evenement horodateur.");
+}
+
 export async function insertEvent(input: HorodateurPhase1InsertEventInput) {
   const supabase = createAdminSupabaseClient();
   const eventType = toStoredLegacyEventType(input.eventType);
@@ -1344,4 +1382,31 @@ export async function insertHorodateurSmsAlertLog(input: {
       code: (error as { code?: string }).code,
     });
   }
+}
+
+export async function hasExpectedPunchSmsNotificationLog(options: {
+  employeeId: number;
+  workDate: string;
+  eventType: string;
+}) {
+  const supabase = createAdminSupabaseClient();
+  const { count, error } = await supabase
+    .from("sms_alerts_log")
+    .select("id", { count: "exact", head: true })
+    .eq("chauffeur_id", options.employeeId)
+    .eq("alert_type", `horodateur_expected_punch:${options.eventType}`)
+    .eq("metadata->>work_date", options.workDate);
+
+  if (error) {
+    console.error("[horodateur-sms] expected_punch_log_lookup_failed", {
+      employeeId: options.employeeId,
+      workDate: options.workDate,
+      eventType: options.eventType,
+      message: error.message,
+      code: (error as { code?: string }).code,
+    });
+    return false;
+  }
+
+  return (count ?? 0) > 0;
 }

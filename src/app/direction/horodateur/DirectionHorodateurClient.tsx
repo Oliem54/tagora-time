@@ -155,6 +155,26 @@ function formatDateTime(value: string | null | undefined) {
   return new Date(value).toLocaleString("fr-CA");
 }
 
+function toIsoWithOptionalTime(
+  baseIso: string | null | undefined,
+  maybeTime: string | null
+): string | null {
+  const trimmed = String(maybeTime ?? "").trim();
+  if (!trimmed) return null;
+  const match = /^(\d{1,2}):(\d{2})$/.exec(trimmed);
+  if (!match || !baseIso) return null;
+  const base = new Date(baseIso);
+  if (!Number.isFinite(base.getTime())) return null;
+  const hh = Number(match[1]);
+  const mm = Number(match[2]);
+  if (!Number.isFinite(hh) || !Number.isFinite(mm) || hh < 0 || hh > 23 || mm < 0 || mm > 59) {
+    return null;
+  }
+  const corrected = new Date(base);
+  corrected.setHours(hh, mm, 0, 0);
+  return corrected.toISOString();
+}
+
 function formatMinutes(totalMinutes: number) {
   const safeMinutes = Math.max(0, totalMinutes || 0);
   const hours = Math.floor(safeMinutes / 60);
@@ -990,6 +1010,34 @@ export default function DirectionHorodateurPage() {
     setMessage("");
     setError("");
 
+    const selectedException = exceptions.find((item) => item.id === exceptionId) ?? null;
+    const baseOccurredAt =
+      selectedException?.event?.occurredAt ??
+      selectedException?.event?.occurred_at ??
+      selectedException?.event?.event_time ??
+      null;
+    const sourceTimePrompt = window.prompt(
+      "Heure corrigée événement principal (HH:MM) — laisser vide pour conserver.",
+      ""
+    );
+    const correctedOccurredAt = toIsoWithOptionalTime(baseOccurredAt, sourceTimePrompt);
+    if ((sourceTimePrompt ?? "").trim() && !correctedOccurredAt) {
+      setError("Format heure invalide (attendu HH:MM) ou horodatage source manquant.");
+      setActiveActionKey(null);
+      return;
+    }
+
+    const relatedTimePrompt = window.prompt(
+      "Heure corrigée événement lié (HH:MM) — optionnel, vide si non applicable.",
+      ""
+    );
+    const correctedRelatedOccurredAt = toIsoWithOptionalTime(baseOccurredAt, relatedTimePrompt);
+    if ((relatedTimePrompt ?? "").trim() && !correctedRelatedOccurredAt) {
+      setError("Format heure liée invalide (attendu HH:MM).");
+      setActiveActionKey(null);
+      return;
+    }
+
     try {
       const payload = await withToken(async (token) => {
         const response = await fetch(
@@ -1000,7 +1048,10 @@ export default function DirectionHorodateurPage() {
               Authorization: `Bearer ${token}`,
               "Content-Type": "application/json",
             },
-            body: JSON.stringify({}),
+            body: JSON.stringify({
+              correctedOccurredAt,
+              correctedRelatedOccurredAt,
+            }),
           }
         );
 

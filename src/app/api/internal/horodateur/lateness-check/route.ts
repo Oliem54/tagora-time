@@ -1,14 +1,24 @@
 import { NextRequest, NextResponse } from "next/server";
 import { isHorodateurInternalJobAuthorized } from "@/app/lib/internal-horodateur-cron-auth";
-import { processLateEmployeeNotifications } from "@/app/lib/horodateur-v1/service";
+import {
+  processExpectedPunchSmsNotifications,
+  processLateEmployeeNotifications,
+} from "@/app/lib/horodateur-v1/service";
 
 async function run(req: NextRequest) {
   if (!isHorodateurInternalJobAuthorized(req)) {
     return NextResponse.json({ error: "Acces refuse." }, { status: 401 });
   }
 
-  const result = await processLateEmployeeNotifications();
-  return NextResponse.json({ success: true, ...result });
+  const [lateness, expectedPunchSms] = await Promise.all([
+    processLateEmployeeNotifications(),
+    processExpectedPunchSmsNotifications(),
+  ]);
+  return NextResponse.json({
+    success: true,
+    lateness,
+    expectedPunchSms,
+  });
 }
 
 /** Vercel Cron invoque en GET. */
