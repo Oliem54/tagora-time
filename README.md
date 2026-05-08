@@ -40,7 +40,10 @@ Ouvrir [http://localhost:3000](http://localhost:3000).
 ### Vercel
 
 - Le fichier [`vercel.json`](vercel.json) définit des tâches planifiées (crons) vers les routes internes horodateur.
-- Définir `CRON_SECRET` dans le projet Vercel ; la même valeur peut être utilisée comme `HORODATEUR_REMINDER_SECRET` pour que les appels cron soient autorisés (voir routes sous `src/app/api/internal/horodateur/`).
+- **`/api/internal/horodateur/lateness-check`** est déclenché toutes les **5 minutes** (`*/5 * * * *`). Cette route exécute notamment les rappels SMS **proactifs** lorsqu’un punch attendu est absent : `quart_debut`, `pause_debut`, `pause_fin`, `dinner_debut`, `dinner_fin`, `quart_fin` (voir `processExpectedPunchSmsNotifications` côté serveur).
+- **Plans Vercel :** sur le plan **Hobby**, les crons sont limités à **une exécution par jour** ; une expression comme `*/5 * * * *` **refusera le déploiement**. Pour une cadence aux 5 minutes, il faut un plan **Pro** (ou supérieur), qui autorise au minimum **une fois par minute**. Sans upgrade, la fréquence maximale possible sur Hobby reste **1×/jour** (impact : rappels employés beaucoup moins réactifs).
+- **Hobby + rappels proactifs aux 5 minutes :** dans [`vercel.json`](vercel.json), remettre le cron `lateness-check` à **1×/jour** (ex. `5 13 * * *`) **ou** retirer cette entrée de `crons`, puis configurer un **planificateur externe** (GitHub Actions, cron serveur, etc.) qui appelle **`GET`** `https://<votre-domaine>/api/internal/horodateur/lateness-check` **toutes les 5 minutes** avec un secret valide (voir ci‑dessous).
+- Définir `CRON_SECRET` dans le projet Vercel ; Vercel envoie ce jeton en `Authorization: Bearer` sur les invocations cron. La même valeur peut servir de `HORODATEUR_REMINDER_SECRET` pour que [`isHorodateurInternalJobAuthorized`](src/app/lib/internal-horodateur-cron-auth.ts) accepte aussi les appels manuels avec ce secret (voir routes sous `src/app/api/internal/horodateur/`).
 
 ### Autres hébergeurs
 

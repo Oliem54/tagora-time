@@ -955,6 +955,13 @@ type EmployeePunchSmsResult = {
   recipient: string | null;
 };
 
+type EmployeeExpectedPunchSmsResult = {
+  sent: boolean;
+  skipped: boolean;
+  reason: string | null;
+  recipient: string | null;
+};
+
 /**
  * SMS personnel employe apres pointage (telephone fiche chauffeur uniquement — jamais DIRECTION_ALERT_SMS_NUMBERS).
  */
@@ -1036,6 +1043,104 @@ export async function notifyEmployeeHorodateurPunchSms(payload: {
     });
   } else {
     console.error("[horodateur-employee-sms]", {
+      ...logBase,
+      sms_failed: true,
+      reason: result.reason,
+    });
+  }
+
+  return {
+    sent: result.sent,
+    skipped: result.skipped,
+    reason: result.reason,
+    recipient: result.recipient,
+  };
+}
+
+export async function notifyEmployeeExpectedPunchSms(payload: {
+  employeeId: number;
+  phoneRaw: string | null | undefined;
+  eventType:
+    | "quart_debut"
+    | "pause_debut"
+    | "pause_fin"
+    | "dinner_debut"
+    | "dinner_fin"
+    | "quart_fin";
+  scheduledTimeLabel: string;
+  preferenceEnabled: boolean;
+}): Promise<EmployeeExpectedPunchSmsResult> {
+  const phoneE164 = normalizePhoneToTwilioE164(payload.phoneRaw);
+  const hasPhone = Boolean(phoneE164);
+  /** Phase 2 : suffixe optionnel avec lien sécurisé à usage unique. */
+  const maybeLinkSuffix = "";
+
+  const logBase = {
+    sms_target_type: "employee_expected_punch" as const,
+    employee_id: payload.employeeId,
+    event_type: payload.eventType,
+    scheduled_time: payload.scheduledTimeLabel,
+    phone_present: hasPhone,
+    preference_enabled: payload.preferenceEnabled,
+  };
+
+  if (!payload.preferenceEnabled) {
+    console.info("[horodateur-employee-expected-sms]", {
+      ...logBase,
+      sms_skipped: true,
+      reason: "event_preference_disabled",
+    });
+    return {
+      sent: false,
+      skipped: true,
+      reason: "event_preference_disabled",
+      recipient: null,
+    };
+  }
+
+  if (!hasPhone) {
+    console.warn("[horodateur-employee-expected-sms]", {
+      ...logBase,
+      sms_skipped: true,
+      reason: "phone_missing",
+    });
+    return {
+      sent: false,
+      skipped: true,
+      reason: "phone_missing",
+      recipient: null,
+    };
+  }
+
+  const messageByEvent: Record<typeof payload.eventType, string> = {
+    quart_debut: `TAGORA Time : tu n'as pas encore punché ton début de quart prévu à ${payload.scheduledTimeLabel}.${maybeLinkSuffix}`,
+    pause_debut: `TAGORA Time : ta pause devait commencer à ${payload.scheduledTimeLabel} et aucun punch n'a été reçu.${maybeLinkSuffix}`,
+    pause_fin: `TAGORA Time : ta pause devait être terminée à ${payload.scheduledTimeLabel}.${maybeLinkSuffix}`,
+    dinner_debut: `TAGORA Time : ton dîner devait commencer à ${payload.scheduledTimeLabel} et aucun punch n'a été reçu.${maybeLinkSuffix}`,
+    dinner_fin: `TAGORA Time : ton dîner devait être terminé à ${payload.scheduledTimeLabel}.${maybeLinkSuffix}`,
+    quart_fin: `TAGORA Time : ton quart devait se terminer à ${payload.scheduledTimeLabel} et aucun punch de sortie n'a été reçu.${maybeLinkSuffix}`,
+  };
+
+  const smsBody = messageByEvent[payload.eventType];
+  const result = await sendSmsToPhone({
+    phone: phoneE164,
+    body: smsBody,
+  });
+
+  if (result.sent) {
+    console.info("[horodateur-employee-expected-sms]", {
+      ...logBase,
+      sms_sent: true,
+      to_suffix: phoneE164.length > 4 ? phoneE164.slice(-4) : null,
+    });
+  } else if (result.skipped) {
+    console.warn("[horodateur-employee-expected-sms]", {
+      ...logBase,
+      sms_skipped: true,
+      reason: result.reason,
+    });
+  } else {
+    console.error("[horodateur-employee-expected-sms]", {
       ...logBase,
       sms_failed: true,
       reason: result.reason,
