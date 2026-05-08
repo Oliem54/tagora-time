@@ -8,6 +8,7 @@ import {
   normalizeEventForApi,
   normalizeNonEmptyString,
   parseOptionalApprovedMinutes,
+  parseOptionalIsoDateTime,
   requireDirectionHorodateurAccess,
 } from "@/app/api/horodateur/_shared";
 
@@ -26,6 +27,8 @@ export async function POST(
     const body = (await req.json().catch(() => ({}))) as {
       reviewNote?: unknown;
       approvedMinutes?: unknown;
+      correctedOccurredAt?: unknown;
+      correctedRelatedOccurredAt?: unknown;
     };
 
     const approvedMinutesValidation = parseOptionalApprovedMinutes(body.approvedMinutes);
@@ -42,11 +45,43 @@ export async function POST(
       );
     }
 
+    const correctedOccurredAtValidation = parseOptionalIsoDateTime(body.correctedOccurredAt);
+    if (!correctedOccurredAtValidation.ok) {
+      return NextResponse.json(
+        {
+          success: false,
+          ok: false,
+          error: correctedOccurredAtValidation.error,
+          code: correctedOccurredAtValidation.code,
+          route: "/api/direction/horodateur/exceptions/[id]/approve",
+        },
+        { status: 400 }
+      );
+    }
+
+    const correctedRelatedOccurredAtValidation = parseOptionalIsoDateTime(
+      body.correctedRelatedOccurredAt
+    );
+    if (!correctedRelatedOccurredAtValidation.ok) {
+      return NextResponse.json(
+        {
+          success: false,
+          ok: false,
+          error: correctedRelatedOccurredAtValidation.error,
+          code: correctedRelatedOccurredAtValidation.code,
+          route: "/api/direction/horodateur/exceptions/[id]/approve",
+        },
+        { status: 400 }
+      );
+    }
+
     const result = await approveHorodateurException({
       actorUserId: auth.user.id,
       exceptionId: id,
       reviewNote: normalizeNonEmptyString(body.reviewNote),
       approvedMinutes: approvedMinutesValidation.value,
+      correctedOccurredAt: correctedOccurredAtValidation.value,
+      correctedRelatedOccurredAt: correctedRelatedOccurredAtValidation.value,
     });
 
     const weeklyProjection = await getWeeklyProjection(result.exception.employee_id);
