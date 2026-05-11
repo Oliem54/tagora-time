@@ -113,11 +113,6 @@ type ClosedRuleForm = {
  */
 type DirectoryDepartment = EffectifsDepartment & { id: string | null };
 
-function minRequiredPhrase(n: number): string {
-  if (n === 0) return "Aucune couverture requise";
-  return n === 1 ? "Minimum requis : 1 personne" : `Minimum requis : ${n} personnes`;
-}
-
 function categoryStyle(cat: EffectifsCoverageCategory): {
   bg: string;
   color: string;
@@ -190,15 +185,6 @@ const defaultNewForm = (): NewWindowForm => ({
 
 function scrollToId(id: string) {
   document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
-}
-
-function priorityDeliveryNote(g: PriorityGap, payload: DirectionEffectifsPayload): string | null {
-  const n = payload.deliveryNeeds.find((d) => d.date === g.date)?.count ?? 0;
-  if (n === 0) return null;
-  if (g.departmentKey === "livreur") {
-    return `${n} livraison${n > 1 ? "s" : ""} prévue${n > 1 ? "s" : ""} ce jour`;
-  }
-  return null;
 }
 
 function priorityGapTone(g: PriorityGap): "critical" | "warning" {

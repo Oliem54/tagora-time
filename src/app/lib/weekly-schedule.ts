@@ -250,7 +250,7 @@ export function computeDayNetPlannedHours(day: WeeklyScheduleDayConfig): number 
   const a = timeToMinutes(start);
   const b = timeToMinutes(end);
   if (a === null || b === null || b <= a) return 0;
-  let span = b - a;
+  const span = b - a;
   let unpaid = 0;
   for (const br of [day.breakAm, day.lunch, day.breakPm]) {
     if (br.enabled && !br.paid && br.minutes > 0) {

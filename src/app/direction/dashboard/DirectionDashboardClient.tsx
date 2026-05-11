@@ -492,7 +492,7 @@ export default function DirectionDashboardClient() {
                   onClick={() => router.push(`${ALERT_CENTER_HREF}?status=open`)}
                   style={{ padding: "8px 14px", fontSize: 14 }}
                 >
-                  Ouvrir le centre d'alertes
+                  Ouvrir le centre d&apos;alertes
                 </button>
               </div>
             </AppCard>

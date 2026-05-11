@@ -12,7 +12,6 @@ import {
 } from "@/app/lib/communication-templates.shared";
 import { normalizeDirectionAlertRecipients, sendDirectionSmsAlert, sendSmsToPhone } from "@/app/lib/notifications";
 import { resolveResendFromEmail } from "@/app/lib/resend-email";
-import { createAdminSupabaseClient } from "@/app/lib/supabase/admin";
 
 const VAR_RE = /\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g;
 
@@ -437,6 +436,7 @@ export function getTemplateFallback(
   templateKey: string,
   channel: CommunicationChannel
 ): { subject: string | null; body: string } | null {
+  void channel;
   const fallbacks: Record<string, { subject: string | null; body: string }> = {
     horodateur_exception_created_direction_email: {
       subject: "TAGORA Time — Exception horodateur à traiter",

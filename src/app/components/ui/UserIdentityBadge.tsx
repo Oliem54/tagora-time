@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { AppRole } from "@/app/lib/auth/roles";
-import { useMfaAal2Active } from "@/app/lib/auth/mfa.client";
 
 type UserIdentityBadgeProps = {
   value: string;
@@ -19,8 +18,8 @@ export default function UserIdentityBadge({
   role,
   className,
 }: UserIdentityBadgeProps) {
+  void role;
   const [open, setOpen] = useState(false);
-  const mfaActive = useMfaAal2Active(role);
   const rootRef = useRef<HTMLDivElement | null>(null);
   const classes = ["ui-user-identity-badge", className].filter(Boolean).join(" ");
   const normalizedRole = useMemo(

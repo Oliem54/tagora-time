@@ -148,8 +148,6 @@ export const EFFECTIFS_LOCATION_ENTRIES = [
 
 export type EffectifsLocationKey = (typeof EFFECTIFS_LOCATION_ENTRIES)[number]["key"];
 
-const LOCATION_KEY_SET = new Set<string>(EFFECTIFS_LOCATION_ENTRIES.map((l) => l.key));
-
 export function normalizeEffectifsLocationKey(
   value: string | null | undefined
 ): string | null {

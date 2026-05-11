@@ -955,12 +955,7 @@ type EmployeePunchSmsResult = {
   recipient: string | null;
 };
 
-type EmployeeExpectedPunchSmsResult = {
-  sent: boolean;
-  skipped: boolean;
-  reason: string | null;
-  recipient: string | null;
-};
+type EmployeeExpectedPunchSmsResult = EmployeePunchSmsResult;
 
 /**
  * SMS personnel employe apres pointage (telephone fiche chauffeur uniquement — jamais DIRECTION_ALERT_SMS_NUMBERS).

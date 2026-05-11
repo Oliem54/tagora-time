@@ -88,7 +88,7 @@ export default function EmployeeWeeklyScheduleGrid({
 
   const copyMondayToWeekdays = () => {
     const mon = cloneDay(ws.days.monday);
-    let next = { ...ws, days: { ...ws.days } };
+    const next = { ...ws, days: { ...ws.days } };
     for (const k of ["tuesday", "wednesday", "thursday", "friday"] as const) {
       next.days[k] = cloneDay(mon);
     }
@@ -97,7 +97,7 @@ export default function EmployeeWeeklyScheduleGrid({
 
   const copyMondayToAllActive = () => {
     const mon = cloneDay(ws.days.monday);
-    let next = { ...ws, days: { ...ws.days } };
+    const next = { ...ws, days: { ...ws.days } };
     for (const k of WEEKLY_SCHEDULE_DAY_KEYS) {
       if (next.days[k].active) {
         next.days[k] = cloneDay(mon);

@@ -81,7 +81,7 @@ export default function DirectionEffectifsMonthCalendar({
     const m = new Map<number, (typeof payload.employees)[number]>();
     for (const e of payload.employees) m.set(e.id, e);
     return m;
-  }, [payload.employees]);
+  }, [payload]);
 
   const hasRegularClosureForCell = useCallback(
     (departmentKey: EffectifsDepartmentKey, weekday: number) => {

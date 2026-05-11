@@ -303,8 +303,9 @@ export async function PATCH(
           missingCol in updatePayload
         ) {
           logEmployeeProfileSave("db_update_retry_drop_column", employeeId, updatePayload, error);
-          const { [missingCol]: _removed, ...rest } = updatePayload;
-          updatePayload = rest;
+          const nextPayload = { ...updatePayload } as Record<string, unknown>;
+          delete nextPayload[missingCol];
+          updatePayload = nextPayload;
           continue;
         }
         if (missingCol) {
@@ -320,8 +321,9 @@ export async function PATCH(
         for (const c of OPTIONAL_CHAUFFEUR_PROFILE_COLUMNS) {
           if (c in updatePayload) {
             logEmployeeProfileSave("db_update_retry_drop_optional", employeeId, updatePayload, error);
-            const { [c]: _r, ...rest } = updatePayload;
-            updatePayload = rest;
+            const nextPayload = { ...updatePayload } as Record<string, unknown>;
+            delete nextPayload[c];
+            updatePayload = nextPayload;
             dropped = true;
             break;
           }
