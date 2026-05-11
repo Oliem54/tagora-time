@@ -14,6 +14,11 @@ export type Phase2QueueRow = {
   source: "journal" | "derived";
 };
 
+/** Liens « Ouvrir » vers le journal des échecs techniques (`journal=failed` seul). */
+function hrefAlertCenterJournalFailed(): string {
+  return "/direction/alertes?journal=failed";
+}
+
 async function safeCount(
   query: PromiseLike<{ count: number | null; error: { message?: string } | null }>
 ): Promise<number> {
@@ -175,7 +180,7 @@ export async function aggregateAlertCenterPhase2(
       id: "notes-mentions-erreur",
       label: "Notes internes — erreur courriel",
       description: "Mentions internes en erreur d’envoi.",
-      href: "/direction/livraisons",
+      href: hrefAlertCenterJournalFailed(),
       count: failedInternalMentionEmail,
       priority: "medium",
       category: "Employés",
@@ -185,7 +190,7 @@ export async function aggregateAlertCenterPhase2(
       id: "echecs-notifications",
       label: "Échecs SMS / courriel (canaux techniques)",
       description: "app_alert_deliveries et sms_alerts_log (90 jours).",
-      href: "/direction/alertes",
+      href: hrefAlertCenterJournalFailed(),
       count: failedTechChannels,
       priority: "high",
       category: "Système",

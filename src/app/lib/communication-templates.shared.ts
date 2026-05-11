@@ -105,7 +105,7 @@ export function communicationImplStatusLabelFr(status: string): string {
     case COMMUNICATION_IMPL_STATUS.connected:
       return "Branché";
     case COMMUNICATION_IMPL_STATUS.planned:
-      return "Prévu phase 2";
+      return "Modèle seulement";
     case COMMUNICATION_IMPL_STATUS.inactive:
       return "Inactif";
     case COMMUNICATION_IMPL_STATUS.to_configure:
