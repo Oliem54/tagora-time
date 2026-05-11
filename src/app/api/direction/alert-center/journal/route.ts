@@ -73,7 +73,7 @@ export async function GET(req: NextRequest) {
   const rows = (alerts ?? []) as AppAlertRow[];
   const empIds = [...new Set(rows.map((r) => r.employee_id).filter((id): id is number => id != null))];
 
-  let chauffeursById = new Map<number, ChauffeurMini>();
+  const chauffeursById = new Map<number, ChauffeurMini>();
   if (empIds.length > 0) {
     const { data: ch } = await supabase
       .from("chauffeurs")
