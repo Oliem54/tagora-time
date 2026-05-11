@@ -1208,7 +1208,7 @@ export default function AlertCenterDirectionClient() {
                 {categories.has(c) ? (
                   <span> — {categories.get(c)!.length} file(s) active(s)</span>
                 ) : (
-                  <span> — prévu phase 2</span>
+                  <span> — Aucune file ouverte</span>
                 )}
               </li>
             ))}

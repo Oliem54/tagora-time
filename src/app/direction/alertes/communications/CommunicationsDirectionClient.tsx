@@ -509,7 +509,7 @@ export default function CommunicationsDirectionClient() {
   const implStatuses = [
     { value: "", label: "Tous" },
     { value: "connected", label: "Branché" },
-    { value: "planned", label: "Prévu phase 2" },
+    { value: "planned", label: "Modèle seulement" },
     { value: "inactive", label: "Inactif" },
     { value: "to_configure", label: "À configurer" },
   ] as const;
@@ -1107,14 +1107,16 @@ export default function CommunicationsDirectionClient() {
                           style={{ fontSize: 15, padding: "10px 12px" }}
                         >
                           <option value="connected">Branché</option>
-                          <option value="planned">Prévu phase 2</option>
+                          <option value="planned">Modèle seulement</option>
                           <option value="inactive">Inactif</option>
                           <option value="to_configure">À configurer</option>
                         </select>
                       </label>
                       <p style={{ margin: "10px 0 0", fontSize: 13, color: "#64748b", lineHeight: 1.55 }}>
-                        <strong>Prévu phase 2</strong> = modèle préparé, mais pas encore branché automatiquement.{" "}
-                        <strong>Branché</strong> = modèle utilisé par l&apos;application.
+                        <strong>Modèle seulement</strong> = modèle préparé, mais pas branché automatiquement.{" "}
+                        <strong>Branché</strong> = modèle utilisé par l&apos;application.{" "}
+                        <strong>À configurer</strong> = modèle à compléter avant utilisation.{" "}
+                        <strong>Inactif</strong> = modèle désactivé.
                       </p>
                     </div>
                     <label

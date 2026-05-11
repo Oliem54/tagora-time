@@ -14,9 +14,9 @@ export type Phase2QueueRow = {
   source: "journal" | "derived";
 };
 
-/** Lien « Ouvrir » Phase 2 (échecs techniques) : journal `failed`, sans quitter le Centre d'alertes. */
+/** Lien « Ouvrir » Phase 2 (échecs techniques) : `journal=failed` seul — pas de `status=open` (fichiers métier ≠ filtre journal). */
 function hrefAlertCenterJournalFailed(): string {
-  return "/direction/alertes?status=open&journal=failed";
+  return "/direction/alertes?journal=failed";
 }
 
 async function safeCount(

@@ -715,12 +715,12 @@ export default function DirectionHorodateurRegistreClient() {
             <SecondaryButton
               type="button"
               disabled
-              title="Export prévu phase 2"
+              title="Export à venir"
               className="h-11 shrink-0 rounded-xl border border-slate-200 px-5 text-sm opacity-65"
             >
               <span className="inline-flex items-center gap-2">
                 <FileSpreadsheet className="h-5 w-5" aria-hidden />
-                Export phase 2
+                Export à venir
               </span>
             </SecondaryButton>
           </div>
@@ -988,11 +988,11 @@ export default function DirectionHorodateurRegistreClient() {
                   <SecondaryButton
                     disabled
                     className="h-10 rounded-xl px-5 text-sm opacity-60"
-                    title="Export prévu phase 2"
+                    title="Export à venir"
                     type="button"
                   >
                     <span className="inline-flex items-center gap-2">
-                      <FileSpreadsheet className="h-4 w-4" /> Export phase 2
+                      <FileSpreadsheet className="h-4 w-4" /> Export à venir
                     </span>
                   </SecondaryButton>
                 </div>
