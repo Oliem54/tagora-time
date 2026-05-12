@@ -14,9 +14,9 @@ export type Phase2QueueRow = {
   source: "journal" | "derived";
 };
 
-/** Liens « Ouvrir » vers le journal des échecs techniques (`journal=failed` seul). */
-function hrefAlertCenterJournalFailed(): string {
-  return "/direction/alertes?journal=failed";
+/** Liens « Ouvrir » : journal échecs + détail aligné sur les agrégats Phase 2 (livraisons livrées côté compteurs). */
+function hrefPhase2TechnicalQueue(queueId: "echecs-notifications" | "notes-mentions-erreur"): string {
+  return `/direction/alertes?journal=failed&phase2Queue=${encodeURIComponent(queueId)}`;
 }
 
 async function safeCount(
@@ -180,7 +180,7 @@ export async function aggregateAlertCenterPhase2(
       id: "notes-mentions-erreur",
       label: "Notes internes — erreur courriel",
       description: "Mentions internes en erreur d’envoi.",
-      href: hrefAlertCenterJournalFailed(),
+      href: hrefPhase2TechnicalQueue("notes-mentions-erreur"),
       count: failedInternalMentionEmail,
       priority: "medium",
       category: "Employés",
@@ -190,7 +190,7 @@ export async function aggregateAlertCenterPhase2(
       id: "echecs-notifications",
       label: "Échecs SMS / courriel (canaux techniques)",
       description: "app_alert_deliveries et sms_alerts_log (90 jours).",
-      href: hrefAlertCenterJournalFailed(),
+      href: hrefPhase2TechnicalQueue("echecs-notifications"),
       count: failedTechChannels,
       priority: "high",
       category: "Système",
