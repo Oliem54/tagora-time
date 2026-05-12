@@ -406,17 +406,23 @@ export default function AlertCenterDirectionClient() {
         data: { session },
       } = await supabase.auth.getSession();
       if (!session?.access_token) return;
-      const res = await fetch(`/api/direction/alert-center/journal/${alertId}`, {
-        method: "PATCH",
-        headers: {
-          Authorization: `Bearer ${session.access_token}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ action }),
-      });
+      const res = await fetch(
+        `/api/direction/alert-center/journal/${encodeURIComponent(alertId)}`,
+        {
+          method: "PATCH",
+          headers: {
+            Authorization: `Bearer ${session.access_token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ action }),
+        }
+      );
       if (res.ok) {
         await refreshJournalList();
         await refreshSummary();
+      } else {
+        const err = (await res.json().catch(() => ({}))) as { error?: string };
+        window.alert(err.error ?? "Action impossible pour cette ligne.");
       }
     } finally {
       setJournalMutatingId(null);
@@ -424,9 +430,12 @@ export default function AlertCenterDirectionClient() {
   }
 
   async function deleteJournalRow(alertId: string) {
+    const isDerived = alertId.startsWith("derived-");
     if (
       !window.confirm(
-        "Supprimer définitivement cette alerte ? Les alertes critiques ne peuvent pas être supprimées."
+        isDerived
+          ? "Supprimer définitivement cette entrée de la file technique ?"
+          : "Supprimer définitivement cette alerte ? Les alertes critiques ne peuvent pas être supprimées."
       )
     ) {
       return;
@@ -437,13 +446,19 @@ export default function AlertCenterDirectionClient() {
         data: { session },
       } = await supabase.auth.getSession();
       if (!session?.access_token) return;
-      const res = await fetch(`/api/direction/alert-center/journal/${alertId}`, {
-        method: "DELETE",
-        headers: { Authorization: `Bearer ${session.access_token}` },
-      });
+      const res = await fetch(
+        `/api/direction/alert-center/journal/${encodeURIComponent(alertId)}`,
+        {
+          method: "DELETE",
+          headers: { Authorization: `Bearer ${session.access_token}` },
+        }
+      );
       if (res.ok) {
         await refreshJournalList();
         await refreshSummary();
+      } else {
+        const err = (await res.json().catch(() => ({}))) as { error?: string };
+        window.alert(err.error ?? "Suppression impossible.");
       }
     } finally {
       setJournalMutatingId(null);
@@ -859,21 +874,18 @@ export default function AlertCenterDirectionClient() {
               }}
             >
               {journalItems.map((row) => {
-                const derivedReadOnly = row.id.startsWith("derived-");
                 const statusFr = JOURNAL_STATUS_LABEL[row.status] ?? row.status;
                 const fc = row.failureCount;
                 const showRepeat =
                   typeof fc === "number" && fc > 1 ? `Répété ${fc - 1} fois` : null;
                 const busy = journalMutatingId === row.id;
-                const canHandle =
-                  !derivedReadOnly && (row.status === "open" || row.status === "failed");
+                const canHandle = row.status === "open" || row.status === "failed";
                 const canArchive =
-                  !derivedReadOnly &&
-                  (row.status === "open" ||
-                    row.status === "failed" ||
-                    row.status === "handled" ||
-                    row.status === "snoozed");
-                const isCritical = !derivedReadOnly && row.priority === "critical";
+                  row.status === "open" ||
+                  row.status === "failed" ||
+                  row.status === "handled" ||
+                  row.status === "snoozed";
+                const isCritical = row.priority === "critical";
                 const expanded = expandedMessageId === row.id;
 
                 return (
@@ -1086,7 +1098,7 @@ export default function AlertCenterDirectionClient() {
                                 ) : (
                                   <button
                                     type="button"
-                                    disabled={busy || derivedReadOnly}
+                                    disabled={busy}
                                     onClick={() => void deleteJournalRow(row.id)}
                                     style={{
                                       textAlign: "left",
