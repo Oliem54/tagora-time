@@ -260,6 +260,17 @@ export default function AlertCenterDirectionClient() {
   const searchParams = useSearchParams();
   const statusFilter = searchParams.get("status") ?? "open";
   const journalFilter = (searchParams.get("journal") ?? "actionable") as JournalFilter;
+  const phase2Queue = searchParams.get("phase2Queue");
+  const journalQueryString = useMemo(() => {
+    const base =
+      journalFilter === "actionable"
+        ? "journal=actionable"
+        : `journal=${encodeURIComponent(journalFilter)}`;
+    if (phase2Queue === "echecs-notifications" || phase2Queue === "notes-mentions-erreur") {
+      return `${base}&phase2Queue=${encodeURIComponent(phase2Queue)}`;
+    }
+    return base;
+  }, [journalFilter, phase2Queue]);
   const { user, loading: accessLoading, role } = useCurrentAccess();
   const [summary, setSummary] = useState<SummaryPayload | null>(null);
   const [summaryFetched, setSummaryFetched] = useState(false);
@@ -288,16 +299,12 @@ export default function AlertCenterDirectionClient() {
         if (!session?.access_token || cancelled) return;
         const authHeaders = { Authorization: `Bearer ${session.access_token}` };
         setJournalLoading(true);
-        const journalQuery =
-          journalFilter === "actionable"
-            ? "journal=actionable"
-            : `journal=${encodeURIComponent(journalFilter)}`;
         const [sumRes, journalRes] = await Promise.all([
           fetch("/api/direction/alert-center/summary", {
             headers: authHeaders,
             signal: ac.signal,
           }),
-          fetch(`/api/direction/alert-center/journal?${journalQuery}`, {
+          fetch(`/api/direction/alert-center/journal?${journalQueryString}`, {
             headers: authHeaders,
             signal: ac.signal,
           }),
@@ -331,7 +338,7 @@ export default function AlertCenterDirectionClient() {
       cancelled = true;
       ac.abort();
     };
-  }, [accessLoading, user, role, router, journalFilter]);
+  }, [accessLoading, user, role, router, journalFilter, journalQueryString]);
 
   const refreshSummary = useCallback(async () => {
     const {
@@ -351,18 +358,14 @@ export default function AlertCenterDirectionClient() {
       data: { session },
     } = await supabase.auth.getSession();
     if (!session?.access_token) return;
-    const journalQuery =
-      journalFilter === "actionable"
-        ? "journal=actionable"
-        : `journal=${encodeURIComponent(journalFilter)}`;
-    const journalRes = await fetch(`/api/direction/alert-center/journal?${journalQuery}`, {
+    const journalRes = await fetch(`/api/direction/alert-center/journal?${journalQueryString}`, {
       headers: { Authorization: `Bearer ${session.access_token}` },
     });
     if (journalRes.ok) {
       const j = (await journalRes.json()) as { items?: JournalItem[] };
       setJournalItems(Array.isArray(j.items) ? j.items : []);
     }
-  }, [journalFilter]);
+  }, [journalQueryString]);
 
   async function patchJournalAction(alertId: string, action: "mark_handled" | "archive" | "cancel") {
     try {
@@ -599,7 +602,7 @@ export default function AlertCenterDirectionClient() {
           </div>
         </section>
 
-        {/* Filtre files phase 1 (conservé) */}
+        {/* Filtre files métier (conservé) */}
         <AppCard
           className="ui-stack-sm"
           style={{
@@ -784,7 +787,9 @@ export default function AlertCenterDirectionClient() {
                 border: "1px dashed #cbd5e1",
               }}
             >
-              Aucune entrée pour « {journalFilterLabel(journalFilter)} ».
+              {phase2Queue === "echecs-notifications" || phase2Queue === "notes-mentions-erreur"
+                ? "Aucune ligne dans cette vue technique pour la période récente (90 jours)."
+                : `Aucune entrée pour « ${journalFilterLabel(journalFilter)} ».`}
             </div>
           ) : (
             <ul
@@ -798,18 +803,21 @@ export default function AlertCenterDirectionClient() {
               }}
             >
               {journalItems.map((row) => {
+                const derivedReadOnly = row.id.startsWith("derived-");
                 const statusFr = JOURNAL_STATUS_LABEL[row.status] ?? row.status;
                 const fc = row.failureCount;
                 const showRepeat =
                   typeof fc === "number" && fc > 1 ? `Répété ${fc - 1} fois` : null;
                 const busy = journalMutatingId === row.id;
-                const canHandle = row.status === "open" || row.status === "failed";
+                const canHandle =
+                  !derivedReadOnly && (row.status === "open" || row.status === "failed");
                 const canArchive =
-                  row.status === "open" ||
-                  row.status === "failed" ||
-                  row.status === "handled" ||
-                  row.status === "snoozed";
-                const isCritical = row.priority === "critical";
+                  !derivedReadOnly &&
+                  (row.status === "open" ||
+                    row.status === "failed" ||
+                    row.status === "handled" ||
+                    row.status === "snoozed");
+                const isCritical = !derivedReadOnly && row.priority === "critical";
                 const expanded = expandedMessageId === row.id;
 
                 return (
@@ -1022,7 +1030,7 @@ export default function AlertCenterDirectionClient() {
                                 ) : (
                                   <button
                                     type="button"
-                                    disabled={busy}
+                                    disabled={busy || derivedReadOnly}
                                     onClick={() => void deleteJournalRow(row.id)}
                                     style={{
                                       textAlign: "left",
@@ -1090,10 +1098,10 @@ export default function AlertCenterDirectionClient() {
           )}
         </SectionCard>
 
-        <SectionCard title="Phase 1 — files métier" subtitle="Comptes, effectifs, améliorations.">
+        <SectionCard title="Files métier" subtitle="Comptes, effectifs, améliorations.">
           <div className="ui-stack-md">
             {queuesPhase1.length === 0 ? (
-              <p style={{ margin: 0, color: "#64748b" }}>Aucune file ouverte dans cette phase.</p>
+              <p style={{ margin: 0, color: "#64748b" }}>Aucune file ouverte.</p>
             ) : (
               queuesPhase1.map((row, i) => (
                 <motion.div
@@ -1139,13 +1147,13 @@ export default function AlertCenterDirectionClient() {
         </SectionCard>
 
         <SectionCard
-          title="Phase 2 — agrégats"
+          title="Indicateurs techniques"
           subtitle="Indicateurs liés au journal et aux opérations (dépenses, incidents, horodateur, etc.)."
         >
           <div className="ui-stack-md">
             {queuesPhase2.length === 0 ? (
               <p style={{ margin: 0, color: "#64748b" }}>
-                Aucun indicateur phase 2 pour le moment (tables vides ou filtres sans résultat).
+                Aucun indicateur pour le moment (tables vides ou filtres sans résultat).
               </p>
             ) : (
               queuesPhase2.map((row, i) => (
@@ -1191,7 +1199,7 @@ export default function AlertCenterDirectionClient() {
           </div>
         </SectionCard>
 
-        <SectionCard title="Vue par catégorie" subtitle="Regroupement des files phase 1 et 2 par thème.">
+        <SectionCard title="Vue par catégorie" subtitle="Regroupement des files métier et des indicateurs par thème.">
           <ul
             style={{
               margin: 0,
