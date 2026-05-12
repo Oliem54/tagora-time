@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { motion } from "framer-motion";
@@ -261,16 +261,28 @@ export default function AlertCenterDirectionClient() {
   const statusFilter = searchParams.get("status") ?? "open";
   const journalFilter = (searchParams.get("journal") ?? "actionable") as JournalFilter;
   const phase2Queue = searchParams.get("phase2Queue");
+  const phase2TechnicalQueue =
+    phase2Queue === "echecs-notifications" || phase2Queue === "notes-mentions-erreur"
+      ? phase2Queue
+      : null;
+  const phase2QueueInFailedUrlSuffix = useMemo(
+    () =>
+      phase2TechnicalQueue && journalFilter === "failed"
+        ? `&phase2Queue=${encodeURIComponent(phase2TechnicalQueue)}`
+        : "",
+    [phase2TechnicalQueue, journalFilter]
+  );
   const journalQueryString = useMemo(() => {
     const base =
       journalFilter === "actionable"
         ? "journal=actionable"
         : `journal=${encodeURIComponent(journalFilter)}`;
-    if (phase2Queue === "echecs-notifications" || phase2Queue === "notes-mentions-erreur") {
-      return `${base}&phase2Queue=${encodeURIComponent(phase2Queue)}`;
+    if (journalFilter === "failed" && phase2TechnicalQueue) {
+      return `${base}&phase2Queue=${encodeURIComponent(phase2TechnicalQueue)}`;
     }
     return base;
-  }, [journalFilter, phase2Queue]);
+  }, [journalFilter, phase2TechnicalQueue]);
+  const journalSectionRef = useRef<HTMLDivElement | null>(null);
   const { user, loading: accessLoading, role } = useCurrentAccess();
   const [summary, setSummary] = useState<SummaryPayload | null>(null);
   const [summaryFetched, setSummaryFetched] = useState(false);
@@ -339,6 +351,26 @@ export default function AlertCenterDirectionClient() {
       ac.abort();
     };
   }, [accessLoading, user, role, router, journalFilter, journalQueryString]);
+
+  useEffect(() => {
+    if (!phase2TechnicalQueue) return;
+    if (journalFilter === "failed") return;
+    const sp = new URLSearchParams(searchParams.toString());
+    sp.delete("phase2Queue");
+    const qs = sp.toString();
+    router.replace(qs ? `/direction/alertes?${qs}` : "/direction/alertes");
+  }, [journalFilter, phase2TechnicalQueue, router, searchParams]);
+
+  useEffect(() => {
+    if (!phase2TechnicalQueue) return;
+    if (journalFilter !== "failed") return;
+    if (journalLoading) return;
+    const el = journalSectionRef.current;
+    if (!el) return;
+    requestAnimationFrame(() => {
+      el.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  }, [phase2TechnicalQueue, journalFilter, journalLoading, journalItems.length]);
 
   const refreshSummary = useCallback(async () => {
     const {
@@ -616,7 +648,7 @@ export default function AlertCenterDirectionClient() {
             <span style={{ fontWeight: 600, color: "#334155", fontSize: 14 }}>Files métier</span>
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
               <Link
-                href={`/direction/alertes?status=open&journal=${journalFilter}`}
+                href={`/direction/alertes?status=open&journal=${journalFilter}${phase2QueueInFailedUrlSuffix}`}
                 style={{
                   fontSize: 13,
                   padding: "6px 12px",
@@ -631,7 +663,7 @@ export default function AlertCenterDirectionClient() {
                 Ouvertes seulement
               </Link>
               <Link
-                href={`/direction/alertes?status=all&journal=${journalFilter}`}
+                href={`/direction/alertes?status=all&journal=${journalFilter}${phase2QueueInFailedUrlSuffix}`}
                 style={{
                   fontSize: 13,
                   padding: "6px 12px",
@@ -649,11 +681,31 @@ export default function AlertCenterDirectionClient() {
           </div>
         </AppCard>
 
-        {/* Journal — filtres pills */}
+        <div ref={journalSectionRef} id="alert-center-journal">
         <SectionCard
           title="Journal des alertes"
           subtitle="Filtrez par statut, traitez ou archivez sans quitter la page."
         >
+          {phase2TechnicalQueue && journalFilter === "failed" ? (
+            <div
+              role="status"
+              style={{
+                marginBottom: 18,
+                padding: "12px 14px",
+                borderRadius: 12,
+                background: "#f0fdfa",
+                border: "1px solid #99f6e4",
+                color: "#0f766e",
+                fontSize: 13,
+                lineHeight: 1.5,
+              }}
+            >
+              <strong>Vue détail technique</strong> —{" "}
+              {phase2TechnicalQueue === "echecs-notifications"
+                ? "échecs d’envoi (app_alert_deliveries et sms_alerts_log, 90 jours)."
+                : "mentions internes en erreur d’envoi courriel (90 jours)."}
+            </div>
+          ) : null}
           <div
             style={{
               display: "flex",
@@ -672,7 +724,11 @@ export default function AlertCenterDirectionClient() {
               return (
                 <Link
                   key={key}
-                  href={`/direction/alertes?journal=${key}&status=${statusFilter}`}
+                  href={`/direction/alertes?journal=${key}&status=${statusFilter}${
+                    key === "failed" && phase2TechnicalQueue
+                      ? `&phase2Queue=${encodeURIComponent(phase2TechnicalQueue)}`
+                      : ""
+                  }`}
                   scroll={false}
                   style={{
                     flex: "0 0 auto",
@@ -787,7 +843,7 @@ export default function AlertCenterDirectionClient() {
                 border: "1px dashed #cbd5e1",
               }}
             >
-              {phase2Queue === "echecs-notifications" || phase2Queue === "notes-mentions-erreur"
+              {phase2TechnicalQueue
                 ? "Aucune ligne dans cette vue technique pour la période récente (90 jours)."
                 : `Aucune entrée pour « ${journalFilterLabel(journalFilter)} ».`}
             </div>
@@ -1097,6 +1153,7 @@ export default function AlertCenterDirectionClient() {
             </ul>
           )}
         </SectionCard>
+        </div>
 
         <SectionCard title="Files métier" subtitle="Comptes, effectifs, améliorations.">
           <div className="ui-stack-md">

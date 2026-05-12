@@ -14,7 +14,7 @@ export type Phase2QueueRow = {
   source: "journal" | "derived";
 };
 
-/** Liens « Ouvrir » : journal échecs + détail aligné sur les agrégats Phase 2 (livraisons livrées côté compteurs). */
+/** Liens « Ouvrir » : même page, journal « échecs » + paramètre phase2Queue (détails alignés sur les compteurs de la carte). */
 function hrefPhase2TechnicalQueue(queueId: "echecs-notifications" | "notes-mentions-erreur"): string {
   return `/direction/alertes?journal=failed&phase2Queue=${encodeURIComponent(queueId)}`;
 }

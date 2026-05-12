@@ -75,7 +75,7 @@ function labelChauffeur(map: Map<number, ChauffeurMini>, employeeId: number | nu
 }
 
 /**
- * Lignes du journal alignées sur les agrégats Phase 2 (échecs techniques hors seule table app_alerts).
+ * Lignes du journal alignées sur les compteurs des cartes « échecs techniques » (hors seule table app_alerts).
  */
 async function buildPhase2QueueJournalItems(
   supabase: ReturnType<typeof createAdminSupabaseClient>,
@@ -295,7 +295,11 @@ export async function GET(req: NextRequest) {
 
   const supabase = createAdminSupabaseClient();
 
-  if (phase2Queue === "echecs-notifications" || phase2Queue === "notes-mentions-erreur") {
+  /** File technique uniquement avec le filtre journal « échecs » (évite mismatch avec journal=actionable). */
+  if (
+    journal === "failed" &&
+    (phase2Queue === "echecs-notifications" || phase2Queue === "notes-mentions-erreur")
+  ) {
     try {
       const items = await buildPhase2QueueJournalItems(
         supabase,
