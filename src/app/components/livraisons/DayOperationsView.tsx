@@ -86,6 +86,19 @@ function formatDateLabel(isoDate: string) {
   });
 }
 
+function formatAuditTimestamp(value: string | number | null | undefined) {
+  if (value == null || value === "") return "";
+  const date = new Date(String(value));
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleString("fr-CA", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 function normalizeStatus(raw: string | null | undefined) {
   const value = (raw || "").trim().toLowerCase();
   if (value === "en_cours") return "en_cours" as const;
@@ -414,10 +427,14 @@ export default function DayOperationsView({ area }: Props) {
     const res = await fetch(`/api/livraisons/${stopId}/geocode-position`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
+      credentials: "same-origin",
       body: JSON.stringify({ latitude, longitude }),
     });
     if (!res.ok) return false;
-    const data = (await res.json().catch(() => ({}))) as { success?: boolean };
+    const data = (await res.json().catch(() => ({}))) as {
+      success?: boolean;
+      data?: Row;
+    };
     if (!data.success) return false;
     setGeocodeFailureById((prev) => {
       if (!(stopId in prev)) return prev;
@@ -428,7 +445,7 @@ export default function DayOperationsView({ area }: Props) {
     setRows((current) =>
       current.map((row) =>
         Number(row.id) === stopId
-          ? { ...row, latitude, longitude }
+          ? { ...row, latitude, longitude, ...(data.data ?? {}) }
           : row
       )
     );
@@ -959,14 +976,26 @@ export default function DayOperationsView({ area }: Props) {
   async function persistManualOrder(ids: number[]) {
     for (let i = 0; i < ids.length; i += 1) {
       const id = ids[i];
-      const { error } = await supabase
-        .from("livraisons_planifiees")
-        .update({ ordre_arret: i + 1 })
-        .eq("id", id);
-      if (error) {
-        setRouteMessage("Erreur de sauvegarde de l'ordre manuel.");
+      const response = await fetch(`/api/livraisons/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({ ordre_arret: i + 1 }),
+      });
+      const data = (await response.json().catch(() => ({}))) as {
+        updated_row?: Row;
+        error?: { message?: string };
+      };
+      if (!response.ok || !data.updated_row) {
+        setRouteMessage(
+          `Erreur de sauvegarde de l'ordre manuel : ${data.error?.message ?? "erreur inconnue"}`
+        );
         return false;
       }
+      const updatedRow = data.updated_row;
+      setRows((current) =>
+        current.map((row) => (Number(row.id) === id ? { ...row, ...updatedRow } : row))
+      );
     }
     return true;
   }
@@ -992,15 +1021,27 @@ export default function DayOperationsView({ area }: Props) {
     setOrderedStopIds(nextOrder);
     for (let i = 0; i < nextOrder.length; i += 1) {
       const id = nextOrder[i];
-      const { error } = await supabase
-        .from("livraisons_planifiees")
-        .update({ ordre_arret: i + 1 })
-        .eq("id", id);
-      if (error) {
-        setRouteMessage("Echec de l'application de l'ordre suggere.");
+      const response = await fetch(`/api/livraisons/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({ ordre_arret: i + 1 }),
+      });
+      const data = (await response.json().catch(() => ({}))) as {
+        updated_row?: Row;
+        error?: { message?: string };
+      };
+      if (!response.ok || !data.updated_row) {
+        setRouteMessage(
+          `Echec de l'application de l'ordre suggere : ${data.error?.message ?? "erreur inconnue"}`
+        );
         setRouteApplying(false);
         return;
       }
+      const updatedRow = data.updated_row;
+      setRows((current) =>
+        current.map((row) => (Number(row.id) === id ? { ...row, ...updatedRow } : row))
+      );
     }
     setRouteMessage("Ordre suggere applique.");
     setRouteApplying(false);
@@ -1170,9 +1211,17 @@ export default function DayOperationsView({ area }: Props) {
     setStopFormMessage("");
     try {
       if (action === "supprimer") {
-        const { error } = await supabase.from("livraisons_planifiees").delete().eq("id", selected.id);
-        if (error) {
-          setStopFormMessage("Suppression impossible pour le moment.");
+        const response = await fetch(`/api/livraisons/${selected.id}`, {
+          method: "DELETE",
+          credentials: "same-origin",
+        });
+        const data = (await response.json().catch(() => ({}))) as {
+          error?: { message?: string };
+        };
+        if (!response.ok) {
+          setStopFormMessage(
+            `Suppression impossible : ${data.error?.message ?? "erreur inconnue"}`
+          );
           return;
         }
         setRows((current) => current.filter((row) => Number(row.id) !== selected.id));
@@ -1196,18 +1245,27 @@ export default function DayOperationsView({ area }: Props) {
       if (action === "completer") {
         patch.statut = selected.type === "ramassage" ? "ramassee" : "livree";
       }
-      const { data, error } = await supabase
-        .from("livraisons_planifiees")
-        .update(patch)
-        .eq("id", selected.id)
-        .select("*")
-        .maybeSingle();
-      if (error || !data) {
-        setStopFormMessage("Action rapide indisponible pour le moment.");
+
+      const response = await fetch(`/api/livraisons/${selected.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify(patch),
+      });
+      const data = (await response.json().catch(() => ({}))) as {
+        success?: boolean;
+        updated_row?: Row;
+        error?: { message?: string };
+      };
+      if (!response.ok || !data.updated_row) {
+        setStopFormMessage(
+          `Action rapide indisponible : ${data.error?.message ?? "erreur inconnue"}`
+        );
         return;
       }
+      const updatedRow = data.updated_row;
       setRows((current) =>
-        current.map((row) => (Number(row.id) === selected.id ? { ...row, ...(data as Row) } : row))
+        current.map((row) => (Number(row.id) === selected.id ? { ...row, ...updatedRow } : row))
       );
       setStopFormMessage(
         action === "annuler"
@@ -1942,6 +2000,60 @@ export default function DayOperationsView({ area }: Props) {
                   <div><strong>Facture:</strong> {String(selected.row.numero_facture || selected.row.facture || "-")}</div>
                 </AppCard>
               </div>
+
+              {(() => {
+                const scheduledByName =
+                  getFieldString(selected.row, ["scheduled_by_name", "created_by_name"]) || "-";
+                const createdAtRaw = getFieldString(selected.row, ["created_at"]);
+                const createdAtLabel = formatAuditTimestamp(createdAtRaw) || "-";
+                const updatedByName = getFieldString(selected.row, ["updated_by_name"]);
+                const updatedAtRaw = getFieldString(selected.row, ["updated_at"]);
+                const updatedAtLabel = formatAuditTimestamp(updatedAtRaw);
+                const createdById = getFieldString(selected.row, [
+                  "scheduled_by_user_id",
+                  "created_by_user_id",
+                ]);
+                const updatedById = getFieldString(selected.row, ["updated_by_user_id"]);
+                const hasDistinctUpdate =
+                  Boolean(updatedByName || updatedAtLabel) &&
+                  (updatedById !== createdById ||
+                    (updatedAtRaw && createdAtRaw && updatedAtRaw !== createdAtRaw));
+
+                return (
+                  <AppCard
+                    tone="muted"
+                    className="ui-stack-xs"
+                    style={{
+                      padding: 12,
+                      border: "1px solid #cbd5e1",
+                      background: "#f1f5f9",
+                    }}
+                    aria-label="Tracabilite de la livraison"
+                  >
+                    <strong style={{ fontSize: 13 }}>Tracabilite</strong>
+                    <div style={{ display: "grid", gap: 4, fontSize: 13 }}>
+                      <div>
+                        <strong>Programme par :</strong> {scheduledByName}
+                      </div>
+                      <div>
+                        <strong>Cree le :</strong> {createdAtLabel}
+                      </div>
+                      {hasDistinctUpdate ? (
+                        <>
+                          <div>
+                            <strong>Derniere modification par :</strong>{" "}
+                            {updatedByName || "-"}
+                          </div>
+                          <div>
+                            <strong>Derniere modification :</strong>{" "}
+                            {updatedAtLabel || "-"}
+                          </div>
+                        </>
+                      ) : null}
+                    </div>
+                  </AppCard>
+                );
+              })()}
 
               {canEditStopDetails ? (
                 <AppCard tone="muted" className="ui-stack-xs" style={{ padding: 12 }}>

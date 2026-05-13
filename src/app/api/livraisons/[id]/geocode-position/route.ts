@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAuthenticatedRequestUser } from "@/app/lib/account-requests.server";
 import { hasUserPermission } from "@/app/lib/auth/permissions";
 import { createAdminSupabaseClient } from "@/app/lib/supabase/admin";
+import { buildUpdateStamp } from "@/app/lib/livraisons/audit-stamp.server";
 
 type Body = { latitude?: unknown; longitude?: unknown };
 
@@ -46,9 +47,9 @@ export async function PATCH(
     const supabase = createAdminSupabaseClient();
     const { data, error } = await supabase
       .from("livraisons_planifiees")
-      .update({ latitude: lat, longitude: lng })
+      .update({ latitude: lat, longitude: lng, ...buildUpdateStamp(user) })
       .eq("id", livraisonId)
-      .select("id, latitude, longitude")
+      .select("id, latitude, longitude, updated_by_user_id, updated_by_name, updated_at")
       .maybeSingle();
 
     if (error) {

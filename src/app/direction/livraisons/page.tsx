@@ -368,12 +368,29 @@ export default function Page() {
 
     const payload = buildPayload(form);
 
-    const res = editingId
-      ? await supabase.from("livraisons_planifiees").update(payload).eq("id", editingId)
-      : await supabase.from("livraisons_planifiees").insert([payload]);
+    const response = editingId
+      ? await fetch(`/api/livraisons/${editingId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify(payload),
+        })
+      : await fetch(`/api/livraisons`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify(payload),
+        });
 
-    if (res.error) {
-      setFeedbackMessage(`Erreur sauvegarde: ${res.error.message}`, "error");
+    const data = (await response.json().catch(() => ({}))) as {
+      error?: { message?: string };
+    };
+
+    if (!response.ok) {
+      setFeedbackMessage(
+        `Erreur sauvegarde: ${data.error?.message ?? "erreur inconnue"}`,
+        "error"
+      );
       setSaving(false);
       return;
     }
@@ -391,10 +408,22 @@ export default function Page() {
 
     const payload = buildPayload(newForm);
 
-    const res = await supabase.from("livraisons_planifiees").insert([payload]);
+    const response = await fetch(`/api/livraisons`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "same-origin",
+      body: JSON.stringify(payload),
+    });
 
-    if (res.error) {
-      setFeedbackMessage(`Erreur creation: ${res.error.message}`, "error");
+    const data = (await response.json().catch(() => ({}))) as {
+      error?: { message?: string };
+    };
+
+    if (!response.ok) {
+      setFeedbackMessage(
+        `Erreur creation: ${data.error?.message ?? "erreur inconnue"}`,
+        "error"
+      );
       setSaving(false);
       return;
     }
@@ -431,10 +460,19 @@ export default function Page() {
     if (!window.confirm("Supprimer cette livraison ?")) return;
 
     clearMessage();
-    const res = await supabase.from("livraisons_planifiees").delete().eq("id", id);
+    const response = await fetch(`/api/livraisons/${id}`, {
+      method: "DELETE",
+      credentials: "same-origin",
+    });
+    const data = (await response.json().catch(() => ({}))) as {
+      error?: { message?: string };
+    };
 
-    if (res.error) {
-      setFeedbackMessage(`Erreur suppression: ${res.error.message}`, "error");
+    if (!response.ok) {
+      setFeedbackMessage(
+        `Erreur suppression: ${data.error?.message ?? "erreur inconnue"}`,
+        "error"
+      );
       return;
     }
 
@@ -446,18 +484,30 @@ export default function Page() {
   async function handleStatusChange(id: number, newStatut: string) {
     clearMessage();
 
-    const res = await supabase
-      .from("livraisons_planifiees")
-      .update({ statut: newStatut })
-      .eq("id", id);
+    const response = await fetch(`/api/livraisons/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      credentials: "same-origin",
+      body: JSON.stringify({ statut: newStatut }),
+    });
+    const data = (await response.json().catch(() => ({}))) as {
+      updated_row?: Row;
+      error?: { message?: string };
+    };
 
-    if (res.error) {
-      setFeedbackMessage(`Erreur mise a jour statut: ${res.error.message}`, "error");
+    if (!response.ok || !data.updated_row) {
+      setFeedbackMessage(
+        `Erreur mise a jour statut: ${data.error?.message ?? "erreur inconnue"}`,
+        "error"
+      );
       return;
     }
 
+    const updatedRow = data.updated_row;
     setFeedbackMessage(`Statut mis a jour: ${newStatut}`, "success");
-    setLivraisons((prev) => prev.map((item) => (item.id === id ? { ...item, statut: newStatut } : item)));
+    setLivraisons((prev) =>
+      prev.map((item) => (Number(item.id) === id ? { ...item, ...updatedRow } : item))
+    );
   }
 
   if (accessLoading || (!blocked && loading)) {

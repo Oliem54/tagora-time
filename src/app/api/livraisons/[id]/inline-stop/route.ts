@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAuthenticatedRequestUser } from "@/app/lib/account-requests.server";
 import { hasUserPermission } from "@/app/lib/auth/permissions";
 import { createAdminSupabaseClient } from "@/app/lib/supabase/admin";
+import { buildUpdateStamp } from "@/app/lib/livraisons/audit-stamp.server";
 
 type InlineStopPayload = {
   adresse?: unknown;
@@ -30,6 +31,14 @@ type LivraisonInlineRow = {
   longitude: number | null;
   note_chauffeur: string | null;
   commentaire_operationnel: string | null;
+  created_by_user_id: string | null;
+  created_by_name: string | null;
+  scheduled_by_user_id: string | null;
+  scheduled_by_name: string | null;
+  updated_by_user_id: string | null;
+  updated_by_name: string | null;
+  created_at: string | null;
+  updated_at: string | null;
 };
 
 function asNullableText(value: unknown) {
@@ -61,7 +70,7 @@ function buildErrorBody(
 }
 
 const INLINE_SELECT =
-  "id, adresse, ville, code_postal, province, date_livraison, heure_prevue, statut, latitude, longitude, note_chauffeur, commentaire_operationnel";
+  "id, adresse, ville, code_postal, province, date_livraison, heure_prevue, statut, latitude, longitude, note_chauffeur, commentaire_operationnel, created_by_user_id, created_by_name, scheduled_by_user_id, scheduled_by_name, updated_by_user_id, updated_by_name, created_at, updated_at";
 
 export async function PATCH(
   req: NextRequest,
@@ -117,6 +126,7 @@ export async function PATCH(
       longitude,
       note_chauffeur: asNullableText(body.note_chauffeur),
       commentaire_operationnel: asNullableText(body.commentaire_operationnel),
+      ...buildUpdateStamp(user),
     };
 
     const supabase = createAdminSupabaseClient();
@@ -155,20 +165,23 @@ export async function PATCH(
       updateError.message.toLowerCase().includes("schema cache");
 
     if (mentionsMissingColumn) {
+      // Fallback ultra-minimal : on retire les stamps d'audit et on ne touche qu'a
+      // l'adresse, avec un SELECT restreint, pour rester compatible avec une base
+      // ou les migrations recentes n'ont pas encore ete appliquees.
       const fallbackPayload = { adresse: payload.adresse };
       const fallbackRes = await supabase
         .from("livraisons_planifiees")
         .update(fallbackPayload)
         .eq("id", livraisonId)
-        .select(INLINE_SELECT)
-        .maybeSingle<LivraisonInlineRow>();
+        .select("id, adresse, statut, date_livraison, heure_prevue")
+        .maybeSingle<Partial<LivraisonInlineRow>>();
 
       if (!fallbackRes.error && fallbackRes.data) {
         return NextResponse.json({
           success: true,
           updated_row: fallbackRes.data,
           warning:
-            "Colonnes inline absentes. Appliquer migration 20260426_120500_livraisons_planifiees_inline_stop_fields.sql.",
+            "Colonnes inline ou audit absentes. Appliquer migrations 20260426_120500_livraisons_planifiees_inline_stop_fields.sql et 20260513_103000_livraisons_planifiees_user_audit.sql.",
         });
       }
 
