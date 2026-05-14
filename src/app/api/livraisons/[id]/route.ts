@@ -3,6 +3,10 @@ import { getAuthenticatedRequestUser } from "@/app/lib/account-requests.server";
 import { hasUserPermission } from "@/app/lib/auth/permissions";
 import { createAdminSupabaseClient } from "@/app/lib/supabase/admin";
 import { buildUpdateStamp } from "@/app/lib/livraisons/audit-stamp.server";
+import {
+  gateFinalizationAfterMerge,
+  mergePaymentConfirmationFromRequest,
+} from "@/app/lib/livraisons/livraison-payment.server";
 
 // Champs autorises a etre mis a jour via cette API generique.
 // Note : les champs d'audit (created_by_*, scheduled_by_*) ne peuvent pas etre
@@ -10,11 +14,16 @@ import { buildUpdateStamp } from "@/app/lib/livraisons/audit-stamp.server";
 const ALLOWED_UPDATE_FIELDS = new Set([
   "dossier_id",
   "client",
-  "client_phone",
   "adresse",
   "ville",
   "code_postal",
+  "postal_code",
   "province",
+  "contact_name",
+  "contact_phone_primary",
+  "contact_phone_primary_ext",
+  "contact_phone_secondary",
+  "contact_phone_secondary_ext",
   "date_livraison",
   "heure_prevue",
   "chauffeur_id",
@@ -29,6 +38,12 @@ const ALLOWED_UPDATE_FIELDS = new Set([
   "longitude",
   "type_operation",
   "ordre_arret",
+  "item_location",
+  "pickup_address",
+  "payment_status",
+  "payment_balance_due",
+  "payment_method",
+  "payment_note",
 ]);
 
 type AnyRecord = Record<string, unknown>;
@@ -58,6 +73,11 @@ function sanitizePayload(input: AnyRecord) {
     if ((key === "latitude" || key === "longitude") && value != null && value !== "") {
       const parsed = Number(value);
       payload[key] = Number.isFinite(parsed) ? parsed : null;
+      continue;
+    }
+    if (key === "payment_balance_due" && value != null && value !== "") {
+      const parsed = Number(value);
+      payload[key] = Number.isFinite(parsed) ? Math.round(parsed * 100) / 100 : null;
       continue;
     }
     payload[key] = value === "" ? null : value;
@@ -105,9 +125,20 @@ export async function PATCH(
     }
 
     const body = (await req.json().catch(() => ({}))) as AnyRecord;
+    const paymentConfirmed = body.payment_confirmed === true;
+    const confirmationMethod =
+      typeof body.payment_method === "string" ? body.payment_method.trim() : "";
+
     const { payload, ignored } = sanitizePayload(body);
 
-    if (Object.keys(payload).length === 0) {
+    if ("postal_code" in payload && !("code_postal" in payload)) {
+      payload.code_postal = payload.postal_code;
+    }
+    if ("code_postal" in payload && !("postal_code" in payload)) {
+      payload.postal_code = payload.code_postal;
+    }
+
+    if (Object.keys(payload).length === 0 && !paymentConfirmed) {
       return NextResponse.json(
         {
           error: {
@@ -119,17 +150,101 @@ export async function PATCH(
       );
     }
 
-    const stampedPayload = { ...payload, ...buildUpdateStamp(user) };
-
     const supabase = createAdminSupabaseClient();
-    const updateRes = await supabase
+    const { data: currentRow, error: currentErr } = await supabase
+      .from("livraisons_planifiees")
+      .select("statut, payment_status, payment_balance_due, type_operation")
+      .eq("id", livraisonId)
+      .maybeSingle<{
+        statut: string | null;
+        payment_status: string | null;
+        payment_balance_due: number | string | null;
+        type_operation: string | null;
+      }>();
+
+    if (currentErr) {
+      console.error("[api/livraisons/[id] PATCH] load current", { livraisonId, currentErr });
+      return NextResponse.json(
+        { error: { message: currentErr.message } },
+        { status: 400 }
+      );
+    }
+    if (!currentRow) {
+      return NextResponse.json(
+        { error: { message: "Livraison introuvable." } },
+        { status: 404 }
+      );
+    }
+
+    const mergedPayment = mergePaymentConfirmationFromRequest(body, payload, user);
+    if (mergedPayment.error) {
+      return NextResponse.json(
+        { error: { message: mergedPayment.error.message } },
+        { status: mergedPayment.error.status }
+      );
+    }
+
+    const gate = gateFinalizationAfterMerge({
+      currentStatut: currentRow.statut,
+      currentBalanceDue: currentRow.payment_balance_due,
+      currentTypeOperation: currentRow.type_operation,
+      mergePatch: mergedPayment.merge,
+      paymentConfirmed,
+      confirmationMethodTrimmed: confirmationMethod,
+    });
+    if (!gate.ok) {
+      return NextResponse.json({ error: { message: gate.message } }, { status: gate.httpStatus });
+    }
+
+    const stampedPayload = { ...mergedPayment.merge, ...buildUpdateStamp(user) };
+
+    let updateRes = await supabase
       .from("livraisons_planifiees")
       .update(stampedPayload)
       .eq("id", livraisonId)
       .select("*")
       .maybeSingle();
 
+    let auditWarning: string | undefined;
+
+    // Fallback : si la migration d'audit n'a pas encore ete appliquee, on retente
+    // sans les colonnes d'audit pour ne pas casser les Actions rapides.
+    if (
+      updateRes.error &&
+      (updateRes.error.code === "42703" ||
+        (typeof updateRes.error.message === "string" &&
+          updateRes.error.message.toLowerCase().includes("column") &&
+          (updateRes.error.message.toLowerCase().includes("updated_by") ||
+            updateRes.error.message.toLowerCase().includes("updated_at") ||
+            updateRes.error.message.toLowerCase().includes("schema cache"))))
+    ) {
+      console.warn(
+        "[api/livraisons/[id] PATCH] audit columns missing, retrying without stamp",
+        {
+          livraisonId,
+          code: updateRes.error.code,
+          message: updateRes.error.message,
+        }
+      );
+      updateRes = await supabase
+        .from("livraisons_planifiees")
+        .update(mergedPayment.merge)
+        .eq("id", livraisonId)
+        .select("*")
+        .maybeSingle();
+      auditWarning =
+        "Colonnes d'audit absentes. Appliquer la migration 20260513_103000_livraisons_planifiees_user_audit.sql pour activer le suivi 'Programme par / Modifie par'.";
+    }
+
     if (updateRes.error) {
+      console.error("[api/livraisons/[id] PATCH] db error", {
+        livraisonId,
+        payload: stampedPayload,
+        code: updateRes.error.code,
+        message: updateRes.error.message,
+        details: updateRes.error.details,
+        hint: updateRes.error.hint,
+      });
       return NextResponse.json(
         {
           error: {
@@ -144,6 +259,7 @@ export async function PATCH(
     }
 
     if (!updateRes.data) {
+      console.warn("[api/livraisons/[id] PATCH] no row updated", { livraisonId });
       return NextResponse.json(
         {
           error: {
@@ -158,6 +274,7 @@ export async function PATCH(
       success: true,
       updated_row: updateRes.data,
       ignored: ignored.length > 0 ? ignored : undefined,
+      warning: auditWarning,
     });
   } catch (error) {
     const message =
@@ -213,6 +330,13 @@ export async function DELETE(
       .maybeSingle();
 
     if (deleteRes.error) {
+      console.error("[api/livraisons/[id] DELETE] db error", {
+        livraisonId,
+        code: deleteRes.error.code,
+        message: deleteRes.error.message,
+        details: deleteRes.error.details,
+        hint: deleteRes.error.hint,
+      });
       return NextResponse.json(
         {
           error: {

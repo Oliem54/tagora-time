@@ -16,6 +16,8 @@ type EmployeeSnapshot = {
     fullName: string | null;
     email: string | null;
     primaryCompany: "oliem_solutions" | "titan_produits_industriels" | null;
+    /** Pause payée : aucun pointage pause requis (défaut true si absent). */
+    pausePaid?: boolean;
   };
   currentState: {
     current_state?: string | null;
@@ -171,6 +173,7 @@ function normalizeSnapshotPayload(payload: unknown): EmployeeSnapshot | null {
         employee.primaryCompany === "titan_produits_industriels"
           ? employee.primaryCompany
           : null,
+      pausePaid: typeof employee.pausePaid === "boolean" ? employee.pausePaid : true,
     },
     currentState: {
       current_state:
@@ -610,7 +613,11 @@ export default function EmployeHorodateurPage() {
           />
         </label>
         <div className="actions-row">
-          {EMPLOYEE_ACTIONS.map((action) => (
+          {EMPLOYEE_ACTIONS.map((action) => {
+            const pausePaid = snapshot?.employee.pausePaid !== false;
+            const isPauseAction =
+              action.eventType === "break_start" || action.eventType === "break_end";
+            return (
             <button
               key={action.eventType}
               type="button"
@@ -620,11 +627,12 @@ export default function EmployeHorodateurPage() {
                   : "tagora-dark-outline-action"
               }
               onClick={() => void handlePunch(action.eventType)}
-              disabled={saving}
+              disabled={saving || (pausePaid && isPauseAction)}
             >
               {action.label}
             </button>
-          ))}
+          );
+          })}
         </div>
       </section>
 

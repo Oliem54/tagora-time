@@ -3,15 +3,24 @@ import { dualWriteLivraisonDeliveryIncident } from "@/app/lib/app-alerts-dual-wr
 import { getAuthenticatedRequestUser } from "@/app/lib/account-requests.server";
 import { hasUserPermission } from "@/app/lib/auth/permissions";
 import { createAdminSupabaseClient } from "@/app/lib/supabase/admin";
+import { buildUpdateStamp } from "@/app/lib/livraisons/audit-stamp.server";
+import {
+  assertPaymentAllowsFinalization,
+  buildPaymentConfirmationFields,
+  normalizePaymentBalanceDue,
+} from "@/app/lib/livraisons/livraison-payment.server";
 
 type LivraisonRow = {
   id: number;
   statut: string | null;
   heure_depart_reelle: string | null;
   type_operation: string | null;
+  payment_balance_due: number | string | null;
 };
 
 type LivrerBody = {
+  payment_confirmed?: unknown;
+  payment_method?: unknown;
   kmArrivee?: unknown;
   proof?: {
     note?: unknown;
@@ -111,7 +120,7 @@ export async function POST(
     const supabase = createAdminSupabaseClient();
     const { data: livraison, error: livraisonError } = await supabase
       .from("livraisons_planifiees")
-      .select("id, statut, heure_depart_reelle, type_operation")
+      .select("id, statut, heure_depart_reelle, type_operation, payment_balance_due")
       .eq("id", livraisonId)
       .maybeSingle<LivraisonRow>();
 
@@ -130,19 +139,41 @@ export async function POST(
       );
     }
 
+    const paymentConfirmed = body.payment_confirmed === true;
+    const confirmationMethod =
+      typeof body.payment_method === "string" ? body.payment_method.trim() : "";
+
+    const balanceDue = normalizePaymentBalanceDue(livraison.payment_balance_due);
+    const paymentGate = assertPaymentAllowsFinalization({
+      typeOperation: livraison.type_operation,
+      mergedStatut: "livree",
+      effectiveBalanceDue: balanceDue,
+      paymentConfirmed,
+      paymentMethodWhenConfirming: paymentConfirmed ? confirmationMethod : null,
+    });
+    if (!paymentGate.ok) {
+      return NextResponse.json({ error: paymentGate.message }, { status: paymentGate.httpStatus });
+    }
+
     const heureLivree = new Date().toISOString();
     const tempsTotal = livraison.heure_depart_reelle
       ? calculerTempsTotal(livraison.heure_depart_reelle, heureLivree)
       : null;
 
+    const updateRow: Record<string, unknown> = {
+      statut: "livree",
+      heure_livree: heureLivree,
+      km_arrivee: kmArrivee,
+      temps_total: tempsTotal,
+      ...buildUpdateStamp(user),
+    };
+    if (paymentConfirmed && confirmationMethod) {
+      Object.assign(updateRow, buildPaymentConfirmationFields(user, confirmationMethod));
+    }
+
     const { error: updateError } = await supabase
       .from("livraisons_planifiees")
-      .update({
-        statut: "livree",
-        heure_livree: heureLivree,
-        km_arrivee: kmArrivee,
-        temps_total: tempsTotal,
-      })
+      .update(updateRow)
       .eq("id", livraison.id);
 
     if (updateError) {

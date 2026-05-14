@@ -12,6 +12,7 @@ import {
   normalizeCompany,
   normalizeEmail,
   normalizePermissions,
+  isValidEmail,
   type AccountRequestRow,
   type AccountRequestCompany,
 } from "@/app/lib/account-requests.shared";
@@ -31,6 +32,7 @@ type AccountRequestAction =
   | "approve"
   | "refuse"
   | "update_access"
+  | "update_request_details"
   | "reset_pending"
   | "resend_invitation"
   | "disable_access"
@@ -41,6 +43,7 @@ function parseAction(value: unknown): AccountRequestAction | null {
     value === "approve" ||
     value === "refuse" ||
     value === "update_access" ||
+    value === "update_request_details" ||
     value === "reset_pending" ||
     value === "resend_invitation" ||
     value === "disable_access" ||
@@ -1341,6 +1344,150 @@ function createDirectionAudit(
   );
 }
 
+async function applyUpdateRequestDetails(
+  id: string,
+  body: Record<string, unknown>,
+  actorUser: User
+) {
+  const row = await loadRequestRow(id);
+  if (!row) {
+    throw createManagedRouteError({ status: 404, error: "Demande introuvable." });
+  }
+
+  if (row.status !== "pending" && row.status !== "error") {
+    throw createManagedRouteError({
+      status: 409,
+      error:
+        "Seules les demandes en attente ou en erreur peuvent etre modifiees de cette facon.",
+    });
+  }
+
+  const fullName = String(body.fullName ?? body.full_name ?? "").trim();
+  if (!fullName) {
+    throw createManagedRouteError({
+      status: 400,
+      error: "Le nom complet est obligatoire.",
+    });
+  }
+
+  const emailRaw = normalizeEmail(body.email);
+  if (!emailRaw || !isValidEmail(emailRaw)) {
+    throw createManagedRouteError({
+      status: 400,
+      error: "Format de courriel invalide.",
+    });
+  }
+
+  const phone = String(body.phone ?? "").trim() || null;
+
+  const companyFromBody = normalizeCompany(body.company);
+  const company = companyFromBody ?? row.company;
+  if (!company) {
+    throw createManagedRouteError({
+      status: 400,
+      error: "Compagnie invalide.",
+    });
+  }
+
+  let requestedRole: "employe" | "direction" = row.requested_role as
+    | "employe"
+    | "direction";
+  if (body.requestedRole === "direction" || body.requestedRole === "employe") {
+    requestedRole = body.requestedRole;
+  }
+
+  const requestedPermissions = Array.isArray(body.requestedPermissions)
+    ? normalizePermissions(body.requestedPermissions)
+    : (row.requested_permissions ?? []);
+
+  const message =
+    "message" in body && typeof body.message === "string"
+      ? String(body.message).trim() || null
+      : row.message;
+
+  const priorEmail = normalizeEmail(row.email);
+  if (emailRaw !== priorEmail) {
+    const otherAuth = await findAuthUserByEmail(emailRaw);
+    if (otherAuth && otherAuth.id !== row.invited_user_id) {
+      throw createManagedRouteError({
+        status: 409,
+        error: "Impossible de modifier le courriel : ce courriel est déjà utilisé.",
+        code: "email_already_used",
+      });
+    }
+
+    const admin = createAdminSupabaseClient();
+    const { data: pendingRows, error: pendingErr } = await admin
+      .from("account_requests")
+      .select("id, email, status")
+      .eq("status", "pending")
+      .neq("id", id);
+
+    if (pendingErr) {
+      throw pendingErr;
+    }
+
+    const duplicatePending = (pendingRows ?? []).some(
+      (item) => item && normalizeEmail(item.email) === emailRaw
+    );
+    if (duplicatePending) {
+      throw createManagedRouteError({
+        status: 409,
+        error: "Impossible de modifier le courriel : ce courriel est déjà utilisé.",
+        code: "email_already_used",
+      });
+    }
+  }
+
+  const nextAudit = createDirectionAudit(row, actorUser, "request_updated", {
+    kind: "request_details_updated",
+    updated_by_user_id: actorUser.id,
+    updated_by_name: actorUser.email ?? actorUser.id,
+    previous: {
+      full_name: row.full_name,
+      email: priorEmail,
+      phone: row.phone,
+      company: row.company,
+      requested_role: row.requested_role,
+      requested_permissions: row.requested_permissions ?? [],
+      message: row.message,
+    },
+    next: {
+      full_name: fullName,
+      email: emailRaw,
+      phone,
+      company,
+      requested_role: requestedRole,
+      requested_permissions: requestedPermissions,
+      message,
+    },
+  });
+
+  try {
+    await updateRequestRow(id, {
+      full_name: fullName,
+      email: emailRaw,
+      phone,
+      company,
+      requested_role: requestedRole,
+      requested_permissions: requestedPermissions,
+      message,
+      audit_log: nextAudit,
+    });
+  } catch (error) {
+    if (isDuplicateEmailError(error)) {
+      throw createManagedRouteError({
+        status: 409,
+        error: "Impossible de modifier le courriel : ce courriel est déjà utilisé.",
+        code: "email_already_used",
+      });
+    }
+    throw error;
+  }
+
+  return loadRequestRow(id);
+}
+
 export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -1361,10 +1508,6 @@ export async function PATCH(
     const { user, role, mfaError } = await getStrictDirectionRequestUser(req);
     if (mfaError) return mfaError;
 
-    if (!user || role !== "admin") {
-      return NextResponse.json({ error: "Acces refuse." }, { status: 403 });
-    }
-
     const { id } = await params;
     const body = (await req.json()) as Record<string, unknown>;
     const action = parseAction(body.action);
@@ -1377,6 +1520,33 @@ export async function PATCH(
 
     if (!action) {
       return NextResponse.json({ error: "Action invalide." }, { status: 400 });
+    }
+
+    if (action === "update_request_details") {
+      if (!user || (role !== "direction" && role !== "admin")) {
+        return NextResponse.json({ error: "Acces refuse." }, { status: 403 });
+      }
+
+      try {
+        const updated = await applyUpdateRequestDetails(id, body, user);
+        return NextResponse.json({ success: true, request: updated });
+      } catch (error) {
+        const normalizedError = getApprovalErrorResponse(error);
+        return NextResponse.json(
+          {
+            success: false,
+            error: normalizedError.error,
+            details: normalizedError.details,
+            code: normalizedError.code,
+            hint: normalizedError.hint,
+          },
+          { status: normalizedError.status }
+        );
+      }
+    }
+
+    if (!user || role !== "admin") {
+      return NextResponse.json({ error: "Acces refuse." }, { status: 403 });
     }
 
     if (action === "approve" || action === "refuse") {

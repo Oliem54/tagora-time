@@ -29,6 +29,7 @@ import {
 import { supabase } from "@/app/lib/supabase/client";
 import TagoraStatCard from "@/app/components/TagoraStatCard";
 import type { TagoraStatTone } from "@/app/components/tagora-stat-tone";
+import AccountRequestEditDetailsModal from "./AccountRequestEditDetailsModal";
 import AccountRequestRowActions from "./AccountRequestRowActions";
 import EmployeeLinkStatusBadge from "./EmployeeLinkStatusBadge";
 
@@ -521,12 +522,15 @@ function AccountEditDrawer({
 export default function DirectionEmployeeAccountsClient() {
   const { user, role } = useCurrentAccess();
   const canManageRoles = role === "admin";
+  const canEditRequestDetails = role === "direction" || role === "admin";
   const viewerRoleLabel = getViewerRoleLabel(role);
   const [requests, setRequests] = useState<AccountAccessRequestRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [accessToken, setAccessToken] = useState<string | null>(null);
   const [isReady, setIsReady] = useState(false);
   const [editingRequestId, setEditingRequestId] = useState<string | null>(null);
+  const [detailsEditRequestId, setDetailsEditRequestId] = useState<string | null>(null);
+  const [savingDetails, setSavingDetails] = useState(false);
   const [assignedRole, setAssignedRole] = useState<RequestRole>("employe");
   const [assignedPermissions, setAssignedPermissions] = useState<string[]>([]);
   const [reviewNote, setReviewNote] = useState("");
@@ -553,6 +557,11 @@ export default function DirectionEmployeeAccountsClient() {
   const editingRequest = useMemo(
     () => sortedRequests.find((item) => item.id === editingRequestId) ?? null,
     [editingRequestId, sortedRequests]
+  );
+
+  const detailsEditRequest = useMemo(
+    () => sortedRequests.find((item) => item.id === detailsEditRequestId) ?? null,
+    [detailsEditRequestId, sortedRequests]
   );
 
   const counts = useMemo(
@@ -670,6 +679,75 @@ export default function DirectionEmployeeAccountsClient() {
         ? prev.filter((item) => item !== permission)
         : [...prev, permission]
     );
+  }
+
+  async function saveRequestDetails(payload: {
+    fullName: string;
+    email: string;
+    phone: string;
+    company: AccountRequestCompany;
+    requestedRole: "employe" | "direction";
+    requestedPermissions: string[];
+    message: string;
+  }) {
+    if (!accessToken || !detailsEditRequest) {
+      return;
+    }
+    if (!canEditRequestDetails) {
+      setMessage("Action reservee a la direction ou aux administrateurs.");
+      setMessageType("error");
+      return;
+    }
+
+    setSavingDetails(true);
+    setMessage("");
+    setMessageType(null);
+
+    try {
+      const response = await window.fetch(`/api/account-requests/${detailsEditRequest.id}`, {
+        method: "PATCH",
+        cache: "no-store",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+          "x-account-requests-client": "browser-authenticated",
+          "x-account-requests-page": "direction-demandes-comptes",
+        },
+        body: JSON.stringify({
+          action: "update_request_details",
+          fullName: payload.fullName,
+          email: payload.email,
+          phone: payload.phone,
+          company: payload.company,
+          requestedRole: payload.requestedRole,
+          requestedPermissions: payload.requestedPermissions,
+          message: payload.message,
+        }),
+      });
+
+      const responsePayload = await response.json();
+
+      if (!response.ok) {
+        setMessage(
+          buildApiErrorMessage(
+            responsePayload,
+            "La mise a jour de la demande n a pas pu aboutir."
+          )
+        );
+        setMessageType("error");
+        return;
+      }
+
+      setDetailsEditRequestId(null);
+      setMessage("Demande mise à jour avec succès.");
+      setMessageType("success");
+      await fetchRequests();
+    } catch {
+      setMessage("La mise a jour de la demande n a pas pu aboutir.");
+      setMessageType("error");
+    } finally {
+      setSavingDetails(false);
+    }
   }
 
   async function runAction(action: AccountAccessAction, request: AccountAccessRequestRecord) {
@@ -826,6 +904,7 @@ export default function DirectionEmployeeAccountsClient() {
       setMessageType("success");
       setRequests((current) => current.filter((item) => item.id !== request.id));
       setEditingRequestId((current) => (current === request.id ? null : current));
+      setDetailsEditRequestId((current) => (current === request.id ? null : current));
     } catch {
       setMessage("La suppression de la demande n a pas pu aboutir.");
       setMessageType("error");
@@ -1011,10 +1090,13 @@ export default function DirectionEmployeeAccountsClient() {
                         <div className="account-requests-cell-actions">
                           <AccountRequestRowActions
                             request={request}
-                            onEdit={() => setEditingRequestId(request.id)}
+                            onEditRequestDetails={() => setDetailsEditRequestId(request.id)}
+                            onEditAccountAccess={() => setEditingRequestId(request.id)}
                             onDelete={() => void deleteRequest(request)}
                             deleting={deletingRequestId === request.id}
                             canDelete={canManageRoles}
+                            canEditRequestDetails={canEditRequestDetails}
+                            canEditAccountAccess={canManageRoles}
                           />
                         </div>
                       </td>
@@ -1049,6 +1131,14 @@ export default function DirectionEmployeeAccountsClient() {
           canManageRoles={canManageRoles}
         />
       ) : null}
+
+      <AccountRequestEditDetailsModal
+        open={Boolean(detailsEditRequestId)}
+        request={detailsEditRequest}
+        onClose={() => setDetailsEditRequestId(null)}
+        saving={savingDetails}
+        onSave={saveRequestDetails}
+      />
     </main>
   );
 }

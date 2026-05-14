@@ -45,14 +45,46 @@ export async function PATCH(
     }
 
     const supabase = createAdminSupabaseClient();
-    const { data, error } = await supabase
+    const firstRes = await supabase
       .from("livraisons_planifiees")
       .update({ latitude: lat, longitude: lng, ...buildUpdateStamp(user) })
       .eq("id", livraisonId)
       .select("id, latitude, longitude, updated_by_user_id, updated_by_name, updated_at")
       .maybeSingle();
 
+    let data: Record<string, unknown> | null = firstRes.data as Record<string, unknown> | null;
+    let error = firstRes.error;
+
+    // Fallback si les colonnes d'audit n'existent pas encore.
+    if (
+      error &&
+      (error.code === "42703" ||
+        (typeof error.message === "string" &&
+          error.message.toLowerCase().includes("column") &&
+          (error.message.toLowerCase().includes("updated_by") ||
+            error.message.toLowerCase().includes("updated_at") ||
+            error.message.toLowerCase().includes("schema cache"))))
+    ) {
+      console.warn(
+        "[api/livraisons/[id]/geocode-position] audit columns missing, retrying without stamp",
+        { livraisonId, code: error.code, message: error.message }
+      );
+      const retry = await supabase
+        .from("livraisons_planifiees")
+        .update({ latitude: lat, longitude: lng })
+        .eq("id", livraisonId)
+        .select("id, latitude, longitude")
+        .maybeSingle();
+      data = retry.data as Record<string, unknown> | null;
+      error = retry.error;
+    }
+
     if (error) {
+      console.error("[api/livraisons/[id]/geocode-position] db error", {
+        livraisonId,
+        code: error.code,
+        message: error.message,
+      });
       return NextResponse.json(
         { error: { message: error.message, code: error.code } },
         { status: 400 }

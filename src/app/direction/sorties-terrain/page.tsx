@@ -13,6 +13,7 @@ import {
   getCompanyLabel,
   type AccountRequestCompany,
 } from "@/app/lib/account-requests.shared";
+import { isChauffeurDeliveryPoolMember } from "@/app/lib/employee-fonctions.shared";
 import {
   buildBreakEntries,
   computeWorkTimeSummary,
@@ -54,6 +55,21 @@ export default function Page() {
   const [remorques, setRemorques] = useState<Row[]>([]);
   const [form, setForm] = useState(emptyForm);
   const [editingId, setEditingId] = useState<number | null>(null);
+  const chauffeursLivreurs = useMemo(
+    () =>
+      chauffeurs.filter((item) =>
+        isChauffeurDeliveryPoolMember(item as Record<string, unknown>)
+      ),
+    [chauffeurs]
+  );
+  const chauffeursPourSortie = useMemo(() => {
+    const pool = chauffeursLivreurs;
+    const id = form.chauffeur_id;
+    if (!id) return pool;
+    if (pool.some((r) => String(r.id) === id)) return pool;
+    const row = chauffeurs.find((r) => String(r.id) === id);
+    return row ? [...pool, row] : pool;
+  }, [chauffeurs, chauffeursLivreurs, form.chauffeur_id]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
@@ -397,7 +413,7 @@ export default function Page() {
           <form onSubmit={handleSubmit} className="tagora-form-grid">
             <label className="tagora-field"><span className="tagora-label">Livraison liee</span><select value={form.livraison_id} onChange={(e) => setForm({ ...form, livraison_id: e.target.value })} className="tagora-input"><option value="">Choisir une livraison</option>{livraisons.map((item) => <option key={String(item.id)} value={String(item.id)}>{`Livraison #${String(item.id)}`}</option>)}</select></label>
             <label className="tagora-field"><span className="tagora-label">Dossier</span><select value={form.dossier_id} onChange={(e) => setForm({ ...form, dossier_id: e.target.value })} className="tagora-input"><option value="">Choisir un dossier</option>{dossiers.map((item) => <option key={String(item.id)} value={String(item.id)}>{String(getDossierLabel(item))}</option>)}</select></label>
-            <label className="tagora-field"><span className="tagora-label">Chauffeur</span><select value={form.chauffeur_id} onChange={(e) => setForm({ ...form, chauffeur_id: e.target.value })} className="tagora-input"><option value="">Choisir un chauffeur</option>{chauffeurs.map((item) => <option key={String(item.id)} value={String(item.id)}>{String(getChauffeurLabel(item))}</option>)}</select></label>
+            <label className="tagora-field"><span className="tagora-label">Livreur</span><select value={form.chauffeur_id} onChange={(e) => setForm({ ...form, chauffeur_id: e.target.value })} className="tagora-input"><option value="">Choisir un livreur</option>{chauffeursPourSortie.map((item) => <option key={String(item.id)} value={String(item.id)}>{String(getChauffeurLabel(item))}</option>)}</select></label>
             <label className="tagora-field"><span className="tagora-label">Vehicule</span><select value={form.vehicule_id} onChange={(e) => setForm({ ...form, vehicule_id: e.target.value })} className="tagora-input"><option value="">Choisir un vehicule</option>{vehicules.map((item) => <option key={String(item.id)} value={String(item.id)}>{String(getVehiculeLabel(item))}</option>)}</select></label>
             <label className="tagora-field"><span className="tagora-label">Remorque</span><select value={form.remorque_id} onChange={(e) => setForm({ ...form, remorque_id: e.target.value })} className="tagora-input"><option value="">Choisir une remorque</option>{remorques.map((item) => <option key={String(item.id)} value={String(item.id)}>{String(getRemorqueLabel(item))}</option>)}</select></label>
             <label className="tagora-field"><span className="tagora-label">Date sortie</span><input type="date" value={form.date_sortie} onChange={(e) => setForm({ ...form, date_sortie: e.target.value })} className="tagora-input" /></label>

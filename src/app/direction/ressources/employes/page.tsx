@@ -10,6 +10,7 @@ import {
   getCompanyLabel,
   type AccountRequestCompany,
 } from "@/app/lib/account-requests.shared";
+import { formatFonctionsLabels } from "@/app/lib/employee-fonctions.shared";
 import { supabase } from "@/app/lib/supabase/client";
 
 type EmployeListRow = {
@@ -19,6 +20,8 @@ type EmployeListRow = {
   telephone: string | null;
   actif: boolean | null;
   primary_company: AccountRequestCompany | null;
+  fonctions?: string[] | null;
+  fonction_autre?: string | null;
   workStatusTag?: "available" | "long_leave" | "sick" | "indefinite";
   workStatusLabel?: string | null;
 };
@@ -306,6 +309,7 @@ export default function Page() {
               columns={[
                 { key: "id", label: "ID" },
                 { key: "nom", label: "Nom" },
+                { key: "fonction", label: "Fonction" },
                 { key: "courriel", label: "Courriel" },
                 { key: "telephone", label: "Téléphone" },
                 { key: "compagnie", label: "Compagnie" },
@@ -317,6 +321,9 @@ export default function Page() {
                 <DataTableRow key={item.id}>
                   <DataTableCell>#{item.id}</DataTableCell>
                   <DataTableCell>{item.nom || "—"}</DataTableCell>
+                  <DataTableCell>
+                    {formatFonctionsLabels(item.fonctions ?? null, item.fonction_autre ?? null)}
+                  </DataTableCell>
                   <DataTableCell>{item.courriel || "—"}</DataTableCell>
                   <DataTableCell>{item.telephone || "—"}</DataTableCell>
                   <DataTableCell>

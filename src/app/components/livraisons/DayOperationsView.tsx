@@ -10,9 +10,25 @@ import SectionCard from "@/app/components/ui/SectionCard";
 import StatusBadge from "@/app/components/ui/StatusBadge";
 import OperationProofsPanel from "@/app/components/proofs/OperationProofsPanel";
 import InternalMentionsPanel from "@/app/components/internal/InternalMentionsPanel";
+import {
+  PaymentClientFormSection,
+  PaymentDetailBanner,
+  PaymentFinalizeModal,
+} from "@/app/components/livraisons/PaymentClientUi";
+import {
+  applyPaymentPreferCommentaire,
+  embeddedFromFormInput,
+  formInputFromParsed,
+  parsePaymentFromRow,
+  requiresPaymentFinalizeGate,
+  stripPaymentMarker,
+  validatePaymentFormInput,
+  withFinalizationConfirmation,
+} from "@/app/lib/livraisons/payment-embed";
 import { supabase } from "@/app/lib/supabase/client";
 import { useCurrentAccess } from "@/app/hooks/useCurrentAccess";
 import { getOperationCoordinates } from "@/app/lib/livraisons/coordinates";
+import { isChauffeurDeliveryPoolMember } from "@/app/lib/employee-fonctions.shared";
 
 const DayOperationsMap = dynamic(() => import("./DayOperationsMap"), { ssr: false });
 
@@ -23,11 +39,18 @@ type GeocodedPoint = {
   confidence: "exact" | "approximatif";
 };
 type OriginBase = { label: string; latitude: number; longitude: number };
+const RAMASSAGE_DEFAULT_PICKUP_ADDRESS = "Oliem Solutions";
+
 type StopEditForm = {
   adresse: string;
   ville: string;
   code_postal: string;
   province: string;
+  contact_name: string;
+  contact_phone_primary: string;
+  contact_phone_primary_ext: string;
+  contact_phone_secondary: string;
+  contact_phone_secondary_ext: string;
   date_livraison: string;
   heure_prevue: string;
   statut: string;
@@ -35,6 +58,11 @@ type StopEditForm = {
   longitude: string;
   note_chauffeur: string;
   commentaire_operationnel: string;
+  item_location: string;
+  payment_paid_full: boolean;
+  payment_balance_due: string;
+  payment_method: string;
+  payment_note: string;
 };
 
 type Props = {
@@ -97,6 +125,54 @@ function formatAuditTimestamp(value: string | number | null | undefined) {
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+const AUDIT_NON_RENSEIGNE = "Non renseigné";
+
+function livraisonStatutBadgeProps(
+  statutRaw: string,
+  statusText: string
+): { label: string; tone: "default" | "info" | "success" | "warning" | "danger" } {
+  const s = statutRaw.trim().toLowerCase();
+  const label = statusText.trim() || statutRaw.trim() || "Statut";
+  if (s === "livree" || s === "ramassee" || s === "ramasse") return { label, tone: "success" };
+  if (s === "en_cours") return { label, tone: "warning" };
+  if (s === "probleme" || s === "annulee") return { label, tone: "danger" };
+  if (s === "planifiee") return { label, tone: "info" };
+  return { label, tone: "default" };
+}
+
+function geoLocalisationBadgeProps(
+  key: "exact" | "approximatif" | "a_valider" | "manuelle" | undefined
+): { label: string; tone: "default" | "info" | "success" | "warning" | "danger" } {
+  switch (key) {
+    case "exact":
+      return { label: "Exacte", tone: "success" };
+    case "approximatif":
+      return { label: "Approximative", tone: "warning" };
+    case "manuelle":
+      return { label: "Manuelle", tone: "info" };
+    case "a_valider":
+      return { label: "A valider", tone: "danger" };
+    default:
+      return { label: "Adresse localisee", tone: "success" };
+  }
+}
+
+function normalizeDateInputForHtml(raw: string) {
+  const s = raw.trim();
+  if (!s) return "";
+  const m = s.match(/^(\d{4}-\d{2}-\d{2})/);
+  return m ? m[1] : s.slice(0, 10);
+}
+
+function normalizeTimeInputForHtml(raw: string) {
+  const s = raw.trim();
+  if (!s) return "";
+  const m = s.match(/^(\d{1,2}):(\d{2})/);
+  if (!m) return s.slice(0, 5);
+  const hh = String(m[1]).padStart(2, "0");
+  return `${hh}:${m[2]}`;
 }
 
 function normalizeStatus(raw: string | null | undefined) {
@@ -218,7 +294,11 @@ function buildGeocodeCandidates(stop: { address: string; row: Row }, dossier?: R
   const streetWithoutNumber = street.replace(/^\d+\s*/, "").trim();
   const hasStreetNumber = /^\d+\s/.test(street);
 
+  const addressPostalCanada =
+    street && postal ? normalizeAddressInput([street, postal, "Canada"].filter(Boolean).join(", ")) : "";
+
   const primaryVariants = [
+    ...(addressPostalCanada ? [addressPostalCanada] : []),
     base,
     [street, city, province, "Canada"].filter(Boolean).join(", "),
     [streetWithoutNumber, city, province].filter(Boolean).join(", "),
@@ -251,7 +331,10 @@ function buildGeocodeCandidatesFromParts(parts: {
   const streetWithoutNumber = street.replace(/^\d+\s*/, "").trim();
   const hasStreetNumber = /^\d+\s/.test(street);
   const full = [street, city, postal, province, "Canada"].filter(Boolean).join(", ");
+  const addressPostalCanada =
+    street && postal ? normalizeAddressInput([street, postal, "Canada"].filter(Boolean).join(", ")) : "";
   const variants = [
+    ...(addressPostalCanada ? [addressPostalCanada] : []),
     full,
     [street, city, province, "Canada"].filter(Boolean).join(", "),
     [streetWithoutNumber, city, province].filter(Boolean).join(", "),
@@ -370,6 +453,13 @@ export default function DayOperationsView({ area }: Props) {
   const { user, role, loading: accessLoading, hasPermission } = useCurrentAccess();
   const [rows, setRows] = useState<Row[]>([]);
   const [chauffeurs, setChauffeurs] = useState<Row[]>([]);
+  const chauffeursLivreurs = useMemo(
+    () =>
+      chauffeurs.filter((item) =>
+        isChauffeurDeliveryPoolMember(item as Record<string, unknown>)
+      ),
+    [chauffeurs]
+  );
   const [dossiersById, setDossiersById] = useState<Map<number, Row>>(new Map());
   const [loading, setLoading] = useState(true);
   const [selectedId, setSelectedId] = useState<number | null>(null);
@@ -397,11 +487,20 @@ export default function DayOperationsView({ area }: Props) {
   const [manualPickStopId, setManualPickStopId] = useState<number | null>(null);
   const [manualPositionDraft, setManualPositionDraft] = useState<{ latitude: number; longitude: number } | null>(null);
   const [quickActionLoading, setQuickActionLoading] = useState<string | null>(null);
+  const [showReplanifierForm, setShowReplanifierForm] = useState(false);
+  const [replanDate, setReplanDate] = useState("");
+  const [replanHeure, setReplanHeure] = useState("");
+  const stopEditFormAnchorRef = useRef<HTMLDivElement | null>(null);
   const [stopEditForm, setStopEditForm] = useState<StopEditForm>({
     adresse: "",
     ville: "",
     code_postal: "",
     province: "",
+    contact_name: "",
+    contact_phone_primary: "",
+    contact_phone_primary_ext: "",
+    contact_phone_secondary: "",
+    contact_phone_secondary_ext: "",
     date_livraison: "",
     heure_prevue: "",
     statut: "",
@@ -409,7 +508,16 @@ export default function DayOperationsView({ area }: Props) {
     longitude: "",
     note_chauffeur: "",
     commentaire_operationnel: "",
+    item_location: "",
+    payment_paid_full: true,
+    payment_balance_due: "",
+    payment_method: "deja_paye",
+    payment_note: "",
   });
+  const [finalizePaymentOpen, setFinalizePaymentOpen] = useState(false);
+  const [finalizeMethod, setFinalizeMethod] = useState("");
+  const [finalizeAck, setFinalizeAck] = useState(false);
+  const [finalizeLoading, setFinalizeLoading] = useState(false);
   const [geocodeFailureById, setGeocodeFailureById] = useState<
     Record<number, { message: string; addressTried: string; originalAddress: string }>
   >({});
@@ -418,24 +526,40 @@ export default function DayOperationsView({ area }: Props) {
   >({});
 
   const dateIso = searchParams.get("date") || "";
+  const focusStopParam = searchParams.get("focusStop")?.trim() ?? "";
+  const manualMapParam = searchParams.get("manualMap") === "1";
   const canUseLivraisons = hasPermission("livraisons");
+
   const canManageOrder = area === "direction" && (role === "direction" || role === "admin");
   const canEditStopDetails = role === "direction" || role === "admin";
-  const isAdmin = role === "admin";
 
   const persistGeocodedToServer = useCallback(async (stopId: number, latitude: number, longitude: number) => {
-    const res = await fetch(`/api/livraisons/${stopId}/geocode-position`, {
+    const url = `/api/livraisons/${stopId}/geocode-position`;
+    const body = JSON.stringify({ latitude, longitude });
+    const res = await fetch(url, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       credentials: "same-origin",
-      body: JSON.stringify({ latitude, longitude }),
+      body,
     });
-    if (!res.ok) return false;
-    const data = (await res.json().catch(() => ({}))) as {
+    const rawJson = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      console.warn("[persistGeocodedToServer]", {
+        route: url,
+        status: res.status,
+        payload: { latitude, longitude },
+        responseJson: rawJson,
+      });
+      return false;
+    }
+    const data = rawJson as {
       success?: boolean;
       data?: Row;
     };
-    if (!data.success) return false;
+    if (!data.success) {
+      console.warn("[persistGeocodedToServer] success false", { route: url, responseJson: rawJson });
+      return false;
+    }
     setGeocodeFailureById((prev) => {
       if (!(stopId in prev)) return prev;
       const next = { ...prev };
@@ -493,7 +617,10 @@ export default function DayOperationsView({ area }: Props) {
           .order("ordre_arret", { ascending: true })
           .order("heure_prevue", { ascending: true })
           .order("id", { ascending: true }),
-        supabase.from("chauffeurs").select("id, nom, prenom, nom_complet, courriel, actif").order("id", { ascending: true }),
+        supabase
+          .from("chauffeurs")
+          .select("id, nom, prenom, nom_complet, courriel, actif, fonctions, can_deliver")
+          .order("id", { ascending: true }),
       ]);
       const { data, error } = opsRes;
       if (!chauffeursRes.error) {
@@ -825,6 +952,42 @@ export default function DayOperationsView({ area }: Props) {
     return ordered.find((stop) => stop.id === selectedId) ?? ordered[0] ?? null;
   }, [orderedStopIds, selectedId, stops]);
 
+  const mapFocusHandledRef = useRef("");
+
+  useEffect(() => {
+    if (!dateIso || stops.length === 0 || !focusStopParam) return;
+    const focusId = Number(focusStopParam);
+    if (!Number.isFinite(focusId) || focusId <= 0) return;
+    if (!stops.some((s) => s.id === focusId)) return;
+    const key = `${dateIso}|${focusStopParam}|${manualMapParam ? "1" : "0"}`;
+    if (mapFocusHandledRef.current === key) return;
+    mapFocusHandledRef.current = key;
+    setSelectedId(focusId);
+    setShowDetail(true);
+    if (manualMapParam && canEditStopDetails) {
+      const t = window.setTimeout(() => {
+        startManualPositionMode(focusId);
+      }, 0);
+      return () => window.clearTimeout(t);
+    }
+  }, [dateIso, stops, focusStopParam, manualMapParam, canEditStopDetails]);
+
+  /** Livreurs (fonctions) + assigné historique sur l’arrêt sélectionné (hors pool), pour mentions uniquement. */
+  const chauffeursPourMentionsJour = useMemo(() => {
+    const pool = chauffeursLivreurs.filter((item) => {
+      const actifValue = String(item.actif ?? "true").toLowerCase();
+      return actifValue !== "false" && actifValue !== "0";
+    });
+    const assignRaw = selected?.row?.chauffeur_id ?? selected?.row?.chauffeur;
+    const assignId =
+      assignRaw != null && assignRaw !== "" ? String(assignRaw) : "";
+    if (assignId && assignId !== "0" && !pool.some((r) => String(r.id) === assignId)) {
+      const row = chauffeurs.find((r) => String(r.id) === assignId);
+      if (row) return [...pool, row];
+    }
+    return pool;
+  }, [chauffeurs, chauffeursLivreurs, selected]);
+
   useEffect(() => {
     if (!selected) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -832,25 +995,48 @@ export default function DayOperationsView({ area }: Props) {
       setStopFormMessage("");
       setManualPickStopId(null);
       setManualPositionDraft(null);
+      setShowReplanifierForm(false);
       return;
     }
+    setShowReplanifierForm(false);
+    const parsedPay = parsePaymentFromRow(selected.row as Record<string, unknown>);
+    const payForm = formInputFromParsed(parsedPay);
+    const rawCommentaire = getFieldString(selected.row, [
+      "commentaire_operationnel",
+      "commentaire",
+      "notes_operationnelles",
+    ]);
     setStopEditForm({
-      adresse: getFieldString(selected.row, ["adresse", "address", "rue"]),
+      adresse: (() => {
+        const raw = getFieldString(selected.row, ["adresse", "address", "rue"]);
+        if (selected.type === "ramassage" && !raw.trim()) {
+          return RAMASSAGE_DEFAULT_PICKUP_ADDRESS;
+        }
+        return raw;
+      })(),
       ville: getFieldString(selected.row, ["ville", "city"]),
       code_postal: getFieldString(selected.row, ["code_postal", "postal_code", "zip"]),
       province: getFieldString(selected.row, ["province", "state"]),
-      date_livraison: getFieldString(selected.row, ["date_livraison"]),
-      heure_prevue: getFieldString(selected.row, ["heure_prevue"]),
+      contact_name: getFieldString(selected.row, ["contact_name"]),
+      contact_phone_primary: getFieldString(selected.row, ["contact_phone_primary"]),
+      contact_phone_primary_ext: getFieldString(selected.row, ["contact_phone_primary_ext"]),
+      contact_phone_secondary: getFieldString(selected.row, ["contact_phone_secondary"]),
+      contact_phone_secondary_ext: getFieldString(selected.row, ["contact_phone_secondary_ext"]),
+      date_livraison: normalizeDateInputForHtml(getFieldString(selected.row, ["date_livraison"])),
+      heure_prevue: normalizeTimeInputForHtml(getFieldString(selected.row, ["heure_prevue"])),
       statut: getFieldString(selected.row, ["statut"]),
       latitude: getFieldString(selected.row, ["latitude", "lat"]),
       longitude: getFieldString(selected.row, ["longitude", "lng", "lon"]),
       note_chauffeur: getFieldString(selected.row, ["note_chauffeur", "note_representant"]),
-      commentaire_operationnel: getFieldString(selected.row, [
-        "commentaire_operationnel",
-        "commentaire",
-        "notes_operationnelles",
-      ]),
+      commentaire_operationnel: stripPaymentMarker(rawCommentaire),
+      item_location: getFieldString(selected.row, ["item_location"]),
+      payment_paid_full: payForm.paidFull,
+      payment_balance_due: payForm.balanceDue,
+      payment_method: payForm.method,
+      payment_note: payForm.note,
     });
+    setReplanDate(normalizeDateInputForHtml(getFieldString(selected.row, ["date_livraison"])));
+    setReplanHeure(normalizeTimeInputForHtml(getFieldString(selected.row, ["heure_prevue"])));
     setStopFormMessage("");
   }, [selected]);
 
@@ -1063,19 +1249,60 @@ export default function DayOperationsView({ area }: Props) {
       return;
     }
 
-    const payload = {
-      adresse: stopEditForm.adresse.trim() || null,
+    const cp = stopEditForm.code_postal.trim() || null;
+    const adresseEffective =
+      selected.type === "ramassage" && !stopEditForm.adresse.trim()
+        ? RAMASSAGE_DEFAULT_PICKUP_ADDRESS
+        : stopEditForm.adresse.trim() || null;
+    const locTrim = stopEditForm.item_location.trim();
+    const itemLocationPayload =
+      selected.type === "ramassage"
+        ? locTrim.length > 0
+          ? locTrim
+          : null
+        : undefined;
+
+    const payInput = {
+      paidFull: stopEditForm.payment_paid_full,
+      balanceDue: stopEditForm.payment_balance_due,
+      method: stopEditForm.payment_method,
+      note: stopEditForm.payment_note,
+    };
+    const payErr = validatePaymentFormInput(payInput);
+    if (payErr) {
+      setSavingStop(false);
+      setStopFormMessage(payErr);
+      return;
+    }
+    const embeddedPay = embeddedFromFormInput(payInput);
+    const rowSnap: Record<string, unknown> = {
+      ...selected.row,
+      commentaire_operationnel: stopEditForm.commentaire_operationnel,
+    };
+    const payFields = applyPaymentPreferCommentaire(rowSnap, embeddedPay);
+
+    const payload: Record<string, unknown> = {
+      adresse: adresseEffective,
       ville: stopEditForm.ville.trim() || null,
-      code_postal: stopEditForm.code_postal.trim() || null,
+      code_postal: cp,
+      postal_code: cp,
       province: stopEditForm.province.trim() || null,
+      contact_name: stopEditForm.contact_name.trim() || null,
+      contact_phone_primary: stopEditForm.contact_phone_primary.trim() || null,
+      contact_phone_primary_ext: stopEditForm.contact_phone_primary_ext.trim() || null,
+      contact_phone_secondary: stopEditForm.contact_phone_secondary.trim() || null,
+      contact_phone_secondary_ext: stopEditForm.contact_phone_secondary_ext.trim() || null,
       date_livraison: stopEditForm.date_livraison.trim() || null,
       heure_prevue: stopEditForm.heure_prevue.trim() || null,
       statut: stopEditForm.statut.trim() || null,
       latitude: nextLatitude,
       longitude: nextLongitude,
       note_chauffeur: stopEditForm.note_chauffeur.trim() || null,
-      commentaire_operationnel: stopEditForm.commentaire_operationnel.trim() || null,
+      commentaire_operationnel: payFields.commentaire_operationnel,
     };
+    if (itemLocationPayload !== undefined) {
+      payload.item_location = itemLocationPayload;
+    }
 
     const response = await fetch(`/api/livraisons/${selected.id}/inline-stop`, {
       method: "PATCH",
@@ -1115,6 +1342,22 @@ export default function DayOperationsView({ area }: Props) {
         return { ...row, ...updatedRowAsRow };
       })
     );
+
+    if (payFields.notes !== undefined) {
+      const resNotes = await fetch(`/api/livraisons/${selected.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({ notes: payFields.notes }),
+      });
+      const notesJson = (await resNotes.json().catch(() => ({}))) as { updated_row?: Row };
+      if (resNotes.ok && notesJson.updated_row) {
+        const nr = notesJson.updated_row;
+        setRows((current) =>
+          current.map((row) => (Number(row.id) === selected.id ? { ...row, ...nr } : row))
+        );
+      }
+    }
 
     const latForMap = parseNumericOrNull(String(updatedRow.latitude ?? ""));
     const lngForMap = parseNumericOrNull(String(updatedRow.longitude ?? ""));
@@ -1198,41 +1441,77 @@ export default function DayOperationsView({ area }: Props) {
     );
   }
 
-  async function runQuickStopAction(
-    action: "replanifier" | "annuler" | "supprimer" | "completer"
-  ) {
-    if (!selected || !canEditStopDetails) return;
-    const actionKey = `${action}:${selected.id}`;
+  async function runQuickStopAction(action: "annuler" | "supprimer" | "completer") {
+    if (!selected || !canEditStopDetails) {
+      console.warn("[runQuickStopAction] bloque", {
+        action,
+        hasSelected: Boolean(selected),
+        canEditStopDetails,
+        area,
+        role,
+      });
+      setStopFormMessage(
+        !canEditStopDetails
+          ? "Actions rapides reservees a la direction ou a l administrateur."
+          : "Selectionnez un arret dans la liste."
+      );
+      return;
+    }
     if (action === "supprimer") {
       const confirmed = window.confirm("Confirmer la suppression de cet arret ?");
       if (!confirmed) return;
     }
+    if (action === "annuler") {
+      if (!window.confirm("Annuler cette operation ? Le statut passera a annulee.")) {
+        return;
+      }
+    }
+    if (action === "completer") {
+      const pv = parsePaymentFromRow(selected.row as Record<string, unknown>);
+      if (requiresPaymentFinalizeGate(pv)) {
+        setFinalizePaymentOpen(true);
+        setFinalizeMethod("");
+        setFinalizeAck(false);
+        return;
+      }
+      const msg =
+        selected.type === "ramassage"
+          ? "Marquer ce ramassage comme ramassé ?"
+          : "Marquer cette livraison comme livrée ?";
+      if (!window.confirm(msg)) return;
+    }
+    const actionKey = `${action}:${selected.id}`;
+    const deletedId = selected.id;
     setQuickActionLoading(actionKey);
     setStopFormMessage("");
     try {
       if (action === "supprimer") {
-        const response = await fetch(`/api/livraisons/${selected.id}`, {
+        const url = `/api/livraisons/${deletedId}`;
+        const response = await fetch(url, {
           method: "DELETE",
           credentials: "same-origin",
         });
-        const data = (await response.json().catch(() => ({}))) as {
+        const responseJson = await response.json().catch(() => ({}));
+        const data = responseJson as {
           error?: { message?: string };
         };
         if (!response.ok) {
           setStopFormMessage(
-            `Suppression impossible : ${data.error?.message ?? "erreur inconnue"}`
+            `Suppression impossible (HTTP ${response.status}) : ${data.error?.message ?? "erreur inconnue"}`
           );
           return;
         }
-        setRows((current) => current.filter((row) => Number(row.id) !== selected.id));
+        const remaining = rows.filter((row) => Number(row.id) !== deletedId);
+        setRows(remaining);
+        setSelectedId(remaining[0] ? Number(remaining[0].id) : null);
         setGeocodeFailureById((prev) => {
           const next = { ...prev };
-          delete next[selected.id];
+          delete next[deletedId];
           return next;
         });
         setGeoById((prev) => {
           const next = { ...prev };
-          delete next[selected.id];
+          delete next[deletedId];
           return next;
         });
         setStopFormMessage("Arret supprime.");
@@ -1241,25 +1520,31 @@ export default function DayOperationsView({ area }: Props) {
 
       const patch: Record<string, unknown> = {};
       if (action === "annuler") patch.statut = "annulee";
-      if (action === "replanifier") patch.statut = "planifiee";
       if (action === "completer") {
         patch.statut = selected.type === "ramassage" ? "ramassee" : "livree";
       }
 
-      const response = await fetch(`/api/livraisons/${selected.id}`, {
+      const url = `/api/livraisons/${selected.id}`;
+      const response = await fetch(url, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         credentials: "same-origin",
         body: JSON.stringify(patch),
       });
-      const data = (await response.json().catch(() => ({}))) as {
+      const responseJson = await response.json().catch(() => ({}));
+      const data = responseJson as {
         success?: boolean;
         updated_row?: Row;
-        error?: { message?: string };
+        warning?: string;
+        error?: { message?: string; code?: string; details?: string; hint?: string };
       };
       if (!response.ok || !data.updated_row) {
         setStopFormMessage(
-          `Action rapide indisponible : ${data.error?.message ?? "erreur inconnue"}`
+          `Action rapide indisponible (HTTP ${response.status}) : ${
+            data.error?.message ?? "erreur inconnue"
+          }${data.error?.hint ? `\nHint: ${data.error.hint}` : ""}${
+            data.error?.code ? `\nCode: ${data.error.code}` : ""
+          }`
         );
         return;
       }
@@ -1268,11 +1553,131 @@ export default function DayOperationsView({ area }: Props) {
         current.map((row) => (Number(row.id) === selected.id ? { ...row, ...updatedRow } : row))
       );
       setStopFormMessage(
-        action === "annuler"
-          ? "Arret annule."
-          : action === "replanifier"
-            ? "Arret replanifie."
-            : "Arret marque complete."
+        (action === "annuler" ? "Arret annule." : "Arret marque complete.") +
+          (data.warning ? `\n${data.warning}` : "")
+      );
+    } finally {
+      setQuickActionLoading(null);
+    }
+  }
+
+  async function submitFinalizePaymentFromModal() {
+    if (!selected || !canEditStopDetails) return;
+    if (!finalizeMethod.trim() || !finalizeAck) return;
+    const meta = user?.user_metadata as Record<string, unknown> | undefined;
+    const fromMeta =
+      typeof meta?.full_name === "string"
+        ? meta.full_name
+        : typeof meta?.name === "string"
+          ? meta.name
+          : "";
+    const payerName =
+      [fromMeta, user?.email].filter((s) => typeof s === "string" && s.trim()).join(" ").trim() ||
+      "Employé";
+    const parsed = parsePaymentFromRow(selected.row as Record<string, unknown>);
+    const next = withFinalizationConfirmation(parsed, finalizeMethod, payerName);
+    const fields = applyPaymentPreferCommentaire(selected.row as Record<string, unknown>, next);
+    setFinalizeLoading(true);
+    setStopFormMessage("");
+    try {
+      const body: Record<string, unknown> = {
+        statut: selected.type === "ramassage" ? "ramassee" : "livree",
+        ...fields,
+      };
+      const response = await fetch(`/api/livraisons/${selected.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify(body),
+      });
+      const responseJson = await response.json().catch(() => ({}));
+      const data = responseJson as {
+        updated_row?: Row;
+        error?: { message?: string };
+      };
+      if (!response.ok || !data.updated_row) {
+        setStopFormMessage(
+          `Finalisation impossible : ${data.error?.message ?? "erreur inconnue"}`
+        );
+        return;
+      }
+      const updatedRow = data.updated_row;
+      setRows((current) =>
+        current.map((row) => (Number(row.id) === selected.id ? { ...row, ...updatedRow } : row))
+      );
+      setFinalizePaymentOpen(false);
+      setFinalizeMethod("");
+      setFinalizeAck(false);
+      setStopFormMessage("Arrêt marqué complété et paiement confirmé.");
+    } finally {
+      setFinalizeLoading(false);
+    }
+  }
+
+  async function submitReplanifier() {
+    if (!selected || !canEditStopDetails) return;
+    if (!replanDate.trim()) {
+      setStopFormMessage("Choisissez une date pour la replanification.");
+      return;
+    }
+    const actionKey = `replanifier-save:${selected.id}`;
+    setQuickActionLoading(actionKey);
+    setStopFormMessage("");
+    try {
+      const patch = {
+        date_livraison: replanDate.trim(),
+        heure_prevue: replanHeure.trim() || null,
+        statut: "planifiee",
+      };
+      const url = `/api/livraisons/${selected.id}`;
+      const response = await fetch(url, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify(patch),
+      });
+      const responseJson = await response.json().catch(() => ({}));
+      const data = responseJson as {
+        success?: boolean;
+        updated_row?: Row;
+        warning?: string;
+        error?: { message?: string; code?: string; details?: string; hint?: string };
+      };
+      if (!response.ok || !data.updated_row) {
+        setStopFormMessage(
+          `Replanification impossible (HTTP ${response.status}) : ${
+            data.error?.message ?? "erreur inconnue"
+          }${data.error?.hint ? `\nHint: ${data.error.hint}` : ""}${
+            data.error?.code ? `\nCode: ${data.error.code}` : ""
+          }`
+        );
+        return;
+      }
+      const updatedRow = data.updated_row;
+      setRows((current) =>
+        current.map((row) => (Number(row.id) === selected.id ? { ...row, ...updatedRow } : row))
+      );
+      const nextDateRaw =
+        updatedRow.date_livraison != null && String(updatedRow.date_livraison).trim() !== ""
+          ? String(updatedRow.date_livraison)
+          : replanDate.trim();
+      const nextHeureRaw =
+        updatedRow.heure_prevue != null && String(updatedRow.heure_prevue).trim() !== ""
+          ? String(updatedRow.heure_prevue)
+          : replanHeure.trim();
+      setStopEditForm((prev) => ({
+        ...prev,
+        date_livraison: normalizeDateInputForHtml(nextDateRaw),
+        heure_prevue: normalizeTimeInputForHtml(nextHeureRaw),
+        statut: String(updatedRow.statut ?? "planifiee"),
+      }));
+      setReplanDate(normalizeDateInputForHtml(nextDateRaw));
+      setReplanHeure(normalizeTimeInputForHtml(nextHeureRaw));
+      setShowReplanifierForm(false);
+      setStopFormMessage(
+        (selected.type === "ramassage" ? "Ramassage replanifie" : "Livraison replanifiee") +
+          " (date et heure mises a jour)." +
+          (data.warning ? `\n${data.warning}` : "")
       );
     } finally {
       setQuickActionLoading(null);
@@ -1390,124 +1795,40 @@ export default function DayOperationsView({ area }: Props) {
   ];
 
   return (
-    <main className="page-container">
-      <section
-        className="tagora-panel"
-        style={{
-          marginTop: 8,
-          padding: 16,
-          borderRadius: 18,
-          background:
-            "linear-gradient(135deg, rgba(15,41,72,0.96) 0%, rgba(24,72,124,0.92) 52%, rgba(37,99,235,0.82) 100%)",
-          boxShadow: "0 14px 32px rgba(15, 41, 72, 0.24)",
-          border: "1px solid rgba(255,255,255,0.18)",
-        }}
-      >
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-            gap: 12,
-            alignItems: "center",
-          }}
-        >
-          <div style={{ display: "flex", justifyContent: "flex-start" }}>
-            <div
-              style={{
-                borderRadius: 999,
-                padding: "6px 12px",
-                fontWeight: 900,
-                fontSize: 13,
-                letterSpacing: "0.08em",
-                color: "#0f2948",
-                background: "rgba(255,255,255,0.95)",
-                border: "1px solid rgba(255,255,255,0.9)",
-              }}
+    <main className="page-container day-ops-page">
+      <HeaderTagora
+        title="Journee livraison & ramassage"
+        subtitle={dateIso ? formatDateLabel(dateIso) : "Date manquante"}
+        showNavigation={false}
+        actions={
+          <div className="day-ops-header-actions">
+            <Link
+              href={area === "direction" ? "/direction/livraisons" : "/employe/livraisons"}
+              className="tagora-dark-outline-action"
             >
-              TAGORA
-            </div>
-          </div>
-          <div style={{ display: "grid", gap: 8, justifyItems: "center", textAlign: "center" }}>
-            <div style={{ display: "grid", gap: 2 }}>
-              <h1 style={{ margin: 0, color: "#f8fafc", fontSize: 24, lineHeight: 1.1 }}>
-                Journee livraison & ramassage
-              </h1>
-              <span style={{ color: "rgba(226,232,240,0.95)", fontSize: 12 }}>
-                Planification, suivi et coordination des arrets du jour ·{" "}
-                {dateIso ? formatDateLabel(dateIso) : "Date manquante"}
-              </span>
-            </div>
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "center" }}>
-              <Link
-                href={area === "direction" ? "/direction/livraisons" : "/employe/livraisons"}
-                className="tagora-dark-outline-action day-ops-compact-btn"
-                style={{ borderColor: "rgba(255,255,255,0.65)", color: "#ffffff", background: "transparent" }}
-              >
-                Retour
+              Retour
+            </Link>
+            {area === "direction" ? (
+              <Link href="/direction/dashboard" className="tagora-dark-action">
+                Tableau de bord direction
               </Link>
-              {area === "direction" ? (
-                <Link
-                  href="/direction/dashboard"
-                  className="tagora-dark-outline-action day-ops-compact-btn"
-                  style={{ borderColor: "rgba(255,255,255,0.65)", color: "#ffffff", background: "transparent" }}
-                >
-                  Tableau de bord direction
-                </Link>
-              ) : null}
-            </div>
+            ) : null}
           </div>
-          <div style={{ display: "flex", justifyContent: "flex-end" }}>
-            <StatusBadge
-              label={role === "admin" ? "Compte admin" : "Compte direction"}
-              tone={role === "admin" ? "success" : "warning"}
-            />
-          </div>
-        </div>
-      </section>
+        }
+      />
 
-      <div
-        style={{
-          marginTop: 14,
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))",
-          gap: 10,
-          alignItems: "stretch",
-        }}
-      >
+      <div className="day-ops-kpi-grid">
         {kpiCards.map((item) => (
-          <AppCard
-            key={item.label}
-            tone="muted"
-            style={{
-              minHeight: 92,
-              display: "grid",
-              gap: 6,
-              alignContent: "space-between",
-              border: "1px solid #dbe4f0",
-              boxShadow: "0 8px 16px rgba(15, 41, 72, 0.08)",
-              borderRadius: 14,
-            }}
-          >
-            <span className="ui-text-muted" style={{ fontSize: 12, fontWeight: 700 }}>
-              {item.label}
-            </span>
-            <strong style={{ fontSize: 22, color: "#0f2948", lineHeight: 1.05 }}>{item.value}</strong>
+          <AppCard key={item.label} tone="muted" className="day-ops-kpi-card">
+            <span className="day-ops-kpi-label">{item.label}</span>
+            <strong className="day-ops-kpi-value">{item.value}</strong>
           </AppCard>
         ))}
       </div>
 
-      <div className="day-ops-layout" style={{ marginTop: 12 }}>
-        <section
-          className="tagora-panel ui-stack-sm day-ops-left-col"
-          style={{
-            width: "100%",
-            minWidth: 0,
-            boxSizing: "border-box",
-            padding: 14,
-            gap: 8,
-          }}
-        >
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
+      <div className="day-ops-layout day-ops-layout--spaced">
+        <section className="tagora-panel ui-stack-sm day-ops-left-col day-ops-side-panel">
+          <div className="day-ops-side-panel-head">
             <h2 className="section-title" style={{ marginBottom: 0 }}>
               Arrets du jour
             </h2>
@@ -1561,21 +1882,14 @@ export default function DayOperationsView({ area }: Props) {
                     }
                     setDraggingId(null);
                   }}
-                  className="tagora-dark-outline-action day-ops-compact-btn"
+                  className={`tagora-dark-outline-action day-ops-stop-item${selected?.id === stop.id ? " day-ops-stop-item--selected" : ""}`}
                   onClick={() => {
                     setSelectedId(stop.id);
                     setShowDetail(true);
                   }}
                   style={{
-                    minHeight: 62,
-                    padding: "8px 10px",
-                    textAlign: "left",
-                    justifyContent: "space-between",
-                    borderColor: selected?.id === stop.id ? "#0f2948" : undefined,
-                    background: selected?.id === stop.id ? "#f8fafc" : "#fff",
                     width: "100%",
                     maxWidth: "100%",
-                    overflow: "hidden",
                   }}
                 >
                   <div style={{ display: "grid", gap: 2, minWidth: 0 }}>
@@ -1625,33 +1939,10 @@ export default function DayOperationsView({ area }: Props) {
           )}
         </section>
 
-        <section
-          className="ui-stack-md day-ops-right-col"
-          style={{
-            width: "100%",
-            minWidth: 0,
-            boxSizing: "border-box",
-            display: "grid",
-            gridTemplateRows: "auto auto auto",
-            gap: 14,
-            alignContent: "start",
-          }}
-        >
-          <section
-            className="tagora-panel day-ops-map-panel"
-            style={{
-              padding: 16,
-              minWidth: 0,
-              boxSizing: "border-box",
-              border: "1px solid #cddbee",
-              boxShadow: "0 14px 30px rgba(15, 41, 72, 0.12)",
-              background: "#ffffff",
-            }}
-          >
-            <h2 className="section-title" style={{ marginBottom: 10 }}>
-              Carte de la journee
-            </h2>
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "end", marginBottom: 12 }}>
+        <section className="ui-stack-md day-ops-right-col day-ops-right-stack">
+          <section className="tagora-panel day-ops-map-panel day-ops-map-shell">
+            <h2 className="section-title day-ops-section-title">Carte de la journee</h2>
+            <div className="day-ops-map-filters">
               <label className="tagora-field" style={{ margin: 0, flex: "1 1 320px" }}>
                 <span className="tagora-label">Point de depart</span>
                 <input
@@ -1671,7 +1962,7 @@ export default function DayOperationsView({ area }: Props) {
                 {originUpdating ? "Geocodage..." : "Mettre a jour"}
               </button>
             </div>
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "end", marginBottom: 12 }}>
+            <div className="day-ops-map-filters">
               <label className="tagora-field" style={{ margin: 0, flex: "1 1 320px" }}>
                 <span className="tagora-label">Point de retour</span>
                 <input
@@ -1802,7 +2093,7 @@ export default function DayOperationsView({ area }: Props) {
                               startManualPositionMode(Number(id));
                             }}
                           >
-                            Definir la position sur la carte
+                            Définir la position sur la carte
                           </button>
                         </div>
                       </li>
@@ -1827,20 +2118,9 @@ export default function DayOperationsView({ area }: Props) {
             </div>
           </section>
 
-          <section
-            className="tagora-panel ui-stack-sm"
-            style={{
-              padding: 14,
-              minWidth: 0,
-              boxSizing: "border-box",
-              border: "1px solid #d9e4f2",
-              boxShadow: "0 8px 18px rgba(15, 41, 72, 0.08)",
-            }}
-          >
-            <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
-              <h2 className="section-title" style={{ marginBottom: 0 }}>
-                Suggestion de route
-              </h2>
+          <section className="tagora-panel ui-stack-sm day-ops-route-panel">
+            <div className="day-ops-route-head">
+              <h2 className="section-title day-ops-section-title">Suggestion de route</h2>
               {canManageOrder ? (
                 <button
                   type="button"
@@ -1920,33 +2200,11 @@ export default function DayOperationsView({ area }: Props) {
           </section>
 
           {selected ? (
-            <section
-              className="tagora-panel ui-stack-xs"
-              style={{
-                padding: 14,
-                minWidth: 0,
-                boxSizing: "border-box",
-                border: "1px solid #e2e8f0",
-                boxShadow: "0 4px 12px rgba(15, 41, 72, 0.05)",
-              }}
-            >
-              <div
-                style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                  gap: 12,
-                  padding: "10px 12px",
-                  borderRadius: 12,
-                  background: "#f8fafc",
-                  border: "1px solid #e2e8f0",
-                }}
-              >
-                <div style={{ display: "grid", gap: 2 }}>
-                  <h2 className="section-title" style={{ marginBottom: 0 }}>
-                    Detail arret
-                  </h2>
-                  <span className="ui-text-muted" style={{ fontSize: 12 }}>
+            <section className="tagora-panel ui-stack-xs day-ops-detail-shell">
+              <div className="day-ops-detail-header">
+                <div className="day-ops-detail-header-copy">
+                  <h2 className="section-title day-ops-section-title">Detail arret</h2>
+                  <span className="ui-text-muted day-ops-detail-header-hint">
                     Lecture operationnelle rapide
                   </span>
                 </div>
@@ -1959,14 +2217,11 @@ export default function DayOperationsView({ area }: Props) {
                 </button>
               </div>
 
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "1.35fr 1fr",
-                  gap: 10,
-                  alignItems: "stretch",
-                }}
-              >
+              <PaymentDetailBanner
+                payment={parsePaymentFromRow(selected.row as Record<string, unknown>)}
+              />
+
+              <div className="day-ops-detail-grid">
                 <AppCard tone="muted" className="ui-stack-xs" style={{ padding: 12 }}>
                   <div style={{ display: "grid", gap: 2 }}>
                     <span className="ui-text-muted" style={{ fontSize: 12 }}>
@@ -1974,157 +2229,192 @@ export default function DayOperationsView({ area }: Props) {
                     </span>
                     <strong style={{ fontSize: 15 }}>{selected.client}</strong>
                   </div>
+                  {selected.type === "ramassage" ? (
+                    <>
+                      <div style={{ display: "grid", gap: 2 }}>
+                        <span className="ui-text-muted" style={{ fontSize: 12 }}>
+                          Adresse de ramassage
+                        </span>
+                        <span>{RAMASSAGE_DEFAULT_PICKUP_ADDRESS}</span>
+                      </div>
+                      {(() => {
+                        const raw = (
+                          getFieldString(selected.row, ["adresse", "address", "rue"]) ||
+                          selected.address ||
+                          ""
+                        ).trim();
+                        if (!raw || raw === RAMASSAGE_DEFAULT_PICKUP_ADDRESS) return null;
+                        return (
+                          <div style={{ display: "grid", gap: 2 }}>
+                            <span className="ui-text-muted" style={{ fontSize: 12 }}>
+                              Adresse optionnelle (si différente)
+                            </span>
+                            <span>{raw}</span>
+                          </div>
+                        );
+                      })()}
+                      <div style={{ display: "grid", gap: 2 }}>
+                        <span className="ui-text-muted" style={{ fontSize: 12 }}>
+                          Emplacement de l&apos;item à remettre au client
+                        </span>
+                        <span>{getFieldString(selected.row, ["item_location"]) || "Non renseigné"}</span>
+                      </div>
+                    </>
+                  ) : (
                   <div style={{ display: "grid", gap: 2 }}>
                     <span className="ui-text-muted" style={{ fontSize: 12 }}>
                       Adresse
                     </span>
-                    <span>{selected.fullAddress || selected.address || "Adresse non renseignee"}</span>
+                    <span>
+                      {getFieldString(selected.row, ["adresse", "address", "rue"]) ||
+                        selected.address ||
+                        "Adresse non renseignee"}
+                    </span>
                   </div>
+                  )}
+                  <div style={{ display: "grid", gap: 2 }}>
+                    <span className="ui-text-muted" style={{ fontSize: 12 }}>
+                      Code postal
+                    </span>
+                    <span>
+                      {getFieldString(selected.row, ["code_postal", "postal_code", "zip"]) || "-"}
+                    </span>
+                  </div>
+                  <div style={{ display: "grid", gap: 2 }}>
+                    <span className="ui-text-muted" style={{ fontSize: 12 }}>
+                      Personne a contacter
+                    </span>
+                    <span>
+                      {getFieldString(selected.row, ["contact_name"]) || "-"}
+                    </span>
+                  </div>
+                  <div style={{ display: "grid", gap: 2 }}>
+                    <span className="ui-text-muted" style={{ fontSize: 12 }}>
+                      Telephone principal
+                    </span>
+                    <span>
+                      {getFieldString(selected.row, ["contact_phone_primary"]).trim() || "-"}
+                    </span>
+                  </div>
+                  {(() => {
+                    const extP = getFieldString(selected.row, ["contact_phone_primary_ext"]).trim();
+                    if (!extP) return null;
+                    return (
+                      <div style={{ display: "grid", gap: 2 }}>
+                        <span className="ui-text-muted" style={{ fontSize: 12 }}>
+                          Extension telephone principal
+                        </span>
+                        <span>{extP}</span>
+                      </div>
+                    );
+                  })()}
+                  {(() => {
+                    const secPhone = getFieldString(selected.row, ["contact_phone_secondary"]).trim();
+                    const secExt = getFieldString(selected.row, ["contact_phone_secondary_ext"]).trim();
+                    if (!secPhone && !secExt) return null;
+                    return (
+                      <>
+                        {secPhone ? (
+                          <div style={{ display: "grid", gap: 2 }}>
+                            <span className="ui-text-muted" style={{ fontSize: 12 }}>
+                              Telephone secondaire
+                            </span>
+                            <span>{secPhone}</span>
+                          </div>
+                        ) : null}
+                        {secExt ? (
+                          <div style={{ display: "grid", gap: 2 }}>
+                            <span className="ui-text-muted" style={{ fontSize: 12 }}>
+                              Extension telephone secondaire
+                            </span>
+                            <span>{secExt}</span>
+                          </div>
+                        ) : null}
+                      </>
+                    );
+                  })()}
                 </AppCard>
-                <AppCard tone="muted" className="ui-stack-xs" style={{ padding: 12 }}>
-                  <div><strong>Heure:</strong> {selected.time}</div>
-                  <div><strong>Type:</strong> {selected.type === "ramassage" ? "Ramassage" : "Livraison"}</div>
-                  <div><strong>Statut:</strong> {selected.statusText}</div>
+                <AppCard tone="muted" className="ui-stack-xs day-ops-detail-side-card" style={{ padding: 12 }}>
+                  {(() => {
+                    const createdBy = getFieldString(selected.row, ["created_by_name"]).trim();
+                    const createdAtRaw = getFieldString(selected.row, ["created_at"]);
+                    const creeLeFmt = formatAuditTimestamp(createdAtRaw);
+                    const creePar = createdBy || AUDIT_NON_RENSEIGNE;
+                    const creeLe = creeLeFmt.trim() ? creeLeFmt : AUDIT_NON_RENSEIGNE;
+                    const updatedBy = getFieldString(selected.row, ["updated_by_name"]).trim();
+                    const updatedAtRaw = getFieldString(selected.row, ["updated_at"]);
+                    const modLeFmt = formatAuditTimestamp(updatedAtRaw);
+                    const createdAtNorm = String(createdAtRaw ?? "").trim();
+                    const updatedAtNorm = String(updatedAtRaw ?? "").trim();
+                    const showLastMod =
+                      updatedBy.length > 0 ||
+                      (modLeFmt.trim().length > 0 &&
+                        updatedAtNorm.length > 0 &&
+                        updatedAtNorm !== createdAtNorm);
+                    return (
+                      <div className="day-ops-detail-trace" aria-label="Traçabilité">
+                        <div className="day-ops-detail-stat-row day-ops-detail-trace-row">
+                          <strong>Créé par :</strong> <span>{creePar}</span>
+                        </div>
+                        <div className="day-ops-detail-stat-row day-ops-detail-trace-row">
+                          <strong>Créé le :</strong> <span>{creeLe}</span>
+                        </div>
+                        {showLastMod ? (
+                          <>
+                            <div className="day-ops-detail-stat-row day-ops-detail-trace-row">
+                              <strong>Dernière modification par :</strong>{" "}
+                              <span>{updatedBy || AUDIT_NON_RENSEIGNE}</span>
+                            </div>
+                            <div className="day-ops-detail-stat-row day-ops-detail-trace-row">
+                              <strong>Dernière modification :</strong>{" "}
+                              <span>{modLeFmt.trim() || AUDIT_NON_RENSEIGNE}</span>
+                            </div>
+                          </>
+                        ) : null}
+                      </div>
+                    );
+                  })()}
                   <div>
-                    <strong>Geolocalisation:</strong>{" "}
-                    {geocodeStatusById[selected.id] === "approximatif"
-                      ? "Position approximative a valider"
-                      : geocodeStatusById[selected.id] === "manuelle"
-                        ? "Position definie manuellement"
-                      : geocodeStatusById[selected.id] === "a_valider"
-                        ? "Adresse a valider"
-                        : "Adresse localisee"}
+                    <strong>Heure :</strong> {selected.time}
                   </div>
-                  <div><strong>Dossier:</strong> {selected.dossierId ?? "-"}</div>
-                  <div><strong>Commande:</strong> {String(selected.row.numero_commande || selected.row.commande || "-")}</div>
-                  <div><strong>Facture:</strong> {String(selected.row.numero_facture || selected.row.facture || "-")}</div>
+                  <div className="day-ops-detail-stat-row">
+                    <strong>Type :</strong>{" "}
+                    <span>{selected.type === "ramassage" ? "Ramassage" : "Livraison"}</span>
+                  </div>
+                  <div className="day-ops-detail-stat-row">
+                    <strong>Statut :</strong>{" "}
+                    {(() => {
+                      const rawStatut = getFieldString(selected.row, ["statut"]);
+                      const sb = livraisonStatutBadgeProps(rawStatut, selected.statusText);
+                      return <StatusBadge label={sb.label} tone={sb.tone} />;
+                    })()}
+                  </div>
+                  <div className="day-ops-detail-stat-row">
+                    <strong>Geolocalisation :</strong>{" "}
+                    {(() => {
+                      const gb = geoLocalisationBadgeProps(geocodeStatusById[selected.id]);
+                      return <StatusBadge label={gb.label} tone={gb.tone} />;
+                    })()}
+                  </div>
+                  <div>
+                    <strong>Dossier :</strong> {selected.dossierId ?? "-"}
+                  </div>
+                  <div>
+                    <strong>Commande :</strong>{" "}
+                    {String(selected.row.numero_commande || selected.row.commande || "-")}
+                  </div>
+                  <div>
+                    <strong>Facture :</strong>{" "}
+                    {String(selected.row.numero_facture || selected.row.facture || "-")}
+                  </div>
                 </AppCard>
               </div>
 
-              {(() => {
-                const scheduledByName =
-                  getFieldString(selected.row, ["scheduled_by_name", "created_by_name"]) || "-";
-                const createdAtRaw = getFieldString(selected.row, ["created_at"]);
-                const createdAtLabel = formatAuditTimestamp(createdAtRaw) || "-";
-                const updatedByName = getFieldString(selected.row, ["updated_by_name"]);
-                const updatedAtRaw = getFieldString(selected.row, ["updated_at"]);
-                const updatedAtLabel = formatAuditTimestamp(updatedAtRaw);
-                const createdById = getFieldString(selected.row, [
-                  "scheduled_by_user_id",
-                  "created_by_user_id",
-                ]);
-                const updatedById = getFieldString(selected.row, ["updated_by_user_id"]);
-                const hasDistinctUpdate =
-                  Boolean(updatedByName || updatedAtLabel) &&
-                  (updatedById !== createdById ||
-                    (updatedAtRaw && createdAtRaw && updatedAtRaw !== createdAtRaw));
-
-                return (
-                  <AppCard
-                    tone="muted"
-                    className="ui-stack-xs"
-                    style={{
-                      padding: 12,
-                      border: "1px solid #cbd5e1",
-                      background: "#f1f5f9",
-                    }}
-                    aria-label="Tracabilite de la livraison"
-                  >
-                    <strong style={{ fontSize: 13 }}>Tracabilite</strong>
-                    <div style={{ display: "grid", gap: 4, fontSize: 13 }}>
-                      <div>
-                        <strong>Programme par :</strong> {scheduledByName}
-                      </div>
-                      <div>
-                        <strong>Cree le :</strong> {createdAtLabel}
-                      </div>
-                      {hasDistinctUpdate ? (
-                        <>
-                          <div>
-                            <strong>Derniere modification par :</strong>{" "}
-                            {updatedByName || "-"}
-                          </div>
-                          <div>
-                            <strong>Derniere modification :</strong>{" "}
-                            {updatedAtLabel || "-"}
-                          </div>
-                        </>
-                      ) : null}
-                    </div>
-                  </AppCard>
-                );
-              })()}
-
-              {canEditStopDetails ? (
-                <AppCard tone="muted" className="ui-stack-xs" style={{ padding: 12 }}>
-                  <strong>Actions rapides</strong>
-                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                    <button
-                      type="button"
-                      className="tagora-dark-outline-action day-ops-compact-btn"
-                      onClick={() => {
-                        setIsEditingStop(true);
-                        setShowDetail(true);
-                        setStopFormMessage("");
-                      }}
-                    >
-                      Modifier
-                    </button>
-                    <button
-                      type="button"
-                      className="tagora-dark-outline-action day-ops-compact-btn"
-                      disabled={quickActionLoading === `replanifier:${selected.id}`}
-                      onClick={() => void runQuickStopAction("replanifier")}
-                    >
-                      Replanifier
-                    </button>
-                    <button
-                      type="button"
-                      className="tagora-dark-outline-action day-ops-compact-btn"
-                      disabled={quickActionLoading === `annuler:${selected.id}`}
-                      onClick={() => void runQuickStopAction("annuler")}
-                    >
-                      Annuler
-                    </button>
-                    <button
-                      type="button"
-                      className="tagora-dark-outline-action day-ops-compact-btn"
-                      disabled={quickActionLoading === `completer:${selected.id}`}
-                      onClick={() => void runQuickStopAction("completer")}
-                    >
-                      {selected.type === "ramassage" ? "Marquer ramasse" : "Marquer livre"}
-                    </button>
-                    {isAdmin ? (
-                      <button
-                        type="button"
-                        className="tagora-dark-outline-action day-ops-compact-btn"
-                        disabled={quickActionLoading === `supprimer:${selected.id}`}
-                        onClick={() => void runQuickStopAction("supprimer")}
-                      >
-                        Supprimer
-                      </button>
-                    ) : null}
-                    <button
-                      type="button"
-                      className="tagora-dark-outline-action day-ops-compact-btn"
-                      onClick={() => {
-                        startManualPositionMode(selected.id);
-                      }}
-                    >
-                      Definir position carte
-                    </button>
-                  </div>
-                </AppCard>
-              ) : null}
-
-              <AppCard tone="muted" className="ui-stack-xs" style={{ padding: 12 }}>
+              <AppCard tone="muted" className="ui-stack-xs day-ops-mentions-card" style={{ padding: 12, position: "relative", zIndex: 2 }}>
                 <InternalMentionsPanel
                   entityType={selected.type === "ramassage" ? "ramassage" : "livraison"}
                   entityId={selected.id}
-                  recipients={chauffeurs.filter((item) => {
-                    const actifValue = String(item.actif ?? "true").toLowerCase();
-                    return actifValue !== "false" && actifValue !== "0";
-                  }).map((item) => {
+                  recipients={chauffeursPourMentionsJour.map((item) => {
                     const fullName = [item.prenom, item.nom].filter(Boolean).map(String).join(" ").trim();
                     return {
                       id: Number(item.id),
@@ -2154,6 +2444,164 @@ export default function DayOperationsView({ area }: Props) {
                 />
               </AppCard>
 
+              {canEditStopDetails ? (
+                <AppCard
+                  tone="muted"
+                  className="ui-stack-xs day-ops-quick-actions-card"
+                  style={{
+                    padding: 12,
+                    position: "relative",
+                    zIndex: 10,
+                    pointerEvents: "auto",
+                  }}
+                >
+                  <strong className="day-ops-quick-actions-title">Actions rapides</strong>
+                  {stopFormMessage ? (
+                    <div
+                      role="status"
+                      aria-live="polite"
+                      style={{
+                        padding: "8px 10px",
+                        borderRadius: 8,
+                        background: stopFormMessage.toLowerCase().includes("echec") || stopFormMessage.toLowerCase().includes("impossible") || stopFormMessage.toLowerCase().includes("indisponible") || stopFormMessage.toLowerCase().includes("erreur")
+                          ? "#fef2f2"
+                          : "#ecfdf5",
+                        border: stopFormMessage.toLowerCase().includes("echec") || stopFormMessage.toLowerCase().includes("impossible") || stopFormMessage.toLowerCase().includes("indisponible") || stopFormMessage.toLowerCase().includes("erreur")
+                          ? "1px solid #fecaca"
+                          : "1px solid #a7f3d0",
+                        color: "#0f172a",
+                        fontSize: 13,
+                        whiteSpace: "pre-wrap",
+                      }}
+                    >
+                      {stopFormMessage}
+                    </div>
+                  ) : null}
+                  <div className="day-ops-quick-actions">
+                    <button
+                      type="button"
+                      className="tagora-dark-outline-action day-ops-compact-btn"
+                      onClick={() => {
+                        setIsEditingStop(true);
+                        setShowDetail(true);
+                        setStopFormMessage("");
+                        requestAnimationFrame(() =>
+                          stopEditFormAnchorRef.current?.scrollIntoView({
+                            behavior: "smooth",
+                            block: "start",
+                          })
+                        );
+                      }}
+                    >
+                      Modifier
+                    </button>
+                    <button
+                      type="button"
+                      className="tagora-dark-outline-action day-ops-compact-btn"
+                      disabled={quickActionLoading === `replanifier-save:${selected.id}`}
+                      onClick={() => {
+                        setShowReplanifierForm(true);
+                        setReplanDate(
+                          normalizeDateInputForHtml(getFieldString(selected.row, ["date_livraison"]))
+                        );
+                        setReplanHeure(
+                          normalizeTimeInputForHtml(getFieldString(selected.row, ["heure_prevue"]))
+                        );
+                        setStopFormMessage("");
+                      }}
+                    >
+                      Replanifier
+                    </button>
+                    <button
+                      type="button"
+                      className="tagora-dark-outline-action day-ops-compact-btn"
+                      disabled={quickActionLoading === `annuler:${selected.id}`}
+                      onClick={() => {
+                        void runQuickStopAction("annuler");
+                      }}
+                    >
+                      Annuler
+                    </button>
+                    <button
+                      type="button"
+                      className="tagora-dark-outline-action day-ops-compact-btn"
+                      disabled={quickActionLoading === `completer:${selected.id}`}
+                      onClick={() => {
+                        void runQuickStopAction("completer");
+                      }}
+                    >
+                      {selected.type === "ramassage" ? "Marquer ramassé" : "Marquer livré"}
+                    </button>
+                    <button
+                      type="button"
+                      className="tagora-dark-outline-action day-ops-compact-btn"
+                      disabled={quickActionLoading === `supprimer:${selected.id}`}
+                      onClick={() => {
+                        void runQuickStopAction("supprimer");
+                      }}
+                    >
+                      Supprimer
+                    </button>
+                    <button
+                      type="button"
+                      className="tagora-dark-outline-action day-ops-compact-btn"
+                      onClick={() => {
+                        startManualPositionMode(selected.id);
+                      }}
+                    >
+                      Définir position carte
+                    </button>
+                  </div>
+                  {showReplanifierForm ? (
+                    <div
+                      className="tagora-panel-muted"
+                      style={{
+                        marginTop: 12,
+                        padding: 12,
+                        display: "grid",
+                        gap: 10,
+                        borderRadius: 10,
+                        border: "1px solid #cbd5e1",
+                      }}
+                    >
+                      <span className="tagora-label">Nouvelle date</span>
+                      <input
+                        type="date"
+                        className="tagora-input"
+                        value={replanDate}
+                        onChange={(event) => setReplanDate(event.target.value)}
+                      />
+                      <span className="tagora-label">Nouvelle heure (optionnel)</span>
+                      <input
+                        type="time"
+                        className="tagora-input"
+                        value={replanHeure}
+                        onChange={(event) => setReplanHeure(event.target.value)}
+                      />
+                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                        <button
+                          type="button"
+                          className="tagora-dark-action day-ops-compact-btn"
+                          disabled={quickActionLoading === `replanifier-save:${selected.id}`}
+                          onClick={() => void submitReplanifier()}
+                        >
+                          {quickActionLoading === `replanifier-save:${selected.id}`
+                            ? "Enregistrement..."
+                            : "Enregistrer replanification"}
+                        </button>
+                        <button
+                          type="button"
+                          className="tagora-dark-outline-action day-ops-compact-btn"
+                          onClick={() => setShowReplanifierForm(false)}
+                        >
+                          Fermer
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
+                </AppCard>
+              ) : null}
+
               {showDetail ? (
                 <>
                   {canEditStopDetails ? (
@@ -2172,10 +2620,13 @@ export default function DayOperationsView({ area }: Props) {
                   ) : null}
 
                   {isEditingStop && canEditStopDetails ? (
-                    <AppCard tone="muted" className="ui-stack-xs" style={{ padding: 12 }}>
-                      <div className="ui-grid-2">
+                    <div ref={stopEditFormAnchorRef}>
+                      <AppCard tone="muted" className="ui-stack-xs" style={{ padding: 12 }}>
+                        <div className="ui-grid-2">
                         <label className="tagora-field" style={{ margin: 0 }}>
-                          <span className="tagora-label">Adresse</span>
+                          <span className="tagora-label">
+                            {selected.type === "ramassage" ? "Adresse de ramassage" : "Adresse"}
+                          </span>
                           <input
                             className="tagora-input"
                             value={stopEditForm.adresse}
@@ -2184,6 +2635,24 @@ export default function DayOperationsView({ area }: Props) {
                             }
                           />
                         </label>
+                        {selected.type === "ramassage" ? (
+                          <label className="tagora-field" style={{ margin: 0, gridColumn: "1 / -1" }}>
+                            <span className="tagora-label">
+                              Emplacement de l&apos;item à remettre au client
+                            </span>
+                            <input
+                              className="tagora-input"
+                              value={stopEditForm.item_location}
+                              onChange={(event) =>
+                                setStopEditForm((prev) => ({
+                                  ...prev,
+                                  item_location: event.target.value,
+                                }))
+                              }
+                              placeholder="Ex.: Entrepôt A, Étagère 3, Bureau réception…"
+                            />
+                          </label>
+                        ) : null}
                         <label className="tagora-field" style={{ margin: 0 }}>
                           <span className="tagora-label">Ville</span>
                           <input
@@ -2211,6 +2680,68 @@ export default function DayOperationsView({ area }: Props) {
                             value={stopEditForm.province}
                             onChange={(event) =>
                               setStopEditForm((prev) => ({ ...prev, province: event.target.value }))
+                            }
+                          />
+                        </label>
+                        <label className="tagora-field" style={{ margin: 0 }}>
+                          <span className="tagora-label">Personne a contacter</span>
+                          <input
+                            className="tagora-input"
+                            value={stopEditForm.contact_name}
+                            onChange={(event) =>
+                              setStopEditForm((prev) => ({ ...prev, contact_name: event.target.value }))
+                            }
+                          />
+                        </label>
+                        <label className="tagora-field" style={{ margin: 0 }}>
+                          <span className="tagora-label">Telephone principal</span>
+                          <input
+                            className="tagora-input"
+                            value={stopEditForm.contact_phone_primary}
+                            onChange={(event) =>
+                              setStopEditForm((prev) => ({
+                                ...prev,
+                                contact_phone_primary: event.target.value,
+                              }))
+                            }
+                          />
+                        </label>
+                        <label className="tagora-field" style={{ margin: 0 }}>
+                          <span className="tagora-label">Poste (principal)</span>
+                          <input
+                            className="tagora-input"
+                            value={stopEditForm.contact_phone_primary_ext}
+                            onChange={(event) =>
+                              setStopEditForm((prev) => ({
+                                ...prev,
+                                contact_phone_primary_ext: event.target.value,
+                              }))
+                            }
+                          />
+                        </label>
+                        <label className="tagora-field" style={{ margin: 0 }}>
+                          <span className="tagora-label">Telephone secondaire</span>
+                          <input
+                            className="tagora-input"
+                            value={stopEditForm.contact_phone_secondary}
+                            onChange={(event) =>
+                              setStopEditForm((prev) => ({
+                                ...prev,
+                                contact_phone_secondary: event.target.value,
+                              }))
+                            }
+                          />
+                        </label>
+                        <label className="tagora-field" style={{ margin: 0 }}>
+                          <span className="tagora-label">Poste (secondaire)</span>
+                          <input
+                            className="tagora-input"
+                            value={stopEditForm.contact_phone_secondary_ext}
+                            onChange={(event) =>
+                              setStopEditForm((prev) => ({
+                                ...prev,
+                                contact_phone_secondary_ext: event.target.value,
+                              }))
                             }
                           />
                         </label>
@@ -2306,6 +2837,25 @@ export default function DayOperationsView({ area }: Props) {
                           placeholder="Contexte utile pour la tournee du jour."
                         />
                       </label>
+                      <PaymentClientFormSection
+                        idPrefix={`day-stop-${selected.id}`}
+                        value={{
+                          paidFull: stopEditForm.payment_paid_full,
+                          balanceDue: stopEditForm.payment_balance_due,
+                          method: stopEditForm.payment_method,
+                          note: stopEditForm.payment_note,
+                        }}
+                        onChange={(next) =>
+                          setStopEditForm((prev) => ({
+                            ...prev,
+                            payment_paid_full: next.paidFull,
+                            payment_balance_due: next.balanceDue,
+                            payment_method: next.method,
+                            payment_note: next.note,
+                          }))
+                        }
+                        disabled={savingStop}
+                      />
                       {!isReliableAddressParts(
                         stopEditForm.adresse,
                         stopEditForm.ville,
@@ -2335,6 +2885,7 @@ export default function DayOperationsView({ area }: Props) {
                         </button>
                       </div>
                     </AppCard>
+                    </div>
                   ) : (
                     <AppCard tone="muted" className="ui-stack-xs" style={{ padding: 12 }}>
                       <div style={{ display: "grid", gap: 2 }}>
@@ -2347,7 +2898,11 @@ export default function DayOperationsView({ area }: Props) {
                         <span className="ui-text-muted" style={{ fontSize: 12 }}>
                           Commentaire operationnel
                         </span>
-                        <span>{getFieldString(selected.row, ["commentaire_operationnel", "commentaire"]) || "-"}</span>
+                        <span>
+                          {stripPaymentMarker(
+                            getFieldString(selected.row, ["commentaire_operationnel", "commentaire"])
+                          ) || "-"}
+                        </span>
                       </div>
                     </AppCard>
                   )}
@@ -2388,6 +2943,28 @@ export default function DayOperationsView({ area }: Props) {
           ) : null}
         </section>
       </div>
+      <PaymentFinalizeModal
+        open={finalizePaymentOpen && Boolean(selected)}
+        kind={selected?.type === "ramassage" ? "ramassage" : "livraison"}
+        balanceDue={
+          selected
+            ? parsePaymentFromRow(selected.row as Record<string, unknown>).payment_balance_due
+            : 0
+        }
+        loading={finalizeLoading}
+        method={finalizeMethod}
+        confirmChecked={finalizeAck}
+        onMethodChange={setFinalizeMethod}
+        onConfirmChange={setFinalizeAck}
+        onCancel={() => {
+          if (!finalizeLoading) {
+            setFinalizePaymentOpen(false);
+            setFinalizeMethod("");
+            setFinalizeAck(false);
+          }
+        }}
+        onSubmit={() => void submitFinalizePaymentFromModal()}
+      />
     </main>
   );
 }

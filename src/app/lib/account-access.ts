@@ -16,6 +16,7 @@ export type AccountAccessAction =
   | "approve"
   | "refuse"
   | "update_access"
+  | "update_request_details"
   | "reset_pending"
   | "resend_invitation"
   | "disable_access"

@@ -20,6 +20,8 @@ type DashboardSnapshot = {
     fullName: string | null;
     email: string | null;
     primaryCompany: "oliem_solutions" | "titan_produits_industriels" | null;
+    /** `break_1_paid` côté fiche ; défaut true si absent (pause payée). */
+    pausePaid?: boolean;
   };
   currentState: {
     current_state?: string | null;
@@ -88,6 +90,7 @@ function normalizeDashboardSnapshot(payload: Partial<DashboardSnapshot> | undefi
       fullName: employee.fullName ?? null,
       email: employee.email ?? null,
       primaryCompany: employee.primaryCompany ?? null,
+      pausePaid: typeof employee.pausePaid === "boolean" ? employee.pausePaid : true,
     },
     currentState: {
       current_state: currentState.current_state ?? currentState.status ?? "hors_quart",
@@ -236,14 +239,16 @@ export default function HorodateurEmployeeCard({
           label: "Punch entree",
         };
 
+  const pausePaid = snapshot?.employee.pausePaid !== false;
+
   const actionDisabled = useMemo(
     () => ({
-      pauseStart: currentState !== "en_quart",
-      pauseEnd: currentState !== "en_pause",
+      pauseStart: currentState !== "en_quart" || pausePaid,
+      pauseEnd: currentState !== "en_pause" || pausePaid,
       dinnerStart: currentState !== "en_quart",
       dinnerEnd: currentState !== "en_diner",
     }),
-    [currentState]
+    [currentState, pausePaid]
   );
 
   async function submitPunch(eventType: string) {

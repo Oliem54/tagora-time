@@ -9,6 +9,8 @@ import { useCurrentAccess } from "@/app/hooks/useCurrentAccess";
 import {
   ACCOUNT_REQUEST_COMPANIES,
   getCompanyLabel,
+  isValidEmail,
+  normalizeEmail,
 } from "@/app/lib/account-requests.shared";
 import type { AppRole } from "@/app/lib/auth/roles";
 import { supabase } from "@/app/lib/supabase/client";
@@ -23,6 +25,10 @@ import {
   validateWeeklyScheduleForSave,
 } from "@/app/lib/weekly-schedule";
 import {
+  EMPLOYEE_FONCTION_OPTIONS,
+  formatFonctionsLabels,
+} from "@/app/lib/employee-fonctions.shared";
+import {
   buildEmployeForm,
   buildEmployePayload,
   computeBreakSummary,
@@ -34,6 +40,7 @@ import {
   type EmployeFormState,
   type EmployeProfile,
 } from "./employee-profile-shared";
+import EmployeePortalAccessSection from "./EmployeePortalAccessSection";
 import EmployeeWeeklyScheduleGrid from "./EmployeeWeeklyScheduleGrid";
 import TagoraCollapsibleSection from "@/app/components/TagoraCollapsibleSection";
 import { cn } from "@/app/components/ui/cn";
@@ -491,6 +498,19 @@ export default function EmployeeProfilePageClient({
       return;
     }
 
+    const normalizedCourriel = form.courriel.trim() ? normalizeEmail(form.courriel) : "";
+    if (normalizedCourriel && !isValidEmail(normalizedCourriel)) {
+      setMessage("Format de courriel invalide.");
+      setMessageType("error");
+      return;
+    }
+
+    if (form.fonctionSlugs.includes("autre") && !form.fonction_autre.trim()) {
+      setMessage("Précisez la fonction lorsque « Autre » est coché.");
+      setMessageType("error");
+      return;
+    }
+
     const effMsg = validateEffectifsFormForSave(form, {
       includeEffectifs: canEditEffectifs,
     });
@@ -889,6 +909,10 @@ export default function EmployeeProfilePageClient({
                     value={form.telephone || "-"}
                   />
                   <SummaryItem
+                    label="Fonction"
+                    value={formatFonctionsLabels(form.fonctionSlugs, form.fonction_autre)}
+                  />
+                  <SummaryItem
                     label="Permis"
                     value={form.numero_permis || "-"}
                   />
@@ -902,6 +926,16 @@ export default function EmployeeProfilePageClient({
                   accessToken={accountAccessToken}
                   invitedUserId={portalAccount.authUserId}
                   viewerIsAdmin={viewerIsAppAdmin}
+                />
+              ) : null}
+
+              {!isCreating && (viewerRole === "direction" || viewerRole === "admin") && employeeId ? (
+                <EmployeePortalAccessSection
+                  employeeId={employeeId}
+                  accessToken={accountAccessToken}
+                  viewerRole={viewerRole}
+                  profile={originalProfile ?? undefined}
+                  onRefresh={() => loadEmployeProfile(employeeId)}
                 />
               ) : null}
 
@@ -986,6 +1020,54 @@ export default function EmployeeProfilePageClient({
                         ))}
                       </select>
                     </label>
+                  </div>
+
+                  <div className="tagora-panel-muted" style={{ display: "grid", gap: 10 }}>
+                    <div className="tagora-label">Fonction (rôle opérationnel)</div>
+                    <p className="tagora-note" style={{ margin: 0 }}>
+                      Indépendant du rôle portail (admin, direction, employé). Seuls les profils avec
+                      la fonction « Livreur » apparaissent dans la liste des livreurs pour les
+                      livraisons.
+                    </p>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
+                      {EMPLOYEE_FONCTION_OPTIONS.map((opt) => (
+                        <label key={opt.slug} className="account-requests-permission-option">
+                          <input
+                            type="checkbox"
+                            checked={form.fonctionSlugs.includes(opt.slug)}
+                            disabled={!isEditing}
+                            onChange={(event) => {
+                              const checked = event.target.checked;
+                              setForm((current) => {
+                                const next = new Set(current.fonctionSlugs);
+                                if (checked) next.add(opt.slug);
+                                else next.delete(opt.slug);
+                                return {
+                                  ...current,
+                                  fonctionSlugs: Array.from(next) as EmployeFormState["fonctionSlugs"],
+                                };
+                              });
+                            }}
+                          />
+                          <span>{opt.label}</span>
+                        </label>
+                      ))}
+                    </div>
+                    {form.fonctionSlugs.includes("autre") ? (
+                      <label className="tagora-field">
+                        <span className="tagora-label">Autre fonction (précision)</span>
+                        <input
+                          className="tagora-input"
+                          style={readOnlyFieldStyle}
+                          value={form.fonction_autre}
+                          onChange={(event) =>
+                            setForm((current) => ({ ...current, fonction_autre: event.target.value }))
+                          }
+                          readOnly={!isEditing}
+                          placeholder="Ex: Sous-traitant"
+                        />
+                      </label>
+                    ) : null}
                   </div>
 
                   <div

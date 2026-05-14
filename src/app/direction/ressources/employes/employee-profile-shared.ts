@@ -1,4 +1,11 @@
-import { type AccountRequestCompany } from "@/app/lib/account-requests.shared";
+import {
+  type AccountRequestCompany,
+  normalizeEmail,
+} from "@/app/lib/account-requests.shared";
+import {
+  normalizeFonctionsFromProfile,
+  type EmployeFonctionSlug,
+} from "@/app/lib/employee-fonctions.shared";
 import {
   type EffectifsDepartmentKey,
   normalizeEffectifsDepartmentKey,
@@ -88,6 +95,13 @@ export type EmployeProfile = {
   default_weekly_hours?: number | null;
   schedule_active?: boolean | null;
   weekly_schedule_config?: unknown | null;
+  fonctions?: string[] | null;
+  fonction_autre?: string | null;
+  account_invited_at?: string | null;
+  account_invited_by_user_id?: string | null;
+  account_invited_by_name?: string | null;
+  account_invitation_status?: string | null;
+  account_invitation_error?: string | null;
 };
 
 export type EmployeFormState = {
@@ -152,6 +166,9 @@ export type EmployeFormState = {
    * Défaut : vrai lorsqu’aucune donnée d’affectation n’existe encore sur le profil.
    */
   effectifsExcludeFromPlanning: boolean;
+  /** Fonctions opérationnelles (≠ rôle portail). */
+  fonctionSlugs: EmployeFonctionSlug[];
+  fonction_autre: string;
 };
 
 function profileHasEffectifsAssignment(
@@ -279,6 +296,8 @@ export function buildEmployeForm(
     scheduleActive: profile?.schedule_active !== false,
     weeklySchedule: initialWeeklySchedule(profile),
     effectifsExcludeFromPlanning: !profileHasEffectifsAssignment(profile),
+    fonctionSlugs: normalizeFonctionsFromProfile(profile?.fonctions),
+    fonction_autre: profile?.fonction_autre ?? "",
   };
 }
 
@@ -385,7 +404,10 @@ export function buildEmployePayload(
   const payload: Record<string, unknown> = {
     nom: normalizeString(form.nom) ?? "",
     telephone: normalizeString(form.telephone),
-    courriel: normalizeString(form.courriel),
+    courriel: (() => {
+      const trimmed = form.courriel.trim();
+      return trimmed ? normalizeEmail(trimmed) : null;
+    })(),
     numero_permis: normalizeString(form.numero_permis),
     classe_permis: normalizeString(form.classe_permis),
     expiration_permis: normalizeString(form.expiration_permis),
@@ -460,6 +482,10 @@ export function buildEmployePayload(
     alert_sms_enabled: form.alert_sms_enabled,
     is_direction_alert_recipient: form.is_direction_alert_recipient,
     weekly_schedule_config: weekly,
+    fonctions: form.fonctionSlugs,
+    fonction_autre: form.fonctionSlugs.includes("autre")
+      ? normalizeString(form.fonction_autre)
+      : null,
   };
 
   if (includeEffectifs) {
@@ -476,7 +502,7 @@ export function buildEmployePayload(
         form.effectifsSecondaryLocations
       );
     }
-    payload.can_deliver = form.canDeliver;
+    payload.can_deliver = form.fonctionSlugs.includes("livreur") || form.canDeliver;
     payload.default_weekly_hours = normalizeNumber(form.defaultWeeklyHours);
     payload.schedule_active = form.scheduleActive;
   }

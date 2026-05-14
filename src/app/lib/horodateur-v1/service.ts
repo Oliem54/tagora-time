@@ -319,6 +319,18 @@ async function maybeNotifyEmployeeOfHorodateurPunch(options: {
     return;
   }
 
+  if (
+    options.employee.pausePaid &&
+    (eventType === "pause_debut" || eventType === "pause_fin")
+  ) {
+    console.info("[horodateur-employee-sms] skip_paid_break", {
+      eventId: options.event.id,
+      eventType,
+      employeeId: options.employee.employeeId,
+    });
+    return;
+  }
+
   const label = HORODATEUR_PUNCH_SMS_LABELS[eventType];
   if (!label) {
     return;
@@ -602,7 +614,9 @@ function resolveExpectedPunchScheduleItems(options: {
       });
     }
 
-    if (day.breakAm.enabled) {
+    // Pause payée : pas de créneaux « pause_debut / pause_fin » pour les rappels SMS
+    // (les pointages pause restent possibles côté métier si besoin).
+    if (day.breakAm.enabled && !options.employee.pausePaid) {
       const pauseStart = getScheduledStartMinutes(day.breakAm.time);
       if (pauseStart != null) {
         expected.push({
@@ -627,12 +641,8 @@ function resolveExpectedPunchScheduleItems(options: {
           scheduledMinutes: dinnerStart,
           scheduledLabel: formatMinutesLabel(dinnerStart),
         });
-        const dinnerEnd = dinnerStart + Math.max(0, day.lunch.minutes);
-        expected.push({
-          eventType: "dinner_fin",
-          scheduledMinutes: dinnerEnd,
-          scheduledLabel: formatMinutesLabel(dinnerEnd),
-        });
+        // Pas de rappel « dinner_fin » : évite tout relance automatique de type punch
+        // après la plage dîner (le retour se fait par pointage manuel meal_end).
       }
     }
 
@@ -742,6 +752,27 @@ async function resolveEmployeeById(employeeId: number) {
 
   ensureEmployeeActive(employee);
   return employee;
+}
+
+/**
+ * Pause payée : aucun mouvement break_start / break_end (employé ni direction, flux normal).
+ * Refus avant insert — pas d’exception, pas d’alerte, pas de recompute.
+ */
+function assertNoPaidBreakOperationalPunch(
+  employee: HorodateurPhase1EmployeeProfile,
+  eventType: HorodateurPhase1InsertEventInput["eventType"]
+) {
+  if (!employee.pausePaid) {
+    return;
+  }
+  const canonical = toCanonicalEventType(eventType);
+  if (canonical !== "break_start" && canonical !== "break_end") {
+    return;
+  }
+  throw new HorodateurPhase1Error(
+    "Pause payee : aucun pointage debut ou fin de pause n est requis (employe ni direction). La pause est incluse dans le quart.",
+    { code: "paid_break_no_punch_required", status: 409 }
+  );
 }
 
 function resolveEventDates(occurredAt: string) {
@@ -1484,27 +1515,54 @@ export async function recomputeCurrentState(employeeId: number) {
     employeeId,
     statuses: ["normal", "approuve"],
   });
+  const employeeForState = await getEmployeeById(employeeId);
+  const ignorePaidBreakPunches = Boolean(employeeForState?.pausePaid);
   const pendingOperationalEvents = (
     await listEventsForEmployee({
       employeeId,
       statuses: ["en_attente"],
     })
-  ).filter(isOperationalPendingEvent);
-  const effectiveEvents = [...approvedEvents, ...pendingOperationalEvents].sort((left, right) => {
-    const leftAt = getEventOccurredAt(left);
-    const rightAt = getEventOccurredAt(right);
-    if (!leftAt && !rightAt) {
-      return String(left.id).localeCompare(String(right.id));
+  ).filter((event) => {
+    if (!isOperationalPendingEvent(event)) {
+      return false;
     }
-    if (!leftAt) return -1;
-    if (!rightAt) return 1;
-    const delta = new Date(leftAt).getTime() - new Date(rightAt).getTime();
-    if (delta !== 0) return delta;
-    if (left.status !== right.status) {
-      return left.status === "en_attente" ? 1 : -1;
+    if (ignorePaidBreakPunches) {
+      const c = toCanonicalEventType(event.event_type);
+      if (c === "break_start" || c === "break_end") {
+        return false;
+      }
     }
-    return String(left.id).localeCompare(String(right.id));
+    return true;
   });
+
+  const sortEventsForState = (events: HorodateurPhase1EventRecord[]) =>
+    [...events].sort((left, right) => {
+      const leftAt = getEventOccurredAt(left);
+      const rightAt = getEventOccurredAt(right);
+      if (!leftAt && !rightAt) {
+        return String(left.id).localeCompare(String(right.id));
+      }
+      if (!leftAt) return -1;
+      if (!rightAt) return 1;
+      const delta = new Date(leftAt).getTime() - new Date(rightAt).getTime();
+      if (delta !== 0) return delta;
+      if (left.status !== right.status) {
+        return left.status === "en_attente" ? 1 : -1;
+      }
+      return String(left.id).localeCompare(String(right.id));
+    });
+
+  /** Flux complet (approuvé + en attente) — pour last_event_* et métadonnées. */
+  const effectiveEvents = sortEventsForState([
+    ...approvedEvents,
+    ...pendingOperationalEvents,
+  ]);
+  /**
+   * Machine d'état uniquement sur les événements déjà approuvés / normal.
+   * Sinon un break_end ou punch_out encore « en_attente » faisait passer l'état
+   * hors pause payée ou hors quart avant validation direction — effet « dépunch auto ».
+   */
+  const approvedEffectiveEvents = sortEventsForState(approvedEvents);
   const lastEvent =
     effectiveEvents.length > 0
       ? effectiveEvents[effectiveEvents.length - 1]
@@ -1517,11 +1575,18 @@ export async function recomputeCurrentState(employeeId: number) {
   let activeDinnerStartEventId: string | null = null;
   let hasSequenceAnomaly = false;
 
-  for (const event of effectiveEvents) {
+  for (const event of approvedEffectiveEvents) {
     const canonicalEventType = toCanonicalEventType(event.event_type);
 
     if (!canonicalEventType) {
       hasSequenceAnomaly = true;
+      continue;
+    }
+
+    if (
+      ignorePaidBreakPunches &&
+      (canonicalEventType === "break_start" || canonicalEventType === "break_end")
+    ) {
       continue;
     }
 
@@ -1725,6 +1790,13 @@ export async function recomputeShiftForDate(
 
     if (!canonicalEventType) {
       anomalies.push(`Evenement ${event.event_type} non reconnu.`);
+      continue;
+    }
+
+    if (
+      employee.pausePaid &&
+      (canonicalEventType === "break_start" || canonicalEventType === "break_end")
+    ) {
       continue;
     }
 
@@ -2027,6 +2099,7 @@ export async function createEmployeePunch(options: {
     sourceKind: options.sourceKind ?? "employe",
   });
   const employee = await resolveEmployeeByAuthUserId(options.actorUserId);
+  assertNoPaidBreakOperationalPunch(employee, options.eventType);
   const currentState = await getCurrentStateByEmployeeId(employee.employeeId);
   const latestApprovedEvents = await listEventsForEmployee({
     employeeId: employee.employeeId,
@@ -2175,6 +2248,7 @@ export async function createDirectionPunch(options: {
 
   const occurredAt = options.occurredAt ?? new Date().toISOString();
   const employee = await resolveEmployeeById(options.employeeId);
+  assertNoPaidBreakOperationalPunch(employee, options.eventType);
   const workDateForRecompute = getLocalWorkDate(occurredAt);
   const shiftBeforeDirectionAction =
     process.env.NODE_ENV === "development"

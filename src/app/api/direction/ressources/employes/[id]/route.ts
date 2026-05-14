@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthenticatedRequestUser } from "@/app/lib/account-requests.server";
+import { isValidEmail, normalizeEmail } from "@/app/lib/account-requests.shared";
 import { createAdminSupabaseClient } from "@/app/lib/supabase/admin";
 import {
   countEmployeeLinkedHistory,
@@ -30,6 +31,8 @@ const OPTIONAL_CHAUFFEUR_PROFILE_COLUMNS = [
   "can_deliver",
   "default_weekly_hours",
   "schedule_active",
+  "fonctions",
+  "fonction_autre",
 ] as const;
 
 const EFFECTIFS_COLUMNS_FOR_NULL = new Set([
@@ -106,6 +109,35 @@ function stripReadOnlyKeys(body: Record<string, unknown>): Record<string, unknow
   delete next.id;
   delete next.auth_user_id;
   return next;
+}
+
+async function findAuthUserByEmailForEmployeeRoute(email: string) {
+  const supabase = createAdminSupabaseClient();
+  let page = 1;
+  const perPage = 200;
+
+  while (true) {
+    const { data, error } = await supabase.auth.admin.listUsers({
+      page,
+      perPage,
+    });
+
+    if (error) {
+      throw error;
+    }
+
+    const matchedUser = data.users.find((item) => item.email?.toLowerCase() === email);
+
+    if (matchedUser) {
+      return matchedUser;
+    }
+
+    if (data.users.length < perPage) {
+      return null;
+    }
+
+    page += 1;
+  }
 }
 
 function jsonError(
@@ -232,6 +264,67 @@ export async function PATCH(
       .eq("id", employeeId)
       .maybeSingle();
 
+    if (!beforeRow) {
+      return jsonError(404, "Employé introuvable.");
+    }
+
+    const previousCourrielSnapshot =
+      typeof beforeRow.courriel === "string" ? beforeRow.courriel : null;
+
+    if ("courriel" in updatePayload) {
+      const rawCourriel = updatePayload.courriel;
+      const trimmed =
+        rawCourriel == null || rawCourriel === ""
+          ? ""
+          : String(rawCourriel).trim();
+      const nextNorm = trimmed ? normalizeEmail(trimmed) : null;
+      const prevNorm = beforeRow.courriel
+        ? normalizeEmail(String(beforeRow.courriel))
+        : null;
+
+      if (nextNorm && !isValidEmail(nextNorm)) {
+        return jsonError(400, "Format de courriel invalide.");
+      }
+
+      if (nextNorm && nextNorm !== prevNorm) {
+        const { data: dupRows, error: dupErr } = await supabase
+          .from("chauffeurs")
+          .select("id")
+          .eq("courriel", nextNorm)
+          .neq("id", employeeId)
+          .limit(1);
+
+        if (dupErr) {
+          logEmployeeProfileSave("email_dup_check", employeeId, updatePayload, dupErr);
+          return jsonError(500, dupErr.message ?? "Erreur validation courriel.");
+        }
+
+        if (dupRows && dupRows.length > 0) {
+          return jsonError(
+            409,
+            "Impossible de modifier le courriel : ce courriel est déjà utilisé.",
+            { code: "email_already_used" }
+          );
+        }
+
+        const otherAuth = await findAuthUserByEmailForEmployeeRoute(nextNorm);
+        const authUserId =
+          typeof beforeRow.auth_user_id === "string" ? beforeRow.auth_user_id : null;
+        if (otherAuth && otherAuth.id !== authUserId) {
+          return jsonError(
+            409,
+            "Impossible de modifier le courriel : ce courriel est déjà utilisé.",
+            { code: "email_already_used" }
+          );
+        }
+      }
+
+      updatePayload = {
+        ...updatePayload,
+        courriel: nextNorm,
+      };
+    }
+
     const maxAttempts = 20;
     for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
       const { data, error } = await supabase
@@ -287,6 +380,34 @@ export async function PATCH(
               emailStatus: "failed",
               smsStatus: "failed",
             };
+          }
+        }
+
+        const newCourrielNorm =
+          typeof data.courriel === "string" && data.courriel.trim()
+            ? normalizeEmail(data.courriel)
+            : null;
+        const oldCourrielNorm = previousCourrielSnapshot
+          ? normalizeEmail(previousCourrielSnapshot)
+          : null;
+        const authUid =
+          typeof beforeRow.auth_user_id === "string" ? beforeRow.auth_user_id : null;
+
+        if (authUid && newCourrielNorm && newCourrielNorm !== oldCourrielNorm) {
+          const { error: authEmailErr } = await supabase.auth.admin.updateUserById(authUid, {
+            email: newCourrielNorm,
+          });
+          if (authEmailErr) {
+            await supabase
+              .from("chauffeurs")
+              .update({ courriel: previousCourrielSnapshot })
+              .eq("id", employeeId);
+            logEmployeeProfileSave("auth_email_sync_failed", employeeId, { newCourrielNorm, authUid }, authEmailErr);
+            return jsonError(
+              500,
+              `La fiche employé a été conservée. La mise à jour du courriel dans Supabase Auth a échoué : ${authEmailErr.message}`,
+              { code: authEmailErr.code ?? undefined }
+            );
           }
         }
 

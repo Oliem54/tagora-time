@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireDirectionOrAdmin } from "@/app/api/direction/ramassages/_lib";
+import { buildUpdateStamp, getUserDisplayName } from "@/app/lib/livraisons/audit-stamp.server";
 
 export async function POST(
   req: NextRequest,
@@ -39,12 +40,15 @@ export async function POST(
       .maybeSingle();
     const currentNotes = typeof existingRes.data?.notes === "string" ? existingRes.data.notes : "";
     const stamp = new Date().toISOString();
-    const noteLine = `[${stamp}] Replanifie par ${user.email ?? user.id} vers ${body.dateLivraison}${body.heurePrevue ? ` ${body.heurePrevue}` : ""}${body.note ? ` — ${body.note}` : ""}`;
+    const actorLabel = getUserDisplayName(user);
+    const noteLine = `[${stamp}] Replanifie par ${actorLabel} vers ${body.dateLivraison}${body.heurePrevue ? ` ${body.heurePrevue}` : ""}${body.note ? ` — ${body.note}` : ""}`;
     updatePayload.notes = currentNotes ? `${currentNotes}\n${noteLine}` : noteLine;
+
+    const stampedPayload = { ...updatePayload, ...buildUpdateStamp(user) };
 
     const { error } = await supabase
       .from("livraisons_planifiees")
-      .update(updatePayload)
+      .update(stampedPayload)
       .eq("id", pickupId)
       .eq("type_operation", "ramassage_client");
     if (error) {

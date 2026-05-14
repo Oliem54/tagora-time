@@ -1,22 +1,32 @@
 "use client";
 
 import Link from "next/link";
-import { ExternalLink, PenLine, Trash2 } from "lucide-react";
+import { ExternalLink, PenLine, Pencil, Trash2 } from "lucide-react";
 import type { AccountAccessRequestRecord } from "@/app/lib/account-access";
 
 export default function AccountRequestRowActions({
   request,
-  onEdit,
+  onEditRequestDetails,
+  onEditAccountAccess,
   onDelete,
   deleting,
   canDelete,
+  canEditRequestDetails,
+  canEditAccountAccess,
 }: {
   request: AccountAccessRequestRecord;
-  onEdit: () => void;
+  onEditRequestDetails: () => void;
+  onEditAccountAccess: () => void;
   onDelete: () => void;
   deleting?: boolean;
   canDelete?: boolean;
+  canEditRequestDetails?: boolean;
+  canEditAccountAccess?: boolean;
 }) {
+  const showDetails =
+    Boolean(canEditRequestDetails) &&
+    (request.status === "pending" || request.status === "error");
+
   return (
     <div
       style={{
@@ -26,14 +36,26 @@ export default function AccountRequestRowActions({
         alignItems: "center",
       }}
     >
-      <button
-        type="button"
-        className="account-requests-action-button account-requests-action-button-primary"
-        onClick={onEdit}
-      >
-        <PenLine size={13} strokeWidth={2} />
-        Modifier le compte
-      </button>
+      {showDetails ? (
+        <button
+          type="button"
+          className="account-requests-action-button account-requests-action-button-primary"
+          onClick={onEditRequestDetails}
+        >
+          <Pencil size={13} strokeWidth={2} />
+          Modifier
+        </button>
+      ) : null}
+      {canEditAccountAccess ? (
+        <button
+          type="button"
+          className="account-requests-action-button account-requests-action-button-secondary"
+          onClick={onEditAccountAccess}
+        >
+          <PenLine size={13} strokeWidth={2} />
+          Accès et approbation
+        </button>
+      ) : null}
       {canDelete ? (
         <button
           type="button"

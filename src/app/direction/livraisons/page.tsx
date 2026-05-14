@@ -1,11 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import HeaderTagora from "@/app/components/HeaderTagora";
 import FeedbackMessage from "@/app/components/FeedbackMessage";
 import AccessNotice from "@/app/components/AccessNotice";
 import TagoraLoadingScreen from "@/app/components/ui/TagoraLoadingScreen";
+import SectionCard from "@/app/components/ui/SectionCard";
 import { supabase } from "@/app/lib/supabase/client";
 import { useCurrentAccess } from "@/app/hooks/useCurrentAccess";
 import OperationProofsPanel from "@/app/components/proofs/OperationProofsPanel";
@@ -15,12 +16,35 @@ import {
   getCompanyLabel,
   type AccountRequestCompany,
 } from "@/app/lib/account-requests.shared";
+import { isChauffeurDeliveryPoolMember } from "@/app/lib/employee-fonctions.shared";
+import {
+  applyPaymentPreferCommentaire,
+  embeddedFromFormInput,
+  formInputFromParsed,
+  mergePaymentIntoText,
+  parsePaymentFromRow,
+  requiresPaymentFinalizeGate,
+  stripPaymentMarker,
+  validatePaymentFormInput,
+  withFinalizationConfirmation,
+} from "@/app/lib/livraisons/payment-embed";
+import {
+  PaymentClientFormSection,
+  PaymentDetailBanner,
+  PaymentFinalizeModal,
+} from "@/app/components/livraisons/PaymentClientUi";
 
 type Row = Record<string, string | number | null | undefined>;
 type LivraisonFormState = {
   dossier_id: string;
   client: string;
   adresse: string;
+  code_postal: string;
+  contact_name: string;
+  contact_phone_primary: string;
+  contact_phone_primary_ext: string;
+  contact_phone_secondary: string;
+  contact_phone_secondary_ext: string;
   date_livraison: string;
   heure_prevue: string;
   chauffeur_id: string;
@@ -29,6 +53,11 @@ type LivraisonFormState = {
   statut: string;
   company_context: string;
   notes: string;
+  commentaire_operationnel: string;
+  payment_paid_full: boolean;
+  payment_balance_due: string;
+  payment_method: string;
+  payment_note: string;
 };
 
 function getLivraisonCompanyValue(item: Row | undefined) {
@@ -59,6 +88,12 @@ function createLivraisonForm(
     dossier_id: "",
     client: "",
     adresse: "",
+    code_postal: "",
+    contact_name: "",
+    contact_phone_primary: "",
+    contact_phone_primary_ext: "",
+    contact_phone_secondary: "",
+    contact_phone_secondary_ext: "",
     date_livraison: "",
     heure_prevue: "",
     chauffeur_id: "",
@@ -67,12 +102,24 @@ function createLivraisonForm(
     statut: "",
     company_context: "",
     notes: "",
+    commentaire_operationnel: "",
+    payment_paid_full: true,
+    payment_balance_due: "",
+    payment_method: "deja_paye",
+    payment_note: "",
     ...overrides,
   };
 }
 
 export default function Page() {
   const { user, loading: accessLoading, hasPermission, role } = useCurrentAccess();
+
+  const [finalizePayOpen, setFinalizePayOpen] = useState(false);
+  const [finalizePayId, setFinalizePayId] = useState<number | null>(null);
+  const [finalizePayBalance, setFinalizePayBalance] = useState(0);
+  const [finalizeMethod, setFinalizeMethod] = useState("");
+  const [finalizeAck, setFinalizeAck] = useState(false);
+  const [finalizeLoading, setFinalizeLoading] = useState(false);
 
   const [livraisons, setLivraisons] = useState<Row[]>([]);
   const [dossiers, setDossiers] = useState<Row[]>([]);
@@ -97,11 +144,41 @@ export default function Page() {
     statut: "",
   });
 
+  const chauffeursLivreurs = useMemo(
+    () =>
+      chauffeurs.filter((item) =>
+        isChauffeurDeliveryPoolMember(item as Record<string, unknown>)
+      ),
+    [chauffeurs]
+  );
+
   const [form, setForm] = useState<LivraisonFormState>(createLivraisonForm());
 
   const [newForm, setNewForm] = useState<LivraisonFormState>(
     createLivraisonForm({ statut: "planifiee" })
   );
+
+  const chauffeursPourSelectLivraison = useMemo(() => {
+    const pool = chauffeursLivreurs;
+    const extraIds = new Set<string>();
+    if (form.chauffeur_id) extraIds.add(form.chauffeur_id);
+    if (newForm.chauffeur_id) extraIds.add(newForm.chauffeur_id);
+    if (filtre.chauffeur_id) extraIds.add(filtre.chauffeur_id);
+    const out = [...pool];
+    for (const id of extraIds) {
+      if (!out.some((r) => String(r.id) === id)) {
+        const row = chauffeurs.find((r) => String(r.id) === id);
+        if (row) out.push(row);
+      }
+    }
+    return out;
+  }, [
+    chauffeurs,
+    chauffeursLivreurs,
+    form.chauffeur_id,
+    newForm.chauffeur_id,
+    filtre.chauffeur_id,
+  ]);
 
   function setFeedbackMessage(msg: string, type: "success" | "error") {
     setMessage(msg);
@@ -236,6 +313,13 @@ export default function Page() {
     return typeof value === "string" ? value : "";
   }
 
+  function getPostalCodeFromRow(item: Row | undefined) {
+    if (!item) return "";
+    const fromCode = getStringField(item, "code_postal");
+    if (fromCode.trim()) return fromCode.trim();
+    return getStringField(item, "postal_code").trim();
+  }
+
   function getDossierClient(dossier: Row | undefined) {
     return String(dossier?.client || dossier?.nom_client || "").trim();
   }
@@ -339,19 +423,56 @@ export default function Page() {
     const dossier = source.dossier_id ? getDossierById(source.dossier_id) : undefined;
     const clientValue = source.client.trim() || getDossierClient(dossier) || null;
 
+    const embedded = embeddedFromFormInput({
+      paidFull: source.payment_paid_full,
+      balanceDue: source.payment_balance_due,
+      method: source.payment_method,
+      note: source.payment_note,
+    });
+    const commentaireMerged = mergePaymentIntoText(
+      stripPaymentMarker(source.commentaire_operationnel.trim()),
+      embedded
+    );
+
     return {
       dossier_id: source.dossier_id ? Number(source.dossier_id) : null,
       client: clientValue,
       adresse: source.adresse.trim() || null,
+      postal_code: source.code_postal.trim() || null,
+      contact_name: source.contact_name.trim() || null,
+      contact_phone_primary: source.contact_phone_primary.trim() || null,
+      contact_phone_primary_ext: source.contact_phone_primary_ext.trim() || null,
+      contact_phone_secondary: source.contact_phone_secondary.trim() || null,
+      contact_phone_secondary_ext: source.contact_phone_secondary_ext.trim() || null,
+      company_context: source.company_context.trim() || null,
       date_livraison: source.date_livraison || null,
       heure_prevue: source.heure_prevue || null,
       chauffeur_id: source.chauffeur_id ? Number(source.chauffeur_id) : null,
       vehicule_id: source.vehicule_id ? Number(source.vehicule_id) : null,
       remorque_id: source.remorque_id ? Number(source.remorque_id) : null,
       statut: source.statut || null,
+      commentaire_operationnel: commentaireMerged.length > 0 ? commentaireMerged : null,
       ...(canEditLivraisonNotes ? { notes: source.notes.trim() || null } : {}),
     };
   }
+
+  const livraisonKpi = useMemo(() => {
+    const rows = livraisons.filter(
+      (item) => String(item.type_operation || "").toLowerCase() !== "ramassage_client"
+    );
+    let planifiee = 0;
+    let en_cours = 0;
+    let livree = 0;
+    let probleme = 0;
+    for (const item of rows) {
+      const s = String(item.statut || "").toLowerCase();
+      if (s === "en_cours") en_cours += 1;
+      else if (s === "livree" || s === "ramassee") livree += 1;
+      else if (s === "probleme") probleme += 1;
+      else planifiee += 1;
+    }
+    return { planifiee, en_cours, livree, probleme, total: rows.length };
+  }, [livraisons]);
 
   const livraisonsFiltrees = livraisons.filter((item) => {
     const okChauffeur = !filtre.chauffeur_id || String(item.chauffeur_id) === String(filtre.chauffeur_id);
@@ -365,6 +486,18 @@ export default function Page() {
     event.preventDefault();
     setSaving(true);
     clearMessage();
+
+    const payErr = validatePaymentFormInput({
+      paidFull: form.payment_paid_full,
+      balanceDue: form.payment_balance_due,
+      method: form.payment_method,
+      note: form.payment_note,
+    });
+    if (payErr) {
+      setFeedbackMessage(payErr, "error");
+      setSaving(false);
+      return;
+    }
 
     const payload = buildPayload(form);
 
@@ -406,6 +539,29 @@ export default function Page() {
     setSaving(true);
     clearMessage();
 
+    if (!newForm.adresse.trim()) {
+      setFeedbackMessage("L'adresse est obligatoire.", "error");
+      setSaving(false);
+      return;
+    }
+    if (!newForm.code_postal.trim()) {
+      setFeedbackMessage("Le code postal est obligatoire.", "error");
+      setSaving(false);
+      return;
+    }
+
+    const payErr = validatePaymentFormInput({
+      paidFull: newForm.payment_paid_full,
+      balanceDue: newForm.payment_balance_due,
+      method: newForm.payment_method,
+      note: newForm.payment_note,
+    });
+    if (payErr) {
+      setFeedbackMessage(payErr, "error");
+      setSaving(false);
+      return;
+    }
+
     const payload = buildPayload(newForm);
 
     const response = await fetch(`/api/livraisons`, {
@@ -438,11 +594,19 @@ export default function Page() {
     setShowCreateForm(false);
     clearMessage();
     const dossier = getDossierById(item.dossier_id);
+    const parsedPay = parsePaymentFromRow(item as Record<string, unknown>);
+    const payForm = formInputFromParsed(parsedPay);
     setEditingId(Number(item.id));
     setForm(createLivraisonForm({
       dossier_id: item.dossier_id ? String(item.dossier_id) : "",
       client: getLivraisonClient(item, dossier),
       adresse: getStringField(item, "adresse"),
+      code_postal: getPostalCodeFromRow(item),
+      contact_name: getStringField(item, "contact_name"),
+      contact_phone_primary: getStringField(item, "contact_phone_primary"),
+      contact_phone_primary_ext: getStringField(item, "contact_phone_primary_ext"),
+      contact_phone_secondary: getStringField(item, "contact_phone_secondary"),
+      contact_phone_secondary_ext: getStringField(item, "contact_phone_secondary_ext"),
       date_livraison: getStringField(item, "date_livraison"),
       heure_prevue: getStringField(item, "heure_prevue"),
       chauffeur_id: item.chauffeur_id ? String(item.chauffeur_id) : "",
@@ -451,6 +615,13 @@ export default function Page() {
       statut: getStringField(item, "statut"),
       company_context: getLivraisonCompanyValue(item),
       notes: getStringField(item, "notes"),
+      commentaire_operationnel: stripPaymentMarker(
+        getStringField(item, "commentaire_operationnel") || getStringField(item, "commentaire")
+      ),
+      payment_paid_full: payForm.paidFull,
+      payment_balance_due: payForm.balanceDue,
+      payment_method: payForm.method,
+      payment_note: payForm.note,
     }));
 
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -484,6 +655,21 @@ export default function Page() {
   async function handleStatusChange(id: number, newStatut: string) {
     clearMessage();
 
+    if (newStatut === "livree") {
+      const row = livraisons.find((item) => Number(item.id) === id);
+      if (row) {
+        const pv = parsePaymentFromRow(row as Record<string, unknown>);
+        if (requiresPaymentFinalizeGate(pv)) {
+          setFinalizePayId(id);
+          setFinalizePayBalance(pv.payment_balance_due);
+          setFinalizeMethod("");
+          setFinalizeAck(false);
+          setFinalizePayOpen(true);
+          return;
+        }
+      }
+    }
+
     const response = await fetch(`/api/livraisons/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -510,6 +696,58 @@ export default function Page() {
     );
   }
 
+  async function submitFinalizeLivreeFromModal() {
+    if (finalizePayId == null) return;
+    if (!finalizeMethod.trim() || !finalizeAck) return;
+    const row = livraisons.find((item) => Number(item.id) === finalizePayId);
+    if (!row) {
+      setFinalizePayOpen(false);
+      return;
+    }
+    const meta = user?.user_metadata as Record<string, unknown> | undefined;
+    const fromMeta =
+      typeof meta?.full_name === "string"
+        ? meta.full_name
+        : typeof meta?.name === "string"
+          ? meta.name
+          : "";
+    const payerName =
+      [fromMeta, user?.email].filter((s) => typeof s === "string" && s.trim()).join(" ").trim() ||
+      "Employé";
+    const parsed = parsePaymentFromRow(row as Record<string, unknown>);
+    const next = withFinalizationConfirmation(parsed, finalizeMethod, payerName);
+    const fields = applyPaymentPreferCommentaire(row as Record<string, unknown>, next);
+    setFinalizeLoading(true);
+    try {
+      const response = await fetch(`/api/livraisons/${finalizePayId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({ statut: "livree", ...fields }),
+      });
+      const data = (await response.json().catch(() => ({}))) as {
+        updated_row?: Row;
+        error?: { message?: string };
+      };
+      if (!response.ok || !data.updated_row) {
+        setFeedbackMessage(
+          `Finalisation impossible: ${data.error?.message ?? "erreur inconnue"}`,
+          "error"
+        );
+        return;
+      }
+      const updatedRow = data.updated_row;
+      setLivraisons((prev) =>
+        prev.map((item) => (Number(item.id) === finalizePayId ? { ...item, ...updatedRow } : item))
+      );
+      setFeedbackMessage("Livraison marquée livrée et paiement confirmé.", "success");
+      setFinalizePayOpen(false);
+      setFinalizePayId(null);
+    } finally {
+      setFinalizeLoading(false);
+    }
+  }
+
   if (accessLoading || (!blocked && loading)) {
     return <TagoraLoadingScreen isLoading message="Chargement de votre espace..." fullScreen />;
   }
@@ -520,75 +758,37 @@ export default function Page() {
 
   if (blocked) {
     return (
-      <main className="page-container">
+      <main className="page-container livraison-page">
         <HeaderTagora title="Livraison & ramassage" subtitle="" showNavigation={false} />
         <AccessNotice description="Acces requis." />
       </main>
     );
   }
 
-  const navButtonBase: React.CSSProperties = {
-    minHeight: 40,
-    padding: "10px 16px",
-    borderRadius: 10,
-    border: "1px solid #0f2948",
-    fontSize: 13,
-    fontWeight: 700,
-    lineHeight: 1,
-    display: "inline-flex",
-    alignItems: "center",
-    justifyContent: "center",
-    textDecoration: "none",
-    whiteSpace: "nowrap",
-    transition: "all 140ms ease",
-  };
-
-  const actionButtonBase: React.CSSProperties = {
-    minHeight: 40,
-    padding: "10px 16px",
-    borderRadius: 10,
-    border: "1px solid #0f2948",
-    fontSize: 13,
-    fontWeight: 700,
-    lineHeight: 1,
-    display: "inline-flex",
-    alignItems: "center",
-    justifyContent: "center",
-    whiteSpace: "nowrap",
-    cursor: "pointer",
-    transition: "all 140ms ease",
-  };
-
-  const getButtonTone = (active: boolean) =>
-    active
-      ? { background: "#0f2948", color: "#ffffff" }
-      : { background: "#ffffff", color: "#0f2948" };
-
   const showDisponibilitesPlanning =
     (role === "direction" || role === "admin") && !blocked;
 
   return (
-    <main className="page-container">
+    <main className="page-container livraison-page">
       <HeaderTagora
         title="Livraison & ramassage"
         subtitle=""
         showNavigation={false}
         actions={
-          <div
-            style={{
-              display: "flex",
-              gap: "var(--ui-space-3)",
-              flexWrap: "wrap",
-              alignItems: "center",
-            }}
-          >
-            <Link href="/direction/ramassages" className="tagora-dark-outline-action" style={{ textDecoration: "none" }}>
+          <div className="livraison-header-toolbar">
+            <Link href="/direction/livraisons" className="tagora-dark-outline-action livraison-header-link">
+              Livraisons
+            </Link>
+            <Link href="/direction/ramassages" className="tagora-dark-outline-action livraison-header-link">
               Ramassages
             </Link>
-            <Link href="/direction/livraisons/archives" className="tagora-dark-outline-action" style={{ textDecoration: "none" }}>
+            <Link href="/direction/livraisons/archives" className="tagora-dark-outline-action livraison-header-link">
               Archives
             </Link>
-            <Link href="/direction/dashboard" className="tagora-dark-action" style={{ textDecoration: "none" }}>
+            <Link
+              href="/direction/dashboard"
+              className="tagora-dark-action livraison-header-link livraison-header-link--solid"
+            >
               Tableau de bord direction
             </Link>
           </div>
@@ -596,135 +796,91 @@ export default function Page() {
       />
       {showDisponibilitesPlanning ? (
         <section
-          className="tagora-panel"
-          style={{
-            marginTop: 12,
-            padding: "14px 16px",
-            display: "flex",
-            flexWrap: "wrap",
-            alignItems: "center",
-            justifyContent: "space-between",
-            gap: 14,
-            border: "1px solid rgba(205, 219, 238, 0.95)",
-            borderRadius: 14,
-            boxShadow: "0 6px 20px rgba(15, 41, 72, 0.07)",
-            background: "linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)",
-            boxSizing: "border-box",
-          }}
+          className="tagora-panel livraison-plan-card"
+          aria-labelledby="livraison-plan-title"
         >
-          <div style={{ minWidth: 0, flex: "1 1 240px" }}>
-            <p
-              style={{
-                margin: 0,
-                fontSize: 11,
-                fontWeight: 700,
-                letterSpacing: "0.14em",
-                textTransform: "uppercase",
-                color: "#64748b",
-              }}
-            >
-              Planification
-            </p>
-            <h2
-              className="section-title"
-              style={{
-                margin: "6px 0 0",
-                fontSize: 16,
-                fontWeight: 700,
-                letterSpacing: "-0.02em",
-                color: "#0f2948",
-              }}
-            >
+          <div className="livraison-plan-card__copy">
+            <p className="livraison-plan-card__eyebrow">Planification</p>
+            <h2 id="livraison-plan-title" className="section-title livraison-plan-card__title">
               Disponibilités et blocages
             </h2>
-            <p
-              className="ui-text-muted"
-              style={{
-                margin: "6px 0 0",
-                fontSize: 13,
-                lineHeight: 1.45,
-                maxWidth: 540,
-              }}
-            >
+            <p className="livraison-plan-card__description">
               Fermez une journée de livraison ou rendez un véhicule/remorque indisponible pour une
               plage horaire précise.
             </p>
           </div>
-          <Link
-            href="/direction/disponibilites"
-            className="tagora-dark-action"
-            style={{
-              flexShrink: 0,
-              minHeight: 40,
-              padding: "10px 18px",
-              borderRadius: 10,
-              fontSize: 13,
-              fontWeight: 700,
-              textDecoration: "none",
-              display: "inline-flex",
-              alignItems: "center",
-              justifyContent: "center",
-            }}
-          >
+          <Link href="/direction/disponibilites" className="tagora-dark-action livraison-plan-card__manage">
             Gérer
           </Link>
         </section>
       ) : null}
-      <div style={{ marginTop: 12, display: "grid", gap: 10 }}>
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <Link
-            href="/direction/livraisons"
-            aria-current="page"
-            style={{ ...navButtonBase, ...getButtonTone(true) }}
-          >
-            Livraisons
-          </Link>
-          <Link
-            href="/direction/ramassages"
-            style={{ ...navButtonBase, ...getButtonTone(false) }}
-          >
-            Ramassages
-          </Link>
-          <Link
-            href="/direction/livraisons/archives"
-            style={{ ...navButtonBase, ...getButtonTone(false) }}
-          >
-            Archives
-          </Link>
+      <div className="livraison-toolbar-stack">
+        <div className="livraison-segmented-bar" aria-label="Navigation livraisons">
+          <div className="livraison-segmented" role="tablist">
+            <Link
+              href="/direction/livraisons"
+              aria-current="page"
+              className="livraison-segment livraison-segment--active"
+            >
+              Livraisons
+            </Link>
+            <Link href="/direction/ramassages" className="livraison-segment">
+              Ramassages
+            </Link>
+            <Link href="/direction/livraisons/archives" className="livraison-segment">
+              Archives
+            </Link>
+          </div>
         </div>
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <button
-            onClick={() => {
-              resetForm();
-              clearMessage();
-              setShowCreateForm(true);
-            }}
-            style={{ ...actionButtonBase, ...getButtonTone(showCreateForm) }}
-          >
-            Creer
-          </button>
-          <button
-            onClick={() => setViewMode("liste")}
-            style={{ ...actionButtonBase, ...getButtonTone(viewMode === "liste") }}
-          >
-            Liste
-          </button>
-          <button
-            onClick={() => setViewMode("calendrier")}
-            style={{ ...actionButtonBase, ...getButtonTone(viewMode === "calendrier") }}
-          >
-            Calendrier
-          </button>
-          <button
-            onClick={() => void fetchData()}
-            style={{ ...actionButtonBase, ...getButtonTone(false) }}
-          >
+        <div className="livraison-actions-bar" role="toolbar" aria-label="Actions livraisons">
+          <div className="livraison-actions-bar__main">
+            <button
+              type="button"
+              className={`livraison-btn livraison-btn--primary${showCreateForm ? " livraison-btn--pressed" : ""}`}
+              onClick={() => {
+                resetForm();
+                clearMessage();
+                setShowCreateForm(true);
+              }}
+            >
+              Creer
+            </button>
+            <div className="livraison-actions-bar__secondary" role="group" aria-label="Affichage liste ou calendrier">
+              <button
+                type="button"
+                className={`livraison-btn livraison-btn--secondary${viewMode === "liste" ? " livraison-btn--secondary-active" : ""}`}
+                onClick={() => setViewMode("liste")}
+              >
+                Liste
+              </button>
+              <button
+                type="button"
+                className={`livraison-btn livraison-btn--secondary${viewMode === "calendrier" ? " livraison-btn--secondary-active" : ""}`}
+                onClick={() => setViewMode("calendrier")}
+              >
+                Calendrier
+              </button>
+            </div>
+          </div>
+          <button type="button" className="livraison-btn livraison-btn--ghost livraison-actions-bar__refresh" onClick={() => void fetchData()}>
             Actualiser
           </button>
         </div>
       </div>
 
       <FeedbackMessage message={message} type={messageType} />
+
+      <section className="tagora-panel livraison-metrics-panel">
+        <h2 className="livraison-metrics-panel__title">Indicateurs livraisons</h2>
+        <div className="livraison-metrics-panel__grid">
+          <SectionCard title="Total livraisons" subtitle={String(livraisonKpi.total)} />
+          <SectionCard title="Planifiees" subtitle={String(livraisonKpi.planifiee)} />
+          <SectionCard title="En cours" subtitle={String(livraisonKpi.en_cours)} />
+          <SectionCard title="Livrees" subtitle={String(livraisonKpi.livree)} />
+          <SectionCard title="Problemes" subtitle={String(livraisonKpi.probleme)} />
+        </div>
+      </section>
+
       {linkedDataNotice ? (
         <div style={{ marginTop: 16 }}>
           <AccessNotice title="Acces partiel" description="Certaines listes sont limitees." />
@@ -753,14 +909,79 @@ export default function Page() {
                 value={newForm.adresse}
                 onChange={(e) => setNewForm({ ...newForm, adresse: e.target.value })}
                 className="tagora-input"
-                placeholder="Adresse de livraison"
+                placeholder="Ex: 27 Rue de la Pointe aux Bleuets"
+                required
               />
             </label>
             <label className="tagora-field">
-              <span className="tagora-label">Chauffeur</span>
+              <span className="tagora-label">Code postal</span>
+              <input
+                type="text"
+                value={newForm.code_postal}
+                onChange={(e) => setNewForm({ ...newForm, code_postal: e.target.value })}
+                className="tagora-input"
+                placeholder="Ex: G3N 0C2"
+                autoComplete="postal-code"
+                required
+              />
+            </label>
+            <label className="tagora-field">
+              <span className="tagora-label">Personne a contacter</span>
+              <input
+                type="text"
+                value={newForm.contact_name}
+                onChange={(e) => setNewForm({ ...newForm, contact_name: e.target.value })}
+                className="tagora-input"
+                placeholder="Ex: Jean Tremblay (sur place)"
+              />
+            </label>
+            <label className="tagora-field">
+              <span className="tagora-label">Telephone principal</span>
+              <input
+                type="tel"
+                value={newForm.contact_phone_primary}
+                onChange={(e) => setNewForm({ ...newForm, contact_phone_primary: e.target.value })}
+                className="tagora-input"
+                placeholder="Ex: 418-555-1234"
+              />
+            </label>
+            <label className="tagora-field">
+              <span className="tagora-label">Extension telephone principal</span>
+              <input
+                type="text"
+                value={newForm.contact_phone_primary_ext}
+                onChange={(e) => setNewForm({ ...newForm, contact_phone_primary_ext: e.target.value })}
+                className="tagora-input"
+                placeholder="Ex: 204"
+                inputMode="numeric"
+              />
+            </label>
+            <label className="tagora-field">
+              <span className="tagora-label">Telephone secondaire</span>
+              <input
+                type="tel"
+                value={newForm.contact_phone_secondary}
+                onChange={(e) => setNewForm({ ...newForm, contact_phone_secondary: e.target.value })}
+                className="tagora-input"
+                placeholder="Optionnel"
+              />
+            </label>
+            <label className="tagora-field">
+              <span className="tagora-label">Extension telephone secondaire</span>
+              <input
+                type="text"
+                value={newForm.contact_phone_secondary_ext}
+                onChange={(e) => setNewForm({ ...newForm, contact_phone_secondary_ext: e.target.value })}
+                className="tagora-input"
+                placeholder="Optionnel"
+                inputMode="numeric"
+              />
+            </label>
+            <label className="tagora-field">
+              <span className="tagora-label">Livreur</span>
               <select value={newForm.chauffeur_id} onChange={(e) => setNewForm({ ...newForm, chauffeur_id: e.target.value })} className="tagora-input" required>
-                <option value="">Choisir un chauffeur</option>
-                {chauffeurs.map((item) => <option key={String(item.id)} value={String(item.id)}>{String(getPersonLabel(item))}</option>)}
+                <option value="">Choisir un livreur</option>
+                {chauffeursPourSelectLivraison.map((item) => <option key={String(item.id)} value={String(item.id)}>{String(getPersonLabel(item))}</option>)}
               </select>
             </label>
             <label className="tagora-field">
@@ -808,6 +1029,37 @@ export default function Page() {
                 <option value="probleme">Probleme</option>
               </select>
             </label>
+            <label className="tagora-field" style={{ gridColumn: "1 / -1" }}>
+              <span className="tagora-label">Commentaire opérationnel</span>
+              <textarea
+                value={newForm.commentaire_operationnel}
+                onChange={(e) => setNewForm({ ...newForm, commentaire_operationnel: e.target.value })}
+                className="tagora-textarea"
+                placeholder="Contexte pour l’équipe (sans données de paiement — le bloc Paiement les enregistre)."
+                rows={2}
+              />
+            </label>
+            <div style={{ gridColumn: "1 / -1" }}>
+              <PaymentClientFormSection
+                idPrefix="liv-new"
+                value={{
+                  paidFull: newForm.payment_paid_full,
+                  balanceDue: newForm.payment_balance_due,
+                  method: newForm.payment_method,
+                  note: newForm.payment_note,
+                }}
+                onChange={(next) =>
+                  setNewForm({
+                    ...newForm,
+                    payment_paid_full: next.paidFull,
+                    payment_balance_due: next.balanceDue,
+                    payment_method: next.method,
+                    payment_note: next.note,
+                  })
+                }
+                disabled={saving}
+              />
+            </div>
             {canEditLivraisonNotes ? (
               <label className="tagora-field" style={{ gridColumn: "1 / -1" }}>
                 <span className="tagora-label">Notes</span>
@@ -830,17 +1082,64 @@ export default function Page() {
       {editingId ? (
         <section className="tagora-panel" style={{ marginTop: 24 }}>
           <h2 className="section-title" style={{ marginBottom: 18 }}>Modifier la livraison</h2>
+          <div style={{ marginBottom: 16 }}>
+            <PaymentDetailBanner
+              payment={embeddedFromFormInput({
+                paidFull: form.payment_paid_full,
+                balanceDue: form.payment_balance_due,
+                method: form.payment_method,
+                note: form.payment_note,
+              })}
+            />
+          </div>
           <form onSubmit={handleSubmit} className="tagora-form-grid">
             <label className="tagora-field"><span className="tagora-label">Client</span><input type="text" value={form.client} onChange={(e) => setForm({ ...form, client: e.target.value })} className="tagora-input" placeholder="Nom du client" required /></label>
             <label className="tagora-field"><span className="tagora-label">Adresse</span><input type="text" value={form.adresse} onChange={(e) => setForm({ ...form, adresse: e.target.value })} className="tagora-input" placeholder="Adresse de livraison" /></label>
+            <label className="tagora-field"><span className="tagora-label">Code postal</span><input type="text" value={form.code_postal} onChange={(e) => setForm({ ...form, code_postal: e.target.value })} className="tagora-input" placeholder="Ex: G3N 0C2" autoComplete="postal-code" /></label>
+            <label className="tagora-field"><span className="tagora-label">Personne a contacter</span><input type="text" value={form.contact_name} onChange={(e) => setForm({ ...form, contact_name: e.target.value })} className="tagora-input" placeholder="Contact sur place" /></label>
+            <label className="tagora-field"><span className="tagora-label">Telephone principal</span><input type="tel" value={form.contact_phone_primary} onChange={(e) => setForm({ ...form, contact_phone_primary: e.target.value })} className="tagora-input" /></label>
+            <label className="tagora-field"><span className="tagora-label">Extension tel. principal</span><input type="text" value={form.contact_phone_primary_ext} onChange={(e) => setForm({ ...form, contact_phone_primary_ext: e.target.value })} className="tagora-input" inputMode="numeric" /></label>
+            <label className="tagora-field"><span className="tagora-label">Telephone secondaire</span><input type="tel" value={form.contact_phone_secondary} onChange={(e) => setForm({ ...form, contact_phone_secondary: e.target.value })} className="tagora-input" /></label>
+            <label className="tagora-field"><span className="tagora-label">Extension tel. secondaire</span><input type="text" value={form.contact_phone_secondary_ext} onChange={(e) => setForm({ ...form, contact_phone_secondary_ext: e.target.value })} className="tagora-input" inputMode="numeric" /></label>
             <label className="tagora-field"><span className="tagora-label">Dossier</span><select value={form.dossier_id} onChange={(e) => setForm({ ...form, dossier_id: e.target.value })} className="tagora-input"><option value="">Choisir un dossier</option>{dossiers.map((dossier) => <option key={String(dossier.id)} value={String(dossier.id)}>{String(getDossierLabel(dossier))}</option>)}</select></label>
             <label className="tagora-field"><span className="tagora-label">Date</span><input type="date" value={form.date_livraison} onChange={(e) => setForm({ ...form, date_livraison: e.target.value })} className="tagora-input" /></label>
             <label className="tagora-field"><span className="tagora-label">Heure</span><input type="time" value={form.heure_prevue} onChange={(e) => setForm({ ...form, heure_prevue: e.target.value })} className="tagora-input" /></label>
             <label className="tagora-field"><span className="tagora-label">Compagnie</span><select value={form.company_context} onChange={(e) => setForm({ ...form, company_context: e.target.value as AccountRequestCompany | "" })} className="tagora-input"><option value="">Choisir une compagnie</option>{ACCOUNT_REQUEST_COMPANIES.map((company) => <option key={company.value} value={company.value}>{company.label}</option>)}</select></label>
-            <label className="tagora-field"><span className="tagora-label">Chauffeur</span><select value={form.chauffeur_id} onChange={(e) => setForm({ ...form, chauffeur_id: e.target.value })} className="tagora-input"><option value="">Choisir un chauffeur</option>{chauffeurs.map((item) => <option key={String(item.id)} value={String(item.id)}>{String(getPersonLabel(item))}</option>)}</select></label>
+            <label className="tagora-field"><span className="tagora-label">Livreur</span><select value={form.chauffeur_id} onChange={(e) => setForm({ ...form, chauffeur_id: e.target.value })} className="tagora-input"><option value="">Choisir un livreur</option>{chauffeursPourSelectLivraison.map((item) => <option key={String(item.id)} value={String(item.id)}>{String(getPersonLabel(item))}</option>)}</select></label>
             <label className="tagora-field"><span className="tagora-label">Vehicule</span><select value={form.vehicule_id} onChange={(e) => setForm({ ...form, vehicule_id: e.target.value })} className="tagora-input"><option value="">Choisir un vehicule</option>{vehicules.map((item) => <option key={String(item.id)} value={String(item.id)}>{String(getVehiculeLabel(item))}</option>)}</select></label>
             <label className="tagora-field"><span className="tagora-label">Remorque</span><select value={form.remorque_id} onChange={(e) => setForm({ ...form, remorque_id: e.target.value })} className="tagora-input"><option value="">Choisir une remorque</option>{remorques.map((item) => <option key={String(item.id)} value={String(item.id)}>{String(getRemorqueLabel(item))}</option>)}</select></label>
             <label className="tagora-field"><span className="tagora-label">Statut</span><select value={form.statut} onChange={(e) => setForm({ ...form, statut: e.target.value })} className="tagora-input"><option value="planifiee">Planifiee</option><option value="en_cours">En cours</option><option value="livree">Livree</option><option value="probleme">Probleme</option></select></label>
+            <label className="tagora-field" style={{ gridColumn: "1 / -1" }}>
+              <span className="tagora-label">Commentaire opérationnel</span>
+              <textarea
+                value={form.commentaire_operationnel}
+                onChange={(e) => setForm({ ...form, commentaire_operationnel: e.target.value })}
+                className="tagora-textarea"
+                placeholder="Contexte pour l’équipe"
+                rows={2}
+              />
+            </label>
+            <div style={{ gridColumn: "1 / -1" }}>
+              <PaymentClientFormSection
+                idPrefix={`liv-edit-${editingId}`}
+                value={{
+                  paidFull: form.payment_paid_full,
+                  balanceDue: form.payment_balance_due,
+                  method: form.payment_method,
+                  note: form.payment_note,
+                }}
+                onChange={(next) =>
+                  setForm({
+                    ...form,
+                    payment_paid_full: next.paidFull,
+                    payment_balance_due: next.balanceDue,
+                    payment_method: next.method,
+                    payment_note: next.note,
+                  })
+                }
+                disabled={saving}
+              />
+            </div>
             {canEditLivraisonNotes ? (
               <label className="tagora-field" style={{ gridColumn: "1 / -1" }}>
                 <span className="tagora-label">Notes</span>
@@ -885,15 +1184,26 @@ export default function Page() {
         </section>
       ) : null}
 
-      <section className="tagora-panel" style={{ marginTop: 24 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", gap: 16, flexWrap: "wrap", alignItems: "center", marginBottom: 18 }}>
-            <h2 className="section-title" style={{ marginBottom: 0 }}>Livraisons planifiees</h2>
-          </div>
+      <section className="tagora-panel livraison-calendar-card">
+          <header className="livraison-calendar-card__header">
+            <div>
+              <h2 className="section-title livraison-calendar-card__title">Livraisons planifiees</h2>
+              {viewMode === "calendrier" ? (
+                <p className="livraison-calendar-card__subtitle">
+                  Vue mensuelle : cliquez un jour pour ouvrir la journée ou un événement pour le détail.
+                </p>
+              ) : (
+                <p className="livraison-calendar-card__subtitle">
+                  Filtrez par livreur, véhicule, remorque ou statut, puis gérez chaque ligne.
+                </p>
+              )}
+            </div>
+          </header>
 
           {viewMode === "liste" ? (
             <>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12, marginBottom: 18 }}>
-                <select value={filtre.chauffeur_id} onChange={(e) => setFiltre({ ...filtre, chauffeur_id: e.target.value })} className="tagora-input"><option value="">Tous les chauffeurs</option>{chauffeurs.map((item) => <option key={String(item.id)} value={String(item.id)}>{String(getPersonLabel(item))}</option>)}</select>
+                <select value={filtre.chauffeur_id} onChange={(e) => setFiltre({ ...filtre, chauffeur_id: e.target.value })} className="tagora-input"><option value="">Tous les livreurs</option>{chauffeursPourSelectLivraison.map((item) => <option key={String(item.id)} value={String(item.id)}>{String(getPersonLabel(item))}</option>)}</select>
                 <select value={filtre.vehicule_id} onChange={(e) => setFiltre({ ...filtre, vehicule_id: e.target.value })} className="tagora-input"><option value="">Tous les vehicules</option>{vehicules.map((item) => <option key={String(item.id)} value={String(item.id)}>{String(getVehiculeLabel(item))}</option>)}</select>
                 <select value={filtre.remorque_id} onChange={(e) => setFiltre({ ...filtre, remorque_id: e.target.value })} className="tagora-input"><option value="">Toutes les remorques</option>{remorques.map((item) => <option key={String(item.id)} value={String(item.id)}>{String(getRemorqueLabel(item))}</option>)}</select>
                 <select value={filtre.statut} onChange={(e) => setFiltre({ ...filtre, statut: e.target.value })} className="tagora-input"><option value="">Tous les statuts</option><option value="planifiee">Planifiee</option><option value="en_cours">En cours</option><option value="livree">Livree</option><option value="probleme">Probleme</option></select>
@@ -902,17 +1212,18 @@ export default function Page() {
                 <p className="tagora-note">Aucune livraison trouvee.</p>
               ) : (
                 <div style={{ overflowX: "auto" }}>
-                  <table style={tableStyle}>
+                  <table className="livraison-data-table" style={tableStyle}>
                     <thead>
                       <tr>
                         <th style={thStyle}>ID</th>
                         <th style={thStyle}>Dossier</th>
                         <th style={thStyle}>Client</th>
                         <th style={thStyle}>Adresse</th>
+                        <th style={thStyle}>Code postal</th>
                         <th style={thStyle}>Date</th>
                         <th style={thStyle}>Heure</th>
                         <th style={thStyle}>Compagnie</th>
-                        <th style={thStyle}>Chauffeur</th>
+                        <th style={thStyle}>Livreur</th>
                         <th style={thStyle}>Vehicule</th>
                         <th style={thStyle}>Remorque</th>
                         <th style={thStyle}>Statut</th>
@@ -933,6 +1244,7 @@ export default function Page() {
                             <td style={tdStyle}>{dossier ? getDossierLabel(dossier) : item.dossier_id || "-"}</td>
                             <td style={tdStyle}>{clientLabel || "-"}</td>
                             <td style={tdStyle}>{item.adresse || "-"}</td>
+                            <td style={tdStyle}>{getPostalCodeFromRow(item) || "-"}</td>
                             <td style={tdStyle}>{item.date_livraison || "-"}</td>
                             <td style={tdStyle}>{item.heure_prevue || "-"}</td>
                             <td style={tdStyle}>{getLivraisonCompanyValue(item) ? getCompanyLabel(getLivraisonCompanyValue(item) as AccountRequestCompany) : "-"}</td>
@@ -967,74 +1279,61 @@ export default function Page() {
             </>
           ) : (
             <>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
-                <button onClick={prevMonth} className="tagora-dark-outline-action" style={{ width: 120 }}>← Mois prec</button>
-                <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: "#0f2948" }}>
+              <div className="livraison-cal-nav" aria-label="Navigation calendrier">
+                <button type="button" onClick={prevMonth} className="livraison-cal-nav-btn">
+                  ← Mois prec
+                </button>
+                <h3 className="livraison-cal-month">
                   {calendarDate.toLocaleString("fr-FR", { month: "long", year: "numeric" })}
                 </h3>
-                <button onClick={nextMonth} className="tagora-dark-outline-action" style={{ width: 120 }}>Mois suiv →</button>
+                <button type="button" onClick={nextMonth} className="livraison-cal-nav-btn">
+                  Mois suiv →
+                </button>
               </div>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 8, marginBottom: 12 }}>
+              <div className="livraison-cal-weekdays">
                 {["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"].map((d) => (
-                  <div key={d} style={{ textAlign: "center", fontWeight: 700, fontSize: 12, color: "#64748b", padding: "8px 0" }}>
+                  <div key={d} className="livraison-cal-weekday">
                     {d}
                   </div>
                 ))}
               </div>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 8 }}>
+              <div className="livraison-cal-grid">
                 {getCalendarDays().map((day, idx) => {
                   const dateStr = day ? formatDateISO(day) : "";
                   const datumsForDay = day ? getLivraisonsByDate(dateStr) : [];
                   return (
                     <div
                       key={idx}
-                      style={{
-                        minHeight: 100,
-                        border: "1px solid #e5e7eb",
-                        borderRadius: 10,
-                        padding: 8,
-                        background: day ? "#ffffff" : "#f8fafc",
-                        display: "flex",
-                        flexDirection: "column",
-                        overflow: "hidden",
-                      }}
+                      className={day ? "livraison-cal-cell" : "livraison-cal-cell livraison-cal-cell--empty"}
                     >
                       {day ? (
-                        <Link
-                          href={`/direction/livraisons/jour?date=${dateStr}`}
-                          className="tagora-dark-outline-action"
-                          style={{ width: "fit-content", padding: "2px 8px", marginBottom: 6 }}
-                        >
+                        <Link href={`/direction/livraisons/jour?date=${dateStr}`} className="livraison-cal-daynum">
                           {day}
                         </Link>
                       ) : null}
-                      <div style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, overflow: "auto" }}>
-                        {datumsForDay.slice(0, 3).map((item) => (
-                          <Link
-                            key={item.id}
-                            href={`/direction/livraisons/jour?date=${dateStr}`}
-                            style={{
-                              padding: "3px 6px",
-                              borderRadius: 4,
-                              border: "none",
-                              cursor: "pointer",
-                              fontSize: 11,
-                              fontWeight: 600,
-                              background: item.statut === "planifiee" ? "#6b7280" : item.statut === "en_cours" ? "#f59e0b" : item.statut === "livree" ? "#10b981" : "#ef4444",
-                              color: "#fff",
-                              textAlign: "left",
-                              whiteSpace: "nowrap",
-                              overflow: "hidden",
-                              textOverflow: "ellipsis",
-                              transition: "opacity 140ms ease",
-                              display: "block",
-                            }}
-                          >
-                            {getLivraisonClient(item, getDossierById(item.dossier_id)) || `#${item.id}`} {item.heure_prevue ? `@ ${item.heure_prevue}` : ""}
-                          </Link>
-                        ))}
+                      <div className="livraison-cal-events">
+                        {datumsForDay.slice(0, 3).map((item) => {
+                          const statutKey =
+                            item.statut === "en_cours"
+                              ? "en_cours"
+                              : item.statut === "livree"
+                                ? "livree"
+                                : item.statut === "probleme"
+                                  ? "probleme"
+                                  : "planifiee";
+                          return (
+                            <Link
+                              key={item.id}
+                              href={`/direction/livraisons/jour?date=${dateStr}`}
+                              className={`livraison-cal-event livraison-cal-event--${statutKey}`}
+                            >
+                              {getLivraisonClient(item, getDossierById(item.dossier_id)) || `#${item.id}`}{" "}
+                              {item.heure_prevue ? `@ ${item.heure_prevue}` : ""}
+                            </Link>
+                          );
+                        })}
                         {datumsForDay.length > 3 && (
-                          <div style={{ color: "#64748b", fontSize: 10, fontWeight: 600 }}>+{datumsForDay.length - 3} autre(s)</div>
+                          <div className="livraison-cal-more">+{datumsForDay.length - 3} autre(s)</div>
                         )}
                       </div>
                     </div>
@@ -1044,6 +1343,25 @@ export default function Page() {
             </>
           )}
       </section>
+      <PaymentFinalizeModal
+        open={finalizePayOpen}
+        kind="livraison"
+        balanceDue={finalizePayBalance}
+        loading={finalizeLoading}
+        method={finalizeMethod}
+        confirmChecked={finalizeAck}
+        onMethodChange={setFinalizeMethod}
+        onConfirmChange={setFinalizeAck}
+        onCancel={() => {
+          if (!finalizeLoading) {
+            setFinalizePayOpen(false);
+            setFinalizePayId(null);
+            setFinalizeMethod("");
+            setFinalizeAck(false);
+          }
+        }}
+        onSubmit={() => void submitFinalizeLivreeFromModal()}
+      />
     </main>
   );
 }
@@ -1051,7 +1369,7 @@ export default function Page() {
 const tableStyle: React.CSSProperties = {
   width: "100%",
   borderCollapse: "collapse",
-  minWidth: 1000,
+  minWidth: 1120,
 };
 
 const thStyle: React.CSSProperties = {
