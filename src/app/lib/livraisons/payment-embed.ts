@@ -289,8 +289,14 @@ export function applyPaymentPreferCommentaire(
   const out: { commentaire_operationnel: string | null; notes?: string | null } = {
     commentaire_operationnel: mergePaymentIntoText(cleanCom, updatedPayment) || null,
   };
+  /** Colonne livraisons_planifiees.notes absente du schéma sur plusieurs environnements : fusion dans commentaire. */
   if (parsed.embedSource === "notes" && notesRaw.includes(PAYMENT_MARKER)) {
-    out.notes = stripPaymentMarker(notesRaw) || null;
+    const stripped = stripPaymentMarker(notesRaw).trim();
+    if (stripped) {
+      out.commentaire_operationnel = out.commentaire_operationnel?.trim().length
+        ? `${out.commentaire_operationnel}\n\n${stripped}`
+        : stripped;
+    }
   }
   return out;
 }

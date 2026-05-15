@@ -433,6 +433,13 @@ export default function Page() {
       stripPaymentMarker(source.commentaire_operationnel.trim()),
       embedded
     );
+    const extraNotes = source.notes.trim();
+    const commentaireWithNotes =
+      extraNotes.length > 0
+        ? commentaireMerged.length > 0
+          ? `${commentaireMerged}\n\nNotes:\n${extraNotes}`
+          : `Notes:\n${extraNotes}`
+        : commentaireMerged;
 
     return {
       dossier_id: source.dossier_id ? Number(source.dossier_id) : null,
@@ -451,8 +458,8 @@ export default function Page() {
       vehicule_id: source.vehicule_id ? Number(source.vehicule_id) : null,
       remorque_id: source.remorque_id ? Number(source.remorque_id) : null,
       statut: source.statut || null,
-      commentaire_operationnel: commentaireMerged.length > 0 ? commentaireMerged : null,
-      ...(canEditLivraisonNotes ? { notes: source.notes.trim() || null } : {}),
+      commentaire_operationnel:
+        commentaireWithNotes.length > 0 ? commentaireWithNotes : null,
     };
   }
 

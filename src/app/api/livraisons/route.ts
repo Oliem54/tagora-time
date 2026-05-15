@@ -27,7 +27,6 @@ type LivraisonCreatePayload = {
   remorque_id?: unknown;
   statut?: unknown;
   company_context?: unknown;
-  notes?: unknown;
   note_chauffeur?: unknown;
   commentaire_operationnel?: unknown;
   latitude?: unknown;
@@ -64,7 +63,6 @@ const INSERT_COLUMN_KEYS = [
   "remorque_id",
   "statut",
   "company_context",
-  "notes",
   "note_chauffeur",
   "commentaire_operationnel",
   "latitude",
@@ -219,7 +217,6 @@ export async function POST(req: NextRequest) {
       remorque_id: asInteger(body.remorque_id),
       statut: asText(body.statut) ?? "planifiee",
       company_context: asText(body.company_context),
-      notes: asText(body.notes),
       note_chauffeur: asText(body.note_chauffeur),
       commentaire_operationnel: asText(body.commentaire_operationnel),
       latitude,
