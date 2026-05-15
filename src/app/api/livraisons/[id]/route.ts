@@ -31,7 +31,6 @@ const ALLOWED_UPDATE_FIELDS = new Set([
   "remorque_id",
   "statut",
   "company_context",
-  "notes",
   "note_chauffeur",
   "commentaire_operationnel",
   "latitude",
