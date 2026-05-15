@@ -129,6 +129,24 @@ function formatAuditTimestamp(value: string | number | null | undefined) {
 
 const AUDIT_NON_RENSEIGNE = "Non renseigné";
 
+const DAY_OPS_ACTION_LOG_VERSION = "DAY_OPERATIONS_VIEW_LOADED_VERSION_ACTION_FIX";
+
+function logDayOpsAction(event: string, detail?: Record<string, unknown>) {
+  console.info(`[${DAY_OPS_ACTION_LOG_VERSION}] ${event}`, detail ?? {});
+}
+
+function logDayOpsApiFailure(
+  event: string,
+  detail: {
+    route: string;
+    status: number;
+    payload?: unknown;
+    responseJson?: unknown;
+  }
+) {
+  console.warn(`[${DAY_OPS_ACTION_LOG_VERSION}] ${event}`, detail);
+}
+
 function livraisonStatutBadgeProps(
   statutRaw: string,
   statusText: string
@@ -532,6 +550,10 @@ export default function DayOperationsView({ area }: Props) {
 
   const canManageOrder = area === "direction" && (role === "direction" || role === "admin");
   const canEditStopDetails = role === "direction" || role === "admin";
+
+  useEffect(() => {
+    console.info(DAY_OPS_ACTION_LOG_VERSION, { area, dateIso });
+  }, [area, dateIso]);
 
   const persistGeocodedToServer = useCallback(async (stopId: number, latitude: number, longitude: number) => {
     const url = `/api/livraisons/${stopId}/geocode-position`;
@@ -1442,6 +1464,14 @@ export default function DayOperationsView({ area }: Props) {
   }
 
   async function runQuickStopAction(action: "annuler" | "supprimer" | "completer") {
+    const clickEvent =
+      action === "annuler"
+        ? "ACTION_ANNULER_CLICK"
+        : action === "supprimer"
+          ? "ACTION_SUPPRIMER_CLICK"
+          : "ACTION_MARQUER_LIVRE_CLICK";
+    logDayOpsAction(clickEvent, { stopId: selected?.id ?? null, action });
+
     if (!selected || !canEditStopDetails) {
       console.warn("[runQuickStopAction] bloque", {
         action,
@@ -1496,6 +1526,11 @@ export default function DayOperationsView({ area }: Props) {
           error?: { message?: string };
         };
         if (!response.ok) {
+          logDayOpsApiFailure("API_SUPPRIMER_FAILED", {
+            route: url,
+            status: response.status,
+            responseJson,
+          });
           setStopFormMessage(
             `Suppression impossible (HTTP ${response.status}) : ${data.error?.message ?? "erreur inconnue"}`
           );
@@ -1525,6 +1560,7 @@ export default function DayOperationsView({ area }: Props) {
       }
 
       const url = `/api/livraisons/${selected.id}`;
+      logDayOpsAction("API_PATCH_START", { route: url, payload: patch });
       const response = await fetch(url, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -1539,6 +1575,12 @@ export default function DayOperationsView({ area }: Props) {
         error?: { message?: string; code?: string; details?: string; hint?: string };
       };
       if (!response.ok || !data.updated_row) {
+        logDayOpsApiFailure("API_QUICK_ACTION_FAILED", {
+          route: url,
+          status: response.status,
+          payload: patch,
+          responseJson,
+        });
         setStopFormMessage(
           `Action rapide indisponible (HTTP ${response.status}) : ${
             data.error?.message ?? "erreur inconnue"
@@ -1630,6 +1672,7 @@ export default function DayOperationsView({ area }: Props) {
         statut: "planifiee",
       };
       const url = `/api/livraisons/${selected.id}`;
+      logDayOpsAction("API_REPLANIFIER_START", { route: url, payload: patch });
       const response = await fetch(url, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -1644,6 +1687,12 @@ export default function DayOperationsView({ area }: Props) {
         error?: { message?: string; code?: string; details?: string; hint?: string };
       };
       if (!response.ok || !data.updated_row) {
+        logDayOpsApiFailure("API_REPLANIFIER_FAILED", {
+          route: url,
+          status: response.status,
+          payload: patch,
+          responseJson,
+        });
         setStopFormMessage(
           `Replanification impossible (HTTP ${response.status}) : ${
             data.error?.message ?? "erreur inconnue"
@@ -1685,6 +1734,7 @@ export default function DayOperationsView({ area }: Props) {
   }
 
   function startManualPositionMode(stopId: number) {
+    logDayOpsAction("ACTION_POSITION_CARTE_CLICK", { stopId });
     const stop = stops.find((item) => item.id === stopId);
     if (!stop) return;
     const existing = geoById[stopId];
@@ -2337,9 +2387,11 @@ export default function DayOperationsView({ area }: Props) {
                 <AppCard tone="muted" className="ui-stack-xs day-ops-detail-side-card" style={{ padding: 12 }}>
                   {(() => {
                     const createdBy = getFieldString(selected.row, ["created_by_name"]).trim();
+                    const scheduledBy = getFieldString(selected.row, ["scheduled_by_name"]).trim();
                     const createdAtRaw = getFieldString(selected.row, ["created_at"]);
                     const creeLeFmt = formatAuditTimestamp(createdAtRaw);
                     const creePar = createdBy || AUDIT_NON_RENSEIGNE;
+                    const programmePar = scheduledBy || AUDIT_NON_RENSEIGNE;
                     const creeLe = creeLeFmt.trim() ? creeLeFmt : AUDIT_NON_RENSEIGNE;
                     const updatedBy = getFieldString(selected.row, ["updated_by_name"]).trim();
                     const updatedAtRaw = getFieldString(selected.row, ["updated_at"]);
@@ -2355,6 +2407,9 @@ export default function DayOperationsView({ area }: Props) {
                       <div className="day-ops-detail-trace" aria-label="Traçabilité">
                         <div className="day-ops-detail-stat-row day-ops-detail-trace-row">
                           <strong>Créé par :</strong> <span>{creePar}</span>
+                        </div>
+                        <div className="day-ops-detail-stat-row day-ops-detail-trace-row">
+                          <strong>Programmé par :</strong> <span>{programmePar}</span>
                         </div>
                         <div className="day-ops-detail-stat-row day-ops-detail-trace-row">
                           <strong>Créé le :</strong> <span>{creeLe}</span>
@@ -2482,6 +2537,7 @@ export default function DayOperationsView({ area }: Props) {
                       type="button"
                       className="tagora-dark-outline-action day-ops-compact-btn"
                       onClick={() => {
+                        logDayOpsAction("ACTION_MODIFIER_CLICK", { stopId: selected.id });
                         setIsEditingStop(true);
                         setShowDetail(true);
                         setStopFormMessage("");
@@ -2500,6 +2556,7 @@ export default function DayOperationsView({ area }: Props) {
                       className="tagora-dark-outline-action day-ops-compact-btn"
                       disabled={quickActionLoading === `replanifier-save:${selected.id}`}
                       onClick={() => {
+                        logDayOpsAction("ACTION_REPLANIFIER_CLICK", { stopId: selected.id });
                         setShowReplanifierForm(true);
                         setReplanDate(
                           normalizeDateInputForHtml(getFieldString(selected.row, ["date_livraison"]))

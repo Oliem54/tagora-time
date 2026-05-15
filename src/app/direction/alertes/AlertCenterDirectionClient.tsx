@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import Link from "next/link";
@@ -11,6 +11,8 @@ import SectionCard from "@/app/components/ui/SectionCard";
 import AppCard from "@/app/components/ui/AppCard";
 import TagoraLoadingScreen from "@/app/components/ui/TagoraLoadingScreen";
 import TagoraCountBadge from "@/app/components/TagoraCountBadge";
+import JournalAlertCard from "@/app/direction/alertes/JournalAlertCard";
+import { humanizeTechnicalIndicator } from "@/app/direction/alertes/technical-indicators-ui";
 
 type SummaryPayload = {
   open?: {
@@ -133,6 +135,38 @@ function priorityRank(p: QueueRow["priority"]): number {
   }
 }
 
+function primaryHrefForCategory(rows: QueueRow[]): string {
+  if (rows.length === 0) return "/direction/alertes?status=open";
+  const sorted = [...rows].sort((a, b) => {
+    const pr = priorityRank(a.priority) - priorityRank(b.priority);
+    if (pr !== 0) return pr;
+    return b.count - a.count;
+  });
+  return sorted[0]!.href;
+}
+
+function alertQueuePriorityFr(p: QueueRow["priority"]): string {
+  switch (p) {
+    case "critical":
+      return "Priorité critique";
+    case "high":
+      return "Priorité élevée";
+    case "medium":
+      return "Priorité modérée";
+    default:
+      return "Priorité faible";
+  }
+}
+
+const TECH_BLOCK_LABEL: CSSProperties = {
+  fontSize: 11,
+  fontWeight: 700,
+  color: "#64748b",
+  textTransform: "uppercase",
+  letterSpacing: "0.05em",
+  marginBottom: 6,
+};
+
 function formatShortDate(iso: string | null | undefined): string {
   if (!iso) return "—";
   const d = new Date(iso);
@@ -206,11 +240,62 @@ const JOURNAL_FILTERS: { key: JournalFilter; label: string }[] = [
 const acScopedCss = `
   .ac-details-reset > summary { list-style: none; }
   .ac-details-reset > summary::-webkit-details-marker { display: none; }
-  .ac-msg-clamp {
-    display: -webkit-box;
-    -webkit-line-clamp: 3;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
+  .ac-journal-insight {
+    display: grid;
+    gap: 10px;
+    padding: 14px 16px;
+    border-radius: 12px;
+    background: linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%);
+    border: 1px solid #e2e8f0;
+  }
+  .ac-journal-insight-row {
+    display: grid;
+    grid-template-columns: minmax(108px, 140px) 1fr;
+    gap: 8px 14px;
+    align-items: start;
+    font-size: 14px;
+    line-height: 1.5;
+  }
+  .ac-journal-insight-row dt {
+    margin: 0;
+    font-weight: 700;
+    color: #64748b;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .ac-journal-insight-row dd {
+    margin: 0;
+    color: #1e293b;
+  }
+  .ac-tech-panel {
+    margin-top: 10px;
+    padding: 14px 16px;
+    border-radius: 12px;
+    background: #0f172a;
+    color: #e2e8f0;
+    font-size: 12px;
+    line-height: 1.55;
+    overflow-x: auto;
+  }
+  .ac-tech-panel dl {
+    margin: 0;
+    display: grid;
+    gap: 10px;
+  }
+  .ac-tech-panel dt {
+    font-weight: 700;
+    color: #94a3b8;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .ac-tech-panel dd {
+    margin: 2px 0 0;
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    color: #f1f5f9;
   }
   @media (max-width: 720px) {
     .ac-alert-top-row { flex-direction: column !important; align-items: stretch !important; }
@@ -290,7 +375,9 @@ export default function AlertCenterDirectionClient() {
   const [journalLoading, setJournalLoading] = useState(false);
   const [journalMutatingId, setJournalMutatingId] = useState<string | null>(null);
   const [bulkBusy, setBulkBusy] = useState<string | null>(null);
-  const [expandedMessageId, setExpandedMessageId] = useState<string | null>(null);
+  const [expandedTechnicalId, setExpandedTechnicalId] = useState<string | null>(null);
+  const [technicalIndicatorDetailId, setTechnicalIndicatorDetailId] = useState<string | null>(null);
+  const [categoriesSectionOpen, setCategoriesSectionOpen] = useState(true);
 
   useEffect(() => {
     if (accessLoading || !user) {
@@ -496,7 +583,7 @@ export default function AlertCenterDirectionClient() {
     router.replace("/direction/login");
   }, [accessLoading, user, router]);
 
-  const queuesPhase1 = useMemo((): QueueRow[] => {
+  const queuesPhase1Full = useMemo((): QueueRow[] => {
     const o = summary?.open;
     const rows: QueueRow[] = [
       {
@@ -530,18 +617,21 @@ export default function AlertCenterDirectionClient() {
         source: "phase1",
       },
     ];
-    const sorted = [...rows].sort((a, b) => {
+    return [...rows].sort((a, b) => {
       const pr = priorityRank(a.priority) - priorityRank(b.priority);
       if (pr !== 0) return pr;
       return b.count - a.count;
     });
-    if (statusFilter === "open") {
-      return sorted.filter((r) => r.count > 0);
-    }
-    return sorted;
-  }, [summary, statusFilter]);
+  }, [summary]);
 
-  const queuesPhase2 = useMemo((): QueueRow[] => {
+  const queuesPhase1 = useMemo((): QueueRow[] => {
+    if (statusFilter === "open") {
+      return queuesPhase1Full.filter((r) => r.count > 0);
+    }
+    return queuesPhase1Full;
+  }, [queuesPhase1Full, statusFilter]);
+
+  const queuesPhase2Full = useMemo((): QueueRow[] => {
     const raw = summary?.phase2?.queues ?? [];
     const rows: QueueRow[] = raw.map((q) => ({
       id: q.id,
@@ -553,16 +643,20 @@ export default function AlertCenterDirectionClient() {
       category: q.category,
       source: q.source,
     }));
-    const sorted = [...rows].sort((a, b) => {
+    return [...rows].sort((a, b) => {
       const pr = priorityRank(a.priority) - priorityRank(b.priority);
       if (pr !== 0) return pr;
       return b.count - a.count;
     });
+  }, [summary?.phase2?.queues]);
+
+  const queuesPhase2 = useMemo((): QueueRow[] => {
+    const sorted = queuesPhase2Full;
     if (statusFilter === "open") {
       return sorted.filter((r) => r.count > 0);
     }
     return sorted;
-  }, [summary?.phase2?.queues, statusFilter]);
+  }, [queuesPhase2Full, statusFilter]);
 
   const queues = useMemo(() => [...queuesPhase1, ...queuesPhase2], [queuesPhase1, queuesPhase2]);
 
@@ -575,6 +669,36 @@ export default function AlertCenterDirectionClient() {
     }
     return map;
   }, [queues]);
+
+  const categoryRollup = useMemo(() => {
+    let categoriesWithAlerts = 0;
+    let totalAlertCount = 0;
+    for (const name of CATEGORY_ORDER) {
+      const rows = categories.get(name) ?? [];
+      const t = rows.reduce((s, r) => s + r.count, 0);
+      totalAlertCount += t;
+      if (t > 0) categoriesWithAlerts += 1;
+    }
+    return { categoriesWithAlerts, totalAlertCount };
+  }, [categories]);
+
+  const categoryRows = useMemo(() => {
+    return CATEGORY_ORDER.map((name) => {
+      const rows = categories.get(name) ?? [];
+      const totalCount = rows.reduce((s, r) => s + r.count, 0);
+      return {
+        name,
+        totalCount,
+        href: primaryHrefForCategory(rows),
+        isActive: totalCount > 0,
+      };
+    });
+  }, [categories]);
+
+  const inactiveCategoryCount = useMemo(
+    () => categoryRows.filter((c) => !c.isActive).length,
+    [categoryRows]
+  );
 
   const roleOk = role === "admin" || role === "direction";
   const showLoader = accessLoading || (Boolean(user) && roleOk && !summaryFetched);
@@ -622,7 +746,7 @@ export default function AlertCenterDirectionClient() {
             <span style={{ fontSize: 34, fontWeight: 800, color: "#0f172a", letterSpacing: "-0.03em" }}>
               {badgeTotal}
             </span>
-            <span style={{ fontSize: 12, color: "#94a3b8" }}>Vue globale (badge agrégé)</span>
+            <span style={{ fontSize: 12, color: "#94a3b8" }}>Synthèse de l’activité</span>
           </div>
           <div style={alertCenterStatCardSurface("warn")}>
             <span style={{ fontSize: 13, color: "#92400e", fontWeight: 600 }}>Échecs techniques</span>
@@ -706,19 +830,73 @@ export default function AlertCenterDirectionClient() {
               role="status"
               style={{
                 marginBottom: 18,
-                padding: "12px 14px",
+                padding: "14px 16px",
                 borderRadius: 12,
                 background: "#f0fdfa",
                 border: "1px solid #99f6e4",
-                color: "#0f766e",
-                fontSize: 13,
-                lineHeight: 1.5,
+                color: "#115e59",
+                fontSize: 14,
+                lineHeight: 1.55,
               }}
             >
-              <strong>Vue détail technique</strong> —{" "}
-              {phase2TechnicalQueue === "echecs-notifications"
-                ? "échecs d’envoi (app_alert_deliveries et sms_alerts_log, 90 jours)."
-                : "mentions internes en erreur d’envoi courriel (90 jours)."}
+              <div style={{ marginBottom: 10 }}>
+                <strong style={{ color: "#0f766e" }}>Vue filtrée</strong>
+                <p style={{ margin: "8px 0 0", color: "#134e4a" }}>
+                  {phase2TechnicalQueue === "echecs-notifications"
+                    ? "Échecs d’envoi sur les canaux SMS et courriel — la liste ci-dessous regroupe les lignes à traiter ou à analyser."
+                    : "Erreurs d’envoi sur les mentions internes par courriel — chaque entrée peut être traitée depuis le journal."}
+                </p>
+              </div>
+              <details
+                style={{
+                  marginTop: 4,
+                  padding: "10px 12px",
+                  borderRadius: 10,
+                  background: "rgba(255,255,255,0.65)",
+                  border: "1px solid #ccfbf1",
+                }}
+              >
+                <summary
+                  style={{
+                    cursor: "pointer",
+                    fontWeight: 600,
+                    color: "#0d9488",
+                    fontSize: 13,
+                  }}
+                >
+                  Voir détail technique
+                </summary>
+                <div style={{ marginTop: 12, fontSize: 13, color: "#0f766e", lineHeight: 1.6 }}>
+                  {phase2TechnicalQueue === "echecs-notifications" ? (
+                    <>
+                      <div>
+                        <strong>Suivi côté serveur :</strong> tables{" "}
+                        <span style={{ fontFamily: "ui-monospace, monospace", fontSize: 12 }}>
+                          app_alert_deliveries
+                        </span>
+                        ,{" "}
+                        <span style={{ fontFamily: "ui-monospace, monospace", fontSize: 12 }}>
+                          sms_alerts_log
+                        </span>
+                        .
+                      </div>
+                      <div style={{ marginTop: 8 }}>
+                        <strong>Période comptée :</strong> 90 jours glissants (fenêtre d’analyse).
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div>
+                        <strong>Source données :</strong> mentions internes, filtre erreur d’envoi
+                        courriel.
+                      </div>
+                      <div style={{ marginTop: 8 }}>
+                        <strong>Période comptée :</strong> 90 jours glissants.
+                      </div>
+                    </>
+                  )}
+                </div>
+              </details>
             </div>
           ) : null}
           <div
@@ -859,7 +1037,7 @@ export default function AlertCenterDirectionClient() {
               }}
             >
               {phase2TechnicalQueue
-                ? "Aucune ligne dans cette vue technique pour la période récente (90 jours)."
+                ? "Aucune entrée dans cette vue filtrée pour l’instant — élargissez le filtre ou réessayez plus tard."
                 : `Aucune entrée pour « ${journalFilterLabel(journalFilter)} ».`}
             </div>
           ) : (
@@ -870,295 +1048,27 @@ export default function AlertCenterDirectionClient() {
                 padding: 0,
                 display: "flex",
                 flexDirection: "column",
-                gap: 14,
+                gap: 18,
               }}
             >
               {journalItems.map((row) => {
-                const statusFr = JOURNAL_STATUS_LABEL[row.status] ?? row.status;
-                const fc = row.failureCount;
-                const showRepeat =
-                  typeof fc === "number" && fc > 1 ? `Répété ${fc - 1} fois` : null;
                 const busy = journalMutatingId === row.id;
-                const canHandle = row.status === "open" || row.status === "failed";
-                const canArchive =
-                  row.status === "open" ||
-                  row.status === "failed" ||
-                  row.status === "handled" ||
-                  row.status === "snoozed";
-                const isCritical = row.priority === "critical";
-                const expanded = expandedMessageId === row.id;
+                const techExpanded = expandedTechnicalId === row.id;
 
                 return (
                   <li key={row.id}>
-                    <article
-                      style={{
-                        borderRadius: 16,
-                        border: "1px solid #e2e8f0",
-                        background: "#fff",
-                        boxShadow: "0 2px 14px rgba(15, 23, 42, 0.05)",
-                        padding: "18px 20px",
-                        display: "flex",
-                        flexDirection: "column",
-                        gap: 14,
-                      }}
-                    >
-                      <div
-                        className="ac-alert-top-row"
-                        style={{
-                          display: "flex",
-                          flexWrap: "wrap",
-                          gap: 16,
-                          alignItems: "flex-start",
-                          justifyContent: "space-between",
-                        }}
-                      >
-                        <div style={{ flex: "1 1 280px", minWidth: 0 }}>
-                          <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 10 }}>
-                            <span style={statusBadgeStyle(row.status)}>{statusFr}</span>
-                            <span style={priorityBadgeStyle(row.priority)}>{row.priority}</span>
-                            <span
-                              style={{
-                                fontSize: 12,
-                                color: "#64748b",
-                                padding: "4px 8px",
-                                background: "#f1f5f9",
-                                borderRadius: 6,
-                              }}
-                            >
-                              {row.category}
-                            </span>
-                          </div>
-                          <h3
-                            style={{
-                              margin: "0 0 8px",
-                              fontSize: 17,
-                              fontWeight: 700,
-                              color: "#0f172a",
-                              lineHeight: 1.35,
-                            }}
-                          >
-                            {row.title}
-                          </h3>
-                          {row.message ? (
-                            <div>
-                              <p
-                                className={expanded ? undefined : "ac-msg-clamp"}
-                                style={{
-                                  margin: 0,
-                                  fontSize: 14,
-                                  color: "#475569",
-                                  lineHeight: 1.55,
-                                  whiteSpace: expanded ? "pre-wrap" : undefined,
-                                }}
-                              >
-                                {row.message}
-                              </p>
-                              {row.message.length > 140 ? (
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    setExpandedMessageId(expanded ? null : row.id)
-                                  }
-                                  style={{
-                                    marginTop: 6,
-                                    fontSize: 13,
-                                    fontWeight: 600,
-                                    color: "#0d9488",
-                                    background: "none",
-                                    border: "none",
-                                    cursor: "pointer",
-                                    padding: 0,
-                                  }}
-                                >
-                                  {expanded ? "Réduire" : "Voir détail"}
-                                </button>
-                              ) : null}
-                            </div>
-                          ) : (
-                            <p style={{ margin: 0, fontSize: 14, color: "#94a3b8" }}>Aucun message.</p>
-                          )}
-                        </div>
-
-                        <div
-                          className="ac-alert-actions-col"
-                          style={{
-                            flex: "0 0 auto",
-                            display: "flex",
-                            flexDirection: "column",
-                            alignItems: "flex-end",
-                            gap: 10,
-                            minWidth: 200,
-                          }}
-                        >
-                          <div
-                            className="ac-alert-details"
-                            style={{ display: "flex", flexWrap: "wrap", gap: 8, justifyContent: "flex-end" }}
-                          >
-                            {row.linkHref ? (
-                              <Link
-                                href={row.linkHref}
-                                className="ui-button ui-button-primary"
-                                style={{ fontSize: 13, padding: "8px 14px", borderRadius: 10 }}
-                              >
-                                Ouvrir
-                              </Link>
-                            ) : null}
-                            <button
-                              type="button"
-                              className="ui-button ui-button-secondary"
-                              style={{
-                                fontSize: 13,
-                                padding: "8px 14px",
-                                borderRadius: 10,
-                                fontWeight: 600,
-                              }}
-                              disabled={busy || !canHandle}
-                              onClick={() => void patchJournalAction(row.id, "mark_handled")}
-                            >
-                              {busy ? "…" : "Traité"}
-                            </button>
-                            <details className="ac-details-reset" style={{ position: "relative" }}>
-                              <summary
-                                style={{
-                                  listStyle: "none",
-                                  cursor: "pointer",
-                                  fontSize: 13,
-                                  fontWeight: 600,
-                                  padding: "8px 14px",
-                                  borderRadius: 10,
-                                  border: "1px solid #cbd5e1",
-                                  background: "#f8fafc",
-                                  color: "#334155",
-                                }}
-                              >
-                                Plus
-                              </summary>
-                              <div
-                                style={{
-                                  position: "absolute",
-                                  right: 0,
-                                  top: "calc(100% + 6px)",
-                                  minWidth: 200,
-                                  background: "#fff",
-                                  border: "1px solid #e2e8f0",
-                                  borderRadius: 12,
-                                  boxShadow: "0 12px 40px rgba(15,23,42,0.12)",
-                                  padding: 8,
-                                  zIndex: 20,
-                                  display: "flex",
-                                  flexDirection: "column",
-                                  gap: 4,
-                                }}
-                              >
-                                <button
-                                  type="button"
-                                  disabled={busy || !canArchive || row.status === "archived"}
-                                  onClick={() => void patchJournalAction(row.id, "archive")}
-                                  style={{
-                                    textAlign: "left",
-                                    padding: "10px 12px",
-                                    borderRadius: 8,
-                                    border: "none",
-                                    background: "#f8fafc",
-                                    fontSize: 13,
-                                    cursor: busy || !canArchive ? "not-allowed" : "pointer",
-                                    opacity: !canArchive || row.status === "archived" ? 0.45 : 1,
-                                  }}
-                                >
-                                  Archiver
-                                </button>
-                                <button
-                                  type="button"
-                                  disabled={busy || !canHandle}
-                                  onClick={() => void patchJournalAction(row.id, "cancel")}
-                                  style={{
-                                    textAlign: "left",
-                                    padding: "10px 12px",
-                                    borderRadius: 8,
-                                    border: "none",
-                                    background: "#f8fafc",
-                                    fontSize: 13,
-                                    cursor: busy || !canHandle ? "not-allowed" : "pointer",
-                                    opacity: !canHandle ? 0.45 : 1,
-                                  }}
-                                >
-                                  Annuler
-                                </button>
-                                {isCritical ? (
-                                  <span
-                                    title="Les alertes critiques ne peuvent pas être supprimées depuis l’interface."
-                                    style={{
-                                      padding: "10px 12px",
-                                      fontSize: 12,
-                                      color: "#64748b",
-                                    }}
-                                  >
-                                    Non supprimable
-                                  </span>
-                                ) : (
-                                  <button
-                                    type="button"
-                                    disabled={busy}
-                                    onClick={() => void deleteJournalRow(row.id)}
-                                    style={{
-                                      textAlign: "left",
-                                      padding: "10px 12px",
-                                      borderRadius: 8,
-                                      border: "none",
-                                      background: "#fef2f2",
-                                      color: "#b91c1c",
-                                      fontSize: 13,
-                                      cursor: busy ? "not-allowed" : "pointer",
-                                    }}
-                                  >
-                                    Supprimer…
-                                  </button>
-                                )}
-                              </div>
-                            </details>
-                          </div>
-                        </div>
-                      </div>
-
-                      <div
-                        style={{
-                          display: "flex",
-                          flexWrap: "wrap",
-                          gap: "12px 20px",
-                          fontSize: 12,
-                          color: "#64748b",
-                          paddingTop: 4,
-                          borderTop: "1px solid #f1f5f9",
-                        }}
-                      >
-                        <span>
-                          <strong style={{ color: "#475569" }}>Employé</strong> {row.employeeLabel}
-                        </span>
-                        <span>
-                          <strong style={{ color: "#475569" }}>Compagnie</strong>{" "}
-                          {row.companyKey ?? "—"}
-                        </span>
-                        {showRepeat ? (
-                          <span style={{ color: "#b45309", fontWeight: 600 }}>{showRepeat}</span>
-                        ) : null}
-                        <span>
-                          <strong style={{ color: "#475569" }}>Courriel</strong> {row.emailDelivery}
-                        </span>
-                        <span>
-                          <strong style={{ color: "#475569" }}>SMS</strong> {row.smsDelivery}
-                        </span>
-                        <span>
-                          <strong style={{ color: "#475569" }}>Créée</strong>{" "}
-                          {formatShortDate(row.createdAt)}
-                        </span>
-                        {row.handledAt ? (
-                          <span>
-                            <strong style={{ color: "#475569" }}>Traitée le</strong>{" "}
-                            {formatShortDate(row.handledAt)}
-                          </span>
-                        ) : null}
-                      </div>
-                    </article>
+                    <JournalAlertCard
+                      row={row}
+                      busy={busy}
+                      techExpanded={techExpanded}
+                      onToggleTechnical={() =>
+                        setExpandedTechnicalId(techExpanded ? null : row.id)
+                      }
+                      onMarkHandled={() => void patchJournalAction(row.id, "mark_handled")}
+                      onArchive={() => void patchJournalAction(row.id, "archive")}
+                      onCancel={() => void patchJournalAction(row.id, "cancel")}
+                      onDelete={() => void deleteJournalRow(row.id)}
+                    />
                   </li>
                 );
               })}
@@ -1196,8 +1106,21 @@ export default function AlertCenterDirectionClient() {
                     <div>
                       <div style={{ fontWeight: 600, color: "#102544" }}>{row.label}</div>
                       <div style={{ fontSize: 13, color: "#64748b" }}>{row.description}</div>
-                      <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 4 }}>
-                        {row.category} · {row.priority}
+                      <div
+                        style={{
+                          display: "flex",
+                          flexWrap: "wrap",
+                          alignItems: "center",
+                          gap: 8,
+                          marginTop: 8,
+                        }}
+                      >
+                        <span style={{ fontSize: 13, color: "#475569", fontWeight: 500 }}>
+                          {row.category}
+                        </span>
+                        <span style={priorityBadgeStyle(row.priority)}>
+                          {alertQueuePriorityFr(row.priority)}
+                        </span>
                       </div>
                     </div>
                     <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
@@ -1217,79 +1140,362 @@ export default function AlertCenterDirectionClient() {
 
         <SectionCard
           title="Indicateurs techniques"
-          subtitle="Indicateurs liés au journal et aux opérations (dépenses, incidents, horodateur, etc.)."
+          subtitle="Suivi opérationnel et signaux système — libellés adaptés à la direction, détails techniques sur demande."
         >
-          <div className="ui-stack-md">
+          <div className="ui-stack-md" style={{ gap: 20 }}>
             {queuesPhase2.length === 0 ? (
-              <p style={{ margin: 0, color: "#64748b" }}>
-                Aucun indicateur pour le moment (tables vides ou filtres sans résultat).
+              <p style={{ margin: 0, color: "#64748b", fontSize: 15, lineHeight: 1.55 }}>
+                Rien à signaler ici pour le filtre actuel. Les indicateurs réapparaîtront dès qu’un
+                suivi sera pertinent.
               </p>
             ) : (
-              queuesPhase2.map((row, i) => (
-                <motion.div
-                  key={row.id}
-                  initial={{ opacity: 0, y: 8 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: i * 0.04 }}
-                >
-                  <AppCard
-                    className="ui-stack-sm"
-                    style={{
-                      display: "flex",
-                      flexDirection: "row",
-                      alignItems: "center",
-                      justifyContent: "space-between",
-                      flexWrap: "wrap",
-                      gap: 12,
-                      borderRadius: 14,
-                      border: "1px solid #e2e8f0",
-                      boxShadow: "0 1px 8px rgba(15,23,42,0.04)",
-                    }}
+              queuesPhase2.map((row, i) => {
+                const human = humanizeTechnicalIndicator(row);
+                const detailOpen = technicalIndicatorDetailId === row.id;
+                return (
+                  <motion.div
+                    key={row.id}
+                    initial={{ opacity: 0, y: 8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: i * 0.04 }}
                   >
-                    <div>
-                      <div style={{ fontWeight: 600, color: "#102544" }}>{row.label}</div>
-                      <div style={{ fontSize: 13, color: "#64748b" }}>{row.description}</div>
-                      <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 4 }}>
-                        {row.category} · {row.priority} · {row.source === "journal" ? "Journal" : "Agrégé"}
+                    <AppCard
+                      className="ui-stack-md"
+                      style={{
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: 0,
+                        borderRadius: 16,
+                        border: "1px solid #e2e8f0",
+                        boxShadow: "0 4px 24px rgba(15,23,42,0.06)",
+                        padding: "22px 24px",
+                        background: "#fff",
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: "flex",
+                          flexWrap: "wrap",
+                          justifyContent: "space-between",
+                          alignItems: "flex-start",
+                          gap: 20,
+                        }}
+                      >
+                        <div style={{ flex: "1 1 300px", minWidth: 0 }}>
+                          <h3
+                            style={{
+                              margin: "0 0 14px",
+                              fontSize: 18,
+                              fontWeight: 700,
+                              color: "#0f172a",
+                              letterSpacing: "-0.02em",
+                              lineHeight: 1.25,
+                            }}
+                          >
+                            {human.title}
+                          </h3>
+                          <div
+                            style={{
+                              display: "flex",
+                              flexWrap: "wrap",
+                              gap: 8,
+                              marginBottom: 18,
+                            }}
+                          >
+                            <span style={priorityBadgeStyle(row.priority)}>
+                              {human.badgePriority}
+                            </span>
+                          </div>
+                          <div style={{ display: "grid", gap: 16 }}>
+                            <div>
+                              <div style={TECH_BLOCK_LABEL}>Résumé</div>
+                              <p
+                                style={{
+                                  margin: 0,
+                                  fontSize: 15,
+                                  color: "#334155",
+                                  lineHeight: 1.55,
+                                }}
+                              >
+                                {human.summary}
+                              </p>
+                            </div>
+                            <div>
+                              <div style={TECH_BLOCK_LABEL}>Cause probable</div>
+                              <p
+                                style={{
+                                  margin: 0,
+                                  fontSize: 15,
+                                  color: "#334155",
+                                  lineHeight: 1.55,
+                                }}
+                              >
+                                {human.probableCause}
+                              </p>
+                            </div>
+                            <div>
+                              <div style={TECH_BLOCK_LABEL}>Action recommandée</div>
+                              <p
+                                style={{
+                                  margin: 0,
+                                  fontSize: 15,
+                                  color: "#334155",
+                                  lineHeight: 1.55,
+                                }}
+                              >
+                                {human.recommendedAction}
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                        <div
+                          style={{
+                            display: "flex",
+                            flexDirection: "column",
+                            alignItems: "flex-end",
+                            gap: 12,
+                            flexShrink: 0,
+                          }}
+                        >
+                          {row.count > 0 ? (
+                            <TagoraCountBadge aria-label={`${row.count} alertes`}>
+                              {row.count}
+                            </TagoraCountBadge>
+                          ) : (
+                            <span
+                              style={{
+                                fontSize: 14,
+                                fontWeight: 600,
+                                color: "#94a3b8",
+                              }}
+                            >
+                              0
+                            </span>
+                          )}
+                          <Link
+                            href={row.href}
+                            className="ui-button ui-button-secondary"
+                            style={{ borderRadius: 10, whiteSpace: "nowrap" }}
+                          >
+                            Ouvrir
+                          </Link>
+                        </div>
                       </div>
-                    </div>
-                    <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                      {row.count > 0 ? (
-                        <TagoraCountBadge aria-label={`${row.count}`}>{row.count}</TagoraCountBadge>
-                      ) : null}
-                      <Link href={row.href} className="ui-button ui-button-secondary" style={{ borderRadius: 10 }}>
-                        Ouvrir
-                      </Link>
-                    </div>
-                  </AppCard>
-                </motion.div>
-              ))
+                      <div style={{ marginTop: 20, paddingTop: 18, borderTop: "1px solid #f1f5f9" }}>
+                        <button
+                          type="button"
+                          aria-expanded={detailOpen}
+                          onClick={() =>
+                            setTechnicalIndicatorDetailId(detailOpen ? null : row.id)
+                          }
+                          className="ui-button ui-button-secondary"
+                          style={{
+                            borderRadius: 10,
+                            fontSize: 13,
+                            padding: "8px 14px",
+                            border: "1px dashed #cbd5e1",
+                            background: detailOpen ? "#f8fafc" : "#fff",
+                          }}
+                        >
+                          {detailOpen ? "Masquer détail technique" : "Voir détail technique"}
+                        </button>
+                        {detailOpen ? (
+                          <div className="ac-tech-panel" style={{ marginTop: 14 }}>
+                            <dl style={{ margin: 0, display: "grid", gap: 12 }}>
+                              {human.technicalDetails.map((line) => (
+                                <div key={`${row.id}-${line.label}`}>
+                                  <dt>{line.label}</dt>
+                                  <dd>{line.value}</dd>
+                                </div>
+                              ))}
+                            </dl>
+                          </div>
+                        ) : null}
+                      </div>
+                    </AppCard>
+                  </motion.div>
+                );
+              })
             )}
           </div>
         </SectionCard>
 
-        <SectionCard title="Vue par catégorie" subtitle="Regroupement des files métier et des indicateurs par thème.">
-          <ul
+        <SectionCard
+          title="Alertes par catégorie"
+          subtitle="Domaines métier : volume d’alertes actives et accès rapide."
+        >
+          <div
             style={{
-              margin: 0,
-              paddingLeft: 20,
-              color: "#64748b",
-              lineHeight: 1.7,
-              display: "grid",
-              gap: 6,
+              borderRadius: 16,
+              padding: "18px 20px",
+              background: "linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%)",
+              border: "1px solid #e2e8f0",
+              marginBottom: categoriesSectionOpen ? 22 : 0,
             }}
           >
-            {CATEGORY_ORDER.map((c) => (
-              <li key={c}>
-                <strong style={{ color: "#334155" }}>{c}</strong>
-                {categories.has(c) ? (
-                  <span> — {categories.get(c)!.length} file(s) active(s)</span>
-                ) : (
-                  <span> — Aucune file ouverte</span>
-                )}
-              </li>
-            ))}
-          </ul>
+            <div
+              style={{
+                display: "flex",
+                flexWrap: "wrap",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 14,
+              }}
+            >
+              <p
+                style={{
+                  margin: 0,
+                  fontSize: 15,
+                  color: "#475569",
+                  maxWidth: 620,
+                  lineHeight: 1.55,
+                }}
+              >
+                {categoryRollup.categoriesWithAlerts === 0
+                  ? "Aucune alerte active dans les files affichées — les domaines ci-dessous sont à jour pour ce filtre."
+                  : `${categoryRollup.totalAlertCount} alerte${categoryRollup.totalAlertCount > 1 ? "s" : ""} active${categoryRollup.totalAlertCount > 1 ? "s" : ""} répartie${categoryRollup.totalAlertCount > 1 ? "s" : ""} dans ${categoryRollup.categoriesWithAlerts} domaine${categoryRollup.categoriesWithAlerts > 1 ? "s" : ""}.`}
+              </p>
+              <button
+                type="button"
+                aria-expanded={categoriesSectionOpen}
+                onClick={() => setCategoriesSectionOpen((v) => !v)}
+                className="ui-button ui-button-secondary"
+                style={{ borderRadius: 10, flexShrink: 0 }}
+              >
+                {categoriesSectionOpen ? "Masquer les catégories" : "Voir les catégories"}
+              </button>
+            </div>
+          </div>
+
+          {categoriesSectionOpen ? (
+            <>
+              {categoryRows.some((c) => c.isActive) ? (
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "repeat(auto-fill, minmax(292px, 1fr))",
+                    gap: 16,
+                  }}
+                >
+                  {categoryRows
+                    .filter((c) => c.isActive)
+                    .map((c) => (
+                      <AppCard
+                        key={c.name}
+                        className="ui-stack-sm"
+                        style={{
+                          padding: "20px 22px",
+                          borderRadius: 16,
+                          border: "1px solid #ccfbf1",
+                          boxShadow: "0 2px 16px rgba(20, 184, 166, 0.08)",
+                          background: "#fff",
+                          display: "flex",
+                          flexDirection: "column",
+                          justifyContent: "space-between",
+                          minHeight: 148,
+                          gap: 14,
+                        }}
+                      >
+                        <div>
+                          <div
+                            style={{
+                              fontSize: 17,
+                              fontWeight: 700,
+                              color: "#0f172a",
+                              marginBottom: 10,
+                              letterSpacing: "-0.02em",
+                            }}
+                          >
+                            {c.name}
+                          </div>
+                          <div style={{ fontSize: 15, color: "#475569", marginBottom: 10 }}>
+                            {c.totalCount === 1
+                              ? "1 alerte active"
+                              : `${c.totalCount} alertes actives`}
+                          </div>
+                          <span style={statusBadgeStyle("open")}>À suivre</span>
+                        </div>
+                        <Link
+                          href={c.href}
+                          className="ui-button ui-button-secondary"
+                          style={{ borderRadius: 10, alignSelf: "flex-start" }}
+                        >
+                          Voir
+                        </Link>
+                      </AppCard>
+                    ))}
+                </div>
+              ) : (
+                <p
+                  style={{
+                    margin: "0 0 8px",
+                    fontSize: 15,
+                    color: "#64748b",
+                    lineHeight: 1.55,
+                  }}
+                >
+                  Aucun domaine avec alerte active pour le filtre choisi — ouvrez « Toutes les
+                  files » pour voir l’ensemble des sujets, y compris sans volume.
+                </p>
+              )}
+              {inactiveCategoryCount > 0 ? (
+                <details
+                  style={{
+                    marginTop: 22,
+                    padding: "12px 14px",
+                    borderRadius: 12,
+                    background: "#fafafa",
+                    border: "1px solid #f1f5f9",
+                  }}
+                >
+                  <summary
+                    style={{
+                      cursor: "pointer",
+                      fontSize: 14,
+                      fontWeight: 600,
+                      color: "#94a3b8",
+                      outline: "none",
+                    }}
+                  >
+                    {inactiveCategoryCount} domaine{inactiveCategoryCount > 1 ? "s" : ""} sans
+                    alerte active
+                  </summary>
+                  <ul
+                    style={{
+                      margin: "14px 0 0",
+                      padding: 0,
+                      listStyle: "none",
+                      display: "grid",
+                      gap: 8,
+                    }}
+                  >
+                    {categoryRows
+                      .filter((c) => !c.isActive)
+                      .map((c) => (
+                        <li
+                          key={c.name}
+                          style={{
+                            fontSize: 14,
+                            color: "#94a3b8",
+                            padding: "10px 14px",
+                            borderRadius: 10,
+                            background: "#fff",
+                            border: "1px solid #f1f5f9",
+                            display: "flex",
+                            justifyContent: "space-between",
+                            alignItems: "center",
+                            gap: 12,
+                          }}
+                        >
+                          <span style={{ fontWeight: 600, color: "#64748b" }}>{c.name}</span>
+                          <span style={statusBadgeStyle("handled")}>À jour</span>
+                        </li>
+                      ))}
+                  </ul>
+                </details>
+              ) : null}
+            </>
+          ) : null}
         </SectionCard>
       </div>
     </main>

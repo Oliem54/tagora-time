@@ -1,32 +1,24 @@
 "use client";
 
 import Link from "next/link";
-import { ExternalLink, PenLine, Pencil, Trash2 } from "lucide-react";
+import { ExternalLink, Settings2, Trash2 } from "lucide-react";
 import type { AccountAccessRequestRecord } from "@/app/lib/account-access";
 
 export default function AccountRequestRowActions({
   request,
-  onEditRequestDetails,
-  onEditAccountAccess,
+  onManage,
   onDelete,
   deleting,
   canDelete,
-  canEditRequestDetails,
-  canEditAccountAccess,
+  canManage,
 }: {
   request: AccountAccessRequestRecord;
-  onEditRequestDetails: () => void;
-  onEditAccountAccess: () => void;
+  onManage: () => void;
   onDelete: () => void;
   deleting?: boolean;
   canDelete?: boolean;
-  canEditRequestDetails?: boolean;
-  canEditAccountAccess?: boolean;
+  canManage?: boolean;
 }) {
-  const showDetails =
-    Boolean(canEditRequestDetails) &&
-    (request.status === "pending" || request.status === "error");
-
   return (
     <div
       style={{
@@ -36,24 +28,14 @@ export default function AccountRequestRowActions({
         alignItems: "center",
       }}
     >
-      {showDetails ? (
+      {canManage ? (
         <button
           type="button"
           className="account-requests-action-button account-requests-action-button-primary"
-          onClick={onEditRequestDetails}
+          onClick={onManage}
         >
-          <Pencil size={13} strokeWidth={2} />
-          Modifier
-        </button>
-      ) : null}
-      {canEditAccountAccess ? (
-        <button
-          type="button"
-          className="account-requests-action-button account-requests-action-button-secondary"
-          onClick={onEditAccountAccess}
-        >
-          <PenLine size={13} strokeWidth={2} />
-          Accès et approbation
+          <Settings2 size={13} strokeWidth={2} />
+          Gerer
         </button>
       ) : null}
       {canDelete ? (
@@ -69,7 +51,7 @@ export default function AccountRequestRowActions({
           }}
         >
           <Trash2 size={13} strokeWidth={2} />
-          {deleting ? "Suppression..." : "Supprimer la demande"}
+          {deleting ? "Suppression..." : "Supprimer"}
         </button>
       ) : null}
       {request.employee_link?.id ? (
@@ -78,7 +60,7 @@ export default function AccountRequestRowActions({
           className="account-requests-action-button account-requests-action-button-secondary"
         >
           <ExternalLink size={13} strokeWidth={2} />
-          Ouvrir la fiche employe
+          Fiche employe
         </Link>
       ) : null}
     </div>

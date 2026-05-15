@@ -11,6 +11,7 @@ import {
   Mail,
   OctagonX,
   UserCheck,
+  UserPlus,
 } from "lucide-react";
 import FeedbackMessage from "@/app/components/FeedbackMessage";
 import UserIdentityBadge from "@/app/components/ui/UserIdentityBadge";
@@ -29,18 +30,17 @@ import {
 import { supabase } from "@/app/lib/supabase/client";
 import TagoraStatCard from "@/app/components/TagoraStatCard";
 import type { TagoraStatTone } from "@/app/components/tagora-stat-tone";
-import AccountRequestEditDetailsModal from "./AccountRequestEditDetailsModal";
+import AccountRequestCreateModal, {
+  type CreateAccountPayload,
+} from "./AccountRequestCreateModal";
+import AccountRequestManageModal, {
+  type AccountSecurityAction,
+  type ManageIdentityPayload,
+} from "./AccountRequestManageModal";
 import AccountRequestRowActions from "./AccountRequestRowActions";
 import EmployeeLinkStatusBadge from "./EmployeeLinkStatusBadge";
 
 type RequestRole = "employe" | "direction" | "admin";
-type AccountSecurityAction = "reset_password" | "send_reset_link";
-
-type ActionConfig = {
-  action: AccountAccessAction;
-  label: string;
-  tone: "primary" | "secondary" | "danger";
-};
 
 const fallbackPermissions = [...accountRequestPermissionOptions];
 
@@ -112,48 +112,6 @@ function getStatusTone(status: AccountAccessStatus) {
   return "warning" as const;
 }
 
-function getPrimaryActionForStatus(status: AccountAccessStatus): ActionConfig | null {
-  if (status === "pending") {
-    return { action: "approve", label: "Approuver", tone: "primary" };
-  }
-
-  if (status === "invited" || status === "active") {
-    return {
-      action: "update_access",
-      label: "Enregistrer les acces",
-      tone: "primary",
-    };
-  }
-
-  return null;
-}
-
-function getSecondaryActionsForStatus(status: AccountAccessStatus): ActionConfig[] {
-  if (status === "invited") {
-    return [
-      { action: "resend_invitation", label: "Renvoyer l invitation", tone: "secondary" },
-      { action: "reset_pending", label: "Remettre en attente", tone: "secondary" },
-    ];
-  }
-
-  if (status === "active") {
-    return [{ action: "disable_access", label: "Desactiver l acces", tone: "danger" }];
-  }
-
-  if (status === "refused") {
-    return [{ action: "reset_pending", label: "Remettre en attente", tone: "secondary" }];
-  }
-
-  if (status === "error") {
-    return [
-      { action: "retry", label: "Relancer", tone: "secondary" },
-      { action: "reset_pending", label: "Remettre en attente", tone: "secondary" },
-    ];
-  }
-
-  return [{ action: "refuse", label: "Refuser", tone: "danger" }];
-}
-
 function getSuccessMessage(action: AccountAccessAction) {
   if (action === "approve") return "Demande approuvee avec succes.";
   if (action === "refuse") return "Demande refusee avec succes.";
@@ -162,23 +120,6 @@ function getSuccessMessage(action: AccountAccessAction) {
   if (action === "resend_invitation") return "Invitation renvoyee avec succes.";
   if (action === "disable_access") return "Acces desactive avec succes.";
   return "Traitement relance avec succes.";
-}
-
-function getButtonClassName(tone: ActionConfig["tone"]) {
-  if (tone === "danger") return "tagora-btn-danger";
-  if (tone === "secondary") return "tagora-dark-outline-action";
-  return "tagora-dark-action";
-}
-
-function SummaryItem({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="tagora-panel-muted" style={{ padding: 12, borderRadius: 14 }}>
-      <div className="tagora-label">{label}</div>
-      <div style={{ marginTop: 6, color: "#0f172a", fontWeight: 700, fontSize: 13 }}>
-        {value}
-      </div>
-    </div>
-  );
 }
 
 function accountStatTone(
@@ -191,333 +132,6 @@ function accountStatTone(
   return "orange";
 }
 
-function AccountEditDrawer({
-  request,
-  assignedRole,
-  assignedPermissions,
-  reviewNote,
-  confirmOverwriteExistingAccount,
-  permissionOptions,
-  savingAction,
-  securityAction,
-  onClose,
-  onRoleChange,
-  onReviewNoteChange,
-  onTogglePermission,
-  onConfirmOverwriteChange,
-  onRunAction,
-  onRunSecurityAction,
-  canManageRoles,
-}: {
-  request: AccountAccessRequestRecord;
-  assignedRole: RequestRole;
-  assignedPermissions: string[];
-  reviewNote: string;
-  confirmOverwriteExistingAccount: boolean;
-  permissionOptions: Array<{ value: string; label: string }>;
-  savingAction: AccountAccessAction | null;
-  securityAction: AccountSecurityAction | null;
-  onClose: () => void;
-  onRoleChange: (role: RequestRole) => void;
-  onReviewNoteChange: (value: string) => void;
-  onTogglePermission: (permission: string) => void;
-  onConfirmOverwriteChange: () => void;
-  onRunAction: (action: AccountAccessAction) => void;
-  onRunSecurityAction: (action: AccountSecurityAction) => void;
-  canManageRoles: boolean;
-}) {
-  const primaryAction = getPrimaryActionForStatus(request.status);
-  const secondaryActions = getSecondaryActionsForStatus(request.status);
-
-  return (
-    <div
-      style={{
-        position: "fixed",
-        inset: 0,
-        zIndex: 60,
-        background: "rgba(15,23,42,0.22)",
-        display: "flex",
-        justifyContent: "flex-end",
-      }}
-    >
-      <button
-        type="button"
-        aria-label="Fermer"
-        onClick={onClose}
-        style={{
-          flex: 1,
-          border: "none",
-          background: "transparent",
-          cursor: "pointer",
-        }}
-      />
-
-      <aside
-        className="tagora-panel ui-stack-md"
-        style={{
-          margin: 0,
-          width: "min(680px, 100vw)",
-          height: "100vh",
-          overflowY: "auto",
-          borderRadius: 0,
-          padding: 18,
-          boxShadow: "-12px 0 32px rgba(15,23,42,0.12)",
-        }}
-      >
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            gap: 16,
-            alignItems: "flex-start",
-          }}
-        >
-          <div className="ui-stack-xs">
-            <div className="tagora-label">Compte application</div>
-            <h2 className="section-title" style={{ marginBottom: 0 }}>
-              {request.full_name}
-            </h2>
-            <p className="tagora-note" style={{ margin: 0 }}>
-              {request.email}
-            </p>
-          </div>
-
-          <button
-            type="button"
-            className="tagora-dark-outline-action"
-            onClick={onClose}
-            style={{ height: 34, padding: "0 12px", borderRadius: 10, fontSize: 12 }}
-          >
-            Fermer
-          </button>
-        </div>
-
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
-            gap: 10,
-          }}
-        >
-          <SummaryItem label="Statut" value={getStatusLabel(request.status)} />
-          <SummaryItem label="Portail source" value={formatRole(request.portal_source as RequestRole)} />
-          <SummaryItem label="Compagnie" value={getCompanyLabel(request.company)} />
-          <SummaryItem
-            label="Derniere connexion"
-            value={formatDate(request.existing_account?.lastSignInAt)}
-          />
-          <SummaryItem
-            label="Etat fiche employe"
-            value={request.employee_link?.label ?? "Fiche employe manquante"}
-          />
-          <SummaryItem
-            label="Activation courriel"
-            value={request.existing_account?.emailConfirmed ? "Confirmee" : "En attente"}
-          />
-        </div>
-
-        {canManageRoles ? (
-          <>
-            <div className="tagora-form-grid">
-              <label className="tagora-field">
-                <span className="tagora-label">Role</span>
-                <select
-                  className="tagora-input"
-                  value={assignedRole}
-                  onChange={(event) => {
-                    const v = event.target.value;
-                    if (v === "direction") onRoleChange("direction");
-                    else if (v === "admin") onRoleChange("admin");
-                    else onRoleChange("employe");
-                  }}
-                  disabled={Boolean(savingAction)}
-                >
-                  <option value="employe">Employe</option>
-                  <option value="direction">Direction</option>
-                  <option value="admin">Admin</option>
-                </select>
-              </label>
-
-              <label className="tagora-field" style={{ gridColumn: "1 / -1" }}>
-                <span className="tagora-label">Note admin compte</span>
-                <textarea
-                  className="tagora-textarea"
-                  value={reviewNote}
-                  onChange={(event) => onReviewNoteChange(event.target.value)}
-                  placeholder="Note admin"
-                  readOnly={Boolean(savingAction)}
-                />
-              </label>
-            </div>
-
-            <div className="ui-stack-xs">
-              <div className="tagora-label">Permissions</div>
-              <div className="tagora-panel-muted account-requests-permissions">
-                {permissionOptions.map((option) => (
-                  <label key={option.value} className="account-requests-permission-option">
-                    <input
-                      type="checkbox"
-                      checked={assignedPermissions.includes(option.value)}
-                      onChange={() => onTogglePermission(option.value)}
-                      disabled={Boolean(savingAction)}
-                    />
-                    <span>{option.label}</span>
-                  </label>
-                ))}
-              </div>
-            </div>
-          </>
-        ) : (
-          <div className="tagora-panel-muted" style={{ padding: 12 }}>
-            <span className="ui-text-muted">
-              Gestion des roles reservee aux administrateurs.
-            </span>
-          </div>
-        )}
-
-        {canManageRoles && request.existing_account?.exists ? (
-          <label className="account-requests-permission-option">
-            <input
-              type="checkbox"
-              checked={confirmOverwriteExistingAccount}
-              onChange={onConfirmOverwriteChange}
-              disabled={Boolean(savingAction)}
-            />
-            <span>Autoriser le remplacement des acces existants</span>
-          </label>
-        ) : null}
-
-        {request.review_lock?.isLocked ? (
-          <div className="account-requests-lock">
-            Traitement verrouille jusqu au {formatDate(request.review_lock.expiresAt)}.
-          </div>
-        ) : null}
-
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
-            gap: 20,
-          }}
-        >
-          <div className="tagora-panel-muted ui-stack-sm" style={{ padding: 20 }}>
-            <div className="ui-stack-xs">
-              <div className="tagora-label">Acces et activation</div>
-            </div>
-
-            {primaryAction ? (
-              <button
-                type="button"
-                className={getButtonClassName(primaryAction.tone)}
-                onClick={() => onRunAction(primaryAction.action)}
-                disabled={Boolean(savingAction) || !canManageRoles}
-                style={{ height: 34, padding: "0 12px", borderRadius: 10, fontSize: 12 }}
-              >
-                {savingAction === primaryAction.action ? "Traitement..." : primaryAction.label}
-              </button>
-            ) : null}
-
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              {secondaryActions.map((item) => (
-                <button
-                  key={item.action}
-                  type="button"
-                  className={getButtonClassName(item.tone)}
-                  onClick={() => onRunAction(item.action)}
-                  disabled={Boolean(savingAction) || !canManageRoles}
-                  style={{ height: 34, padding: "0 12px", borderRadius: 10, fontSize: 12 }}
-                >
-                  {savingAction === item.action ? "Traitement..." : item.label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="tagora-panel-muted ui-stack-sm" style={{ padding: 20 }}>
-            <div className="ui-stack-xs">
-              <div className="tagora-label">Securite</div>
-            </div>
-
-            <button
-              type="button"
-              className="tagora-dark-outline-action"
-              onClick={() => onRunSecurityAction("reset_password")}
-              disabled={
-                !canManageRoles ||
-                !request.employee_link?.id ||
-                !request.existing_account?.exists ||
-                Boolean(securityAction)
-              }
-              style={{ height: 34, padding: "0 12px", borderRadius: 10, fontSize: 12 }}
-            >
-              {securityAction === "reset_password"
-                ? "Envoi..."
-                : "Reinitialiser le mot de passe"}
-            </button>
-
-            <button
-              type="button"
-              className="tagora-dark-outline-action"
-              onClick={() => onRunSecurityAction("send_reset_link")}
-              disabled={
-                !canManageRoles ||
-                !request.employee_link?.id ||
-                !request.existing_account?.exists ||
-                Boolean(securityAction)
-              }
-              style={{ height: 34, padding: "0 12px", borderRadius: 10, fontSize: 12 }}
-            >
-              {securityAction === "send_reset_link"
-                ? "Envoi..."
-                : "Envoyer le lien de reinitialisation"}
-            </button>
-          </div>
-        </div>
-
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            gap: 12,
-            flexWrap: "wrap",
-            alignItems: "center",
-          }}
-        >
-          {request.employee_link?.id ? (
-            <Link
-              href={`/direction/ressources/employes/${request.employee_link.id}`}
-              className="tagora-dark-outline-action"
-              style={{
-                height: 34,
-                padding: "0 12px",
-                borderRadius: 10,
-                fontSize: 12,
-                display: "inline-flex",
-                alignItems: "center",
-                justifyContent: "center",
-              }}
-            >
-              Ouvrir la fiche employe
-            </Link>
-          ) : (
-            <p className="tagora-note" style={{ margin: 0 }}>
-              Fiche employe manquante.
-            </p>
-          )}
-
-          <button
-            type="button"
-            className="tagora-dark-action"
-            onClick={onClose}
-            style={{ height: 34, padding: "0 12px", borderRadius: 10, fontSize: 12 }}
-          >
-            Terminer
-          </button>
-        </div>
-      </aside>
-    </div>
-  );
-}
 
 export default function DirectionEmployeeAccountsClient() {
   const { user, role } = useCurrentAccess();
@@ -528,8 +142,9 @@ export default function DirectionEmployeeAccountsClient() {
   const [loading, setLoading] = useState(true);
   const [accessToken, setAccessToken] = useState<string | null>(null);
   const [isReady, setIsReady] = useState(false);
-  const [editingRequestId, setEditingRequestId] = useState<string | null>(null);
-  const [detailsEditRequestId, setDetailsEditRequestId] = useState<string | null>(null);
+  const [managingRequestId, setManagingRequestId] = useState<string | null>(null);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [creating, setCreating] = useState(false);
   const [savingDetails, setSavingDetails] = useState(false);
   const [assignedRole, setAssignedRole] = useState<RequestRole>("employe");
   const [assignedPermissions, setAssignedPermissions] = useState<string[]>([]);
@@ -554,15 +169,12 @@ export default function DirectionEmployeeAccountsClient() {
     [requests]
   );
 
-  const editingRequest = useMemo(
-    () => sortedRequests.find((item) => item.id === editingRequestId) ?? null,
-    [editingRequestId, sortedRequests]
+  const managingRequest = useMemo(
+    () => sortedRequests.find((item) => item.id === managingRequestId) ?? null,
+    [managingRequestId, sortedRequests]
   );
 
-  const detailsEditRequest = useMemo(
-    () => sortedRequests.find((item) => item.id === detailsEditRequestId) ?? null,
-    [detailsEditRequestId, sortedRequests]
-  );
+  const canOpenManage = canEditRequestDetails || canManageRoles;
 
   const counts = useMemo(
     () => ({
@@ -656,22 +268,22 @@ export default function DirectionEmployeeAccountsClient() {
   }, []);
 
   useEffect(() => {
-    if (!editingRequest) {
+    if (!managingRequest) {
       return;
     }
 
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setAssignedRole(
-      (editingRequest.assigned_role ??
-        editingRequest.requested_role ??
+      (managingRequest.assigned_role ??
+        managingRequest.requested_role ??
         "employe") as RequestRole
     );
     setAssignedPermissions(
-      editingRequest.assigned_permissions ?? editingRequest.requested_permissions ?? []
+      managingRequest.assigned_permissions ?? managingRequest.requested_permissions ?? []
     );
-    setReviewNote(editingRequest.review_note ?? "");
+    setReviewNote(managingRequest.review_note ?? "");
     setConfirmOverwriteExistingAccount(false);
-  }, [editingRequest]);
+  }, [managingRequest]);
 
   function togglePermission(permission: string) {
     setAssignedPermissions((prev) =>
@@ -681,16 +293,8 @@ export default function DirectionEmployeeAccountsClient() {
     );
   }
 
-  async function saveRequestDetails(payload: {
-    fullName: string;
-    email: string;
-    phone: string;
-    company: AccountRequestCompany;
-    requestedRole: "employe" | "direction";
-    requestedPermissions: string[];
-    message: string;
-  }) {
-    if (!accessToken || !detailsEditRequest) {
+  async function saveRequestDetails(payload: ManageIdentityPayload) {
+    if (!accessToken || !managingRequest) {
       return;
     }
     if (!canEditRequestDetails) {
@@ -704,7 +308,7 @@ export default function DirectionEmployeeAccountsClient() {
     setMessageType(null);
 
     try {
-      const response = await window.fetch(`/api/account-requests/${detailsEditRequest.id}`, {
+      const response = await window.fetch(`/api/account-requests/${managingRequest.id}`, {
         method: "PATCH",
         cache: "no-store",
         headers: {
@@ -738,8 +342,7 @@ export default function DirectionEmployeeAccountsClient() {
         return;
       }
 
-      setDetailsEditRequestId(null);
-      setMessage("Demande mise à jour avec succès.");
+      setMessage("Informations enregistrees avec succes.");
       setMessageType("success");
       await fetchRequests();
     } catch {
@@ -802,8 +405,12 @@ export default function DirectionEmployeeAccountsClient() {
     }
   }
 
-  async function runSecurityAction(action: AccountSecurityAction, request: AccountAccessRequestRecord) {
-    if (!request.employee_link?.id || !accessToken) {
+  async function runSecurityAction(
+    action: AccountSecurityAction,
+    request: AccountAccessRequestRecord,
+    temporaryPassword?: string
+  ) {
+    if (!accessToken) {
       return;
     }
     if (!canManageRoles) {
@@ -812,22 +419,29 @@ export default function DirectionEmployeeAccountsClient() {
       return;
     }
 
+    const securityUrl = request.employee_link?.id
+      ? `/api/employees/${request.employee_link.id}/account-security`
+      : `/api/account-requests/${request.id}/account-security`;
+
     setSecurityAction(action);
     setMessage("");
     setMessageType(null);
 
     try {
-      const response = await fetch(
-        `/api/employees/${request.employee_link.id}/account-security`,
-        {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ action }),
-        }
-      );
+      const response = await fetch(securityUrl, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+          "x-account-requests-client": "browser-authenticated",
+        },
+        body: JSON.stringify({
+          action,
+          ...(action === "set_temporary_password" && temporaryPassword
+            ? { password: temporaryPassword }
+            : {}),
+        }),
+      });
       const payload = await response.json();
 
       if (!response.ok) {
@@ -848,6 +462,59 @@ export default function DirectionEmployeeAccountsClient() {
       setMessageType("error");
     } finally {
       setSecurityAction(null);
+    }
+  }
+
+  async function createAccount(payload: CreateAccountPayload) {
+    if (!canEditRequestDetails) {
+      setMessage("Action reservee a la direction ou aux administrateurs.");
+      setMessageType("error");
+      return;
+    }
+
+    setCreating(true);
+    setMessage("");
+    setMessageType(null);
+
+    try {
+      const response = await fetch("/api/account-requests", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          fullName: payload.fullName,
+          email: payload.email,
+          phone: payload.phone || null,
+          company: payload.company,
+          portalSource: payload.portalSource,
+          requestedRole: payload.requestedRole,
+          requestedPermissions: payload.requestedPermissions,
+          message: payload.message || null,
+        }),
+      });
+
+      const responsePayload = await response.json();
+
+      if (!response.ok) {
+        setMessage(
+          buildApiErrorMessage(responsePayload, "La creation du profil n a pas pu aboutir.")
+        );
+        setMessageType("error");
+        return;
+      }
+
+      setCreateOpen(false);
+      setMessage(
+        canManageRoles
+          ? "Profil cree. Ouvrez « Gerer » pour approuver ou definir le mot de passe."
+          : "Profil cree en attente d approbation par un administrateur."
+      );
+      setMessageType("success");
+      await fetchRequests();
+    } catch {
+      setMessage("La creation du profil n a pas pu aboutir.");
+      setMessageType("error");
+    } finally {
+      setCreating(false);
     }
   }
 
@@ -903,8 +570,7 @@ export default function DirectionEmployeeAccountsClient() {
       setMessage("Demande de compte supprimee avec succes.");
       setMessageType("success");
       setRequests((current) => current.filter((item) => item.id !== request.id));
-      setEditingRequestId((current) => (current === request.id ? null : current));
-      setDetailsEditRequestId((current) => (current === request.id ? null : current));
+      setManagingRequestId((current) => (current === request.id ? null : current));
     } catch {
       setMessage("La suppression de la demande n a pas pu aboutir.");
       setMessageType("error");
@@ -982,6 +648,16 @@ export default function DirectionEmployeeAccountsClient() {
 
         <section className="account-requests-premium-shell">
           <div className="account-requests-premium-toolbar">
+            {canEditRequestDetails ? (
+              <button
+                type="button"
+                className="account-requests-toolbar-button"
+                onClick={() => setCreateOpen(true)}
+              >
+                <UserPlus size={14} />
+                Ajouter un profil
+              </button>
+            ) : null}
             <button
               type="button"
               className="account-requests-toolbar-button"
@@ -1090,13 +766,11 @@ export default function DirectionEmployeeAccountsClient() {
                         <div className="account-requests-cell-actions">
                           <AccountRequestRowActions
                             request={request}
-                            onEditRequestDetails={() => setDetailsEditRequestId(request.id)}
-                            onEditAccountAccess={() => setEditingRequestId(request.id)}
+                            onManage={() => setManagingRequestId(request.id)}
                             onDelete={() => void deleteRequest(request)}
                             deleting={deletingRequestId === request.id}
                             canDelete={canManageRoles}
-                            canEditRequestDetails={canEditRequestDetails}
-                            canEditAccountAccess={canManageRoles}
+                            canManage={canOpenManage}
                           />
                         </div>
                       </td>
@@ -1109,35 +783,44 @@ export default function DirectionEmployeeAccountsClient() {
         </section>
       </div>
 
-      {editingRequest ? (
-        <AccountEditDrawer
-          request={editingRequest}
-          assignedRole={assignedRole}
-          assignedPermissions={assignedPermissions}
-          reviewNote={reviewNote}
-          confirmOverwriteExistingAccount={confirmOverwriteExistingAccount}
-          permissionOptions={permissionOptions}
-          savingAction={savingAction}
-          securityAction={securityAction}
-          onClose={() => setEditingRequestId(null)}
-          onRoleChange={setAssignedRole}
-          onReviewNoteChange={setReviewNote}
-          onTogglePermission={togglePermission}
-          onConfirmOverwriteChange={() =>
-            setConfirmOverwriteExistingAccount((current) => !current)
-          }
-          onRunAction={(action) => void runAction(action, editingRequest)}
-          onRunSecurityAction={(action) => void runSecurityAction(action, editingRequest)}
-          canManageRoles={canManageRoles}
-        />
-      ) : null}
+      <AccountRequestManageModal
+        open={Boolean(managingRequestId)}
+        request={managingRequest}
+        onClose={() => setManagingRequestId(null)}
+        canManageRoles={canManageRoles}
+        canEditDetails={canEditRequestDetails}
+        permissionOptions={permissionOptions}
+        assignedRole={assignedRole}
+        assignedPermissions={assignedPermissions}
+        reviewNote={reviewNote}
+        confirmOverwriteExistingAccount={confirmOverwriteExistingAccount}
+        savingAction={savingAction}
+        savingDetails={savingDetails}
+        securityAction={securityAction}
+        onRoleChange={setAssignedRole}
+        onReviewNoteChange={setReviewNote}
+        onTogglePermission={togglePermission}
+        onConfirmOverwriteChange={() =>
+          setConfirmOverwriteExistingAccount((current) => !current)
+        }
+        onSaveIdentity={saveRequestDetails}
+        onRunAction={(action) => {
+          if (managingRequest) void runAction(action, managingRequest);
+        }}
+        onRunSecurityAction={(action, temporaryPassword) => {
+          if (managingRequest) void runSecurityAction(action, managingRequest, temporaryPassword);
+        }}
+        onDelete={() => {
+          if (managingRequest) void deleteRequest(managingRequest);
+        }}
+        deleting={Boolean(managingRequest && deletingRequestId === managingRequest.id)}
+      />
 
-      <AccountRequestEditDetailsModal
-        open={Boolean(detailsEditRequestId)}
-        request={detailsEditRequest}
-        onClose={() => setDetailsEditRequestId(null)}
-        saving={savingDetails}
-        onSave={saveRequestDetails}
+      <AccountRequestCreateModal
+        open={createOpen}
+        saving={creating}
+        onClose={() => setCreateOpen(false)}
+        onCreate={createAccount}
       />
     </main>
   );

@@ -1354,14 +1354,6 @@ async function applyUpdateRequestDetails(
     throw createManagedRouteError({ status: 404, error: "Demande introuvable." });
   }
 
-  if (row.status !== "pending" && row.status !== "error") {
-    throw createManagedRouteError({
-      status: 409,
-      error:
-        "Seules les demandes en attente ou en erreur peuvent etre modifiees de cette facon.",
-    });
-  }
-
   const fullName = String(body.fullName ?? body.full_name ?? "").trim();
   if (!fullName) {
     throw createManagedRouteError({
@@ -1485,7 +1477,84 @@ async function applyUpdateRequestDetails(
     throw error;
   }
 
+  await syncRequestDetailsToLinkedRecords(row, {
+    full_name: fullName,
+    email: emailRaw,
+    phone,
+    company,
+    invited_user_id: row.invited_user_id ?? null,
+  });
+
   return loadRequestRow(id);
+}
+
+async function syncRequestDetailsToLinkedRecords(
+  row: AccountRequestRow,
+  updates: {
+    full_name: string;
+    email: string;
+    phone: string | null;
+    company: AccountRequestCompany;
+    invited_user_id: string | null;
+  }
+) {
+  const supabase = createAdminSupabaseClient();
+  const normalizedEmail = normalizeEmail(updates.email);
+
+  let authUser: User | null = null;
+
+  if (updates.invited_user_id) {
+    const { data, error } = await supabase.auth.admin.getUserById(updates.invited_user_id);
+    if (!error && data.user) {
+      authUser = data.user;
+    }
+  }
+
+  if (!authUser) {
+    authUser = await findAuthUserByEmail(normalizedEmail);
+  }
+
+  if (!authUser) {
+    authUser = await findAuthUserByEmail(normalizeEmail(row.email));
+  }
+
+  if (authUser) {
+    const emailChanged = normalizeEmail(authUser.email) !== normalizedEmail;
+    const { error: authUpdateError } = await supabase.auth.admin.updateUserById(authUser.id, {
+      ...(emailChanged ? { email: normalizedEmail } : {}),
+      user_metadata: {
+        ...authUser.user_metadata,
+        full_name: updates.full_name,
+        phone: updates.phone,
+      },
+    });
+
+    if (authUpdateError) {
+      throw authUpdateError;
+    }
+  }
+
+  const employeeResolution = await loadLinkedEmployeeProfile({
+    profileId: null,
+    authUserId: authUser?.id ?? null,
+    email: normalizedEmail,
+  });
+
+  if (employeeResolution.profile?.id) {
+    const { error: employeeUpdateError } = await supabase
+      .from("chauffeurs")
+      .update({
+        nom: updates.full_name,
+        courriel: normalizedEmail,
+        telephone: updates.phone,
+        primary_company: updates.company,
+      })
+      .eq("id", employeeResolution.profile.id);
+
+    if (employeeUpdateError) {
+      throw employeeUpdateError;
+    }
+  }
 }
 
 export async function PATCH(

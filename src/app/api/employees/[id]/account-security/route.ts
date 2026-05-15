@@ -9,7 +9,9 @@ import {
 import { getStrictDirectionRequestUser } from "@/app/lib/account-requests.server";
 import {
   buildRequiredPasswordMetadata,
+  getPasswordPolicyMessage,
   hasPasswordChangeRequired,
+  validatePasswordStrength,
 } from "@/app/lib/auth/passwords";
 import {
   getUserPermissions,
@@ -31,6 +33,7 @@ type EmployeeRow = {
 type AccountSecurityAction =
   | "reset_password"
   | "send_reset_link"
+  | "set_temporary_password"
   | "resend_invitation"
   | "disable_account"
   | "reactivate_account";
@@ -374,6 +377,7 @@ function parseAction(value: unknown): AccountSecurityAction | null {
   if (
     value === "reset_password" ||
     value === "send_reset_link" ||
+    value === "set_temporary_password" ||
     value === "resend_invitation" ||
     value === "disable_account" ||
     value === "reactivate_account"
@@ -460,7 +464,7 @@ export async function POST(
       );
     }
 
-    const body = (await req.json()) as { action?: unknown };
+    const body = (await req.json()) as { action?: unknown; password?: unknown };
     const action = parseAction(body.action);
 
     if (!action) {
@@ -481,6 +485,56 @@ export async function POST(
     const occurredAt = new Date().toISOString();
     let successMessage = "";
     const hadExistingAuthUser = Boolean(authUser);
+
+    if (action === "set_temporary_password") {
+      if (!authUser || !email) {
+        return NextResponse.json(
+          { error: "Aucun compte actif n est lie a cette fiche employe." },
+          { status: 409 }
+        );
+      }
+
+      const password = typeof body.password === "string" ? body.password : "";
+      const validationError = validatePasswordStrength(password);
+
+      if (validationError) {
+        return NextResponse.json(
+          { error: validationError, policy: getPasswordPolicyMessage() },
+          { status: 400 }
+        );
+      }
+
+      const { error: passwordError } = await adminSupabase.auth.admin.updateUserById(
+        authUser.id,
+        {
+          password,
+          app_metadata: {
+            ...authUser.app_metadata,
+            ...buildRequiredPasswordMetadata(authUser.app_metadata),
+          },
+          user_metadata: {
+            ...authUser.user_metadata,
+            ...buildRequiredPasswordMetadata(authUser.user_metadata),
+          },
+        }
+      );
+
+      if (passwordError) {
+        throw passwordError;
+      }
+
+      await syncEmployeeAuthLink(employee.id, authUser.id);
+
+      console.info("[employee-account-security] temporary_password_set", {
+        action,
+        actorUserId: user.id,
+        employeeId: employee.id,
+        targetUserId: authUser.id,
+      });
+
+      successMessage =
+        "Mot de passe temporaire defini. L utilisateur devra le changer a la prochaine connexion.";
+    }
 
     if (action === "reset_password" || action === "send_reset_link") {
       if (!authUser || !email) {
