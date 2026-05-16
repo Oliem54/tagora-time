@@ -426,7 +426,7 @@
   left: 12px;
   right: 12px;
   bottom: calc(118px + env(safe-area-inset-bottom, 0px));
-  z-index: 119;
+  z-index: 1100;
   margin: 0;
   padding: 10px 12px;
   border-radius: 12px;
@@ -444,7 +444,7 @@
   left: 0;
   right: 0;
   bottom: 0;
-  z-index: 120;
+  z-index: 1101;
   padding: 10px 12px calc(10px + env(safe-area-inset-bottom, 0px));
   background: rgba(255, 255, 255, 0.96);
   border-top: 1px solid #dbe4f0;
@@ -542,7 +542,7 @@
 .day-delivery-signature-sheet {
   position: fixed;
   inset: 0;
-  z-index: 140;
+  z-index: 1140;
   display: grid;
   align-items: end;
 }
@@ -3399,10 +3399,40 @@ select {
 
   .tagora-improvements-fab {
     right: 16px;
-    bottom: 16px;
+    bottom: calc(16px + env(safe-area-inset-bottom, 0px));
     min-width: 152px;
     padding: 12px 14px;
     border-radius: 16px;
+  }
+
+  /* Pages terrain / livraison / ramassage : ne pas recouvrir les actions du bas */
+  html[data-mobile-field-actions="open"] .tagora-improvements-fab {
+    visibility: hidden;
+    pointer-events: none;
+    opacity: 0;
+  }
+
+  html[data-critical-field-route="true"]:not([data-mobile-field-actions="open"])
+    .tagora-improvements-fab {
+    right: 12px;
+    bottom: calc(152px + env(safe-area-inset-bottom, 0px));
+    min-width: auto;
+    max-width: 118px;
+    padding: 10px 12px;
+    border-radius: 999px;
+    gap: 0;
+  }
+
+  html[data-critical-field-route="true"]:not([data-mobile-field-actions="open"])
+    .tagora-improvements-fab-eyebrow {
+    display: none;
+  }
+
+  html[data-critical-field-route="true"]:not([data-mobile-field-actions="open"])
+    .tagora-improvements-fab-label {
+    font-size: 12px;
+    line-height: 1.2;
+    text-align: center;
   }
 
   .direction-dashboard-quickdock {

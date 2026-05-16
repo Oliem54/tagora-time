@@ -27,6 +27,7 @@ import {
 } from "@/app/lib/livraisons/payment-embed";
 import { supabase } from "@/app/lib/supabase/client";
 import { useCurrentAccess } from "@/app/hooks/useCurrentAccess";
+import { useMobileFieldChromeLock } from "@/app/hooks/useMobileFieldChromeLock";
 import { getOperationCoordinates } from "@/app/lib/livraisons/coordinates";
 import { isChauffeurDeliveryPoolMember } from "@/app/lib/employee-fonctions.shared";
 import { buildDeliveryTrackingUrl } from "@/app/lib/delivery-tracking";
@@ -1125,6 +1126,12 @@ export default function DayOperationsView({ area, operationMode = "livraison" }:
     Boolean(selected) &&
     selected?.type === "livraison" &&
     (canEditStopDetails || (role === "employe" && canEnRouteForStop(selected)));
+
+  const mobileFieldChromeLocked =
+    Boolean(selected) &&
+    (canShowMobileTerrainBar || showDetail || mobileSignatureOpen);
+
+  useMobileFieldChromeLock(mobileFieldChromeLocked);
 
   const mapFocusHandledRef = useRef("");
 
