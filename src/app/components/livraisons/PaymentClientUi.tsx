@@ -1,12 +1,21 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import {
+  PAYMENT_METHOD_DEJA_PAYE,
   PAYMENT_METHOD_OPTIONS_FINALIZE,
   PAYMENT_METHOD_OPTIONS_FORM,
   type EmbeddedPaymentPayload,
   type PaymentFormInput,
+  paymentFormHasPositiveBalance,
   paymentMethodLabel,
+  sanitizePaymentFormInput,
 } from "@/app/lib/livraisons/payment-embed";
+
+const OUI_BLOCKED_MESSAGE =
+  "Retirez le solde avant d'indiquer payé au complet.";
+const DEJA_PAYE_INCOMPATIBLE_MESSAGE =
+  "Déjà payé n'est pas compatible avec un solde à collecter.";
 
 export function formatMoneyCad(amount: number) {
   return new Intl.NumberFormat("fr-CA", {
@@ -18,8 +27,13 @@ export function formatMoneyCad(amount: number) {
 }
 
 export function PaymentDetailBanner({ payment }: { payment: EmbeddedPaymentPayload }) {
-  const paid = payment.payment_status === "paye_complet" && payment.payment_balance_due <= 0.009;
   const balance = payment.payment_balance_due;
+  const hasBalance = balance > 0.009;
+  const paid = payment.payment_status === "paye_complet" && !hasBalance;
+  const methodForDisplay =
+    hasBalance && payment.payment_method.trim().toLowerCase() === PAYMENT_METHOD_DEJA_PAYE
+      ? "comptant"
+      : payment.payment_method;
   return (
     <div
       role="region"
@@ -58,7 +72,7 @@ export function PaymentDetailBanner({ payment }: { payment: EmbeddedPaymentPaylo
             Solde à payer : {formatMoneyCad(balance)}
           </div>
           <div style={{ fontSize: 14, color: "#431407" }}>
-            Méthode prévue : <strong>{paymentMethodLabel(payment.payment_method)}</strong>
+            Méthode prévue : <strong>{paymentMethodLabel(methodForDisplay)}</strong>
           </div>
         </div>
       )}
@@ -214,6 +228,78 @@ type PaymentClientFormSectionProps = {
 
 export function PaymentClientFormSection({ value, onChange, disabled, idPrefix = "pay" }: PaymentClientFormSectionProps) {
   const p = idPrefix;
+  const hasPositiveBalance = paymentFormHasPositiveBalance(value);
+  const paidFullEffective = value.paidFull && !hasPositiveBalance;
+  const [ouiBlockedHint, setOuiBlockedHint] = useState<string | null>(null);
+  const [methodHint, setMethodHint] = useState<string | null>(null);
+
+  const methodOptions = PAYMENT_METHOD_OPTIONS_FORM.filter(
+    (opt) => !hasPositiveBalance || opt.value !== PAYMENT_METHOD_DEJA_PAYE
+  );
+
+  useEffect(() => {
+    const next = sanitizePaymentFormInput(value);
+    if (
+      next.paidFull !== value.paidFull ||
+      next.balanceDue !== value.balanceDue ||
+      next.method !== value.method
+    ) {
+      onChange(next);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- corrige état incohérent chargé depuis la base
+  }, [value.paidFull, value.balanceDue, value.method]);
+
+  useEffect(() => {
+    if (!hasPositiveBalance) {
+      setOuiBlockedHint(null);
+      setMethodHint(null);
+    }
+  }, [hasPositiveBalance]);
+
+  function handleSelectPaidFull() {
+    if (hasPositiveBalance) {
+      setOuiBlockedHint(OUI_BLOCKED_MESSAGE);
+      return;
+    }
+    setOuiBlockedHint(null);
+    onChange({ ...value, paidFull: true, balanceDue: "" });
+  }
+
+  function handleBalanceChange(raw: string) {
+    const draft: PaymentFormInput = { ...value, balanceDue: raw };
+    const nextHasPositive = paymentFormHasPositiveBalance(draft);
+    let method = value.method;
+    if (nextHasPositive && method.trim().toLowerCase() === PAYMENT_METHOD_DEJA_PAYE) {
+      method = "comptant";
+      setMethodHint(DEJA_PAYE_INCOMPATIBLE_MESSAGE);
+    } else if (!nextHasPositive) {
+      setMethodHint(null);
+    }
+    setOuiBlockedHint(null);
+    onChange({
+      ...value,
+      balanceDue: raw,
+      paidFull: nextHasPositive ? false : value.paidFull,
+      method,
+    });
+  }
+
+  function handleMethodChange(nextMethod: string) {
+    if (
+      hasPositiveBalance &&
+      nextMethod.trim().toLowerCase() === PAYMENT_METHOD_DEJA_PAYE
+    ) {
+      setMethodHint(DEJA_PAYE_INCOMPATIBLE_MESSAGE);
+      return;
+    }
+    setMethodHint(null);
+    if (nextMethod.trim().toLowerCase() === PAYMENT_METHOD_DEJA_PAYE) {
+      onChange({ ...value, method: nextMethod, paidFull: true, balanceDue: "" });
+      return;
+    }
+    onChange({ ...value, method: nextMethod });
+  }
+
   return (
     <fieldset
       disabled={disabled}
@@ -232,12 +318,27 @@ export function PaymentClientFormSection({ value, onChange, disabled, idPrefix =
             Client a payé au complet ?
           </span>
           <div style={{ display: "flex", gap: 16, marginTop: 6 }} role="group" aria-labelledby={`${p}-paid-label`}>
-            <label style={{ display: "flex", gap: 8, alignItems: "center", cursor: "pointer" }}>
+            <label
+              style={{
+                display: "flex",
+                gap: 8,
+                alignItems: "center",
+                cursor: hasPositiveBalance ? "not-allowed" : "pointer",
+                opacity: hasPositiveBalance ? 0.55 : 1,
+              }}
+              onClick={(e) => {
+                if (hasPositiveBalance) {
+                  e.preventDefault();
+                  setOuiBlockedHint(OUI_BLOCKED_MESSAGE);
+                }
+              }}
+            >
               <input
                 type="radio"
                 name={`${p}-paid`}
-                checked={value.paidFull}
-                onChange={() => onChange({ ...value, paidFull: true, balanceDue: "" })}
+                checked={paidFullEffective}
+                disabled={hasPositiveBalance}
+                onChange={handleSelectPaidFull}
               />
               Oui
             </label>
@@ -245,15 +346,26 @@ export function PaymentClientFormSection({ value, onChange, disabled, idPrefix =
               <input
                 type="radio"
                 name={`${p}-paid`}
-                checked={!value.paidFull}
-                onChange={() => onChange({ ...value, paidFull: false })}
+                checked={!paidFullEffective}
+                onChange={() => {
+                  setOuiBlockedHint(null);
+                  onChange({ ...value, paidFull: false });
+                }}
               />
               Non
             </label>
           </div>
+          {ouiBlockedHint ? (
+            <p
+              role="alert"
+              style={{ margin: "8px 0 0", fontSize: 13, color: "#b45309", fontWeight: 600 }}
+            >
+              {ouiBlockedHint}
+            </p>
+          ) : null}
         </div>
 
-        {!value.paidFull ? (
+        {!paidFullEffective ? (
           <label className="tagora-field">
             <span className="tagora-label">Solde à payer (CAD)</span>
             <input
@@ -262,7 +374,7 @@ export function PaymentClientFormSection({ value, onChange, disabled, idPrefix =
               inputMode="decimal"
               placeholder="0.00"
               value={value.balanceDue}
-              onChange={(e) => onChange({ ...value, balanceDue: e.target.value })}
+              onChange={(e) => handleBalanceChange(e.target.value)}
             />
           </label>
         ) : (
@@ -272,19 +384,27 @@ export function PaymentClientFormSection({ value, onChange, disabled, idPrefix =
           </div>
         )}
 
-        <label className="tagora-field" style={{ gridColumn: value.paidFull ? "1 / -1" : undefined }}>
+        <label className="tagora-field" style={{ gridColumn: paidFullEffective ? "1 / -1" : undefined }}>
           <span className="tagora-label">Méthode de paiement prévue ou utilisée</span>
           <select
             className="tagora-input"
             value={value.method}
-            onChange={(e) => onChange({ ...value, method: e.target.value })}
+            onChange={(e) => handleMethodChange(e.target.value)}
           >
-            {PAYMENT_METHOD_OPTIONS_FORM.map((opt) => (
+            {methodOptions.map((opt) => (
               <option key={opt.value} value={opt.value}>
                 {opt.label}
               </option>
             ))}
           </select>
+          {methodHint ? (
+            <p
+              role="alert"
+              style={{ margin: "8px 0 0", fontSize: 13, color: "#b45309", fontWeight: 600 }}
+            >
+              {methodHint}
+            </p>
+          ) : null}
         </label>
 
         <label className="tagora-field" style={{ gridColumn: "1 / -1" }}>

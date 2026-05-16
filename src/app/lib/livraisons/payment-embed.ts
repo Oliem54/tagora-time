@@ -250,48 +250,109 @@ export type PaymentFormInput = {
   note: string;
 };
 
+export const PAYMENT_METHOD_DEJA_PAYE = "deja_paye";
+
+export function paymentFormBalanceAmount(input: PaymentFormInput): number {
+  return parseNumericBalance(input.balanceDue.replace(",", ".").trim());
+}
+
+export function paymentFormHasPositiveBalance(input: PaymentFormInput): boolean {
+  return paymentFormBalanceAmount(input) > 0.009;
+}
+
+/** Aligne le formulaire avec les règles solde / Déjà payé / payé au complet. */
+export function sanitizePaymentFormInput(input: PaymentFormInput): PaymentFormInput {
+  const hasBalance = paymentFormHasPositiveBalance(input);
+  const methodNorm = input.method.trim().toLowerCase();
+
+  if (hasBalance) {
+    return {
+      ...input,
+      paidFull: false,
+      method: methodNorm === PAYMENT_METHOD_DEJA_PAYE ? "comptant" : input.method,
+    };
+  }
+
+  if (methodNorm === PAYMENT_METHOD_DEJA_PAYE) {
+    return { ...input, paidFull: true, balanceDue: "" };
+  }
+
+  return input;
+}
+
 export function embeddedFromFormInput(input: PaymentFormInput): EmbeddedPaymentPayload {
-  if (input.paidFull) {
+  const normalized = sanitizePaymentFormInput(input);
+  if (normalized.paidFull) {
     return {
       payment_status: "paye_complet",
       payment_balance_due: 0,
-      payment_method: input.method.trim() || "deja_paye",
-      payment_note: input.note.trim() || undefined,
+      payment_method: normalized.method.trim() || PAYMENT_METHOD_DEJA_PAYE,
+      payment_note: normalized.note.trim() || undefined,
       payment_confirmed_at: null,
       payment_confirmed_by_name: null,
     };
   }
-  const raw = input.balanceDue.replace(",", ".").trim();
-  const n = Number(raw);
-  const balance = Number.isFinite(n) ? Math.round(n * 100) / 100 : 0;
+  const balance = paymentFormBalanceAmount(normalized);
+  const method = normalized.method.trim().toLowerCase();
   return {
     payment_status: "solde_a_collecter",
     payment_balance_due: balance,
-    payment_method: input.method.trim() || "autre",
-    payment_note: input.note.trim() || undefined,
+    payment_method:
+      method === PAYMENT_METHOD_DEJA_PAYE ? "comptant" : normalized.method.trim() || "autre",
+    payment_note: normalized.note.trim() || undefined,
     payment_confirmed_at: null,
     payment_confirmed_by_name: null,
   };
 }
 
 export function formInputFromParsed(p: ParsedPayment): PaymentFormInput {
-  const paidFull = p.payment_status === "paye_complet";
-  return {
-    paidFull,
-    balanceDue: paidFull ? "" : String(p.payment_balance_due),
-    method: p.payment_method || (paidFull ? "deja_paye" : "comptant"),
+  const balance = p.payment_balance_due;
+  const hasBalance = balance > 0.009;
+  const statusPaid = p.payment_status === "paye_complet";
+  let method = (p.payment_method || "").trim() || (statusPaid && !hasBalance ? PAYMENT_METHOD_DEJA_PAYE : "comptant");
+  if (hasBalance && method.toLowerCase() === PAYMENT_METHOD_DEJA_PAYE) {
+    method = "comptant";
+  }
+  return sanitizePaymentFormInput({
+    paidFull: statusPaid && !hasBalance,
+    balanceDue: hasBalance ? String(balance) : "",
+    method,
     note: p.payment_note || "",
-  };
+  });
 }
 
 export function validatePaymentFormInput(input: PaymentFormInput): string | null {
+  const balance = paymentFormBalanceAmount(input);
+  const method = input.method.trim().toLowerCase();
+  const hasBalance = balance > 0.009;
+
+  if (hasBalance) {
+    if (input.paidFull) {
+      return "Impossible : un solde à payer est indiqué alors que le client est marqué payé au complet.";
+    }
+    if (method === PAYMENT_METHOD_DEJA_PAYE) {
+      return "Déjà payé n'est pas compatible avec un solde à collecter.";
+    }
+  }
+
+  if (method === PAYMENT_METHOD_DEJA_PAYE) {
+    if (hasBalance) {
+      return "Déjà payé n'est pas compatible avec un solde à collecter.";
+    }
+    if (!input.paidFull) {
+      return "Avec la méthode Déjà payé, indiquez que le client a payé au complet (Oui).";
+    }
+  }
+
   if (input.paidFull) {
+    if (hasBalance) {
+      return "Impossible : un solde à payer est indiqué alors que le client est marqué payé au complet.";
+    }
     if (!input.method.trim()) return "Choisissez une méthode de paiement prévue ou utilisée.";
     return null;
   }
-  const raw = input.balanceDue.replace(",", ".").trim();
-  const n = Number(raw);
-  if (!raw || !Number.isFinite(n) || n <= 0) {
+
+  if (!hasBalance) {
     return "Indiquez un solde à payer supérieur à 0.";
   }
   if (!input.method.trim()) return "Choisissez une méthode de paiement prévue ou utilisée.";
