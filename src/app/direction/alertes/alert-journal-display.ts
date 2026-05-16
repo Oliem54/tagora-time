@@ -228,7 +228,7 @@ function inferTargetLabel(row: JournalRowForDisplay): string {
 }
 
 function simplifyTitle(row: JournalRowForDisplay, alertType: string): string {
-  let t = row.title.trim();
+  const t = row.title.trim();
   const smsMatch = /^SMS\s*[—–-]\s*(.+)$/i.exec(t);
   if (smsMatch) {
     const slug = smsMatch[1]!.trim();
