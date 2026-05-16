@@ -605,7 +605,68 @@
   min-height: 48px;
 }
 
+.day-delivery-voice-sheet.day-delivery-signature-sheet {
+  z-index: 1140;
+}
+
+.day-delivery-voice-sheet__status {
+  margin: 0 0 12px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #b91c1c;
+  font-size: 14px;
+  font-weight: 800;
+  text-align: center;
+}
+
+.day-delivery-voice-sheet__listen {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.day-delivery-voice-sheet__listen-label {
+  font-size: 13px;
+  font-weight: 800;
+  color: #0f2948;
+}
+
+.day-delivery-voice-sheet__player {
+  width: 100%;
+  min-height: 44px;
+}
+
+.day-delivery-voice-sheet__actions {
+  display: grid;
+  gap: 10px;
+}
+
+.day-delivery-voice-sheet__btn {
+  width: 100%;
+  min-height: 52px;
+  font-size: 15px;
+  font-weight: 800;
+  touch-action: manipulation;
+}
+
+.day-delivery-voice-sheet__btn--stop {
+  background: linear-gradient(180deg, #dc2626 0%, #b91c1c 100%) !important;
+  border-color: #b91c1c !important;
+  color: #fff !important;
+}
+
+.day-delivery-voice-sheet__close {
+  flex-shrink: 0;
+  min-height: 40px;
+}
+
 @media (max-width: 768px) {
+  .day-delivery-mobile-bar__grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
   .day-ops-page--mobile-livraison .day-ops-kpi-grid {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));

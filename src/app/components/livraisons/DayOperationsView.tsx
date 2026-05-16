@@ -33,6 +33,7 @@ import { isChauffeurDeliveryPoolMember } from "@/app/lib/employee-fonctions.shar
 import { buildDeliveryTrackingUrl } from "@/app/lib/delivery-tracking";
 import DayDeliveryMobileActions from "@/app/components/livraisons/day-delivery/DayDeliveryMobileActions";
 import StopSignatureQuickCapture from "@/app/components/livraisons/day-delivery/StopSignatureQuickCapture";
+import StopVoiceQuickCapture from "@/app/components/livraisons/day-delivery/StopVoiceQuickCapture";
 
 const DayOperationsMap = dynamic(() => import("./DayOperationsMap"), { ssr: false });
 
@@ -593,6 +594,7 @@ export default function DayOperationsView({ area, operationMode = "livraison" }:
   const [manualPositionDraft, setManualPositionDraft] = useState<{ latitude: number; longitude: number } | null>(null);
   const [quickActionLoading, setQuickActionLoading] = useState<string | null>(null);
   const [mobileSignatureOpen, setMobileSignatureOpen] = useState(false);
+  const [mobileVoiceOpen, setMobileVoiceOpen] = useState(false);
   const proofsPanelAnchorRef = useRef<HTMLDetailsElement | null>(null);
   const [showReplanifierForm, setShowReplanifierForm] = useState(false);
   const [replanDate, setReplanDate] = useState("");
@@ -1129,7 +1131,7 @@ export default function DayOperationsView({ area, operationMode = "livraison" }:
 
   const mobileFieldChromeLocked =
     Boolean(selected) &&
-    (canShowMobileTerrainBar || showDetail || mobileSignatureOpen);
+    (canShowMobileTerrainBar || showDetail || mobileSignatureOpen || mobileVoiceOpen);
 
   useMobileFieldChromeLock(mobileFieldChromeLocked);
 
@@ -3329,7 +3331,14 @@ export default function DayOperationsView({ area, operationMode = "livraison" }:
             if (!selectedMapsUrl) return;
             window.open(selectedMapsUrl, "_blank", "noopener,noreferrer");
           }}
-          onSignature={() => setMobileSignatureOpen(true)}
+          onSignature={() => {
+            setMobileVoiceOpen(false);
+            setMobileSignatureOpen(true);
+          }}
+          onVoice={() => {
+            setMobileSignatureOpen(false);
+            setMobileVoiceOpen(true);
+          }}
           onDeliver={() => void runQuickStopAction("completer")}
           onScrollProofs={() => {
             setShowDetail(true);
@@ -3345,16 +3354,29 @@ export default function DayOperationsView({ area, operationMode = "livraison" }:
         />
       ) : null}
       {selected && isLivraisonMobileMode ? (
-        <StopSignatureQuickCapture
-          open={mobileSignatureOpen}
-          onClose={() => setMobileSignatureOpen(false)}
-          livraisonId={selected.id}
-          clientLabel={selected.client}
-          onSaved={() => {
-            setStopFormMessage("Signature client enregistree.");
-            setMobileSignatureOpen(false);
-          }}
-        />
+        <>
+          <StopSignatureQuickCapture
+            open={mobileSignatureOpen}
+            onClose={() => setMobileSignatureOpen(false)}
+            livraisonId={selected.id}
+            clientLabel={selected.client}
+            onSaved={() => {
+              setStopFormMessage("Signature client enregistree.");
+              setMobileSignatureOpen(false);
+            }}
+          />
+          <StopVoiceQuickCapture
+            open={mobileVoiceOpen}
+            onClose={() => setMobileVoiceOpen(false)}
+            sourceId={selected.id}
+            moduleSource="livraison"
+            clientLabel={selected.client}
+            onSaved={() => {
+              setStopFormMessage("Preuve vocale enregistree.");
+              setMobileVoiceOpen(false);
+            }}
+          />
+        </>
       ) : null}
       <PaymentFinalizeModal
         open={finalizePaymentOpen && Boolean(selected)}

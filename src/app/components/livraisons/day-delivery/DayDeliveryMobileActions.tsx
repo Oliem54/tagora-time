@@ -15,6 +15,7 @@ type Props = {
   onCall: () => void;
   onMaps: () => void;
   onSignature: () => void;
+  onVoice: () => void;
   onDeliver: () => void;
   onScrollProofs: () => void;
   onSelectStop: () => void;
@@ -35,6 +36,7 @@ export default function DayDeliveryMobileActions({
   onCall,
   onMaps,
   onSignature,
+  onVoice,
   onDeliver,
   onScrollProofs,
   onSelectStop,
@@ -89,6 +91,9 @@ export default function DayDeliveryMobileActions({
         </button>
         <button type="button" className="day-delivery-mobile-bar__btn" onClick={onSignature}>
           Signature
+        </button>
+        <button type="button" className="day-delivery-mobile-bar__btn" onClick={onVoice}>
+          Vocal
         </button>
         <button type="button" className="day-delivery-mobile-bar__btn" onClick={onScrollProofs}>
           Preuves
