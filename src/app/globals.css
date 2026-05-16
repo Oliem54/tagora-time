@@ -372,6 +372,293 @@
   }
 }
 
+/* Journee livraison — experience mobile terrain (direction) */
+.day-ops-page--mobile-livraison {
+  padding-bottom: calc(132px + env(safe-area-inset-bottom, 0px));
+}
+
+.day-delivery-next-stop {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+  padding: 14px 16px !important;
+  border: 1px solid rgba(31, 78, 121, 0.18) !important;
+  background: linear-gradient(135deg, #f8fbff 0%, #eef4fb 100%) !important;
+  box-shadow: 0 10px 28px rgba(15, 41, 72, 0.08);
+}
+
+.day-delivery-next-stop__copy {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.day-delivery-next-stop__eyebrow {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #1f4e79;
+}
+
+.day-delivery-next-stop__cta {
+  flex-shrink: 0;
+  min-height: 44px;
+  padding-inline: 16px;
+}
+
+.day-ops-stop-item--next {
+  border-color: #1f4e79 !important;
+  box-shadow: inset 0 0 0 1px rgba(31, 78, 121, 0.2);
+}
+
+.day-ops-quick-en-route {
+  width: 100%;
+  min-height: 48px;
+  font-size: 15px;
+  font-weight: 800;
+}
+
+.day-delivery-mobile-feedback {
+  position: fixed;
+  left: 12px;
+  right: 12px;
+  bottom: calc(118px + env(safe-area-inset-bottom, 0px));
+  z-index: 119;
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: #f0fdf4;
+  border: 1px solid #86efac;
+  color: #14532d;
+  font-size: 13px;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  box-shadow: 0 8px 24px rgba(15, 41, 72, 0.12);
+}
+
+.day-delivery-mobile-bar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 120;
+  padding: 10px 12px calc(10px + env(safe-area-inset-bottom, 0px));
+  background: rgba(255, 255, 255, 0.96);
+  border-top: 1px solid #dbe4f0;
+  box-shadow: 0 -12px 32px rgba(15, 41, 72, 0.12);
+  backdrop-filter: blur(10px);
+}
+
+.day-delivery-mobile-bar__summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.day-delivery-mobile-bar__summary-btn {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.day-delivery-mobile-bar__summary-btn strong {
+  font-size: 14px;
+  color: #0f2948;
+}
+
+.day-delivery-mobile-bar__summary-btn span {
+  font-size: 12px;
+  color: #64748b;
+  overflow-wrap: anywhere;
+}
+
+.day-delivery-mobile-bar__eta {
+  color: #1f4e79 !important;
+  font-weight: 700;
+}
+
+.day-delivery-mobile-bar__track-link,
+.day-delivery-mobile-bar__track-placeholder {
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.day-delivery-mobile-bar__track-link {
+  color: #1f4e79;
+  text-decoration: none;
+}
+
+.day-delivery-mobile-bar__track-placeholder {
+  color: #94a3b8;
+}
+
+.day-delivery-mobile-bar__grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.day-delivery-mobile-bar__btn {
+  min-height: 48px;
+  border-radius: 12px;
+  border: 1px solid #cbd5e1;
+  background: #fff;
+  color: #0f2948;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.01em;
+  touch-action: manipulation;
+}
+
+.day-delivery-mobile-bar__btn:disabled {
+  opacity: 0.45;
+}
+
+.day-delivery-mobile-bar__btn--primary {
+  background: linear-gradient(180deg, #1f4e79 0%, #0f2948 100%);
+  border-color: #0f2948;
+  color: #fff;
+}
+
+.day-delivery-mobile-bar__btn--success {
+  background: linear-gradient(180deg, #16a34a 0%, #15803d 100%);
+  border-color: #15803d;
+  color: #fff;
+}
+
+.day-delivery-signature-sheet {
+  position: fixed;
+  inset: 0;
+  z-index: 140;
+  display: grid;
+  align-items: end;
+}
+
+.day-delivery-signature-sheet__backdrop {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  background: rgba(15, 23, 42, 0.45);
+}
+
+.day-delivery-signature-sheet__panel {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  max-height: 88vh;
+  overflow: auto;
+  border-radius: 18px 18px 0 0;
+  background: #fff;
+  padding: 16px;
+  box-shadow: 0 -20px 50px rgba(15, 41, 72, 0.2);
+}
+
+.day-delivery-signature-sheet__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.day-delivery-signature-sheet__head strong {
+  display: block;
+  font-size: 16px;
+}
+
+.day-delivery-signature-sheet__canvas {
+  width: 100%;
+  height: min(42vh, 320px);
+  border-radius: 14px;
+  border: 2px dashed #cbd5e1;
+  background: #f8fafc;
+  touch-action: none;
+}
+
+.day-delivery-signature-sheet__feedback {
+  margin: 10px 0 0;
+  font-size: 13px;
+  color: #334155;
+}
+
+.day-delivery-signature-sheet__actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.day-delivery-signature-sheet__actions .tagora-dark-action {
+  flex: 1;
+  min-height: 48px;
+}
+
+@media (max-width: 768px) {
+  .day-ops-page--mobile-livraison .day-ops-kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .day-ops-page--mobile-livraison .day-ops-kpi-card {
+    padding: 10px 12px !important;
+  }
+
+  .day-ops-page--mobile-livraison .day-ops-kpi-label {
+    font-size: 10px;
+  }
+
+  .day-ops-page--mobile-livraison .day-ops-kpi-value {
+    font-size: 16px;
+  }
+
+  .day-ops-page--mobile-livraison .day-ops-stop-item {
+    min-height: 72px;
+    padding: 12px 14px;
+    border-radius: 14px;
+  }
+
+  .day-ops-page--mobile-livraison .day-ops-map-panel--mobile-livraison .day-ops-map-wrap {
+    min-height: 220px;
+    max-height: 42vh;
+  }
+
+  .day-ops-page--mobile-livraison .day-ops-route-panel--mobile-livraison .ui-grid-2 {
+    grid-template-columns: 1fr;
+  }
+
+  .day-ops-page--mobile-livraison .day-ops-map-filters {
+    display: none;
+  }
+
+  .day-ops-page--mobile-livraison .day-ops-route-panel--mobile-livraison {
+    display: none;
+  }
+}
+
+@media (min-width: 769px) {
+  .day-delivery-mobile-bar,
+  .day-delivery-next-stop {
+    display: none;
+  }
+
+  .day-ops-page--mobile-livraison {
+    padding-bottom: 0;
+  }
+}
+
 :root {
   --tagora-yellow: #F4D10B;
   --tagora-yellow-dark: #C9A600;

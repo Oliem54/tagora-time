@@ -29,6 +29,9 @@ import { supabase } from "@/app/lib/supabase/client";
 import { useCurrentAccess } from "@/app/hooks/useCurrentAccess";
 import { getOperationCoordinates } from "@/app/lib/livraisons/coordinates";
 import { isChauffeurDeliveryPoolMember } from "@/app/lib/employee-fonctions.shared";
+import { buildDeliveryTrackingUrl } from "@/app/lib/delivery-tracking";
+import DayDeliveryMobileActions from "@/app/components/livraisons/day-delivery/DayDeliveryMobileActions";
+import StopSignatureQuickCapture from "@/app/components/livraisons/day-delivery/StopSignatureQuickCapture";
 
 const DayOperationsMap = dynamic(() => import("./DayOperationsMap"), { ssr: false });
 
@@ -270,6 +273,57 @@ function getFieldStringPreferPrimary(row: Row | undefined, keys: string[]) {
     }
   }
   return { value: "", hasExplicitField };
+}
+
+function getStopPhone(row: Row): string | null {
+  const keys = [
+    "client_phone",
+    "contact_phone_primary",
+    "contact_phone_secondary",
+    "telephone",
+  ];
+  for (const key of keys) {
+    const raw = getFieldString(row, [key]);
+    if (!raw) continue;
+    const digits = raw.replace(/[^\d+]/g, "");
+    if (digits.length >= 7) return raw;
+  }
+  return null;
+}
+
+function buildMapsUrlForStop(
+  stop: { fullAddress: string; address: string; row: Row },
+  geo?: GeocodedPoint | null
+) {
+  const coords = getOperationCoordinates(stop.row);
+  if (coords.lat != null && coords.lng != null) {
+    return `https://www.google.com/maps/dir/?api=1&destination=${coords.lat},${coords.lng}`;
+  }
+  if (geo) {
+    return `https://www.google.com/maps/dir/?api=1&destination=${geo.latitude},${geo.longitude}`;
+  }
+  const query = encodeURIComponent(stop.fullAddress || stop.address || "");
+  if (!query) return null;
+  return `https://www.google.com/maps/dir/?api=1&destination=${query}`;
+}
+
+function buildTrackingUrlFromRow(row: Row): string | null {
+  const token = getFieldString(row, ["tracking_token"]);
+  if (!token) return null;
+  return buildDeliveryTrackingUrl(token);
+}
+
+function parseAssignedChauffeurIdFromRow(row: Row): number | null {
+  const raw = row.chauffeur_id;
+  if (raw == null || raw === "") return null;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed > 0 ? Math.trunc(parsed) : null;
+}
+
+function isStopAssignedToChauffeur(row: Row, chauffeurId: number | null) {
+  if (chauffeurId == null) return false;
+  const assignedId = parseAssignedChauffeurIdFromRow(row);
+  return assignedId != null && assignedId === chauffeurId;
 }
 
 function buildFullAddress(operationRow: Row, dossierRow?: Row) {
@@ -537,6 +591,8 @@ export default function DayOperationsView({ area, operationMode = "livraison" }:
   const [manualPickStopId, setManualPickStopId] = useState<number | null>(null);
   const [manualPositionDraft, setManualPositionDraft] = useState<{ latitude: number; longitude: number } | null>(null);
   const [quickActionLoading, setQuickActionLoading] = useState<string | null>(null);
+  const [mobileSignatureOpen, setMobileSignatureOpen] = useState(false);
+  const proofsPanelAnchorRef = useRef<HTMLDetailsElement | null>(null);
   const [showReplanifierForm, setShowReplanifierForm] = useState(false);
   const [replanDate, setReplanDate] = useState("");
   const [replanHeure, setReplanHeure] = useState("");
@@ -679,7 +735,9 @@ export default function DayOperationsView({ area, operationMode = "livraison" }:
           .order("id", { ascending: true }),
         supabase
           .from("chauffeurs")
-          .select("id, nom, prenom, nom_complet, courriel, actif, fonctions, can_deliver")
+          .select(
+            "id, nom, prenom, nom_complet, courriel, actif, fonctions, can_deliver, auth_user_id"
+          )
           .order("id", { ascending: true }),
       ]);
       const { data, error } = opsRes;
@@ -1016,6 +1074,58 @@ export default function DayOperationsView({ area, operationMode = "livraison" }:
     return ordered.find((stop) => stop.id === selectedId) ?? ordered[0] ?? null;
   }, [orderedStopIds, selectedId, stops]);
 
+  const isLivraisonMobileMode = operationMode === "livraison";
+
+  const nextOperationalStop = useMemo(() => {
+    const byId = new Map(stops.map((stop) => [stop.id, stop]));
+    for (const id of orderedStopIds) {
+      const stop = byId.get(id);
+      if (!stop || stop.type !== "livraison") continue;
+      const rawStatut = String(stop.row.statut || "").toLowerCase();
+      if (rawStatut === "livree" || rawStatut === "annulee") continue;
+      if (stop.status === "terminee") continue;
+      return stop;
+    }
+    return null;
+  }, [orderedStopIds, stops]);
+
+  const selectedPhone = selected ? getStopPhone(selected.row) : null;
+  const selectedMapsUrl = selected
+    ? buildMapsUrlForStop(selected, geoById[selected.id] ?? null)
+    : null;
+  const selectedTrackingUrl = selected ? buildTrackingUrlFromRow(selected.row) : null;
+  const selectedRawStatut = selected ? String(selected.row.statut || "").toLowerCase() : "";
+
+  const currentChauffeurId = useMemo(() => {
+    if (!user?.id) return null;
+    const match = chauffeurs.find((item) => String(item.auth_user_id || "") === user.id);
+    const parsed = match?.id != null ? Number(match.id) : NaN;
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+  }, [chauffeurs, user?.id]);
+
+  const canEnRouteForStop = useCallback(
+    (stop: { row: Row } | null | undefined) => {
+      if (!stop) return false;
+      if (canEditStopDetails) return true;
+      if (role !== "employe") return false;
+      return isStopAssignedToChauffeur(stop.row, currentChauffeurId);
+    },
+    [canEditStopDetails, currentChauffeurId, role]
+  );
+
+  const canEnRouteSelected =
+    Boolean(selected) &&
+    canEnRouteForStop(selected) &&
+    selectedRawStatut !== "livree" &&
+    selectedRawStatut !== "annulee" &&
+    selected?.status !== "terminee";
+
+  const canShowMobileTerrainBar =
+    isLivraisonMobileMode &&
+    Boolean(selected) &&
+    selected?.type === "livraison" &&
+    (canEditStopDetails || (role === "employe" && canEnRouteForStop(selected)));
+
   const mapFocusHandledRef = useRef("");
 
   useEffect(() => {
@@ -1222,6 +1332,14 @@ export default function DayOperationsView({ area, operationMode = "livraison" }:
       missingStops: routeSuggestion?.warnings?.stopsSansCoordonnees ?? [],
     };
   }, [routeSuggestion]);
+
+  const selectedEtaLabel = useMemo(() => {
+    if (!selected) return null;
+    const match = routeSummary.detailedSuggestedStops.find(
+      (item) => Number(item.id) === selected.id
+    );
+    return match?.arriveeEstimee ?? null;
+  }, [routeSummary.detailedSuggestedStops, selected]);
 
   async function persistManualOrder(ids: number[]) {
     for (let i = 0; i < ids.length; i += 1) {
@@ -1503,6 +1621,64 @@ export default function DayOperationsView({ area, operationMode = "livraison" }:
         ? "Adresse localisee."
         : "Position approximative a valider."
     );
+  }
+
+  async function handleEnRouteForStop(stopId: number) {
+    const stop = stops.find((item) => item.id === stopId);
+    if (!canEnRouteForStop(stop)) {
+      setStopFormMessage(
+        role === "employe"
+          ? "En route reserve aux livraisons qui vous sont assignees."
+          : "Action En route non autorisee pour cet arret."
+      );
+      return;
+    }
+    const actionKey = `en-route:${stopId}`;
+    setQuickActionLoading(actionKey);
+    setStopFormMessage("");
+    try {
+      const etaMatch = routeSummary.detailedSuggestedStops.find(
+        (item) => Number(item.id) === stopId
+      );
+      const response = await fetch(`/api/livraisons/${stopId}/en-route`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({
+          estimatedArrival: etaMatch?.arriveeEstimee ?? null,
+          estimatedMinutes: etaMatch?.tempsConduiteDepuisPrecedentMinutes ?? null,
+        }),
+      });
+      const data = (await response.json().catch(() => ({}))) as {
+        success?: boolean;
+        updated_row?: Row;
+        trackingUrl?: string;
+        sms?: { sent?: boolean; skipped?: boolean; reason?: string | null };
+        email?: { sent?: boolean; skipped?: boolean; reason?: string | null };
+        error?: string;
+      };
+      if (!response.ok || !data.success) {
+        setStopFormMessage(data.error || "Passage en route impossible.");
+        return;
+      }
+      if (data.updated_row) {
+        setRows((current) =>
+          current.map((row) =>
+            Number(row.id) === stopId ? { ...row, ...data.updated_row } : row
+          )
+        );
+      }
+      const parts = ["Livraison marquee en route."];
+      if (data.sms?.sent) parts.push("SMS client envoye.");
+      else if (data.sms?.reason) parts.push(`SMS: ${data.sms.reason}`);
+      if (data.email?.sent) parts.push("Courriel client envoye.");
+      else if (data.email?.reason) parts.push(`Courriel: ${data.email.reason}`);
+      if (data.trackingUrl) parts.push(`Suivi: ${data.trackingUrl}`);
+      setStopFormMessage(parts.join("\n"));
+      setShowDetail(true);
+    } finally {
+      setQuickActionLoading(null);
+    }
   }
 
   async function runQuickStopAction(action: "annuler" | "supprimer" | "completer") {
@@ -1887,7 +2063,9 @@ export default function DayOperationsView({ area, operationMode = "livraison" }:
   ];
 
   return (
-    <main className="page-container day-ops-page">
+    <main
+      className={`page-container day-ops-page${isLivraisonMobileMode ? " day-ops-page--mobile-livraison" : ""}`}
+    >
       <HeaderTagora
         title={modeCopy.pageTitle}
         subtitle={dateIso ? formatDateLabel(dateIso) : "Date manquante"}
@@ -1914,6 +2092,31 @@ export default function DayOperationsView({ area, operationMode = "livraison" }:
           </AppCard>
         ))}
       </div>
+
+      {isLivraisonMobileMode && nextOperationalStop ? (
+        <AppCard tone="muted" className="day-delivery-next-stop">
+          <div className="day-delivery-next-stop__copy">
+            <span className="day-delivery-next-stop__eyebrow">Prochain arret</span>
+            <strong>{nextOperationalStop.client}</strong>
+            <span className="ui-text-muted">
+              {nextOperationalStop.fullAddress || nextOperationalStop.address || "Adresse a confirmer"}
+            </span>
+            <span className="ui-text-muted">
+              {nextOperationalStop.time} · {nextOperationalStop.statusText}
+            </span>
+          </div>
+          <button
+            type="button"
+            className="tagora-dark-action day-delivery-next-stop__cta"
+            onClick={() => {
+              setSelectedId(nextOperationalStop.id);
+              setShowDetail(true);
+            }}
+          >
+            Ouvrir
+          </button>
+        </AppCard>
+      ) : null}
 
       <div className="day-ops-layout day-ops-layout--spaced">
         <section className="tagora-panel ui-stack-sm day-ops-left-col day-ops-side-panel">
@@ -1968,7 +2171,7 @@ export default function DayOperationsView({ area, operationMode = "livraison" }:
                     }
                     setDraggingId(null);
                   }}
-                  className={`tagora-dark-outline-action day-ops-stop-item${selected?.id === stop.id ? " day-ops-stop-item--selected" : ""}`}
+                  className={`tagora-dark-outline-action day-ops-stop-item${selected?.id === stop.id ? " day-ops-stop-item--selected" : ""}${isLivraisonMobileMode && nextOperationalStop?.id === stop.id ? " day-ops-stop-item--next" : ""}`}
                   onClick={() => {
                     setSelectedId(stop.id);
                     setShowDetail(true);
@@ -2026,7 +2229,9 @@ export default function DayOperationsView({ area, operationMode = "livraison" }:
         </section>
 
         <section className="ui-stack-md day-ops-right-col day-ops-right-stack">
-          <section className="tagora-panel day-ops-map-panel day-ops-map-shell">
+          <section
+            className={`tagora-panel day-ops-map-panel day-ops-map-shell${isLivraisonMobileMode ? " day-ops-map-panel--mobile-livraison" : ""}`}
+          >
             <h2 className="section-title day-ops-section-title">Carte de la journee</h2>
             <div className="day-ops-map-filters">
               <label className="tagora-field" style={{ margin: 0, flex: "1 1 320px" }}>
@@ -2204,7 +2409,9 @@ export default function DayOperationsView({ area, operationMode = "livraison" }:
             </div>
           </section>
 
-          <section className="tagora-panel ui-stack-sm day-ops-route-panel">
+          <section
+            className={`tagora-panel ui-stack-sm day-ops-route-panel${isLivraisonMobileMode ? " day-ops-route-panel--mobile-livraison" : ""}`}
+          >
             <div className="day-ops-route-head">
               <h2 className="section-title day-ops-section-title">Suggestion de route</h2>
               {canManageOrder ? (
@@ -2535,6 +2742,42 @@ export default function DayOperationsView({ area, operationMode = "livraison" }:
                 />
               </AppCard>
 
+              {!canEditStopDetails &&
+              role === "employe" &&
+              isLivraisonMobileMode &&
+              selected.type === "livraison" &&
+              canEnRouteForStop(selected) ? (
+                <AppCard
+                  tone="muted"
+                  className="ui-stack-xs day-ops-quick-actions-card day-ops-quick-actions-card--employe"
+                  style={{ padding: 12 }}
+                >
+                  <strong className="day-ops-quick-actions-title">Action terrain</strong>
+                  <button
+                    type="button"
+                    className="tagora-dark-action day-ops-compact-btn day-ops-quick-en-route"
+                    disabled={
+                      !canEnRouteSelected || quickActionLoading === `en-route:${selected.id}`
+                    }
+                    onClick={() => void handleEnRouteForStop(selected.id)}
+                  >
+                    {quickActionLoading === `en-route:${selected.id}`
+                      ? "En route..."
+                      : "En route vers le client"}
+                  </button>
+                  {stopFormMessage ? (
+                    <div
+                      role="status"
+                      aria-live="polite"
+                      className="day-ops-stop-form-message"
+                      style={{ fontSize: 13, whiteSpace: "pre-wrap" }}
+                    >
+                      {stopFormMessage}
+                    </div>
+                  ) : null}
+                </AppCard>
+              ) : null}
+
               {canEditStopDetails ? (
                 <AppCard
                   tone="muted"
@@ -2547,6 +2790,22 @@ export default function DayOperationsView({ area, operationMode = "livraison" }:
                   }}
                 >
                   <strong className="day-ops-quick-actions-title">Actions rapides</strong>
+                  {isLivraisonMobileMode &&
+                  selected.type === "livraison" &&
+                  canEnRouteForStop(selected) ? (
+                    <button
+                      type="button"
+                      className="tagora-dark-action day-ops-compact-btn day-ops-quick-en-route"
+                      disabled={
+                        !canEnRouteSelected || quickActionLoading === `en-route:${selected.id}`
+                      }
+                      onClick={() => void handleEnRouteForStop(selected.id)}
+                    >
+                      {quickActionLoading === `en-route:${selected.id}`
+                        ? "En route..."
+                        : "En route vers le client"}
+                    </button>
+                  ) : null}
                   {stopFormMessage ? (
                     <div
                       role="status"
@@ -3000,7 +3259,8 @@ export default function DayOperationsView({ area, operationMode = "livraison" }:
                     </AppCard>
                   )}
                   <details
-                    className="tagora-panel-muted"
+                    ref={proofsPanelAnchorRef}
+                    className="tagora-panel-muted day-ops-proofs-collapse"
                     style={{ padding: 12, border: "1px solid #dbe4f0", borderRadius: 12 }}
                   >
                     <summary
@@ -3036,6 +3296,59 @@ export default function DayOperationsView({ area, operationMode = "livraison" }:
           ) : null}
         </section>
       </div>
+      {isLivraisonMobileMode && stopFormMessage && role === "employe" ? (
+        <p className="day-delivery-mobile-feedback" role="status" aria-live="polite">
+          {stopFormMessage}
+        </p>
+      ) : null}
+      {canShowMobileTerrainBar && selected ? (
+        <DayDeliveryMobileActions
+          clientLabel={selected.client}
+          addressLabel={selected.fullAddress || selected.address || "Adresse non renseignee"}
+          etaLabel={selectedEtaLabel}
+          phone={selectedPhone}
+          mapsUrl={selectedMapsUrl}
+          trackingUrl={selectedTrackingUrl}
+          canEnRoute={canEnRouteSelected}
+          canDeliver={canEditStopDetails}
+          enRouteLoading={quickActionLoading === `en-route:${selected.id}`}
+          deliverLoading={quickActionLoading === `completer:${selected.id}`}
+          onEnRoute={() => void handleEnRouteForStop(selected.id)}
+          onCall={() => {
+            if (!selectedPhone) return;
+            window.location.href = `tel:${selectedPhone.replace(/\s+/g, "")}`;
+          }}
+          onMaps={() => {
+            if (!selectedMapsUrl) return;
+            window.open(selectedMapsUrl, "_blank", "noopener,noreferrer");
+          }}
+          onSignature={() => setMobileSignatureOpen(true)}
+          onDeliver={() => void runQuickStopAction("completer")}
+          onScrollProofs={() => {
+            setShowDetail(true);
+            proofsPanelAnchorRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+            if (proofsPanelAnchorRef.current && "open" in proofsPanelAnchorRef.current) {
+              (proofsPanelAnchorRef.current as HTMLDetailsElement).open = true;
+            }
+          }}
+          onSelectStop={() => {
+            setShowDetail(true);
+            stopEditFormAnchorRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+          }}
+        />
+      ) : null}
+      {selected && isLivraisonMobileMode ? (
+        <StopSignatureQuickCapture
+          open={mobileSignatureOpen}
+          onClose={() => setMobileSignatureOpen(false)}
+          livraisonId={selected.id}
+          clientLabel={selected.client}
+          onSaved={() => {
+            setStopFormMessage("Signature client enregistree.");
+            setMobileSignatureOpen(false);
+          }}
+        />
+      ) : null}
       <PaymentFinalizeModal
         open={finalizePaymentOpen && Boolean(selected)}
         kind={selected?.type === "ramassage" ? "ramassage" : "livraison"}
