@@ -3,11 +3,11 @@ import type { ReactNode } from "react";
 import "../livraison-ramassage-ui.css";
 
 export const metadata: Metadata = {
-  title: "Livraison & ramassage direction",
-  description: "Suivi des livraisons et ramassages direction Tagora.",
+  title: "Ramassages direction",
+  description: "Suivi des ramassages direction Tagora.",
 };
 
-export default function DirectionLivraisonsLayout({
+export default function DirectionRamassagesLayout({
   children,
 }: {
   children: ReactNode;
