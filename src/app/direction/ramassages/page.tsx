@@ -13,6 +13,10 @@ import InternalMentionsPanel from "@/app/components/internal/InternalMentionsPan
 import { supabase } from "@/app/lib/supabase/client";
 import { useCurrentAccess } from "@/app/hooks/useCurrentAccess";
 import TagoraLoadingScreen from "@/app/components/ui/TagoraLoadingScreen";
+import {
+  ACCOUNT_REQUEST_COMPANIES,
+  type AccountRequestCompany,
+} from "@/app/lib/account-requests.shared";
 import { isChauffeurDeliveryPoolMember } from "@/app/lib/employee-fonctions.shared";
 import {
   applyPaymentPreferCommentaire,
@@ -86,6 +90,7 @@ type PickupCreateFormState = {
   heure_prevue: string;
   dossier_id: string;
   chauffeur_id: string;
+  company_context: string;
   statut: string;
   notes: string;
   commentaire_operationnel: string;
@@ -94,6 +99,27 @@ type PickupCreateFormState = {
   payment_method: string;
   payment_note: string;
 };
+
+function getPickupCompanyValue(item: Row | undefined) {
+  if (!item) return "";
+
+  const companyContext = item.company_context;
+  if (typeof companyContext === "string" && companyContext.trim()) {
+    return companyContext;
+  }
+
+  const company = item.company;
+  if (typeof company === "string" && company.trim()) {
+    return company;
+  }
+
+  const compagnie = item.compagnie;
+  if (typeof compagnie === "string" && compagnie.trim()) {
+    return compagnie;
+  }
+
+  return "";
+}
 
 type OverdueSeverity = "overdue" | "warning" | "normal";
 type OverdueItem = {
@@ -190,6 +216,7 @@ function createPickupForm(): PickupCreateFormState {
     heure_prevue: "",
     dossier_id: "",
     chauffeur_id: "",
+    company_context: "",
     statut: "planifiee",
     notes: "",
     commentaire_operationnel: "",
@@ -198,6 +225,23 @@ function createPickupForm(): PickupCreateFormState {
     payment_method: "deja_paye",
     payment_note: "",
   };
+}
+
+/** Paiement + notes formulaire → commentaire_operationnel (colonne notes absente en base). */
+function mergeOperationalComment(
+  commentaire: string,
+  notes: string,
+  payment: ReturnType<typeof embeddedFromFormInput>
+): string | null {
+  const commentaireMerged = mergePaymentIntoText(stripPaymentMarker(commentaire.trim()), payment);
+  const extraNotes = notes.trim();
+  const commentaireWithNotes =
+    extraNotes.length > 0
+      ? commentaireMerged.length > 0
+        ? `${commentaireMerged}\n\nNotes:\n${extraNotes}`
+        : `Notes:\n${extraNotes}`
+      : commentaireMerged;
+  return commentaireWithNotes.length > 0 ? commentaireWithNotes : null;
 }
 
 function getDossierLabel(dossier: Row) {
@@ -449,6 +493,7 @@ export default function DirectionRamassagesPage() {
       heure_prevue: normalizeTimeShort(it.heure_prevue),
       dossier_id: it.dossier_id != null && String(it.dossier_id) !== "0" ? String(it.dossier_id) : "",
       chauffeur_id: it.chauffeur_id != null && String(it.chauffeur_id) !== "0" ? String(it.chauffeur_id) : "",
+      company_context: getPickupCompanyValue(it),
       statut: String(it.statut || "planifiee"),
       notes: stripPaymentMarker(String(it.notes || "")),
       commentaire_operationnel: stripPaymentMarker(
@@ -622,14 +667,23 @@ export default function DirectionRamassagesPage() {
       return;
     }
 
+    const companyContext = newForm.company_context.trim();
+    if (!companyContext) {
+      setMessage("Choisissez une compagnie.");
+      setMessageType("error");
+      setCreating(false);
+      return;
+    }
+
     const embedded = embeddedFromFormInput({
       paidFull: newForm.payment_paid_full,
       balanceDue: newForm.payment_balance_due,
       method: newForm.payment_method,
       note: newForm.payment_note,
     });
-    const commentaireMerged = mergePaymentIntoText(
-      stripPaymentMarker(newForm.commentaire_operationnel.trim()),
+    const commentaireOperationnel = mergeOperationalComment(
+      newForm.commentaire_operationnel,
+      newForm.notes,
       embedded
     );
 
@@ -642,9 +696,9 @@ export default function DirectionRamassagesPage() {
       heure_prevue: newForm.heure_prevue || null,
       dossier_id: newForm.dossier_id ? Number(newForm.dossier_id) : null,
       chauffeur_id: newForm.chauffeur_id ? Number(newForm.chauffeur_id) : null,
+      company_context: companyContext,
       statut: newForm.statut,
-      notes: newForm.notes.trim() || null,
-      commentaire_operationnel: commentaireMerged.length > 0 ? commentaireMerged : null,
+      commentaire_operationnel: commentaireOperationnel,
     };
 
     const { data, error } = await supabase
@@ -747,12 +801,19 @@ export default function DirectionRamassagesPage() {
       method: editForm.payment_method,
       note: editForm.payment_note,
     });
-    const rowSnap: Record<string, unknown> = {
-      ...selected.item,
-      notes: editForm.notes,
-      commentaire_operationnel: editForm.commentaire_operationnel,
-    };
-    const payFields = applyPaymentPreferCommentaire(rowSnap, embedded);
+    const commentaireOperationnel = mergeOperationalComment(
+      editForm.commentaire_operationnel,
+      editForm.notes,
+      embedded
+    );
+    const companyContext = editForm.company_context.trim();
+    if (!companyContext) {
+      setMessage("Choisissez une compagnie.");
+      setMessageType("error");
+      setSavingId(null);
+      return;
+    }
+
     const adresse = editForm.adresse.trim() || RAMASSAGE_DEFAULT_PICKUP_ADDRESS;
     const patch: Record<string, unknown> = {
       client: editForm.client.trim(),
@@ -762,9 +823,9 @@ export default function DirectionRamassagesPage() {
       heure_prevue: editForm.heure_prevue.trim() || null,
       dossier_id: editForm.dossier_id ? Number(editForm.dossier_id) : null,
       chauffeur_id: editForm.chauffeur_id ? Number(editForm.chauffeur_id) : null,
+      company_context: companyContext,
       statut: editForm.statut.trim() || null,
-      notes: payFields.notes !== undefined ? payFields.notes : editForm.notes.trim() || null,
-      commentaire_operationnel: payFields.commentaire_operationnel,
+      commentaire_operationnel: commentaireOperationnel,
     };
     try {
       const res = await fetch(`/api/livraisons/${id}`, {
@@ -1200,6 +1261,27 @@ export default function DirectionRamassagesPage() {
                 {dossiers.map((dossier) => (
                   <option key={String(dossier.id)} value={String(dossier.id)}>
                     {getDossierLabel(dossier)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="tagora-field">
+              <span className="tagora-label">Compagnie</span>
+              <select
+                value={newForm.company_context}
+                onChange={(e) =>
+                  setNewForm({
+                    ...newForm,
+                    company_context: e.target.value as AccountRequestCompany | "",
+                  })
+                }
+                className="tagora-input"
+                required
+              >
+                <option value="">Choisir une compagnie</option>
+                {ACCOUNT_REQUEST_COMPANIES.map((company) => (
+                  <option key={company.value} value={company.value}>
+                    {company.label}
                   </option>
                 ))}
               </select>
@@ -1816,6 +1898,27 @@ export default function DirectionRamassagesPage() {
                     {dossiers.map((dossier) => (
                       <option key={String(dossier.id)} value={String(dossier.id)}>
                         {getDossierLabel(dossier)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="tagora-field">
+                  <span className="tagora-label">Compagnie</span>
+                  <select
+                    className="tagora-input"
+                    value={editForm.company_context}
+                    onChange={(e) =>
+                      setEditForm({
+                        ...editForm,
+                        company_context: e.target.value as AccountRequestCompany | "",
+                      })
+                    }
+                    required
+                  >
+                    <option value="">Choisir une compagnie</option>
+                    {ACCOUNT_REQUEST_COMPANIES.map((company) => (
+                      <option key={company.value} value={company.value}>
+                        {company.label}
                       </option>
                     ))}
                   </select>
