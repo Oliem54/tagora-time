@@ -1460,7 +1460,7 @@ export default function DirectionRamassagesPage() {
                     className={day ? "livraison-cal-cell" : "livraison-cal-cell livraison-cal-cell--empty"}
                   >
                     {day ? (
-                      <Link href={`/direction/livraisons/jour?date=${isoDate}`} className="livraison-cal-daynum">
+                      <Link href={`/direction/ramassages/jour?date=${isoDate}`} className="livraison-cal-daynum">
                         {day}
                       </Link>
                     ) : null}
@@ -1468,7 +1468,7 @@ export default function DirectionRamassagesPage() {
                       {entries.slice(0, 3).map((entry) => (
                         <Link
                           key={entry.id}
-                          href={`/direction/livraisons/jour?date=${isoDate}`}
+                          href={`/direction/ramassages/jour?date=${isoDate}`}
                           className={pickupCalendarEventClass(entry.status)}
                         >
                           {String(entry.item.client || `#${entry.id}`)}
@@ -1770,7 +1770,7 @@ export default function DirectionRamassagesPage() {
                   Supprimer
                 </button>
                 <Link
-                  href={`/direction/livraisons/jour?date=${encodeURIComponent(String(selected.item.date_livraison || todayIso))}&focusStop=${selected.id}&manualMap=1`}
+                  href={`/direction/ramassages/jour?date=${encodeURIComponent(String(selected.item.date_livraison || todayIso))}&focusStop=${selected.id}&manualMap=1`}
                   className="tagora-dark-outline-action day-ops-compact-btn"
                   style={{ textDecoration: "none" }}
                 >

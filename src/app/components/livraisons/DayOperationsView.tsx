@@ -65,9 +65,40 @@ type StopEditForm = {
   payment_note: string;
 };
 
+export type DayOperationsMode = "livraison" | "ramassage";
+
 type Props = {
   area: "direction" | "employe";
+  /** Filtre métier : journée livraisons ou journée ramassages uniquement. */
+  operationMode?: DayOperationsMode;
 };
+
+function isRamassageRow(row: Row): boolean {
+  return String(row.type_operation || "").toLowerCase() === "ramassage_client";
+}
+
+function getDayOpsCopy(area: Props["area"], mode: DayOperationsMode) {
+  const listPath =
+    mode === "ramassage"
+      ? "/direction/ramassages"
+      : area === "direction"
+        ? "/direction/livraisons"
+        : "/employe/livraisons";
+  const jourBasePath =
+    mode === "ramassage"
+      ? "/direction/ramassages/jour"
+      : area === "direction"
+        ? "/direction/livraisons/jour"
+        : "/employe/livraisons/jour";
+  return {
+    listPath,
+    jourBasePath,
+    pageTitle: mode === "ramassage" ? "Journee ramassage" : "Journee livraison",
+    stopsTitle: mode === "ramassage" ? "Arrets ramassage du jour" : "Arrets livraison du jour",
+    emptyStops: mode === "ramassage" ? "Aucun ramassage pour cette date." : "Aucune livraison pour cette date.",
+    kpiOperations: mode === "ramassage" ? "Ramassages" : "Livraisons",
+  };
+}
 
 type SuggestedStop = {
   id: string;
@@ -466,7 +497,8 @@ async function geocodeAddress(address: string): Promise<GeocodedPoint | null> {
   }
 }
 
-export default function DayOperationsView({ area }: Props) {
+export default function DayOperationsView({ area, operationMode = "livraison" }: Props) {
+  const modeCopy = getDayOpsCopy(area, operationMode);
   const searchParams = useSearchParams();
   const { user, role, loading: accessLoading, hasPermission } = useCurrentAccess();
   const [rows, setRows] = useState<Row[]>([]);
@@ -631,11 +663,17 @@ export default function DayOperationsView({ area }: Props) {
           setReturnAddressInput("Oliem Solutions, Quebec");
         }
       }
+      let opsQuery = supabase
+        .from("livraisons_planifiees")
+        .select("*")
+        .eq("date_livraison", dateIso);
+      if (operationMode === "ramassage") {
+        opsQuery = opsQuery.eq("type_operation", "ramassage_client");
+      } else {
+        opsQuery = opsQuery.or("type_operation.neq.ramassage_client,type_operation.is.null");
+      }
       const [opsRes, chauffeursRes] = await Promise.all([
-        supabase
-          .from("livraisons_planifiees")
-          .select("*")
-          .eq("date_livraison", dateIso)
+        opsQuery
           .order("ordre_arret", { ascending: true })
           .order("heure_prevue", { ascending: true })
           .order("id", { ascending: true }),
@@ -685,7 +723,14 @@ export default function DayOperationsView({ area }: Props) {
 
     if (accessLoading) return;
     void loadDayRows();
-  }, [accessLoading, canUseLivraisons, dateIso, user]);
+  }, [accessLoading, canUseLivraisons, dateIso, operationMode, user]);
+
+  const filteredRows = useMemo(() => {
+    if (operationMode === "ramassage") {
+      return rows.filter((row) => isRamassageRow(row));
+    }
+    return rows.filter((row) => !isRamassageRow(row));
+  }, [operationMode, rows]);
 
   async function updateOriginFromAddress() {
     const query = originAddressInput.trim();
@@ -739,12 +784,9 @@ export default function DayOperationsView({ area }: Props) {
 
   const stops = useMemo(() => {
     const today = new Date().toISOString().slice(0, 10);
-    return rows.map((item, index) => {
+    return filteredRows.map((item, index) => {
       const id = Number(item.id);
-      const type =
-        String(item.type_operation || "") === "ramassage_client"
-          ? ("ramassage" as const)
-          : ("livraison" as const);
+      const type = isRamassageRow(item) ? ("ramassage" as const) : ("livraison" as const);
       const status = normalizeStatus(String(item.statut || ""));
       const isOverdue = String(item.date_livraison || "") < today && status !== "terminee";
       const dossierId = item.dossier_id ? Number(item.dossier_id) : null;
@@ -767,7 +809,7 @@ export default function DayOperationsView({ area }: Props) {
         row: item,
       };
     });
-  }, [dossiersById, rows]);
+  }, [dossiersById, filteredRows]);
 
   useEffect(() => {
     const ids = stops
@@ -1814,7 +1856,7 @@ export default function DayOperationsView({ area }: Props) {
   if (accessLoading || loading) {
     return (
       <main className="page-container">
-        <HeaderTagora title="Journee livraison & ramassage" subtitle="Chargement" />
+        <HeaderTagora title={modeCopy.pageTitle} subtitle="Chargement" />
         <SectionCard title="Chargement" subtitle="Preparation de la journee." />
       </main>
     );
@@ -1823,14 +1865,14 @@ export default function DayOperationsView({ area }: Props) {
   if (!user || !canUseLivraisons) {
     return (
       <main className="page-container">
-        <HeaderTagora title="Journee livraison & ramassage" subtitle="Acces requis" />
+        <HeaderTagora title={modeCopy.pageTitle} subtitle="Acces requis" />
         <SectionCard title="Acces refuse" subtitle="Permission livraisons requise." />
       </main>
     );
   }
 
   const kpiCards = [
-    { label: "Operations", value: String(stops.length) },
+    { label: modeCopy.kpiOperations, value: String(stops.length) },
     { label: "Distance routiere actuelle", value: `${routeSummary.currentKm.toFixed(1)} km` },
     { label: "Distance routiere suggeree", value: `${routeSummary.suggestedKm.toFixed(1)} km` },
     { label: "Conduite actuelle", value: `${routeSummary.currentDriveMinutes} min` },
@@ -1847,15 +1889,12 @@ export default function DayOperationsView({ area }: Props) {
   return (
     <main className="page-container day-ops-page">
       <HeaderTagora
-        title="Journee livraison & ramassage"
+        title={modeCopy.pageTitle}
         subtitle={dateIso ? formatDateLabel(dateIso) : "Date manquante"}
         showNavigation={false}
         actions={
           <div className="day-ops-header-actions">
-            <Link
-              href={area === "direction" ? "/direction/livraisons" : "/employe/livraisons"}
-              className="tagora-dark-outline-action"
-            >
+            <Link href={modeCopy.listPath} className="tagora-dark-outline-action">
               Retour
             </Link>
             {area === "direction" ? (
@@ -1880,18 +1919,15 @@ export default function DayOperationsView({ area }: Props) {
         <section className="tagora-panel ui-stack-sm day-ops-left-col day-ops-side-panel">
           <div className="day-ops-side-panel-head">
             <h2 className="section-title" style={{ marginBottom: 0 }}>
-              Arrets du jour
+              {modeCopy.stopsTitle}
             </h2>
-            <Link
-              href={area === "direction" ? "/direction/livraisons" : "/employe/livraisons"}
-              className="tagora-dark-outline-action day-ops-compact-btn"
-            >
+            <Link href={modeCopy.listPath} className="tagora-dark-outline-action day-ops-compact-btn">
               Retour calendrier
             </Link>
           </div>
           {stops.length === 0 ? (
             <AppCard tone="muted">
-              <span className="ui-text-muted">Aucune operation pour cette date.</span>
+              <span className="ui-text-muted">{modeCopy.emptyStops}</span>
             </AppCard>
           ) : (
             <>
@@ -2493,8 +2529,8 @@ export default function DayOperationsView({ area }: Props) {
                     chauffeur: String(selected.row.chauffeur_id || selected.row.chauffeur || ""),
                     linkPath:
                       selected.type === "ramassage"
-                        ? `/direction/ramassages`
-                        : `/direction/livraisons/jour?date=${encodeURIComponent(dateIso)}`,
+                        ? `${modeCopy.jourBasePath}?date=${encodeURIComponent(dateIso)}`
+                        : `${modeCopy.jourBasePath}?date=${encodeURIComponent(dateIso)}`,
                   }}
                 />
               </AppCard>

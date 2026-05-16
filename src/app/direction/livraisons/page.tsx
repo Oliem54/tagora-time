@@ -482,11 +482,13 @@ export default function Page() {
   }, [livraisons]);
 
   const livraisonsFiltrees = livraisons.filter((item) => {
+    const isRamassage =
+      String(item.type_operation || "").toLowerCase() === "ramassage_client";
     const okChauffeur = !filtre.chauffeur_id || String(item.chauffeur_id) === String(filtre.chauffeur_id);
     const okVehicule = !filtre.vehicule_id || String(item.vehicule_id) === String(filtre.vehicule_id);
     const okRemorque = !filtre.remorque_id || String(item.remorque_id) === String(filtre.remorque_id);
     const okStatut = !filtre.statut || item.statut === filtre.statut;
-    return okChauffeur && okVehicule && okRemorque && okStatut;
+    return !isRamassage && okChauffeur && okVehicule && okRemorque && okStatut;
   });
 
   async function handleSubmit(event: React.FormEvent) {
