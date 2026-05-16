@@ -25,7 +25,8 @@ import {
   mergePaymentIntoText,
   parsePaymentFromRow,
   requiresPaymentFinalizeGate,
-  stripPaymentMarker,
+  splitOperationalCommentForForm,
+  stripPaymentEmbedFromText,
   validatePaymentFormInput,
   withFinalizationConfirmation,
 } from "@/app/lib/livraisons/payment-embed";
@@ -233,7 +234,7 @@ function mergeOperationalComment(
   notes: string,
   payment: ReturnType<typeof embeddedFromFormInput>
 ): string | null {
-  const commentaireMerged = mergePaymentIntoText(stripPaymentMarker(commentaire.trim()), payment);
+  const commentaireMerged = mergePaymentIntoText(stripPaymentEmbedFromText(commentaire.trim()), payment);
   const extraNotes = notes.trim();
   const commentaireWithNotes =
     extraNotes.length > 0
@@ -485,6 +486,10 @@ export default function DirectionRamassagesPage() {
     const addrRaw = String(it.adresse || "").trim();
     const parsedPay = parsePaymentFromRow(it as Record<string, unknown>);
     const payForm = formInputFromParsed(parsedPay);
+    const rawCommentaire = pickupRowFieldString(it, ["commentaire_operationnel", "commentaire"]);
+    const { commentaire, notes: notesFromCommentaire } =
+      splitOperationalCommentForForm(rawCommentaire);
+    const notesFromColumn = stripPaymentEmbedFromText(String(it.notes || ""));
     setEditForm({
       client: String(it.client || ""),
       adresse: addrRaw || RAMASSAGE_DEFAULT_PICKUP_ADDRESS,
@@ -495,10 +500,8 @@ export default function DirectionRamassagesPage() {
       chauffeur_id: it.chauffeur_id != null && String(it.chauffeur_id) !== "0" ? String(it.chauffeur_id) : "",
       company_context: getPickupCompanyValue(it),
       statut: String(it.statut || "planifiee"),
-      notes: stripPaymentMarker(String(it.notes || "")),
-      commentaire_operationnel: stripPaymentMarker(
-        pickupRowFieldString(it, ["commentaire_operationnel", "commentaire"])
-      ),
+      notes: notesFromCommentaire || notesFromColumn,
+      commentaire_operationnel: commentaire,
       payment_paid_full: payForm.paidFull,
       payment_balance_due: payForm.balanceDue,
       payment_method: payForm.method,
@@ -1233,22 +1236,26 @@ export default function DirectionRamassagesPage() {
             </label>
             <label className="tagora-field">
               <span className="tagora-label">Date prevue</span>
-              <input
-                type="date"
-                value={newForm.date_livraison}
-                onChange={(e) => setNewForm({ ...newForm, date_livraison: e.target.value })}
-                className="tagora-input"
-                required
-              />
+              <div className="livraison-datetime-control livraison-datetime-control--date">
+                <input
+                  type="date"
+                  value={newForm.date_livraison}
+                  onChange={(e) => setNewForm({ ...newForm, date_livraison: e.target.value })}
+                  className="tagora-input livraison-datetime-control__input"
+                  required
+                />
+              </div>
             </label>
             <label className="tagora-field">
               <span className="tagora-label">Heure prevue</span>
-              <input
-                type="time"
-                value={newForm.heure_prevue}
-                onChange={(e) => setNewForm({ ...newForm, heure_prevue: e.target.value })}
-                className="tagora-input"
-              />
+              <div className="livraison-datetime-control livraison-datetime-control--time">
+                <input
+                  type="time"
+                  value={newForm.heure_prevue}
+                  onChange={(e) => setNewForm({ ...newForm, heure_prevue: e.target.value })}
+                  className="tagora-input livraison-datetime-control__input"
+                />
+              </div>
             </label>
             <label className="tagora-field">
               <span className="tagora-label">Dossier lie (optionnel)</span>

@@ -6,6 +6,11 @@
 
 export const PAYMENT_MARKER = "\n\n__TG_PAY1__";
 
+/** Marqueur stable (sans dépendre des retours ligne en tête de champ). */
+export const PAYMENT_MARKER_CORE = "__TG_PAY1__";
+
+const OPERATIONAL_NOTES_PREFIX = "\n\nNotes:\n";
+
 /** Colonnes payment_* de livraisons_planifiees (migration non appliquee sur certains envs). */
 export const PAYMENT_DB_COLUMN_KEYS = [
   "payment_status",
@@ -92,10 +97,22 @@ function fromBase64Utf8(b64: string): string {
   return decodeURIComponent(escape(atob(b64)));
 }
 
+function findPaymentMarkerIndex(text: string): number {
+  return text.indexOf(PAYMENT_MARKER_CORE);
+}
+
+function extractNotesAfterPaymentTail(tail: string): string {
+  const notesIdx = tail.indexOf(OPERATIONAL_NOTES_PREFIX);
+  if (notesIdx === -1) return "";
+  return tail.slice(notesIdx + OPERATIONAL_NOTES_PREFIX.length).trimEnd();
+}
+
 function tryParseEmbedFromText(text: string): EmbeddedPaymentPayload | null {
-  const idx = text.indexOf(PAYMENT_MARKER);
+  const idx = findPaymentMarkerIndex(text);
   if (idx === -1) return null;
-  const b64 = text.slice(idx + PAYMENT_MARKER.length).trim();
+  const afterMarker = text.slice(idx + PAYMENT_MARKER_CORE.length);
+  const notesIdx = afterMarker.indexOf(OPERATIONAL_NOTES_PREFIX);
+  const b64 = (notesIdx === -1 ? afterMarker : afterMarker.slice(0, notesIdx)).trim();
   if (!b64) return null;
   try {
     const raw = JSON.parse(fromBase64Utf8(b64)) as Record<string, unknown>;
@@ -174,10 +191,43 @@ export function parsePaymentFromRow(row: Record<string, unknown> | null | undefi
   return { ...defaultPaid(), embedSource: "none" };
 }
 
+/**
+ * Retire le bloc paiement embarqué et conserve le commentaire lisible
+ * (y compris la section « Notes: » éventuellement stockée après le bloc).
+ */
+export function stripPaymentEmbedFromText(text: string): string {
+  const raw = String(text ?? "");
+  const idx = findPaymentMarkerIndex(raw);
+  if (idx === -1) return raw.trimEnd();
+
+  const head = raw.slice(0, idx).trimEnd();
+  const notesSuffix = extractNotesAfterPaymentTail(raw.slice(idx));
+
+  if (!head && !notesSuffix) return "";
+  if (!head) return notesSuffix;
+  if (!notesSuffix) return head;
+  return `${head}\n\n${notesSuffix}`.trim();
+}
+
+/** @deprecated Alias — préférer stripPaymentEmbedFromText */
 export function stripPaymentMarker(text: string): string {
-  const idx = text.indexOf(PAYMENT_MARKER);
-  if (idx === -1) return text.trimEnd();
-  return text.slice(0, idx).trimEnd();
+  return stripPaymentEmbedFromText(text);
+}
+
+/** Sépare commentaire affiché et notes formulaire depuis commentaire_operationnel stocké. */
+export function splitOperationalCommentForForm(stored: string): {
+  commentaire: string;
+  notes: string;
+} {
+  const raw = String(stored ?? "");
+  const idx = findPaymentMarkerIndex(raw);
+  if (idx === -1) {
+    return { commentaire: raw.trimEnd(), notes: "" };
+  }
+  return {
+    commentaire: raw.slice(0, idx).trimEnd(),
+    notes: extractNotesAfterPaymentTail(raw.slice(idx)),
+  };
 }
 
 export function mergePaymentIntoText(cleanText: string, payment: EmbeddedPaymentPayload): string {

@@ -24,7 +24,8 @@ import {
   mergePaymentIntoText,
   parsePaymentFromRow,
   requiresPaymentFinalizeGate,
-  stripPaymentMarker,
+  splitOperationalCommentForForm,
+  stripPaymentEmbedFromText,
   validatePaymentFormInput,
   withFinalizationConfirmation,
 } from "@/app/lib/livraisons/payment-embed";
@@ -430,7 +431,7 @@ export default function Page() {
       note: source.payment_note,
     });
     const commentaireMerged = mergePaymentIntoText(
-      stripPaymentMarker(source.commentaire_operationnel.trim()),
+      stripPaymentEmbedFromText(source.commentaire_operationnel.trim()),
       embedded
     );
     const extraNotes = source.notes.trim();
@@ -605,6 +606,11 @@ export default function Page() {
     const dossier = getDossierById(item.dossier_id);
     const parsedPay = parsePaymentFromRow(item as Record<string, unknown>);
     const payForm = formInputFromParsed(parsedPay);
+    const rawCommentaire =
+      getStringField(item, "commentaire_operationnel") || getStringField(item, "commentaire");
+    const { commentaire, notes: notesFromCommentaire } =
+      splitOperationalCommentForForm(rawCommentaire);
+    const notesFromColumn = stripPaymentEmbedFromText(getStringField(item, "notes"));
     setEditingId(Number(item.id));
     setForm(createLivraisonForm({
       dossier_id: item.dossier_id ? String(item.dossier_id) : "",
@@ -623,10 +629,8 @@ export default function Page() {
       remorque_id: item.remorque_id ? String(item.remorque_id) : "",
       statut: getStringField(item, "statut"),
       company_context: getLivraisonCompanyValue(item),
-      notes: getStringField(item, "notes"),
-      commentaire_operationnel: stripPaymentMarker(
-        getStringField(item, "commentaire_operationnel") || getStringField(item, "commentaire")
-      ),
+      notes: notesFromCommentaire || notesFromColumn,
+      commentaire_operationnel: commentaire,
       payment_paid_full: payForm.paidFull,
       payment_balance_due: payForm.balanceDue,
       payment_method: payForm.method,
@@ -1023,11 +1027,15 @@ export default function Page() {
             </label>
             <label className="tagora-field">
               <span className="tagora-label">Date de livraison</span>
-              <input type="date" value={newForm.date_livraison} onChange={(e) => setNewForm({ ...newForm, date_livraison: e.target.value })} className="tagora-input" required />
+              <div className="livraison-datetime-control livraison-datetime-control--date">
+                <input type="date" value={newForm.date_livraison} onChange={(e) => setNewForm({ ...newForm, date_livraison: e.target.value })} className="tagora-input livraison-datetime-control__input" required />
+              </div>
             </label>
             <label className="tagora-field">
               <span className="tagora-label">Heure</span>
-              <input type="time" value={newForm.heure_prevue} onChange={(e) => setNewForm({ ...newForm, heure_prevue: e.target.value })} className="tagora-input" />
+              <div className="livraison-datetime-control livraison-datetime-control--time">
+                <input type="time" value={newForm.heure_prevue} onChange={(e) => setNewForm({ ...newForm, heure_prevue: e.target.value })} className="tagora-input livraison-datetime-control__input" />
+              </div>
             </label>
             <label className="tagora-field">
               <span className="tagora-label">Statut</span>

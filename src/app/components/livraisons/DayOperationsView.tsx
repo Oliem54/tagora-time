@@ -21,7 +21,7 @@ import {
   formInputFromParsed,
   parsePaymentFromRow,
   requiresPaymentFinalizeGate,
-  stripPaymentMarker,
+  stripPaymentEmbedFromText,
   validatePaymentFormInput,
   withFinalizationConfirmation,
 } from "@/app/lib/livraisons/payment-embed";
@@ -1092,7 +1092,7 @@ export default function DayOperationsView({ area, operationMode = "livraison" }:
       latitude: getFieldString(selected.row, ["latitude", "lat"]),
       longitude: getFieldString(selected.row, ["longitude", "lng", "lon"]),
       note_chauffeur: getFieldString(selected.row, ["note_chauffeur", "note_representant"]),
-      commentaire_operationnel: stripPaymentMarker(rawCommentaire),
+      commentaire_operationnel: stripPaymentEmbedFromText(rawCommentaire),
       item_location: getFieldString(selected.row, ["item_location"]),
       payment_paid_full: payForm.paidFull,
       payment_balance_due: payForm.balanceDue,
@@ -2992,7 +2992,7 @@ export default function DayOperationsView({ area, operationMode = "livraison" }:
                           Commentaire operationnel
                         </span>
                         <span>
-                          {stripPaymentMarker(
+                          {stripPaymentEmbedFromText(
                             getFieldString(selected.row, ["commentaire_operationnel", "commentaire"])
                           ) || "-"}
                         </span>

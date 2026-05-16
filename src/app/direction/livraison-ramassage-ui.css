@@ -632,3 +632,60 @@
   border-top-right-radius: var(--livraison-radius-md);
 }
 
+/* Champs date / heure — icône à gauche (création livraison & ramassage) */
+.livraison-datetime-control {
+  position: relative;
+  display: block;
+  width: 100%;
+}
+
+.livraison-datetime-control::before {
+  content: "";
+  position: absolute;
+  left: 14px;
+  top: 50%;
+  z-index: 1;
+  width: 18px;
+  height: 18px;
+  transform: translateY(-50%);
+  pointer-events: none;
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 18px 18px;
+}
+
+.livraison-datetime-control--date::before {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='18' height='18' viewBox='0 0 24 24' fill='none' stroke='%23475569' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='4' width='18' height='18' rx='2'/%3E%3Cline x1='16' y1='2' x2='16' y2='6'/%3E%3Cline x1='8' y1='2' x2='8' y2='6'/%3E%3Cline x1='3' y1='10' x2='21' y2='10'/%3E%3C/svg%3E");
+}
+
+.livraison-datetime-control--time::before {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='18' height='18' viewBox='0 0 24 24' fill='none' stroke='%23475569' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='9'/%3E%3Cpolyline points='12 7 12 12 15 14'/%3E%3C/svg%3E");
+}
+
+.livraison-datetime-control__input {
+  position: relative;
+  width: 100%;
+  padding-left: 2.75rem;
+  box-sizing: border-box;
+}
+
+.livraison-datetime-control__input::-webkit-calendar-picker-indicator {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.livraison-datetime-control__input::-webkit-inner-spin-button,
+.livraison-datetime-control__input::-webkit-clear-button {
+  display: none;
+}
+
+.livraison-datetime-control__input::-moz-calendar-picker-indicator {
+  opacity: 0;
+}
+
