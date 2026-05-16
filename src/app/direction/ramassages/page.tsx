@@ -8,7 +8,9 @@ import AccessNotice from "@/app/components/AccessNotice";
 import SectionCard from "@/app/components/ui/SectionCard";
 import AppCard from "@/app/components/ui/AppCard";
 import StatusBadge from "@/app/components/ui/StatusBadge";
-import OperationProofsPanel from "@/app/components/proofs/OperationProofsPanel";
+import OperationProofsPanel, {
+  OperationDocumentsPendingCard,
+} from "@/app/components/proofs/OperationProofsPanel";
 import InternalMentionsPanel from "@/app/components/internal/InternalMentionsPanel";
 import { supabase } from "@/app/lib/supabase/client";
 import { useCurrentAccess } from "@/app/hooks/useCurrentAccess";
@@ -724,7 +726,9 @@ export default function DirectionRamassagesPage() {
     if (Number.isFinite(createdId)) {
       setSelectedId(createdId);
     }
-    setMessage("Ramassage cree.");
+    setMessage(
+      "Ramassage cree. Ajoutez des documents (BL, facture, preuve) dans le detail ci-dessous."
+    );
     setMessageType("success");
     await fetchData();
     await fetchOverdue();
@@ -1381,6 +1385,9 @@ export default function DirectionRamassagesPage() {
               </button>
             </div>
           </form>
+          <div style={{ marginTop: 16 }}>
+            <OperationDocumentsPendingCard moduleSource="ramassage" />
+          </div>
         </section>
       ) : null}
 
@@ -2028,7 +2035,7 @@ export default function DirectionRamassagesPage() {
             moduleSource="ramassage"
             sourceId={selected.id}
             categorieParDefaut="preuve_ramassage_direction"
-            titre="Documents et preuves du ramassage"
+            titre="Documents et preuves"
             commentairePlaceholder="Commentaire ramassage"
           />
           <InternalMentionsPanel

@@ -7,6 +7,13 @@ import FormField from "@/app/components/ui/FormField";
 import AppCard from "@/app/components/ui/AppCard";
 import PrimaryButton from "@/app/components/ui/PrimaryButton";
 import SecondaryButton from "@/app/components/ui/SecondaryButton";
+import { useCurrentAccess } from "@/app/hooks/useCurrentAccess";
+import {
+  blCategoryForModule,
+  canDeleteOperationDocument,
+  DOCUMENT_BADGE_STYLES,
+  getDocumentBadgeLabel,
+} from "@/app/lib/operation-proof-documents.shared";
 
 export type ModuleSource =
   | "dossier"
@@ -88,6 +95,78 @@ function buildStoragePrefix(moduleSource: ModuleSource, sourceId: string) {
   return `operation-proofs/${moduleSource}/${sourceId}`;
 }
 
+export function isPendingOperationId(sourceId: string | number | null | undefined) {
+  if (sourceId == null || sourceId === "") return true;
+  const parsed = Number(sourceId);
+  return !Number.isFinite(parsed) || parsed <= 0;
+}
+
+/** Carte visible pendant la création, avant qu’un ID livraison/ramassage existe. */
+export function OperationDocumentsPendingCard({
+  moduleSource,
+  compact = false,
+}: {
+  moduleSource: "livraison" | "ramassage";
+  compact?: boolean;
+}) {
+  const operationLabel = moduleSource === "ramassage" ? "ramassage" : "livraison";
+  const quickLabels = [
+    "Ajouter BL",
+    "Ajouter facture",
+    "Ajouter preuve",
+    "Ajouter photo",
+    "Ajouter autre",
+  ];
+
+  return (
+    <AppCard
+      className={compact ? "ui-stack-xs" : "ui-stack-sm"}
+      tone="default"
+      style={{
+        border: "1px solid rgba(205, 219, 238, 0.95)",
+        borderRadius: 14,
+        boxShadow: "0 6px 20px rgba(15, 41, 72, 0.06)",
+      }}
+    >
+      <div className="ui-eyebrow" style={{ letterSpacing: "0.12em" }}>
+        Documents et preuves
+      </div>
+      <p className="ui-text-muted" style={{ margin: 0, fontSize: 13, lineHeight: 1.45 }}>
+        Les documents pourront être ajoutés après l&apos;enregistrement. Enregistrez le{" "}
+        {operationLabel}, puis ajoutez un bon de livraison, une facture ou une preuve dans cette
+        section.
+      </p>
+      <div
+        style={{
+          display: "flex",
+          flexWrap: "wrap",
+          gap: 8,
+          marginTop: 12,
+          opacity: 0.55,
+          pointerEvents: "none",
+        }}
+        aria-hidden
+      >
+        {quickLabels.map((label, index) => (
+          <span
+            key={label}
+            className={index === 0 ? "tagora-dark-action" : "tagora-dark-outline-action"}
+            style={{
+              fontSize: 13,
+              padding: "8px 12px",
+              borderRadius: 10,
+              display: "inline-flex",
+              alignItems: "center",
+            }}
+          >
+            {label}
+          </span>
+        ))}
+      </div>
+    </AppCard>
+  );
+}
+
 export default function OperationProofsPanel({
   moduleSource,
   sourceId,
@@ -108,7 +187,11 @@ export default function OperationProofsPanel({
   const [documentCategory, setDocumentCategory] = useState<OperationDocumentCategory>("autre");
   const [documentNote, setDocumentNote] = useState("");
   const [documentFile, setDocumentFile] = useState<File | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const documentFileInputRef = useRef<HTMLInputElement | null>(null);
+  const quickUploadInputRef = useRef<HTMLInputElement | null>(null);
+  const quickUploadCategoryRef = useRef<OperationDocumentCategory>("autre");
+  const { user, role } = useCurrentAccess();
   const [recordingSupported, setRecordingSupported] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
@@ -321,6 +404,85 @@ export default function OperationProofsPanel({
     }
   };
 
+  const triggerQuickUpload = (category: OperationDocumentCategory) => {
+    quickUploadCategoryRef.current = category;
+    quickUploadInputRef.current?.click();
+  };
+
+  const handleQuickUploadPick = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    setFeedback("");
+    await uploadProof(file, "document", {
+      categorieOverride: quickUploadCategoryRef.current,
+      commentaireOverride: documentNote.trim() || null,
+    });
+  };
+
+  const handleDeleteDocument = async (doc: OperationProofRow) => {
+    const label = getDocumentBadgeLabel(doc.categorie, moduleSource);
+    const confirmed = window.confirm(
+      `Supprimer ce document (${label}) : ${doc.nom || "sans nom"} ?\nCette action est définitive.`
+    );
+    if (!confirmed) return;
+
+    setDeletingId(doc.id);
+    setFeedback("");
+    try {
+      const response = await fetch(`/api/operation-proofs/${doc.id}`, {
+        method: "DELETE",
+        credentials: "same-origin",
+      });
+      const payload = (await response.json().catch(() => ({}))) as { error?: string };
+      if (!response.ok) {
+        setFeedback(payload.error || "Suppression impossible.");
+        return;
+      }
+      setFeedback("Document supprimé.");
+      await loadProofs();
+    } catch {
+      setFeedback("Suppression impossible.");
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  const canDeleteDoc = useCallback(
+    (doc: OperationProofRow) =>
+      canDeleteOperationDocument({
+        role,
+        userId: user?.id ?? null,
+        creePar: doc.cree_par,
+        categorie: doc.categorie,
+      }),
+    [role, user?.id]
+  );
+
+  const renderDocumentBadge = (doc: OperationProofRow) => {
+    const badge = getDocumentBadgeLabel(doc.categorie, moduleSource);
+    const style = DOCUMENT_BADGE_STYLES[badge];
+    return (
+      <span
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          padding: "3px 10px",
+          borderRadius: 999,
+          fontSize: 11,
+          fontWeight: 800,
+          letterSpacing: "0.04em",
+          textTransform: "uppercase",
+          background: style.background,
+          color: style.color,
+          border: `1px solid ${style.border}`,
+        }}
+      >
+        {badge}
+      </span>
+    );
+  };
+
   const startVoiceRecording = async () => {
     setFeedback("Tentative ouverture micro...");
 
@@ -512,18 +674,81 @@ export default function OperationProofsPanel({
           }}
         >
           <div className="ui-eyebrow" style={{ letterSpacing: "0.12em" }}>
-            Documents
+            Documents et preuves
           </div>
           <p className="ui-text-muted" style={{ margin: 0, fontSize: 13, lineHeight: 1.45 }}>
-            Factures, bons, photos et pièces jointes à l&apos;opération. L&apos;ouverture se fait
-            toujours dans un nouvel onglet.
+            Bons, factures, photos et pièces jointes liés à cette opération.
           </p>
-          <div
-            className="tagora-form-grid"
-            style={{ display: "grid", gap, marginTop: 4 }}
-          >
+
+          <input
+            ref={quickUploadInputRef}
+            type="file"
+            accept="image/*,application/pdf,.doc,.docx,.xls,.xlsx,.txt"
+            onChange={(e) => void handleQuickUploadPick(e)}
+            style={{ display: "none" }}
+          />
+
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 10 }}>
+            <button
+              type="button"
+              className="tagora-dark-action"
+              disabled={uploading}
+              onClick={() => triggerQuickUpload(blCategoryForModule(moduleSource))}
+              style={{ fontSize: 13, padding: "8px 12px" }}
+            >
+              Ajouter BL
+            </button>
+            <button
+              type="button"
+              className="tagora-dark-outline-action"
+              disabled={uploading}
+              onClick={() => triggerQuickUpload("facture")}
+              style={{ fontSize: 13, padding: "8px 12px" }}
+            >
+              Ajouter facture
+            </button>
+            <button
+              type="button"
+              className="tagora-dark-outline-action"
+              disabled={uploading}
+              onClick={() => triggerQuickUpload("preuve_signee")}
+              style={{ fontSize: 13, padding: "8px 12px" }}
+            >
+              Ajouter preuve
+            </button>
+            <button
+              type="button"
+              className="tagora-dark-outline-action"
+              disabled={uploading}
+              onClick={() => triggerQuickUpload("photo")}
+              style={{ fontSize: 13, padding: "8px 12px" }}
+            >
+              Ajouter photo
+            </button>
+            <button
+              type="button"
+              className="tagora-dark-outline-action"
+              disabled={uploading}
+              onClick={() => triggerQuickUpload("autre")}
+              style={{ fontSize: 13, padding: "8px 12px" }}
+            >
+              Ajouter autre
+            </button>
+          </div>
+
+          <div className="tagora-form-grid" style={{ display: "grid", gap, marginTop: 12 }}>
             <label className="tagora-field" style={{ margin: 0 }}>
-              <span className="tagora-label">Type de document</span>
+              <span className="tagora-label">Note pour le prochain ajout (optionnelle)</span>
+              <input
+                type="text"
+                value={documentNote}
+                onChange={(e) => setDocumentNote(e.target.value)}
+                className="tagora-input"
+                placeholder="Référence, commentaire court…"
+              />
+            </label>
+            <label className="tagora-field" style={{ margin: 0 }}>
+              <span className="tagora-label">Ajout avancé — type et fichier</span>
               <select
                 className="tagora-select"
                 value={documentCategory}
@@ -535,25 +760,13 @@ export default function OperationProofsPanel({
                   </option>
                 ))}
               </select>
-            </label>
-            <label className="tagora-field" style={{ margin: 0 }}>
-              <span className="tagora-label">Fichier</span>
               <input
                 ref={documentFileInputRef}
                 type="file"
                 accept="image/*,application/pdf,.doc,.docx,.xls,.xlsx,.txt"
                 onChange={handleDocumentFilePick}
                 className="tagora-input"
-              />
-            </label>
-            <label className="tagora-field" style={{ margin: 0 }}>
-              <span className="tagora-label">Note (optionnelle)</span>
-              <input
-                type="text"
-                value={documentNote}
-                onChange={(e) => setDocumentNote(e.target.value)}
-                className="tagora-input"
-                placeholder="Référence, commentaire court…"
+                style={{ marginTop: 8 }}
               />
             </label>
           </div>
@@ -562,20 +775,30 @@ export default function OperationProofsPanel({
             onClick={() => void handleAddOperationDocument()}
             disabled={uploading || !documentFile}
           >
-            {uploading ? "Envoi…" : "Ajouter"}
+            {uploading ? "Envoi…" : "Ajouter le fichier sélectionné"}
           </PrimaryButton>
 
           <div style={{ marginTop: compact ? 10 : 14 }}>
             <div className="ui-eyebrow" style={{ fontSize: 11 }}>
-              Documents enregistrés
+              Documents enregistrés ({fileDocuments.length})
             </div>
             {loading ? (
-              <div className="ui-text-muted" style={{ marginTop: 6 }}>
+              <div className="ui-text-muted" style={{ marginTop: 8 }}>
                 Chargement…
               </div>
             ) : fileDocuments.length === 0 ? (
-              <div className="ui-text-muted" style={{ marginTop: 6 }}>
-                Aucun document pour cette opération.
+              <div
+                className="ui-text-muted"
+                style={{
+                  marginTop: 10,
+                  padding: "14px 16px",
+                  borderRadius: 12,
+                  border: "1px dashed #cbd5e1",
+                  background: "#f8fafc",
+                  fontSize: 13,
+                }}
+              >
+                Aucun document pour cette opération. Utilisez un bouton ci-dessus pour en ajouter.
               </div>
             ) : (
               <ul
@@ -596,13 +819,12 @@ export default function OperationProofsPanel({
                       padding: "12px 14px",
                       borderRadius: 12,
                       border: "1px solid #e2e8f0",
-                      background: "#f8fafc",
+                      background: "#fff",
+                      boxShadow: "0 1px 3px rgba(15, 41, 72, 0.04)",
                     }}
                   >
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "baseline" }}>
-                      <span style={{ fontWeight: 700, color: "#0f2948", fontSize: 14 }}>
-                        {documentCategoryLabel(doc.categorie)}
-                      </span>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
+                      {renderDocumentBadge(doc)}
                       <span className="ui-text-muted" style={{ fontSize: 12 }}>
                         {formatProofDate(doc.date_heure)}
                       </span>
@@ -611,7 +833,7 @@ export default function OperationProofsPanel({
                       {doc.nom}
                     </div>
                     <div className="ui-text-muted" style={{ fontSize: 12 }}>
-                      Ajouté par : {shortUserRef(doc.cree_par)}
+                      {documentCategoryLabel(doc.categorie)} · Ajouté par {shortUserRef(doc.cree_par)}
                       {doc.commentaire ? (
                         <>
                           {" "}
@@ -657,17 +879,36 @@ export default function OperationProofsPanel({
                       >
                         Télécharger
                       </a>
+                      {canDeleteDoc(doc) ? (
+                        <button
+                          type="button"
+                          className="tagora-btn-danger"
+                          disabled={deletingId === doc.id || uploading}
+                          onClick={() => void handleDeleteDocument(doc)}
+                          style={{
+                            padding: "8px 14px",
+                            borderRadius: 10,
+                            fontSize: 13,
+                            fontWeight: 700,
+                          }}
+                        >
+                          {deletingId === doc.id ? "Suppression…" : "Supprimer"}
+                        </button>
+                      ) : null}
                     </div>
                   </li>
                 ))}
               </ul>
             )}
           </div>
+          {feedback ? <div className="ui-text-muted" style={{ marginTop: 8 }}>{feedback}</div> : null}
         </AppCard>
       ) : null}
 
       <AppCard className={compact ? "ui-stack-xs" : "ui-stack-sm"} tone={compact ? "muted" : "default"}>
-        <div className="ui-eyebrow">{titre}</div>
+        <div className="ui-eyebrow">
+          {showOperationDocuments ? "Notes et preuves terrain" : titre}
+        </div>
         <FormField label="Commentaire optionnel">
           <input
             type="text"
@@ -777,7 +1018,9 @@ export default function OperationProofsPanel({
         <div className="ui-text-muted">
           Vocal: {hasVoiceProof ? "Oui" : "Non"} • Signature: {hasSignatureProof ? "Oui" : "Non"}
         </div>
-        {feedback ? <div className="ui-text-muted">{feedback}</div> : null}
+        {!showOperationDocuments && feedback ? (
+          <div className="ui-text-muted">{feedback}</div>
+        ) : null}
       </AppCard>
 
       <AppCard className={compact ? "ui-stack-xs" : "ui-stack-sm"} tone={compact ? "muted" : "default"}>

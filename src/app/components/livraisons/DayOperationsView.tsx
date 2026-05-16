@@ -3025,7 +3025,7 @@ export default function DayOperationsView({ area, operationMode = "livraison" }:
                           selected.type === "ramassage" ? "preuve_ramassage" : "preuve_livraison"
                         }
                         titre="Documents et preuves"
-                        commentairePlaceholder="Ajouter note, document, photo, vocal ou signature"
+                        commentairePlaceholder="Note ou commentaire court"
                         compact
                       />
                     </div>

@@ -9,7 +9,9 @@ import TagoraLoadingScreen from "@/app/components/ui/TagoraLoadingScreen";
 import SectionCard from "@/app/components/ui/SectionCard";
 import { supabase } from "@/app/lib/supabase/client";
 import { useCurrentAccess } from "@/app/hooks/useCurrentAccess";
-import OperationProofsPanel from "@/app/components/proofs/OperationProofsPanel";
+import OperationProofsPanel, {
+  OperationDocumentsPendingCard,
+} from "@/app/components/proofs/OperationProofsPanel";
 import InternalMentionsPanel from "@/app/components/internal/InternalMentionsPanel";
 import {
   ACCOUNT_REQUEST_COMPANIES,
@@ -583,6 +585,7 @@ export default function Page() {
 
     const data = (await response.json().catch(() => ({}))) as {
       error?: { message?: string };
+      inserted_row?: Row;
     };
 
     if (!response.ok) {
@@ -594,9 +597,20 @@ export default function Page() {
       return;
     }
 
-    setFeedbackMessage("Livraison creee.", "success");
+    const createdRow = data.inserted_row;
+    const createdId = createdRow ? Number(createdRow.id) : NaN;
+    setShowCreateForm(false);
     resetCreateForm();
     await fetchData();
+    if (Number.isFinite(createdId) && createdRow) {
+      handleEdit(createdRow);
+      setFeedbackMessage(
+        "Livraison creee. Vous pouvez ajouter des documents dans la section ci-dessous.",
+        "success"
+      );
+    } else {
+      setFeedbackMessage("Livraison creee.", "success");
+    }
     setSaving(false);
   }
 
@@ -1093,6 +1107,9 @@ export default function Page() {
               <button type="button" className="tagora-dark-outline-action" onClick={resetCreateForm}>Annuler</button>
             </div>
           </form>
+          <div style={{ marginTop: 16 }}>
+            <OperationDocumentsPendingCard moduleSource="livraison" />
+          </div>
         </div>
       ) : null}
 
@@ -1173,7 +1190,7 @@ export default function Page() {
               moduleSource="livraison"
               sourceId={editingId}
               categorieParDefaut="preuve_livraison_direction"
-              titre="Preuves livraison"
+              titre="Documents et preuves"
               commentairePlaceholder="Commentaire direction"
             />
             <InternalMentionsPanel
