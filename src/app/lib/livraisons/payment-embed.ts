@@ -6,6 +6,25 @@
 
 export const PAYMENT_MARKER = "\n\n__TG_PAY1__";
 
+/** Colonnes payment_* de livraisons_planifiees (migration non appliquee sur certains envs). */
+export const PAYMENT_DB_COLUMN_KEYS = [
+  "payment_status",
+  "payment_balance_due",
+  "payment_method",
+  "payment_note",
+  "payment_confirmed_at",
+  "payment_confirmed_by_user_id",
+  "payment_confirmed_by_name",
+] as const;
+
+export function stripPaymentDbColumns<T extends Record<string, unknown>>(patch: T): T {
+  const out = { ...patch };
+  for (const key of PAYMENT_DB_COLUMN_KEYS) {
+    delete out[key];
+  }
+  return out;
+}
+
 export type PaymentStatusValue = "paye_complet" | "solde_a_collecter";
 
 export type EmbeddedPaymentPayload = {

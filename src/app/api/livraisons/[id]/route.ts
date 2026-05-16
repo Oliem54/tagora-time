@@ -6,7 +6,12 @@ import { buildUpdateStamp } from "@/app/lib/livraisons/audit-stamp.server";
 import {
   gateFinalizationAfterMerge,
   mergePaymentConfirmationFromRequest,
+  normalizePaymentBalanceDue,
 } from "@/app/lib/livraisons/livraison-payment.server";
+import {
+  parsePaymentFromRow,
+  stripPaymentDbColumns,
+} from "@/app/lib/livraisons/payment-embed";
 
 // Champs autorises a etre mis a jour via cette API generique.
 // Note : les champs d'audit (created_by_*, scheduled_by_*) ne peuvent pas etre
@@ -39,11 +44,23 @@ const ALLOWED_UPDATE_FIELDS = new Set([
   "ordre_arret",
   "item_location",
   "pickup_address",
-  "payment_status",
-  "payment_balance_due",
-  "payment_method",
-  "payment_note",
 ]);
+
+function effectiveBalanceDue(
+  current: Record<string, unknown>,
+  mergePatch: Record<string, unknown>
+): number {
+  if (mergePatch.commentaire_operationnel !== undefined) {
+    return parsePaymentFromRow({
+      ...current,
+      commentaire_operationnel: mergePatch.commentaire_operationnel,
+    }).payment_balance_due;
+  }
+  if (mergePatch.payment_balance_due !== undefined) {
+    return normalizePaymentBalanceDue(mergePatch.payment_balance_due);
+  }
+  return parsePaymentFromRow(current).payment_balance_due;
+}
 
 type AnyRecord = Record<string, unknown>;
 
@@ -72,11 +89,6 @@ function sanitizePayload(input: AnyRecord) {
     if ((key === "latitude" || key === "longitude") && value != null && value !== "") {
       const parsed = Number(value);
       payload[key] = Number.isFinite(parsed) ? parsed : null;
-      continue;
-    }
-    if (key === "payment_balance_due" && value != null && value !== "") {
-      const parsed = Number(value);
-      payload[key] = Number.isFinite(parsed) ? Math.round(parsed * 100) / 100 : null;
       continue;
     }
     payload[key] = value === "" ? null : value;
@@ -152,12 +164,11 @@ export async function PATCH(
     const supabase = createAdminSupabaseClient();
     const { data: currentRow, error: currentErr } = await supabase
       .from("livraisons_planifiees")
-      .select("statut, payment_status, payment_balance_due, type_operation")
+      .select("statut, commentaire_operationnel, type_operation")
       .eq("id", livraisonId)
       .maybeSingle<{
         statut: string | null;
-        payment_status: string | null;
-        payment_balance_due: number | string | null;
+        commentaire_operationnel: string | null;
         type_operation: string | null;
       }>();
 
@@ -183,11 +194,16 @@ export async function PATCH(
       );
     }
 
+    const currentRecord = currentRow as Record<string, unknown>;
+    const gatePatch = {
+      ...mergedPayment.merge,
+      payment_balance_due: effectiveBalanceDue(currentRecord, mergedPayment.merge),
+    };
     const gate = gateFinalizationAfterMerge({
       currentStatut: currentRow.statut,
-      currentBalanceDue: currentRow.payment_balance_due,
+      currentBalanceDue: parsePaymentFromRow(currentRecord).payment_balance_due,
       currentTypeOperation: currentRow.type_operation,
-      mergePatch: mergedPayment.merge,
+      mergePatch: gatePatch,
       paymentConfirmed,
       confirmationMethodTrimmed: confirmationMethod,
     });
@@ -195,7 +211,8 @@ export async function PATCH(
       return NextResponse.json({ error: { message: gate.message } }, { status: gate.httpStatus });
     }
 
-    const stampedPayload = { ...mergedPayment.merge, ...buildUpdateStamp(user) };
+    const dbPatch = stripPaymentDbColumns(mergedPayment.merge);
+    const stampedPayload = { ...dbPatch, ...buildUpdateStamp(user) };
 
     let updateRes = await supabase
       .from("livraisons_planifiees")
@@ -227,7 +244,7 @@ export async function PATCH(
       );
       updateRes = await supabase
         .from("livraisons_planifiees")
-        .update(mergedPayment.merge)
+        .update(dbPatch)
         .eq("id", livraisonId)
         .select("*")
         .maybeSingle();

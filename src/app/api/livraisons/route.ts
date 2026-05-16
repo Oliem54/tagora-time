@@ -3,7 +3,6 @@ import { getAuthenticatedRequestUser } from "@/app/lib/account-requests.server";
 import { hasUserPermission } from "@/app/lib/auth/permissions";
 import { createAdminSupabaseClient } from "@/app/lib/supabase/admin";
 import { buildCreateStamp } from "@/app/lib/livraisons/audit-stamp.server";
-import { resolvePaymentForCreate } from "@/app/lib/livraisons/livraison-payment.server";
 import { DEFAULT_RAMASSAGE_PICKUP_ADDRESS } from "@/app/lib/livraisons/ramassage-defaults.server";
 import { geocodeInCanada } from "@/app/lib/geocode-nominatim.server";
 
@@ -35,11 +34,6 @@ type LivraisonCreatePayload = {
   ordre_arret?: unknown;
   item_location?: unknown;
   pickup_address?: unknown;
-  payment_client_paid_full?: unknown;
-  payment_status?: unknown;
-  payment_balance_due?: unknown;
-  payment_method?: unknown;
-  payment_note?: unknown;
 };
 
 /** Colonnes connues de livraisons_planifiees (repo). Ne jamais inserer hors liste. */
@@ -71,10 +65,6 @@ const INSERT_COLUMN_KEYS = [
   "ordre_arret",
   "item_location",
   "pickup_address",
-  "payment_status",
-  "payment_balance_due",
-  "payment_method",
-  "payment_note",
   "created_by_user_id",
   "created_by_name",
   "scheduled_by_user_id",
@@ -168,15 +158,6 @@ export async function POST(req: NextRequest) {
         ? DEFAULT_RAMASSAGE_PICKUP_ADDRESS
         : asText(body.pickup_address);
 
-    let paymentRow: Record<string, unknown>;
-    try {
-      paymentRow = resolvePaymentForCreate(body) as unknown as Record<string, unknown>;
-    } catch (paymentError) {
-      const msg =
-        paymentError instanceof Error ? paymentError.message : "Paiement client invalide.";
-      return NextResponse.json({ error: { message: msg } }, { status: 400 });
-    }
-
     let latitude = asFloat(body.latitude);
     let longitude = asFloat(body.longitude);
     if (Number.isNaN(latitude) || Number.isNaN(longitude)) {
@@ -225,7 +206,6 @@ export async function POST(req: NextRequest) {
       ordre_arret: asInteger(body.ordre_arret),
       item_location: itemLocation,
       pickup_address: pickupAddress,
-      ...paymentRow,
       ...buildCreateStamp(user),
     };
 
@@ -271,10 +251,6 @@ export async function POST(req: NextRequest) {
           ordre_arret: payload.ordre_arret,
           item_location: payload.item_location,
           pickup_address: payload.pickup_address,
-          payment_status: payload.payment_status,
-          payment_balance_due: payload.payment_balance_due,
-          payment_method: payload.payment_method,
-          payment_note: payload.payment_note,
           latitude: payload.latitude,
           longitude: payload.longitude,
           ...buildCreateStamp(user),
