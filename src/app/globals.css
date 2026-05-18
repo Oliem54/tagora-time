@@ -372,9 +372,26 @@
   }
 }
 
+/* Dock mobile terrain (portail body) — barre rapide livraison / ramassage */
+.day-ops-mobile-field-dock {
+  display: none;
+}
+
+.day-ops-mobile-field-dock__empty {
+  margin: 0;
+  padding: 14px 16px calc(14px + env(safe-area-inset-bottom, 0px));
+  text-align: center;
+  font-size: 14px;
+  font-weight: 600;
+  color: #0f2948;
+  background: rgba(255, 255, 255, 0.98);
+  border-top: 1px solid #dbe4f0;
+  box-shadow: 0 -12px 32px rgba(15, 41, 72, 0.12);
+}
+
 /* Journee livraison — experience mobile terrain (direction) */
 .day-ops-page--mobile-livraison {
-  padding-bottom: calc(132px + env(safe-area-inset-bottom, 0px));
+  padding-bottom: calc(148px + env(safe-area-inset-bottom, 0px));
 }
 
 .day-delivery-next-stop {
@@ -440,12 +457,13 @@
 }
 
 .day-delivery-mobile-bar {
-  position: fixed;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  z-index: 1101;
-  padding: 10px 12px calc(10px + env(safe-area-inset-bottom, 0px));
+  position: relative;
+  left: auto;
+  right: auto;
+  bottom: auto;
+  z-index: 1;
+  width: 100%;
+  padding: 10px 12px;
   background: rgba(255, 255, 255, 0.96);
   border-top: 1px solid #dbe4f0;
   box-shadow: 0 -12px 32px rgba(15, 41, 72, 0.12);
@@ -588,7 +606,7 @@
 
 /* Journee ramassage — experience mobile terrain */
 .day-ops-page--mobile-ramassage {
-  padding-bottom: calc(132px + env(safe-area-inset-bottom, 0px));
+  padding-bottom: calc(148px + env(safe-area-inset-bottom, 0px));
 }
 
 .day-ramassage-mobile-shell {
@@ -736,12 +754,13 @@
 }
 
 .day-ramassage-mobile-bar {
-  position: fixed;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  z-index: 1101;
-  padding: 10px 12px calc(10px + env(safe-area-inset-bottom, 0px));
+  position: relative;
+  left: auto;
+  right: auto;
+  bottom: auto;
+  z-index: 1;
+  width: 100%;
+  padding: 10px 12px;
   background: rgba(255, 255, 255, 0.96);
   border-top: 1px solid #dbe4f0;
   box-shadow: 0 -12px 32px rgba(15, 41, 72, 0.12);
@@ -1000,14 +1019,43 @@
 }
 
 @media (max-width: 768px) {
-  .day-ops-page--mobile-livraison .day-delivery-mobile-bar,
-  .day-ops-page--mobile-ramassage .day-ramassage-mobile-bar {
+  .day-ops-mobile-field-dock {
+    display: block;
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 1200;
+    pointer-events: auto;
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
+  .day-ops-mobile-field-dock .day-delivery-mobile-bar,
+  .day-ops-mobile-field-dock .day-ramassage-mobile-bar,
+  .day-ops-mobile-field-dock__empty {
     display: block;
     visibility: visible;
   }
 }
 
+@media (max-width: 1024px) and (hover: none) and (pointer: coarse) {
+  .day-ops-mobile-field-dock {
+    display: block;
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 1200;
+    pointer-events: auto;
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+}
+
 @media (min-width: 769px) {
+  .day-ops-mobile-field-dock {
+    display: none !important;
+  }
+
   .day-delivery-mobile-bar,
   .day-delivery-next-stop,
   .day-ramassage-mobile-shell,
@@ -3965,5 +4013,159 @@ select {
 @media (min-width: 1024px) {
   .effectifs-priority-company-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* Connexion + tableaux de bord — mobile 2026 (375–430px, sans impact desktop >480px) */
+@media (max-width: 480px) {
+  .tagora-auth-page.ui-auth-shell {
+    padding: 16px 14px calc(28px + env(safe-area-inset-bottom, 0px));
+    overflow-x: hidden;
+  }
+
+  .tagora-auth-page .ui-auth-content {
+    gap: var(--ui-space-5);
+  }
+
+  .tagora-auth-page .ui-auth-grid {
+    display: flex;
+    flex-direction: column;
+    gap: var(--ui-space-5);
+  }
+
+  .tagora-auth-page .ui-auth-grid > :last-child {
+    order: -1;
+  }
+
+  .tagora-auth-page .ui-auth-form-card {
+    max-width: none;
+  }
+
+  .tagora-auth-page .ui-auth-grid > :first-child .ui-link-grid {
+    display: none;
+  }
+
+  .tagora-auth-page .tagora-input {
+    min-height: 48px;
+    padding: 14px 16px;
+    font-size: 16px;
+  }
+
+  .tagora-auth-page .tagora-actions {
+    flex-direction: column;
+    gap: 10px;
+    width: 100%;
+  }
+
+  .tagora-auth-page .tagora-actions > * {
+    width: 100%;
+    min-height: 48px;
+    justify-content: center;
+  }
+
+  .tagora-auth-page .tagora-dark-outline-action {
+    min-height: 48px;
+    padding: 14px 16px;
+  }
+
+  .tagora-auth-page a.ui-text-muted {
+    display: inline-flex;
+    min-height: 44px;
+    align-items: center;
+    font-size: 15px;
+  }
+
+  .tagora-dashboard-page.tagora-app-shell {
+    padding: 18px 14px calc(32px + env(safe-area-inset-bottom, 0px));
+    overflow-x: hidden;
+  }
+
+  .tagora-dashboard-page .tagora-app-content {
+    gap: var(--ui-space-5);
+  }
+
+  .tagora-dashboard-page .tagora-dashboard-header-actions {
+    width: 100%;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .tagora-dashboard-page .tagora-dashboard-header-actions .ui-button {
+    width: 100%;
+    min-height: 48px;
+    justify-content: center;
+  }
+
+  .tagora-dashboard-page--employe .tagora-dashboard-module-grid {
+    grid-template-columns: 1fr;
+    gap: var(--ui-space-4);
+  }
+
+  .tagora-dashboard-page--employe .employe-dossiers-grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  .tagora-dashboard-page--employe .employe-dossiers-grid h3 {
+    font-size: 22px;
+  }
+
+  .tagora-dashboard-page--employe .employe-dossiers-grid .tagora-select {
+    max-width: none !important;
+    width: 100%;
+    min-height: 44px;
+    font-size: 16px;
+  }
+
+  .tagora-dashboard-page--employe .employe-dossiers-grid .ui-button,
+  .tagora-dashboard-page--employe .employe-dossiers-grid .tagora-btn-danger {
+    min-height: 44px;
+  }
+
+  .tagora-dashboard-page--direction .direction-dashboard-alert-summary {
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--ui-space-3);
+  }
+
+  .tagora-dashboard-page--direction .direction-dashboard-alert-summary > div:nth-child(2) {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--ui-space-2);
+  }
+
+  .tagora-dashboard-page--direction .direction-dashboard-alert-summary .tagora-dark-action {
+    width: 100%;
+    min-height: 48px;
+    justify-content: center;
+  }
+
+  .tagora-dashboard-page--direction .direction-dashboard-archive-toolbar {
+    grid-template-columns: 1fr !important;
+    gap: 10px;
+  }
+
+  .tagora-dashboard-page--direction .direction-dashboard-archive-toolbar .tagora-input {
+    min-height: 48px;
+    font-size: 16px;
+  }
+
+  .tagora-dashboard-page--direction .direction-dashboard-archive-toolbar .ui-button,
+  .tagora-dashboard-page--direction .direction-dashboard-archive-toolbar .tagora-dark-action {
+    width: 100%;
+    min-height: 48px;
+    justify-content: center;
+  }
+
+  .tagora-dashboard-page--direction .direction-dashboard-module-grid {
+    grid-template-columns: 1fr !important;
+    gap: var(--ui-space-4);
+  }
+
+  .tagora-dashboard-page--direction .tagora-dashboard-module-card {
+    min-height: auto;
+  }
+
+  .tagora-dashboard-page--direction .tagora-dashboard-module-card .tagora-dark-action {
+    min-height: 48px;
   }
 }

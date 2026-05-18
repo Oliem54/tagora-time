@@ -27,7 +27,8 @@ import {
 } from "@/app/lib/livraisons/payment-embed";
 import { supabase } from "@/app/lib/supabase/client";
 import { useCurrentAccess } from "@/app/hooks/useCurrentAccess";
-import { useMobileFieldChromeLock, useMobileViewport } from "@/app/hooks/useMobileFieldChromeLock";
+import { useMobileFieldChromeLock } from "@/app/hooks/useMobileFieldChromeLock";
+import DayOpsMobileFieldDock from "@/app/components/livraisons/day-delivery/DayOpsMobileFieldDock";
 import { getOperationCoordinates } from "@/app/lib/livraisons/coordinates";
 import { isChauffeurDeliveryPoolMember } from "@/app/lib/employee-fonctions.shared";
 import { buildDeliveryTrackingUrl } from "@/app/lib/delivery-tracking";
@@ -1240,27 +1241,25 @@ export default function DayOperationsView({ area, operationMode = "livraison" }:
     [canEditStopDetails, currentChauffeurId, role]
   );
 
-  const isMobileViewport = useMobileViewport();
-
   const livraisonTerrainStop = useMemo(() => {
-    if (!isLivraisonMobileMode) return null;
+    if (!isLivraisonMobileMode || stops.length === 0) return null;
     if (selected?.type === "livraison") return selected;
     if (nextOperationalStop) return nextOperationalStop;
-    return stops.find((stop) => stop.type === "livraison") ?? null;
+    return stops.find((stop) => stop.type === "livraison") ?? stops[0] ?? null;
   }, [isLivraisonMobileMode, nextOperationalStop, selected, stops]);
 
   const ramassageTerrainStop = useMemo(() => {
-    if (!isRamassageMobileMode) return null;
+    if (!isRamassageMobileMode || stops.length === 0) return null;
     if (selected?.type === "ramassage") return selected;
     const firstFiltered = filteredRamassageMobileStops[0];
     if (firstFiltered) {
       return stops.find((stop) => stop.id === firstFiltered.id) ?? null;
     }
-    return stops[0] ?? null;
+    return stops.find((stop) => stop.type === "ramassage") ?? stops[0] ?? null;
   }, [filteredRamassageMobileStops, isRamassageMobileMode, selected, stops]);
 
   useEffect(() => {
-    if (!isMobileViewport || stops.length === 0) return;
+    if (stops.length === 0) return;
     const targetId = isLivraisonMobileMode
       ? livraisonTerrainStop?.id
       : isRamassageMobileMode
@@ -1271,7 +1270,6 @@ export default function DayOperationsView({ area, operationMode = "livraison" }:
       setSelectedId(targetId);
     }
   }, [
-    isMobileViewport,
     isLivraisonMobileMode,
     isRamassageMobileMode,
     livraisonTerrainStop?.id,
@@ -1300,29 +1298,15 @@ export default function DayOperationsView({ area, operationMode = "livraison" }:
     livraisonBarRawStatut !== "annulee" &&
     livraisonTerrainStop?.status !== "terminee";
 
-  const canInteractRamassageTerrainStop = ramassageTerrainStop
-    ? canEnRouteForStop(ramassageTerrainStop)
-    : false;
-
-  const canShowLivraisonMobileBar =
-    isMobileViewport &&
-    isLivraisonMobileMode &&
-    Boolean(livraisonTerrainStop) &&
-    (canEditStopDetails || (role === "employe" && canEnRouteForLivraisonBar));
-
-  const canShowRamassageMobileBar =
-    isMobileViewport &&
-    isRamassageMobileMode &&
-    Boolean(ramassageTerrainStop) &&
-    canInteractRamassageTerrainStop;
+  const showLivraisonMobileFieldDock = isLivraisonMobileMode;
+  const showRamassageMobileFieldDock = isRamassageMobileMode;
 
   const mobileFieldChromeLocked =
-    isMobileViewport &&
-    (canShowLivraisonMobileBar ||
-      canShowRamassageMobileBar ||
-      showDetail ||
-      mobileSignatureOpen ||
-      mobileVoiceOpen);
+    showLivraisonMobileFieldDock ||
+    showRamassageMobileFieldDock ||
+    showDetail ||
+    mobileSignatureOpen ||
+    mobileVoiceOpen;
 
   useMobileFieldChromeLock(mobileFieldChromeLocked);
 
@@ -3601,7 +3585,9 @@ export default function DayOperationsView({ area, operationMode = "livraison" }:
           {stopFormMessage}
         </p>
       ) : null}
-      {canShowLivraisonMobileBar && livraisonTerrainStop ? (
+      {showLivraisonMobileFieldDock ? (
+        <DayOpsMobileFieldDock mode="livraison">
+          {livraisonTerrainStop ? (
         <DayDeliveryMobileActions
           clientLabel={livraisonTerrainStop.client}
           addressLabel={
@@ -3668,8 +3654,16 @@ export default function DayOperationsView({ area, operationMode = "livraison" }:
             stopEditFormAnchorRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
           }}
         />
+          ) : (
+            <p className="day-ops-mobile-field-dock__empty" role="status">
+              Aucun arret disponible pour cette journee.
+            </p>
+          )}
+        </DayOpsMobileFieldDock>
       ) : null}
-      {canShowRamassageMobileBar && ramassageTerrainStop ? (
+      {showRamassageMobileFieldDock ? (
+        <DayOpsMobileFieldDock mode="ramassage">
+          {ramassageTerrainStop ? (
         <DayRamassageMobileActions
           clientLabel={ramassageTerrainStop.client}
           addressLabel={
@@ -3742,6 +3736,12 @@ export default function DayOperationsView({ area, operationMode = "livraison" }:
             stopEditFormAnchorRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
           }}
         />
+          ) : (
+            <p className="day-ops-mobile-field-dock__empty" role="status">
+              Aucun arret disponible pour cette journee.
+            </p>
+          )}
+        </DayOpsMobileFieldDock>
       ) : null}
       {selected && (isLivraisonMobileMode || isRamassageMobileMode) ? (
         <>
