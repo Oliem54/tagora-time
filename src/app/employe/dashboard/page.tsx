@@ -272,7 +272,7 @@ export default function EmployeDashboardPage() {
   }
 
   return (
-    <main className="tagora-app-shell">
+    <main className="tagora-app-shell tagora-dashboard-page tagora-dashboard-page--employe">
       <div className="tagora-app-content ui-stack-lg">
         <AuthenticatedPageHeader
           title="Tableau de bord employe"
@@ -280,6 +280,7 @@ export default function EmployeDashboardPage() {
           showNavigation={false}
           actions={
             <div
+              className="tagora-dashboard-header-actions"
               style={{
                 display: "flex",
                 gap: "var(--ui-space-3)",
@@ -295,8 +296,8 @@ export default function EmployeDashboardPage() {
           }
         />
 
-        <SectionCard title="Acces" subtitle="Modules.">
-          <div className="ui-grid-auto">
+        <SectionCard title="Acces" subtitle="Modules prioritaires." className="tagora-dashboard-access-section">
+          <div className="ui-grid-auto tagora-dashboard-module-grid">
             <ModuleTile
               title="Horodateur"
               description="Pointage."
@@ -428,6 +429,7 @@ export default function EmployeDashboardPage() {
             </AppCard>
           ) : (
             <div
+              className="employe-dossiers-grid"
               style={{
                 display: "grid",
                 gridTemplateColumns: "repeat(auto-fit, minmax(360px, 1fr))",

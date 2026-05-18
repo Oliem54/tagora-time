@@ -1,13 +1,30 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect } from "react";
 import { usePathname } from "next/navigation";
 import { useCurrentAccess } from "@/app/hooks/useCurrentAccess";
+import {
+  CRITICAL_FIELD_ROUTE_ATTR,
+  isCriticalFieldRoute,
+} from "@/app/lib/mobile-field-chrome.shared";
 
 export default function AuthenticatedImprovementsFab() {
   const pathname = usePathname();
   const { user, loading } = useCurrentAccess();
   const hiddenMarketingPaths = ["/", "/logiciel", "/etiquettes", "/contact", "/connexion"];
+
+  useEffect(() => {
+    const root = document.documentElement;
+    if (isCriticalFieldRoute(pathname)) {
+      root.setAttribute(CRITICAL_FIELD_ROUTE_ATTR, "true");
+    } else {
+      root.removeAttribute(CRITICAL_FIELD_ROUTE_ATTR);
+    }
+    return () => {
+      root.removeAttribute(CRITICAL_FIELD_ROUTE_ATTR);
+    };
+  }, [pathname]);
 
   if (loading || !user) {
     return null;
