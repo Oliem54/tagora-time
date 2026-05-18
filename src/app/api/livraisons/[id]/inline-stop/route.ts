@@ -8,6 +8,11 @@ import {
   mergePaymentConfirmationFromRequest,
   normalizePaymentBalanceDue,
 } from "@/app/lib/livraisons/livraison-payment.server";
+import { assertReceptionProofsForCompletion } from "@/app/lib/livraisons/reception-proofs.server";
+import {
+  isTransitionToCompletion,
+  moduleSourceFromTypeOperation,
+} from "@/app/lib/livraisons/reception-proofs.shared";
 
 type InlineStopPayload = {
   adresse?: unknown;
@@ -266,6 +271,20 @@ export async function PATCH(
     });
     if (!gate.ok) {
       return NextResponse.json({ error: { message: gate.message } }, { status: gate.httpStatus });
+    }
+
+    const nextStatut =
+      mergeForGate.statut !== undefined && mergeForGate.statut !== null
+        ? String(mergeForGate.statut)
+        : null;
+    if (isTransitionToCompletion(currentRow.statut, nextStatut)) {
+      const proofCheck = await assertReceptionProofsForCompletion(supabase, {
+        moduleSource: moduleSourceFromTypeOperation(currentRow.type_operation),
+        sourceId: livraisonId,
+      });
+      if (!proofCheck.ok) {
+        return NextResponse.json({ error: { message: proofCheck.message } }, { status: 409 });
+      }
     }
 
     const rowUpdate = {

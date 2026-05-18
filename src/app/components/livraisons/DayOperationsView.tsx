@@ -31,6 +31,15 @@ import { useMobileFieldChromeLock } from "@/app/hooks/useMobileFieldChromeLock";
 import { getOperationCoordinates } from "@/app/lib/livraisons/coordinates";
 import { isChauffeurDeliveryPoolMember } from "@/app/lib/employee-fonctions.shared";
 import { buildDeliveryTrackingUrl } from "@/app/lib/delivery-tracking";
+import {
+  assessReceptionProofs,
+  getReceptionProofBlockMessage,
+  getReceptionProofMissingSummary,
+  isCompletionStatus,
+  isTransitionToCompletion,
+  moduleSourceFromStopType,
+  type ReceptionProofTypeRow,
+} from "@/app/lib/livraisons/reception-proofs.shared";
 import DayDeliveryMobileActions from "@/app/components/livraisons/day-delivery/DayDeliveryMobileActions";
 import StopSignatureQuickCapture from "@/app/components/livraisons/day-delivery/StopSignatureQuickCapture";
 import StopVoiceQuickCapture from "@/app/components/livraisons/day-delivery/StopVoiceQuickCapture";
@@ -595,6 +604,9 @@ export default function DayOperationsView({ area, operationMode = "livraison" }:
   const [quickActionLoading, setQuickActionLoading] = useState<string | null>(null);
   const [mobileSignatureOpen, setMobileSignatureOpen] = useState(false);
   const [mobileVoiceOpen, setMobileVoiceOpen] = useState(false);
+  const [selectedProofTypes, setSelectedProofTypes] = useState<ReceptionProofTypeRow[] | null>(
+    null
+  );
   const proofsPanelAnchorRef = useRef<HTMLDetailsElement | null>(null);
   const [showReplanifierForm, setShowReplanifierForm] = useState(false);
   const [replanDate, setReplanDate] = useState("");
@@ -1099,6 +1111,44 @@ export default function DayOperationsView({ area, operationMode = "livraison" }:
   const selectedTrackingUrl = selected ? buildTrackingUrlFromRow(selected.row) : null;
   const selectedRawStatut = selected ? String(selected.row.statut || "").toLowerCase() : "";
 
+  const refreshSelectedStopProofs = useCallback(async () => {
+    if (!selected) {
+      setSelectedProofTypes(null);
+      return;
+    }
+    const moduleSource = moduleSourceFromStopType(selected.type);
+    const { data, error } = await supabase
+      .from("operation_proofs")
+      .select("type_preuve")
+      .eq("module_source", moduleSource)
+      .eq("source_id", String(selected.id));
+    if (error) {
+      setSelectedProofTypes([]);
+      return;
+    }
+    setSelectedProofTypes((data ?? []) as ReceptionProofTypeRow[]);
+  }, [selected]);
+
+  useEffect(() => {
+    void refreshSelectedStopProofs();
+  }, [refreshSelectedStopProofs]);
+
+  const isSelectedStopCompleted = isCompletionStatus(selectedRawStatut);
+  const canAttemptCompletion = Boolean(canEditStopDetails && selected && !isSelectedStopCompleted);
+  const receptionProofAssessment = useMemo(
+    () => assessReceptionProofs(selectedProofTypes ?? []),
+    [selectedProofTypes]
+  );
+  const canCompleteSelectedStop =
+    canAttemptCompletion && receptionProofAssessment.isComplete;
+  const receptionProofBlockMessage = selected
+    ? getReceptionProofBlockMessage(moduleSourceFromStopType(selected.type))
+    : "";
+  const deliverDisabledReason =
+    canAttemptCompletion && !receptionProofAssessment.isComplete
+      ? getReceptionProofMissingSummary(receptionProofAssessment) ?? receptionProofBlockMessage
+      : null;
+
   const currentChauffeurId = useMemo(() => {
     if (!user?.id) return null;
     const match = chauffeurs.find((item) => String(item.auth_user_id || "") === user.id);
@@ -1465,6 +1515,17 @@ export default function DayOperationsView({ area, operationMode = "livraison" }:
       setStopFormMessage(payErr);
       return;
     }
+    const nextStatut = stopEditForm.statut.trim() || null;
+    if (
+      isTransitionToCompletion(String(selected.row.statut || ""), nextStatut) &&
+      !receptionProofAssessment.isComplete
+    ) {
+      setSavingStop(false);
+      setStopFormMessage(
+        getReceptionProofMissingSummary(receptionProofAssessment) ?? receptionProofBlockMessage
+      );
+      return;
+    }
     const embeddedPay = embeddedFromFormInput(payInput);
     const rowSnap: Record<string, unknown> = {
       ...selected.row,
@@ -1724,6 +1785,12 @@ export default function DayOperationsView({ area, operationMode = "livraison" }:
       }
     }
     if (action === "completer") {
+      if (!receptionProofAssessment.isComplete) {
+        setStopFormMessage(
+          getReceptionProofMissingSummary(receptionProofAssessment) ?? receptionProofBlockMessage
+        );
+        return;
+      }
       const pv = parsePaymentFromRow(selected.row as Record<string, unknown>);
       if (requiresPaymentFinalizeGate(pv)) {
         setFinalizePaymentOpen(true);
@@ -1832,6 +1899,12 @@ export default function DayOperationsView({ area, operationMode = "livraison" }:
 
   async function submitFinalizePaymentFromModal() {
     if (!selected || !canEditStopDetails) return;
+    if (!receptionProofAssessment.isComplete) {
+      setStopFormMessage(
+        getReceptionProofMissingSummary(receptionProofAssessment) ?? receptionProofBlockMessage
+      );
+      return;
+    }
     if (!finalizeMethod.trim() || !finalizeAck) return;
     const meta = user?.user_metadata as Record<string, unknown> | undefined;
     const fromMeta =
@@ -2836,6 +2909,11 @@ export default function DayOperationsView({ area, operationMode = "livraison" }:
                       {stopFormMessage}
                     </div>
                   ) : null}
+                  {canAttemptCompletion && deliverDisabledReason ? (
+                    <p className="day-ops-reception-proof-block" role="status">
+                      {deliverDisabledReason}
+                    </p>
+                  ) : null}
                   <div className="day-ops-quick-actions">
                     <button
                       type="button"
@@ -2886,7 +2964,11 @@ export default function DayOperationsView({ area, operationMode = "livraison" }:
                     <button
                       type="button"
                       className="tagora-dark-outline-action day-ops-compact-btn"
-                      disabled={quickActionLoading === `completer:${selected.id}`}
+                      disabled={
+                        !canCompleteSelectedStop ||
+                        quickActionLoading === `completer:${selected.id}`
+                      }
+                      title={deliverDisabledReason ?? undefined}
                       onClick={() => {
                         void runQuickStopAction("completer");
                       }}
@@ -3267,6 +3349,41 @@ export default function DayOperationsView({ area, operationMode = "livraison" }:
                       </div>
                     </AppCard>
                   )}
+                  {selected && !isSelectedStopCompleted ? (
+                    <AppCard className="day-ops-reception-proofs" tone="muted" style={{ padding: 12 }}>
+                      <strong style={{ display: "block", marginBottom: 8 }}>
+                        Preuves de reception
+                      </strong>
+                      <ul className="day-ops-reception-proofs__list">
+                        <li>
+                          <span>Signature manuscrite</span>
+                          <span
+                            className={
+                              receptionProofAssessment.hasSignature
+                                ? "day-ops-reception-proofs__ok"
+                                : "day-ops-reception-proofs__missing"
+                            }
+                          >
+                            {receptionProofAssessment.hasSignature ? "presente" : "manquante"}
+                          </span>
+                        </li>
+                        <li>
+                          <span>Confirmation vocale</span>
+                          <span
+                            className={
+                              receptionProofAssessment.hasVoiceConfirmation
+                                ? "day-ops-reception-proofs__ok"
+                                : "day-ops-reception-proofs__missing"
+                            }
+                          >
+                            {receptionProofAssessment.hasVoiceConfirmation
+                              ? "presente"
+                              : "manquante"}
+                          </span>
+                        </li>
+                      </ul>
+                    </AppCard>
+                  ) : null}
                   <details
                     ref={proofsPanelAnchorRef}
                     className="tagora-panel-muted day-ops-proofs-collapse"
@@ -3296,6 +3413,7 @@ export default function DayOperationsView({ area, operationMode = "livraison" }:
                         titre="Documents et preuves"
                         commentairePlaceholder="Note ou commentaire court"
                         compact
+                        onProofsChanged={() => void refreshSelectedStopProofs()}
                       />
                     </div>
                   </details>
@@ -3319,7 +3437,9 @@ export default function DayOperationsView({ area, operationMode = "livraison" }:
           mapsUrl={selectedMapsUrl}
           trackingUrl={selectedTrackingUrl}
           canEnRoute={canEnRouteSelected}
-          canDeliver={canEditStopDetails}
+          canDeliver={canCompleteSelectedStop}
+          deliverLabel="Marquer livre"
+          deliverDisabledReason={deliverDisabledReason}
           enRouteLoading={quickActionLoading === `en-route:${selected.id}`}
           deliverLoading={quickActionLoading === `completer:${selected.id}`}
           onEnRoute={() => void handleEnRouteForStop(selected.id)}
@@ -3361,6 +3481,7 @@ export default function DayOperationsView({ area, operationMode = "livraison" }:
             livraisonId={selected.id}
             clientLabel={selected.client}
             onSaved={() => {
+              void refreshSelectedStopProofs();
               setStopFormMessage("Signature client enregistree.");
               setMobileSignatureOpen(false);
             }}
@@ -3369,9 +3490,12 @@ export default function DayOperationsView({ area, operationMode = "livraison" }:
             open={mobileVoiceOpen}
             onClose={() => setMobileVoiceOpen(false)}
             sourceId={selected.id}
-            moduleSource="livraison"
+            moduleSource={
+              selected.type === "ramassage" ? "ramassage" : "livraison"
+            }
             clientLabel={selected.client}
             onSaved={() => {
+              void refreshSelectedStopProofs();
               setStopFormMessage("Preuve vocale enregistree.");
               setMobileVoiceOpen(false);
             }}

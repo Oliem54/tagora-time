@@ -9,6 +9,8 @@ type Props = {
   trackingUrl: string | null;
   canEnRoute: boolean;
   canDeliver?: boolean;
+  deliverLabel?: string;
+  deliverDisabledReason?: string | null;
   enRouteLoading: boolean;
   deliverLoading: boolean;
   onEnRoute: () => void;
@@ -30,6 +32,8 @@ export default function DayDeliveryMobileActions({
   trackingUrl,
   canEnRoute,
   canDeliver = true,
+  deliverLabel = "Livre",
+  deliverDisabledReason = null,
   enRouteLoading,
   deliverLoading,
   onEnRoute,
@@ -102,11 +106,17 @@ export default function DayDeliveryMobileActions({
           type="button"
           className="day-delivery-mobile-bar__btn day-delivery-mobile-bar__btn--success"
           disabled={!canDeliver || deliverLoading}
+          title={!canDeliver && deliverDisabledReason ? deliverDisabledReason : undefined}
           onClick={onDeliver}
         >
-          {deliverLoading ? "..." : "Livre"}
+          {deliverLoading ? "..." : deliverLabel}
         </button>
       </div>
+      {!canDeliver && deliverDisabledReason ? (
+        <p className="day-delivery-mobile-bar__proof-hint" role="status">
+          {deliverDisabledReason}
+        </p>
+      ) : null}
     </aside>
   );
 }

@@ -77,6 +77,7 @@ type Props = {
   titre?: string;
   commentairePlaceholder?: string;
   compact?: boolean;
+  onProofsChanged?: () => void;
 };
 
 function formatProofDate(value: string | null | undefined) {
@@ -174,6 +175,7 @@ export default function OperationProofsPanel({
   titre = "Preuves",
   commentairePlaceholder = "Commentaire optionnel",
   compact = false,
+  onProofsChanged,
 }: Props) {
   const sourceIdText = String(sourceId);
   const showOperationDocuments =
@@ -236,7 +238,8 @@ export default function OperationProofsPanel({
       setFeedback("");
     }
     setLoading(false);
-  }, [moduleSource, sourceIdText]);
+    onProofsChanged?.();
+  }, [moduleSource, onProofsChanged, sourceIdText]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
