@@ -155,17 +155,34 @@ async function sendResendToEmployee(
   }
 }
 
-const SMS_SCHEDULE_UPDATED =
-  "TAGORA Time : votre horaire a été mis à jour. Veuillez consulter votre nouvel horaire dans l'application.";
+/**
+ * Phase 1 — chaque SMS actionnable doit pointer vers une page employé précise.
+ * Si l'URL publique ne résout pas (env manquant), on garde un texte clair sans
+ * lien (jamais d'URL relative dans un SMS).
+ */
+function buildScheduleUpdatedSms(link: string | null) {
+  return link
+    ? `TAGORA Time : ton horaire a été mis à jour. Détails : ${link}`
+    : "TAGORA Time : ton horaire a été mis à jour. Ouvre l'application TAGORA Time.";
+}
 
-const SMS_SHIFT_UPDATED =
-  "TAGORA Time : un quart de travail a été ajouté ou modifié. Veuillez consulter votre horaire.";
+function buildShiftUpdatedSms(link: string | null) {
+  return link
+    ? `TAGORA Time : un quart a été ajouté ou modifié. Détails : ${link}`
+    : "TAGORA Time : un quart a été ajouté ou modifié. Ouvre l'application TAGORA Time.";
+}
 
-const SMS_REQUEST_APPROVED =
-  "TAGORA Time : votre demande d'horaire a été approuvée. Consultez votre horaire.";
+function buildRequestApprovedSms(link: string | null) {
+  return link
+    ? `TAGORA Time : ta demande d'horaire a été approuvée. Détails : ${link}`
+    : "TAGORA Time : ta demande d'horaire a été approuvée. Ouvre l'application TAGORA Time.";
+}
 
-const SMS_REQUEST_REJECTED =
-  "TAGORA Time : votre demande d'horaire a été refusée. Consultez le détail dans l'application.";
+function buildRequestRejectedSms(link: string | null) {
+  return link
+    ? `TAGORA Time : ta demande d'horaire a été refusée. Détails : ${link}`
+    : "TAGORA Time : ta demande d'horaire a été refusée. Ouvre l'application TAGORA Time.";
+}
 
 export type EmployeeScheduleNotifyResult = {
   emailStatus: EmployeeNotifyChannelStatus;
@@ -187,14 +204,19 @@ function emailScheduleUpdatedHtml(
 ) {
   const name = nom?.trim() || "Bonjour";
   const linkBlock = link
-    ? `<p style="margin:16px 0;"><a href="${escapeHtml(link)}" style="color:#1d4ed8;font-weight:700;">Consulter mon horaire dans TAGORA Time</a></p><p style="font-size:12px;color:#64748b;">${escapeHtml(link)}</p>`
-    : `<p style="color:#64748b;font-size:13px;">Ouvrez TAGORA Time pour consulter votre horaire.</p>`;
-  return `<!doctype html><html><body style="font-family:Arial,sans-serif;color:#0f172a;line-height:1.5;padding:16px;">
-<p>${escapeHtml(name)},</p>
-<p>${escapeHtml(bodyLines.line1)}</p>
-<p>${escapeHtml(bodyLines.line2)}</p>
-${linkBlock}
-<p style="margin-top:24px;font-size:13px;color:#64748b;">Merci.<br/>TAGORA Time</p>
+    ? `<p style="margin:18px 0 10px;"><a href="${escapeHtml(link)}" style="display:inline-block;background:#0f2948;color:#ffffff;text-decoration:none;font-size:15px;font-weight:700;padding:12px 22px;border-radius:10px;">Voir mon horaire</a></p><p style="margin:0;color:#64748b;font-size:12px;word-break:break-all;">${escapeHtml(link)}</p>`
+    : `<p style="color:#64748b;font-size:13px;margin:18px 0 0;">Ouvrez TAGORA Time pour consulter votre horaire.</p>`;
+  return `<!doctype html><html><body style="margin:0;padding:0;background:#f1f5f9;font-family:Arial,Helvetica,sans-serif;color:#0f172a;line-height:1.5;">
+<div style="max-width:560px;margin:0 auto;background:#ffffff;border:1px solid #dbe4f0;border-radius:14px;overflow:hidden;">
+  <div style="background:linear-gradient(135deg,#0f2948,#1d4f7c);padding:18px 22px;color:#ffffff;font-size:18px;font-weight:800;letter-spacing:0.04em;">TAGORA Time</div>
+  <div style="padding:22px;">
+    <p style="margin:0 0 12px;font-size:15px;">${escapeHtml(name)},</p>
+    <p style="margin:0 0 8px;font-size:15px;">${escapeHtml(bodyLines.line1)}</p>
+    <p style="margin:0;font-size:15px;">${escapeHtml(bodyLines.line2)}</p>
+    ${linkBlock}
+  </div>
+  <div style="padding:14px 22px;border-top:1px solid #e2e8f0;color:#64748b;font-size:12px;">Merci,<br/>TAGORA Time</div>
+</div>
 </body></html>`;
 }
 
@@ -300,7 +322,7 @@ export async function notifyEmployeeScheduleUpdated(options: {
     try {
       const sms = await sendSmsToPhone({
         phone: options.phone,
-        body: SMS_SCHEDULE_UPDATED,
+        body: buildScheduleUpdatedSms(link),
       });
       if (sms.skipped) {
         if (sms.reason === "sms_recipient_missing") {
@@ -433,7 +455,10 @@ export async function notifyEmployeeShiftUpdated(options: {
       );
     }
     try {
-      const sms = await sendSmsToPhone({ phone: options.phone, body: SMS_SHIFT_UPDATED });
+      const sms = await sendSmsToPhone({
+        phone: options.phone,
+        body: buildShiftUpdatedSms(link),
+      });
       if (sms.skipped) {
         if (sms.reason === "sms_recipient_missing") {
           console.info(LOG, "téléphone employé absent", { employeeId: options.employeeId });
@@ -473,21 +498,32 @@ export async function notifyEmployeeScheduleRequestReviewed(options: {
   phone: string | null | undefined;
   approved: boolean;
 }): Promise<EmployeeScheduleNotifyResult> {
-  const link = buildPublicUrl("/employe/effectifs") ?? buildPublicUrl("/employe/dashboard");
+  const link =
+    buildPublicUrl("/employe/effectifs/demandes") ??
+    buildPublicUrl("/employe/effectifs") ??
+    buildPublicUrl("/employe/dashboard");
   const approved = options.approved;
   const subject = approved
     ? "Votre demande TAGORA Time a été approuvée"
     : "Votre demande TAGORA Time a été refusée";
-  const bodySms = approved ? SMS_REQUEST_APPROVED : SMS_REQUEST_REJECTED;
+  const bodySms = approved
+    ? buildRequestApprovedSms(link)
+    : buildRequestRejectedSms(link);
   const intro = approved
     ? "Votre demande d'horaire a été approuvée. Consultez votre horaire dans TAGORA Time."
     : "Votre demande d'horaire a été refusée. Consultez le détail dans l'application TAGORA Time.";
-  const text = `${options.nom?.trim() ? `${options.nom.trim()},\n\n` : ""}${intro}\n\n${link ? `Lien : ${link}\n\n` : ""}TAGORA Time`;
-  const html = `<!doctype html><html><body style="font-family:Arial,sans-serif;color:#0f172a;">
-<p>${escapeHtml(options.nom?.trim() || "Bonjour")},</p>
-<p>${escapeHtml(intro)}</p>
-${link ? `<p><a href="${escapeHtml(link)}">Ouvrir TAGORA Time</a></p>` : ""}
-<p style="color:#64748b;font-size:13px;">TAGORA Time</p>
+  const ctaLabel = approved ? "Voir mon horaire" : "Voir ma demande";
+  const text = `${options.nom?.trim() ? `${options.nom.trim()},\n\n` : ""}${intro}\n\n${link ? `${ctaLabel} : ${link}\n\n` : ""}TAGORA Time`;
+  const html = `<!doctype html><html><body style="margin:0;padding:0;background:#f1f5f9;font-family:Arial,Helvetica,sans-serif;color:#0f172a;line-height:1.5;">
+<div style="max-width:560px;margin:0 auto;background:#ffffff;border:1px solid #dbe4f0;border-radius:14px;overflow:hidden;">
+  <div style="background:linear-gradient(135deg,#0f2948,#1d4f7c);padding:18px 22px;color:#ffffff;font-size:18px;font-weight:800;letter-spacing:0.04em;">TAGORA Time</div>
+  <div style="padding:22px;">
+    <p style="margin:0 0 12px;font-size:15px;">${escapeHtml(options.nom?.trim() || "Bonjour")},</p>
+    <p style="margin:0 0 18px;font-size:15px;">${escapeHtml(intro)}</p>
+    ${link ? `<p style="margin:0 0 12px;"><a href="${escapeHtml(link)}" style="display:inline-block;background:#0f2948;color:#ffffff;text-decoration:none;font-size:15px;font-weight:700;padding:12px 22px;border-radius:10px;">${escapeHtml(ctaLabel)}</a></p><p style="margin:0;color:#64748b;font-size:12px;word-break:break-all;">${escapeHtml(link)}</p>` : `<p style="color:#64748b;font-size:13px;margin:0;">Ouvrez TAGORA Time pour consulter votre demande.</p>`}
+  </div>
+  <div style="padding:14px 22px;border-top:1px solid #e2e8f0;color:#64748b;font-size:12px;">Merci,<br/>TAGORA Time</div>
+</div>
 </body></html>`;
 
   let emailStatus: EmployeeNotifyChannelStatus = "skipped_no_recipient";
