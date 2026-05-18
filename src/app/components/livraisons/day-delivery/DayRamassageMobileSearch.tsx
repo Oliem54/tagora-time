@@ -4,7 +4,7 @@ import type { RamassageStatusFilter } from "@/app/lib/livraisons/day-stop-search
 
 const FILTERS: Array<{ id: RamassageStatusFilter; label: string }> = [
   { id: "all", label: "Tous" },
-  { id: "todo", label: "A faire" },
+  { id: "todo", label: "À faire" },
   { id: "done", label: "Ramasse" },
   { id: "problem", label: "Probleme" },
 ];
@@ -32,8 +32,8 @@ export default function DayRamassageMobileSearch({
           className="day-ramassage-mobile-search__input tagora-input"
           value={query}
           onChange={(event) => onQueryChange(event.target.value)}
-          placeholder="Rechercher par client, telephone, facture, devis…"
-          aria-label="Rechercher par client, telephone, facture, devis"
+          placeholder="Rechercher client, téléphone, facture, devis, adresse…"
+          aria-label="Rechercher client, téléphone, facture, devis, adresse"
           enterKeyHint="search"
           autoComplete="off"
         />

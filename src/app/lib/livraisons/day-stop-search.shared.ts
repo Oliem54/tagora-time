@@ -32,6 +32,8 @@ export function buildStopSearchBlob(
     row.numero_commande,
     row.commande,
     row.reference,
+    row.numero_devis,
+    row.devis,
     row.numero_facture,
     row.facture,
     row.commentaire_operationnel,
@@ -42,6 +44,8 @@ export function buildStopSearchBlob(
     dossier?.numero_commande,
     dossier?.commande,
     dossier?.reference,
+    dossier?.numero_devis,
+    dossier?.devis,
     dossier?.numero,
     dossier?.numero_facture,
     dossier?.facture,
@@ -71,10 +75,18 @@ export function getStopCommandeLabel(
   row: Record<string, string | number | null | undefined>,
   dossier?: Record<string, string | number | null | undefined> | null
 ): string {
-  const fromRow = String(row.numero_commande || row.commande || row.reference || "").trim();
+  const fromRow = String(
+    row.numero_commande || row.commande || row.reference || row.numero_devis || row.devis || ""
+  ).trim();
   if (fromRow) return fromRow;
   const fromDossier = String(
-    dossier?.numero_commande || dossier?.commande || dossier?.reference || dossier?.numero || ""
+    dossier?.numero_commande ||
+      dossier?.commande ||
+      dossier?.reference ||
+      dossier?.numero_devis ||
+      dossier?.devis ||
+      dossier?.numero ||
+      ""
   ).trim();
   return fromDossier;
 }
