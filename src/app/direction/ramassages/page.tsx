@@ -37,6 +37,11 @@ import {
   PaymentDetailBanner,
   PaymentFinalizeModal,
 } from "@/app/components/livraisons/PaymentClientUi";
+import MobileTodayOperationsEntry from "@/app/components/livraisons/MobileTodayOperationsEntry";
+import {
+  formatTodayOperationCount,
+  formatTodayOperationCountShort,
+} from "@/app/lib/livraisons/today-operations.shared";
 
 type Row = Record<string, string | number | null | undefined>;
 
@@ -467,6 +472,12 @@ export default function DirectionRamassagesPage() {
       return a.id - b.id;
     });
   }, [filtered]);
+
+  const todayRamassagesCount = useMemo(
+    () => computed.filter((entry) => entry.date === todayIso).length,
+    [computed, todayIso]
+  );
+  const todayRamassagesHref = `/direction/ramassages/jour?date=${todayIso}`;
 
   const indicators = useMemo(() => {
     return {
@@ -1009,6 +1020,12 @@ export default function DirectionRamassagesPage() {
             </Link>
           </div>
         </div>
+        <MobileTodayOperationsEntry
+          mode="ramassage"
+          todayIso={todayIso}
+          count={todayRamassagesCount}
+          dayHref={todayRamassagesHref}
+        />
         <div className="livraison-actions-bar" role="toolbar" aria-label="Actions ramassages">
           <div className="livraison-actions-bar__main">
             <button
@@ -1478,7 +1495,20 @@ export default function DirectionRamassagesPage() {
                         {day}
                       </Link>
                     ) : null}
-                    <div className="livraison-cal-events">
+                    {entries.length > 0 ? (
+                      <Link
+                        href={`/direction/ramassages/jour?date=${isoDate}`}
+                        className="livraison-cal-day-badge livraison-cal-day-badge--ramassage"
+                      >
+                        <span className="livraison-cal-day-badge__full">
+                          {formatTodayOperationCount("ramassage", entries.length)}
+                        </span>
+                        <span className="livraison-cal-day-badge__short">
+                          {formatTodayOperationCountShort("ramassage", entries.length)}
+                        </span>
+                      </Link>
+                    ) : null}
+                    <div className="livraison-cal-events livraison-cal-events--desktop">
                       {entries.slice(0, 3).map((entry) => (
                         <Link
                           key={entry.id}

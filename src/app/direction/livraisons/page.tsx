@@ -36,6 +36,12 @@ import {
   PaymentDetailBanner,
   PaymentFinalizeModal,
 } from "@/app/components/livraisons/PaymentClientUi";
+import MobileTodayOperationsEntry from "@/app/components/livraisons/MobileTodayOperationsEntry";
+import {
+  formatTodayOperationCount,
+  formatTodayOperationCountShort,
+  getLocalTodayIso,
+} from "@/app/lib/livraisons/today-operations.shared";
 
 type Row = Record<string, string | number | null | undefined>;
 type LivraisonFormState = {
@@ -494,6 +500,13 @@ export default function Page() {
     return !isRamassage && okChauffeur && okVehicule && okRemorque && okStatut;
   });
 
+  const todayIso = useMemo(() => getLocalTodayIso(), []);
+  const todayLivraisonsCount = useMemo(
+    () => livraisonsFiltrees.filter((item) => String(item.date_livraison || "") === todayIso).length,
+    [livraisonsFiltrees, todayIso]
+  );
+  const todayLivraisonsHref = `/direction/livraisons/jour?date=${todayIso}`;
+
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
     setSaving(true);
@@ -821,11 +834,12 @@ export default function Page() {
           </div>
         }
       />
-      {showDisponibilitesPlanning ? (
-        <section
-          className="tagora-panel livraison-plan-card"
-          aria-labelledby="livraison-plan-title"
-        >
+      <div className="livraison-hub-layout">
+        {showDisponibilitesPlanning ? (
+          <section
+            className="tagora-panel livraison-plan-card livraison-hub-layout__planning"
+            aria-labelledby="livraison-plan-title"
+          >
           <div className="livraison-plan-card__copy">
             <p className="livraison-plan-card__eyebrow">Planification</p>
             <h2 id="livraison-plan-title" className="section-title livraison-plan-card__title">
@@ -840,7 +854,8 @@ export default function Page() {
             Gérer
           </Link>
         </section>
-      ) : null}
+        ) : null}
+        <div className="livraison-hub-layout__main">
       <div className="livraison-toolbar-stack">
         <div className="livraison-segmented-bar" aria-label="Navigation livraisons">
           <div className="livraison-segmented" role="tablist">
@@ -859,6 +874,12 @@ export default function Page() {
             </Link>
           </div>
         </div>
+        <MobileTodayOperationsEntry
+          mode="livraison"
+          todayIso={todayIso}
+          count={todayLivraisonsCount}
+          dayHref={todayLivraisonsHref}
+        />
         <div className="livraison-actions-bar" role="toolbar" aria-label="Actions livraisons">
           <div className="livraison-actions-bar__main">
             <button
@@ -1345,7 +1366,20 @@ export default function Page() {
                           {day}
                         </Link>
                       ) : null}
-                      <div className="livraison-cal-events">
+                      {datumsForDay.length > 0 ? (
+                        <Link
+                          href={`/direction/livraisons/jour?date=${dateStr}`}
+                          className="livraison-cal-day-badge livraison-cal-day-badge--livraison"
+                        >
+                          <span className="livraison-cal-day-badge__full">
+                            {formatTodayOperationCount("livraison", datumsForDay.length)}
+                          </span>
+                          <span className="livraison-cal-day-badge__short">
+                            {formatTodayOperationCountShort("livraison", datumsForDay.length)}
+                          </span>
+                        </Link>
+                      ) : null}
+                      <div className="livraison-cal-events livraison-cal-events--desktop">
                         {datumsForDay.slice(0, 3).map((item) => {
                           const statutKey =
                             item.statut === "en_cours"
@@ -1377,6 +1411,8 @@ export default function Page() {
             </>
           )}
       </section>
+        </div>
+      </div>
       <PaymentFinalizeModal
         open={finalizePayOpen}
         kind="livraison"
