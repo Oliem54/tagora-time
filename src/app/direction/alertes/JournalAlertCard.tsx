@@ -216,6 +216,55 @@ export default function JournalAlertCard({
             </dl>
           </div>
 
+          {row.employeeId != null ? (
+            <nav
+              aria-label="Actions rapides employé"
+              style={{
+                display: "flex",
+                flexWrap: "wrap",
+                gap: 8,
+                marginTop: 12,
+              }}
+            >
+              <Link
+                href={`/direction/ressources/employes/${row.employeeId}`}
+                className="ui-button ui-button-secondary"
+                style={{
+                  fontSize: 12,
+                  padding: "6px 12px",
+                  borderRadius: 8,
+                  fontWeight: 600,
+                }}
+              >
+                Profil employé
+              </Link>
+              <Link
+                href={`/direction/horodateur/registre?employeeId=${row.employeeId}`}
+                className="ui-button ui-button-secondary"
+                style={{
+                  fontSize: 12,
+                  padding: "6px 12px",
+                  borderRadius: 8,
+                  fontWeight: 600,
+                }}
+              >
+                Registre horaire
+              </Link>
+              <Link
+                href={`/direction/ressources/employes/${row.employeeId}?section=alertes_sms`}
+                className="ui-button ui-button-secondary"
+                style={{
+                  fontSize: 12,
+                  padding: "6px 12px",
+                  borderRadius: 8,
+                  fontWeight: 600,
+                }}
+              >
+                Alertes SMS
+              </Link>
+            </nav>
+          ) : null}
+
           {showTechToggle ? (
             <div style={{ marginTop: 12 }}>
               <button
