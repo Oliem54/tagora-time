@@ -586,6 +586,238 @@
   font-weight: 700;
 }
 
+/* Journee ramassage — experience mobile terrain */
+.day-ops-page--mobile-ramassage {
+  padding-bottom: calc(132px + env(safe-area-inset-bottom, 0px));
+}
+
+.day-ramassage-mobile-shell {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.day-ramassage-mobile-search {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: grid;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.98);
+  border: 1px solid #dbe4f0;
+  box-shadow: 0 8px 24px rgba(15, 41, 72, 0.08);
+}
+
+.day-ramassage-mobile-search__field-wrap {
+  position: relative;
+}
+
+.day-ramassage-mobile-search__input {
+  width: 100%;
+  min-height: 48px;
+  padding-right: 44px;
+  font-size: 16px;
+}
+
+.day-ramassage-mobile-search__clear {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  min-width: 36px;
+  min-height: 36px;
+  border-radius: 999px;
+  border: 1px solid #cbd5e1;
+  background: #f8fafc;
+  color: #334155;
+  font-weight: 800;
+}
+
+.day-ramassage-mobile-search__filters {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+
+.day-ramassage-mobile-search__chip {
+  flex-shrink: 0;
+  min-height: 40px;
+  padding: 0 14px;
+  border-radius: 999px;
+  border: 1px solid #cbd5e1;
+  background: #fff;
+  color: #334155;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.day-ramassage-mobile-search__chip--active {
+  border-color: #0f2948;
+  background: #0f2948;
+  color: #fff;
+}
+
+.day-ramassage-mobile-search__meta {
+  margin: 0;
+  font-size: 12px;
+  color: #64748b;
+}
+
+.day-ramassage-mobile-list {
+  display: grid;
+  gap: 10px;
+}
+
+.day-ramassage-mobile-list--empty {
+  padding: 16px;
+  border-radius: 14px;
+  border: 1px dashed #cbd5e1;
+  background: #f8fafc;
+  color: #64748b;
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.day-ramassage-mobile-list__item {
+  width: 100%;
+  text-align: left;
+  display: grid;
+  gap: 8px;
+  padding: 14px;
+  border-radius: 14px;
+  border: 1px solid #dbe4f0;
+  background: #fff;
+  box-shadow: 0 6px 18px rgba(15, 41, 72, 0.06);
+  touch-action: manipulation;
+}
+
+.day-ramassage-mobile-list__item--selected {
+  border-color: #0f2948;
+  box-shadow: inset 0 0 0 1px rgba(15, 41, 72, 0.15), 0 8px 22px rgba(15, 41, 72, 0.1);
+}
+
+.day-ramassage-mobile-list__head {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.day-ramassage-mobile-list__head strong {
+  font-size: 15px;
+  color: #0f2948;
+  overflow-wrap: anywhere;
+}
+
+.day-ramassage-mobile-list__address {
+  font-size: 13px;
+  color: #64748b;
+  overflow-wrap: anywhere;
+}
+
+.day-ramassage-mobile-list__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 12px;
+  color: #475569;
+  font-weight: 600;
+}
+
+.day-ramassage-mobile-list__overdue {
+  font-size: 11px;
+  font-weight: 800;
+  color: #b91c1c;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.day-ramassage-mobile-bar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 1101;
+  padding: 10px 12px calc(10px + env(safe-area-inset-bottom, 0px));
+  background: rgba(255, 255, 255, 0.96);
+  border-top: 1px solid #dbe4f0;
+  box-shadow: 0 -12px 32px rgba(15, 41, 72, 0.12);
+  backdrop-filter: blur(10px);
+}
+
+.day-ramassage-mobile-bar__summary-btn {
+  display: grid;
+  gap: 2px;
+  width: 100%;
+  padding: 0 0 8px;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.day-ramassage-mobile-bar__summary-btn strong {
+  font-size: 14px;
+  color: #0f2948;
+}
+
+.day-ramassage-mobile-bar__summary-btn span {
+  font-size: 12px;
+  color: #64748b;
+  overflow-wrap: anywhere;
+}
+
+.day-ramassage-mobile-bar__ref {
+  color: #1f4e79 !important;
+  font-weight: 700;
+}
+
+.day-ramassage-mobile-bar__grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.day-ramassage-mobile-bar__btn {
+  min-height: 48px;
+  border-radius: 12px;
+  border: 1px solid #cbd5e1;
+  background: #fff;
+  color: #0f2948;
+  font-size: 12px;
+  font-weight: 800;
+  touch-action: manipulation;
+}
+
+.day-ramassage-mobile-bar__btn:disabled {
+  opacity: 0.45;
+}
+
+.day-ramassage-mobile-bar__btn--success {
+  background: linear-gradient(180deg, #16a34a 0%, #15803d 100%);
+  border-color: #15803d;
+  color: #fff;
+}
+
+.day-ramassage-mobile-bar__proof-hint {
+  margin: 8px 0 0;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: #fff7ed;
+  border: 1px solid #fed7aa;
+  color: #9a3412;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.day-ramassage-phase-c-note {
+  border: 1px dashed #cbd5e1 !important;
+  background: #f8fafc !important;
+}
+
 .day-delivery-signature-sheet {
   position: fixed;
   inset: 0;
@@ -754,15 +986,29 @@
   .day-ops-page--mobile-livraison .day-ops-route-panel--mobile-livraison {
     display: none;
   }
+
+  .day-ops-page--mobile-ramassage .day-ops-kpi-grid,
+  .day-ops-page--mobile-ramassage .day-ops-ramassage-desktop-stops,
+  .day-ops-page--mobile-ramassage .day-ops-map-panel,
+  .day-ops-page--mobile-ramassage .day-ops-route-panel {
+    display: none;
+  }
+
+  .day-ramassage-mobile-bar__grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
 }
 
 @media (min-width: 769px) {
   .day-delivery-mobile-bar,
-  .day-delivery-next-stop {
+  .day-delivery-next-stop,
+  .day-ramassage-mobile-shell,
+  .day-ramassage-mobile-bar {
     display: none;
   }
 
-  .day-ops-page--mobile-livraison {
+  .day-ops-page--mobile-livraison,
+  .day-ops-page--mobile-ramassage {
     padding-bottom: 0;
   }
 }

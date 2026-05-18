@@ -2,23 +2,22 @@
 
 import { useCallback, useRef, useState, type PointerEvent } from "react";
 import { supabase } from "@/app/lib/supabase/client";
+import type { OperationProofModuleSource } from "@/app/components/livraisons/day-delivery/upload-operation-proof.client";
 
 type Props = {
   open: boolean;
   onClose: () => void;
-  livraisonId: number;
+  sourceId: number;
+  moduleSource?: OperationProofModuleSource;
   clientLabel: string;
   onSaved?: () => void;
 };
 
-function buildStoragePrefix(moduleSource: string, sourceId: string) {
-  return `${moduleSource}/${sourceId}`;
-}
-
 export default function StopSignatureQuickCapture({
   open,
   onClose,
-  livraisonId,
+  sourceId,
+  moduleSource = "livraison",
   clientLabel,
   onSaved,
 }: Props) {
@@ -61,10 +60,10 @@ export default function StopSignatureQuickCapture({
 
       setUploading(true);
       setFeedback("");
-      const sourceIdText = String(livraisonId);
+      const sourceIdText = String(sourceId);
       const ext = file.name.includes(".") ? file.name.split(".").pop() : "png";
       const storageName = `signature-${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
-      const storagePath = `${buildStoragePrefix("livraison", sourceIdText)}/${storageName}`;
+      const storagePath = `operation-proofs/${moduleSource}/${sourceIdText}/${storageName}`;
 
       const { error: uploadError } = await supabase.storage
         .from("photos-dossiers")
@@ -81,10 +80,10 @@ export default function StopSignatureQuickCapture({
         .getPublicUrl(storagePath);
 
       const { error: insertError } = await supabase.from("operation_proofs").insert({
-        module_source: "livraison",
+        module_source: moduleSource,
         source_id: sourceIdText,
         type_preuve: "signature",
-        categorie: "signature_client",
+        categorie: moduleSource === "ramassage" ? "preuve_ramassage" : "signature_client",
         nom: file.name || storageName,
         date_heure: new Date().toISOString(),
         cree_par: user.id,
@@ -105,7 +104,7 @@ export default function StopSignatureQuickCapture({
       setFeedback("Signature enregistree.");
       onSaved?.();
     },
-    [clearSignature, clientLabel, livraisonId, onSaved]
+    [clearSignature, clientLabel, moduleSource, onSaved, sourceId]
   );
 
   const startSignature = (event: PointerEvent<HTMLCanvasElement>) => {
