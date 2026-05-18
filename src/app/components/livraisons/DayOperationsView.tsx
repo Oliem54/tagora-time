@@ -48,11 +48,12 @@ import {
   matchesRamassageStatusFilter,
   matchesStopSearch,
   type RamassageStatusFilter,
+  type StopSearchContext,
 } from "@/app/lib/livraisons/day-stop-search.shared";
 import DayDeliveryMobileActions from "@/app/components/livraisons/day-delivery/DayDeliveryMobileActions";
+import DayOperationsMobileSearch from "@/app/components/livraisons/day-delivery/DayOperationsMobileSearch";
+import DayOperationsMobileStopList from "@/app/components/livraisons/day-delivery/DayOperationsMobileStopList";
 import DayRamassageMobileActions from "@/app/components/livraisons/day-delivery/DayRamassageMobileActions";
-import DayRamassageMobileSearch from "@/app/components/livraisons/day-delivery/DayRamassageMobileSearch";
-import DayRamassageMobileStopList from "@/app/components/livraisons/day-delivery/DayRamassageMobileStopList";
 import DayRamassageMobileSelectHint from "@/app/components/livraisons/day-delivery/DayRamassageMobileSelectHint";
 import StopSignatureQuickCapture from "@/app/components/livraisons/day-delivery/StopSignatureQuickCapture";
 import StopVoiceQuickCapture from "@/app/components/livraisons/day-delivery/StopVoiceQuickCapture";
@@ -351,6 +352,30 @@ function isStopAssignedToChauffeur(row: Row, chauffeurId: number | null) {
   return assignedId != null && assignedId === chauffeurId;
 }
 
+function getChauffeurLabelFromRow(row: Row, chauffeurs: Row[]): string {
+  const assignedId = parseAssignedChauffeurIdFromRow(row);
+  if (assignedId == null) return "";
+  const match = chauffeurs.find((item) => Number(item.id) === assignedId);
+  if (!match) return String(assignedId);
+  const fullName = [match.prenom, match.nom].filter(Boolean).map(String).join(" ").trim();
+  return String(match.nom_complet || fullName || match.nom || assignedId);
+}
+
+function buildStopSearchContext(
+  row: Row,
+  dossier: Row | undefined,
+  chauffeurs: Row[],
+  statusText: string
+): StopSearchContext {
+  return {
+    chauffeurLabel: getChauffeurLabelFromRow(row, chauffeurs),
+    companyLabel: String(row.company_context || row.company || row.compagnie || dossier?.company || ""),
+    statusLabel: statusText,
+    vehiculeId: row.vehicule_id != null ? String(row.vehicule_id) : "",
+    remorqueId: row.remorque_id != null ? String(row.remorque_id) : "",
+  };
+}
+
 function buildFullAddress(operationRow: Row, dossierRow?: Row) {
   const streetPrimary = getFieldStringPreferPrimary(operationRow, ["adresse", "address", "rue"]);
   const cityPrimary = getFieldStringPreferPrimary(operationRow, ["ville", "city", "municipalite"]);
@@ -618,6 +643,7 @@ export default function DayOperationsView({ area, operationMode = "livraison" }:
   const [quickActionLoading, setQuickActionLoading] = useState<string | null>(null);
   const [mobileSignatureOpen, setMobileSignatureOpen] = useState(false);
   const [mobileVoiceOpen, setMobileVoiceOpen] = useState(false);
+  const [livraisonSearchQuery, setLivraisonSearchQuery] = useState("");
   const [ramassageSearchQuery, setRamassageSearchQuery] = useState("");
   const [ramassageStatusFilter, setRamassageStatusFilter] = useState<RamassageStatusFilter>("all");
   const [selectedProofTypes, setSelectedProofTypes] = useState<ReceptionProofTypeRow[] | null>(
@@ -1176,51 +1202,77 @@ export default function DayOperationsView({ area, operationMode = "livraison" }:
       ? getReceptionProofMissingSummary(receptionProofAssessment) ?? receptionProofBlockMessage
       : null;
 
-  const ramassageMobileStopItems = useMemo(() => {
-    return stops.map((stop) => {
-      const dossier =
-        stop.dossierId != null ? dossiersById.get(stop.dossierId) : undefined;
-      return {
-        id: stop.id,
-        client: stop.client,
-        address: stop.fullAddress || stop.address,
-        time: stop.time,
-        statusText: stop.statusText,
-        statusTone: stop.statusTone,
-        phone: getStopPhone(stop.row),
-        commandeLabel: getStopCommandeLabel(stop.row, dossier),
-        factureLabel: getStopFactureLabel(stop.row, dossier),
-        isOverdue: stop.isOverdue,
-        searchBlob: buildStopSearchBlob(stop.row, dossier),
-        rawStatut: String(stop.row.statut || ""),
-      };
-    });
-  }, [dossiersById, stops]);
+  const mobileFieldStopItems = useMemo(() => {
+    if (!isLivraisonMobileMode && !isRamassageMobileMode) return [];
+    const typeFilter = isLivraisonMobileMode ? "livraison" : "ramassage";
+    return stops
+      .filter((stop) => stop.type === typeFilter)
+      .map((stop) => {
+        const dossier =
+          stop.dossierId != null ? dossiersById.get(stop.dossierId) : undefined;
+        const searchContext = buildStopSearchContext(
+          stop.row,
+          dossier,
+          chauffeurs,
+          stop.statusText
+        );
+        return {
+          id: stop.id,
+          client: stop.client,
+          address: stop.fullAddress || stop.address,
+          time: stop.time,
+          statusText: stop.statusText,
+          statusTone: stop.statusTone,
+          phone: getStopPhone(stop.row),
+          commandeLabel: getStopCommandeLabel(stop.row, dossier),
+          factureLabel: getStopFactureLabel(stop.row, dossier),
+          isOverdue: stop.isOverdue,
+          searchBlob: buildStopSearchBlob(stop.row, dossier, searchContext),
+          rawStatut: String(stop.row.statut || ""),
+        };
+      });
+  }, [chauffeurs, dossiersById, isLivraisonMobileMode, isRamassageMobileMode, stops]);
 
-  const filteredRamassageMobileStops = useMemo(() => {
-    if (!isRamassageMobileMode) return ramassageMobileStopItems;
-    return ramassageMobileStopItems.filter((stop) => {
-      if (!matchesRamassageStatusFilter(stop.rawStatut, ramassageStatusFilter)) return false;
-      if (!matchesStopSearch(stop.searchBlob, ramassageSearchQuery)) return false;
+  const filteredMobileFieldStops = useMemo(() => {
+    const query = isLivraisonMobileMode ? livraisonSearchQuery : ramassageSearchQuery;
+    return mobileFieldStopItems.filter((stop) => {
+      if (isRamassageMobileMode && !matchesRamassageStatusFilter(stop.rawStatut, ramassageStatusFilter)) {
+        return false;
+      }
+      if (!matchesStopSearch(stop.searchBlob, query)) return false;
       return true;
     });
   }, [
+    isLivraisonMobileMode,
     isRamassageMobileMode,
-    ramassageMobileStopItems,
+    livraisonSearchQuery,
+    mobileFieldStopItems,
     ramassageSearchQuery,
     ramassageStatusFilter,
   ]);
 
-  const ramassageMobileEmptyMessage = useMemo(() => {
+  const mobileFieldEmptyMessage = useMemo(() => {
     if (stops.length === 0) return modeCopy.emptyStops;
-    if (ramassageSearchQuery.trim()) {
-      return "Aucun ramassage trouve pour cette recherche.";
+    const query = isLivraisonMobileMode ? livraisonSearchQuery : ramassageSearchQuery;
+    if (query.trim()) {
+      return isLivraisonMobileMode ? "Aucune livraison trouvée" : "Aucun ramassage trouvé";
     }
-    if (ramassageStatusFilter === "todo") return "Aucun ramassage a faire pour ce filtre.";
-    if (ramassageStatusFilter === "done") return "Aucun ramassage marque ramasse pour ce filtre.";
-    if (ramassageStatusFilter === "problem") return "Aucun ramassage en probleme pour ce filtre.";
-    return "Aucun ramassage pour ce filtre.";
-  }, [modeCopy.emptyStops, ramassageSearchQuery, ramassageStatusFilter, stops.length]);
+    if (isRamassageMobileMode) {
+      if (ramassageStatusFilter === "todo") return "Aucun ramassage a faire pour ce filtre.";
+      if (ramassageStatusFilter === "done") return "Aucun ramassage marque ramasse pour ce filtre.";
+      if (ramassageStatusFilter === "problem") return "Aucun ramassage en probleme pour ce filtre.";
+      return "Aucun ramassage pour ce filtre.";
+    }
+    return modeCopy.emptyStops;
+  }, [
+    isLivraisonMobileMode,
+    isRamassageMobileMode,
+    livraisonSearchQuery,
+    modeCopy.emptyStops,
+    ramassageSearchQuery,
+    ramassageStatusFilter,
+    stops.length,
+  ]);
 
   const selectedCommandeLabel = selected
     ? getStopCommandeLabel(
@@ -2288,6 +2340,33 @@ export default function DayOperationsView({ area, operationMode = "livraison" }:
         }
       />
 
+      {isLivraisonMobileMode || isRamassageMobileMode ? (
+        <section className="day-ops-mobile-shell day-ops-mobile-shell--priority">
+          <DayOperationsMobileSearch
+            mode={isLivraisonMobileMode ? "livraison" : "ramassage"}
+            query={isLivraisonMobileMode ? livraisonSearchQuery : ramassageSearchQuery}
+            statusFilter={ramassageStatusFilter}
+            resultCount={filteredMobileFieldStops.length}
+            onQueryChange={isLivraisonMobileMode ? setLivraisonSearchQuery : setRamassageSearchQuery}
+            onStatusFilterChange={isRamassageMobileMode ? setRamassageStatusFilter : undefined}
+          />
+          <DayOperationsMobileStopList
+            stops={filteredMobileFieldStops}
+            selectedId={selectedId}
+            emptyMessage={mobileFieldEmptyMessage}
+            onSelect={(id) => {
+              setSelectedId(id);
+              setShowDetail(true);
+              window.requestAnimationFrame(() => {
+                document
+                  .querySelector(".day-ops-detail-shell")
+                  ?.scrollIntoView({ behavior: "smooth", block: "start" });
+              });
+            }}
+          />
+        </section>
+      ) : null}
+
       <div className="day-ops-kpi-grid">
         {kpiCards.map((item) => (
           <AppCard key={item.label} tone="muted" className="day-ops-kpi-card">
@@ -2322,35 +2401,9 @@ export default function DayOperationsView({ area, operationMode = "livraison" }:
         </AppCard>
       ) : null}
 
-      {isRamassageMobileMode ? (
-        <section className="day-ramassage-mobile-shell">
-          <DayRamassageMobileSearch
-            query={ramassageSearchQuery}
-            statusFilter={ramassageStatusFilter}
-            resultCount={filteredRamassageMobileStops.length}
-            onQueryChange={setRamassageSearchQuery}
-            onStatusFilterChange={setRamassageStatusFilter}
-          />
-          <DayRamassageMobileStopList
-            stops={filteredRamassageMobileStops}
-            selectedId={selectedId}
-            emptyMessage={ramassageMobileEmptyMessage}
-            onSelect={(id) => {
-              setSelectedId(id);
-              setShowDetail(true);
-              window.requestAnimationFrame(() => {
-                document
-                  .querySelector(".day-ops-detail-shell")
-                  ?.scrollIntoView({ behavior: "smooth", block: "start" });
-              });
-            }}
-          />
-        </section>
-      ) : null}
-
       <div className="day-ops-layout day-ops-layout--spaced">
         <section
-          className={`tagora-panel ui-stack-sm day-ops-left-col day-ops-side-panel${isRamassageMobileMode ? " day-ops-ramassage-desktop-stops" : ""}`}
+          className={`tagora-panel ui-stack-sm day-ops-left-col day-ops-side-panel${isLivraisonMobileMode ? " day-ops-livraison-desktop-stops" : ""}${isRamassageMobileMode ? " day-ops-ramassage-desktop-stops" : ""}`}
         >
           <div className="day-ops-side-panel-head">
             <h2 className="section-title" style={{ marginBottom: 0 }}>
