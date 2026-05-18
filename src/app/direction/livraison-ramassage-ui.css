@@ -909,3 +909,46 @@
   opacity: 0;
 }
 
+/* Hub Ramassages — priorité mobile : indicateurs et liste avant paramètres alertes */
+@media (max-width: 768px), (max-width: 1024px) and (hover: none) and (pointer: coarse) {
+  .livraison-page--ramassage-hub {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .livraison-hub-zone--toolbar {
+    order: 1;
+  }
+
+  .livraison-hub-zone--metrics {
+    order: 2;
+  }
+
+  .livraison-hub-zone--main {
+    order: 3;
+  }
+
+  .livraison-hub-zone--overdue {
+    order: 4;
+  }
+
+  .livraison-hub-zone--alerts {
+    order: 20;
+    margin-top: 12px !important;
+  }
+
+  .livraison-metrics-panel__grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .livraison-metrics-panel__grid .section-card,
+  .livraison-metrics-panel__grid > * {
+    border-radius: 14px;
+    padding: 12px 14px;
+    border: 1px solid #dbe4f0;
+    box-shadow: 0 4px 14px rgba(15, 41, 72, 0.06);
+  }
+}
+

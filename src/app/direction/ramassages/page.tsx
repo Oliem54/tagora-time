@@ -981,7 +981,7 @@ export default function DirectionRamassagesPage() {
   }
 
   return (
-    <main className="page-container livraison-page">
+    <main className="page-container livraison-page livraison-page--ramassage-hub">
       <HeaderTagora
         title="Livraison & ramassage"
         subtitle=""
@@ -1006,7 +1006,7 @@ export default function DirectionRamassagesPage() {
           </div>
         }
       />
-      <div className="livraison-toolbar-stack">
+      <div className="livraison-toolbar-stack livraison-hub-zone--toolbar">
         <div className="livraison-segmented-bar" aria-label="Navigation livraisons et ramassages">
           <div className="livraison-segmented" role="tablist">
             <Link href="/direction/livraisons" className="livraison-segment">
@@ -1069,7 +1069,7 @@ export default function DirectionRamassagesPage() {
       <FeedbackMessage message={message} type={messageType} />
 
       {canViewAlertSettings ? (
-        <section className="tagora-panel" style={{ marginTop: 16 }}>
+        <section className="tagora-panel livraison-hub-zone--alerts" style={{ marginTop: 16 }}>
         <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
           <div>
             <h2 className="section-title" style={{ marginBottom: 6 }}>
@@ -1122,7 +1122,7 @@ export default function DirectionRamassagesPage() {
       ) : null}
 
       {overdueItems.length > 0 ? (
-        <section className="tagora-panel" style={{ marginTop: 12 }}>
+        <section className="tagora-panel livraison-hub-zone--overdue" style={{ marginTop: 12 }}>
           <div>
             <h2 className="section-title" style={{ marginBottom: 6 }}>
               Commandes non ramassees
@@ -1408,7 +1408,7 @@ export default function DirectionRamassagesPage() {
         </section>
       ) : null}
 
-      <section className="tagora-panel livraison-metrics-panel">
+      <section className="tagora-panel livraison-metrics-panel livraison-hub-zone--metrics">
         <h2 className="livraison-metrics-panel__title">Indicateurs ramassage</h2>
         <div className="livraison-metrics-panel__grid">
           <SectionCard title="Pret a ramasser" subtitle={String(indicators.pret)} />
@@ -1421,7 +1421,7 @@ export default function DirectionRamassagesPage() {
         </div>
       </section>
 
-      <section className="tagora-panel livraison-calendar-card">
+      <section className="tagora-panel livraison-calendar-card livraison-hub-zone--main">
         <header className="livraison-calendar-card__header">
           <div>
             <h2 className="section-title livraison-calendar-card__title">Ramassages planifies</h2>

@@ -651,6 +651,64 @@
   margin-bottom: 14px;
 }
 
+.day-ops-mobile-shell--ramassage {
+  gap: 14px;
+}
+
+.day-ramassage-mobile-stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.day-ramassage-mobile-stats__card {
+  display: grid;
+  gap: 4px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid #dbe4f0;
+  background: #fff;
+  box-shadow: 0 4px 14px rgba(15, 41, 72, 0.06);
+}
+
+.day-ramassage-mobile-stats__value {
+  font-size: 22px;
+  line-height: 1;
+  color: #0f2948;
+}
+
+.day-ramassage-mobile-stats__label {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #64748b;
+}
+
+.day-ramassage-mobile-stats__card--todo {
+  border-color: #bfdbfe;
+  background: linear-gradient(165deg, #ffffff 0%, #eff6ff 100%);
+}
+
+.day-ramassage-mobile-stats__card--done {
+  border-color: #bbf7d0;
+  background: linear-gradient(165deg, #ffffff 0%, #f0fdf4 100%);
+}
+
+.day-ramassage-mobile-stats__card--problem {
+  border-color: #fecaca;
+  background: linear-gradient(165deg, #ffffff 0%, #fef2f2 100%);
+}
+
+.day-ramassage-mobile-stats__card--overdue {
+  border-color: #fed7aa;
+  background: linear-gradient(165deg, #ffffff 0%, #fff7ed 100%);
+}
+
+.day-ramassage-mobile-stats__card--overdue .day-ramassage-mobile-stats__value {
+  color: #b91c1c;
+}
+
 .day-ops-mobile-search,
 .day-ramassage-mobile-search {
   position: sticky;
@@ -888,6 +946,51 @@
   border-top: 1px solid #dbe4f0;
   box-shadow: 0 -12px 32px rgba(15, 41, 72, 0.12);
   backdrop-filter: blur(10px);
+}
+
+.day-ramassage-mobile-bar--premium {
+  padding: 12px 12px calc(10px + env(safe-area-inset-bottom, 0px));
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(244, 249, 255, 0.98) 100%);
+  border-top: 1px solid #c5d5ea;
+  box-shadow: 0 -16px 40px rgba(15, 41, 72, 0.16);
+}
+
+.day-ramassage-mobile-bar__grid--primary {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-bottom: 8px;
+}
+
+.day-ramassage-mobile-bar__grid--secondary {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.day-ramassage-mobile-bar--premium .day-ramassage-mobile-bar__btn {
+  min-height: 52px;
+  font-size: 13px;
+  border-radius: 14px;
+  box-shadow: 0 2px 8px rgba(15, 41, 72, 0.06);
+}
+
+.day-ramassage-mobile-bar__btn--call {
+  background: linear-gradient(180deg, #1f4e79 0%, #0f2948 100%);
+  border-color: #0f2948;
+  color: #fff;
+}
+
+.day-ramassage-mobile-bar__btn--maps {
+  background: linear-gradient(180deg, #ffffff 0%, #f1f5f9 100%);
+}
+
+.day-ramassage-mobile-bar__btn--danger {
+  background: linear-gradient(180deg, #fef2f2 0%, #fee2e2 100%);
+  border-color: #fecaca;
+  color: #b91c1c;
+}
+
+.day-ramassage-mobile-bar__btn--ghost {
+  background: transparent;
+  border-style: dashed;
+  color: #475569;
 }
 
 .day-ramassage-mobile-bar__summary-btn {
@@ -1140,8 +1243,28 @@
     display: none;
   }
 
-  .day-ramassage-mobile-bar__grid {
+  .day-ops-page--mobile-ramassage .day-ops-mobile-shell {
+    display: grid;
+  }
+
+  .day-ramassage-mobile-stats {
     grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .day-ramassage-mobile-stats__card--default {
+    grid-column: span 3;
+  }
+
+  .day-ramassage-mobile-bar__grid--primary,
+  .day-ramassage-mobile-bar__grid--secondary {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 1024px) and (hover: none) and (pointer: coarse) {
+  .day-ops-page--mobile-ramassage .day-ops-mobile-shell,
+  .day-ops-page--mobile-livraison .day-ops-mobile-shell {
+    display: grid;
   }
 }
 
@@ -1187,7 +1310,7 @@
   }
 }
 
-@media (min-width: 1025px), (min-width: 769px) and (hover: hover) and (pointer: fine) {
+@media (min-width: 1025px) and (hover: hover) and (pointer: fine) {
   .day-ops-mobile-field-dock {
     display: none !important;
   }

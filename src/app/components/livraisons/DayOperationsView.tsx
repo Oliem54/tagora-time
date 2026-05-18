@@ -27,7 +27,7 @@ import {
 } from "@/app/lib/livraisons/payment-embed";
 import { supabase } from "@/app/lib/supabase/client";
 import { useCurrentAccess } from "@/app/hooks/useCurrentAccess";
-import { useMobileFieldChromeLock } from "@/app/hooks/useMobileFieldChromeLock";
+import { useMobileFieldChromeLock, useMobileViewport } from "@/app/hooks/useMobileFieldChromeLock";
 import DayOpsMobileFieldDock from "@/app/components/livraisons/day-delivery/DayOpsMobileFieldDock";
 import { getOperationCoordinates } from "@/app/lib/livraisons/coordinates";
 import { isChauffeurDeliveryPoolMember } from "@/app/lib/employee-fonctions.shared";
@@ -55,6 +55,7 @@ import DayOperationsMobileSearch from "@/app/components/livraisons/day-delivery/
 import DayOperationsMobileStopList from "@/app/components/livraisons/day-delivery/DayOperationsMobileStopList";
 import DayRamassageMobileActions from "@/app/components/livraisons/day-delivery/DayRamassageMobileActions";
 import DayRamassageMobileSelectHint from "@/app/components/livraisons/day-delivery/DayRamassageMobileSelectHint";
+import DayRamassageMobileStats from "@/app/components/livraisons/day-delivery/DayRamassageMobileStats";
 import StopSignatureQuickCapture from "@/app/components/livraisons/day-delivery/StopSignatureQuickCapture";
 import StopVoiceQuickCapture from "@/app/components/livraisons/day-delivery/StopVoiceQuickCapture";
 
@@ -605,6 +606,7 @@ export default function DayOperationsView({ area, operationMode = "livraison" }:
   const modeCopy = getDayOpsCopy(area, operationMode);
   const searchParams = useSearchParams();
   const { user, role, loading: accessLoading, hasPermission } = useCurrentAccess();
+  const isMobileFieldViewport = useMobileViewport();
   const [rows, setRows] = useState<Row[]>([]);
   const [chauffeurs, setChauffeurs] = useState<Row[]>([]);
   const chauffeursLivreurs = useMemo(
@@ -654,6 +656,7 @@ export default function DayOperationsView({ area, operationMode = "livraison" }:
   const [replanDate, setReplanDate] = useState("");
   const [replanHeure, setReplanHeure] = useState("");
   const stopEditFormAnchorRef = useRef<HTMLDivElement | null>(null);
+  const mobileOpsShellRef = useRef<HTMLElement | null>(null);
   const [stopEditForm, setStopEditForm] = useState<StopEditForm>({
     adresse: "",
     ville: "",
@@ -1141,8 +1144,8 @@ export default function DayOperationsView({ area, operationMode = "livraison" }:
     return operationMode === "ramassage" ? null : ordered[0] ?? null;
   }, [operationMode, orderedStopIds, selectedId, stops]);
 
-  const isLivraisonMobileMode = operationMode === "livraison";
-  const isRamassageMobileMode = operationMode === "ramassage";
+  const isLivraisonMobileMode = operationMode === "livraison" && isMobileFieldViewport;
+  const isRamassageMobileMode = operationMode === "ramassage" && isMobileFieldViewport;
 
   const nextOperationalStop = useMemo(() => {
     const byId = new Map(stops.map((stop) => [stop.id, stop]));
@@ -1273,6 +1276,32 @@ export default function DayOperationsView({ area, operationMode = "livraison" }:
     ramassageStatusFilter,
     stops.length,
   ]);
+
+  const ramassageMobileStats = useMemo(() => {
+    const ramassageStops = stops.filter((stop) => stop.type === "ramassage");
+    let todo = 0;
+    let done = 0;
+    let problem = 0;
+    let overdue = 0;
+    for (const stop of ramassageStops) {
+      const statut = String(stop.row.statut || "").toLowerCase();
+      if (statut === "ramassee" || statut === "ramasse" || stop.status === "terminee") {
+        done += 1;
+      } else if (statut === "probleme" || statut === "annulee") {
+        problem += 1;
+      } else {
+        todo += 1;
+      }
+      if (stop.isOverdue) overdue += 1;
+    }
+    return {
+      total: ramassageStops.length,
+      todo,
+      done,
+      problem,
+      overdue,
+    };
+  }, [stops]);
 
   const selectedCommandeLabel = selected
     ? getStopCommandeLabel(
@@ -2071,6 +2100,39 @@ export default function DayOperationsView({ area, operationMode = "livraison" }:
     }
   }
 
+  async function markSelectedAsProblem() {
+    if (!selected || !canEditStopDetails) {
+      setStopFormMessage("Selectionnez un ramassage pour signaler un probleme.");
+      return;
+    }
+    if (!window.confirm("Signaler un probleme sur ce ramassage ?")) return;
+    const actionKey = `probleme:${selected.id}`;
+    setQuickActionLoading(actionKey);
+    setStopFormMessage("");
+    try {
+      const response = await fetch(`/api/livraisons/${selected.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({ statut: "probleme" }),
+      });
+      const data = (await response.json().catch(() => ({}))) as {
+        updated_row?: Row;
+        error?: { message?: string };
+      };
+      if (!response.ok || !data.updated_row) {
+        setStopFormMessage(data.error?.message || "Impossible de signaler le probleme.");
+        return;
+      }
+      setRows((current) =>
+        current.map((row) => (Number(row.id) === selected.id ? { ...row, ...data.updated_row } : row))
+      );
+      setStopFormMessage("Ramassage marque en probleme.");
+    } finally {
+      setQuickActionLoading(null);
+    }
+  }
+
   async function submitFinalizePaymentFromModal() {
     if (!selected || !canEditStopDetails) return;
     if (!receptionProofAssessment.isComplete) {
@@ -2341,7 +2403,10 @@ export default function DayOperationsView({ area, operationMode = "livraison" }:
       />
 
       {isLivraisonMobileMode || isRamassageMobileMode ? (
-        <section className="day-ops-mobile-shell day-ops-mobile-shell--priority">
+        <section
+          ref={mobileOpsShellRef}
+          className={`day-ops-mobile-shell day-ops-mobile-shell--priority${isRamassageMobileMode ? " day-ops-mobile-shell--ramassage" : ""}`}
+        >
           <DayOperationsMobileSearch
             mode={isLivraisonMobileMode ? "livraison" : "ramassage"}
             query={isLivraisonMobileMode ? livraisonSearchQuery : ramassageSearchQuery}
@@ -2350,6 +2415,7 @@ export default function DayOperationsView({ area, operationMode = "livraison" }:
             onQueryChange={isLivraisonMobileMode ? setLivraisonSearchQuery : setRamassageSearchQuery}
             onStatusFilterChange={isRamassageMobileMode ? setRamassageStatusFilter : undefined}
           />
+          {isRamassageMobileMode ? <DayRamassageMobileStats stats={ramassageMobileStats} /> : null}
           <DayOperationsMobileStopList
             stops={filteredMobileFieldStops}
             selectedId={selectedId}
@@ -3782,6 +3848,16 @@ export default function DayOperationsView({ area, operationMode = "livraison" }:
               onSelectStop={() => {
                 setShowDetail(true);
                 stopEditFormAnchorRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+              }}
+              onProblem={() => void markSelectedAsProblem()}
+              problemLoading={quickActionLoading === `probleme:${ramassageSelectedStop.id}`}
+              onNote={() => {
+                setShowDetail(true);
+                setIsEditingStop(true);
+                stopEditFormAnchorRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+              }}
+              onBackToList={() => {
+                mobileOpsShellRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
               }}
             />
           ) : stops.length === 0 ? (

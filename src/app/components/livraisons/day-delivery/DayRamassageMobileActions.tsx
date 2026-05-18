@@ -17,6 +17,10 @@ type Props = {
   onScrollProofs: () => void;
   onComplete: () => void;
   onSelectStop: () => void;
+  onProblem?: () => void;
+  onNote?: () => void;
+  onBackToList?: () => void;
+  problemLoading?: boolean;
 };
 
 export default function DayRamassageMobileActions({
@@ -36,9 +40,13 @@ export default function DayRamassageMobileActions({
   onScrollProofs,
   onComplete,
   onSelectStop,
+  onProblem,
+  onNote,
+  onBackToList,
+  problemLoading = false,
 }: Props) {
   return (
-    <aside className="day-ramassage-mobile-bar" aria-label="Actions terrain ramassage">
+    <aside className="day-ramassage-mobile-bar day-ramassage-mobile-bar--premium" aria-label="Actions terrain ramassage">
       <div className="day-ramassage-mobile-bar__summary">
         <button type="button" className="day-ramassage-mobile-bar__summary-btn" onClick={onSelectStop}>
           <strong>{clientLabel}</strong>
@@ -47,21 +55,22 @@ export default function DayRamassageMobileActions({
           {factureLabel ? <span className="day-ramassage-mobile-bar__ref">Fact. {factureLabel}</span> : null}
         </button>
       </div>
-      <div className="day-ramassage-mobile-bar__grid">
-        <button type="button" className="day-ramassage-mobile-bar__btn" disabled={!phone} onClick={onCall}>
+      <div className="day-ramassage-mobile-bar__grid day-ramassage-mobile-bar__grid--primary">
+        <button
+          type="button"
+          className="day-ramassage-mobile-bar__btn day-ramassage-mobile-bar__btn--call"
+          disabled={!phone}
+          onClick={onCall}
+        >
           Appeler
         </button>
-        <button type="button" className="day-ramassage-mobile-bar__btn" disabled={!mapsUrl} onClick={onMaps}>
-          Maps
-        </button>
-        <button type="button" className="day-ramassage-mobile-bar__btn" onClick={onSignature}>
-          Signature
-        </button>
-        <button type="button" className="day-ramassage-mobile-bar__btn" onClick={onVoice}>
-          Vocal
-        </button>
-        <button type="button" className="day-ramassage-mobile-bar__btn" onClick={onScrollProofs}>
-          Preuves
+        <button
+          type="button"
+          className="day-ramassage-mobile-bar__btn day-ramassage-mobile-bar__btn--maps"
+          disabled={!mapsUrl}
+          onClick={onMaps}
+        >
+          Itinéraire
         </button>
         <button
           type="button"
@@ -70,8 +79,39 @@ export default function DayRamassageMobileActions({
           title={!canComplete && completeDisabledReason ? completeDisabledReason : undefined}
           onClick={onComplete}
         >
-          {completeLoading ? "..." : "Marquer ramasse"}
+          {completeLoading ? "..." : "Marquer ramassé"}
         </button>
+      </div>
+      <div className="day-ramassage-mobile-bar__grid day-ramassage-mobile-bar__grid--secondary">
+        <button type="button" className="day-ramassage-mobile-bar__btn" onClick={onSignature}>
+          Signature
+        </button>
+        <button type="button" className="day-ramassage-mobile-bar__btn" onClick={onVoice}>
+          Note vocale
+        </button>
+        <button type="button" className="day-ramassage-mobile-bar__btn" onClick={onScrollProofs}>
+          Preuve / photo
+        </button>
+        {onNote ? (
+          <button type="button" className="day-ramassage-mobile-bar__btn" onClick={onNote}>
+            Note
+          </button>
+        ) : null}
+        {onProblem ? (
+          <button
+            type="button"
+            className="day-ramassage-mobile-bar__btn day-ramassage-mobile-bar__btn--danger"
+            disabled={problemLoading}
+            onClick={onProblem}
+          >
+            {problemLoading ? "..." : "Problème"}
+          </button>
+        ) : null}
+        {onBackToList ? (
+          <button type="button" className="day-ramassage-mobile-bar__btn day-ramassage-mobile-bar__btn--ghost" onClick={onBackToList}>
+            Retour liste
+          </button>
+        ) : null}
       </div>
       {!canComplete && completeDisabledReason ? (
         <p className="day-ramassage-mobile-bar__proof-hint" role="status">

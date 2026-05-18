@@ -21,7 +21,7 @@ const COPY = {
   ramassage: {
     aria: "Recherche ramassages",
     label: "Recherche rapide",
-    placeholder: "Rechercher client, facture, BL, adresse…",
+    placeholder: "Rechercher client, facture, BL, téléphone, adresse…",
     empty: "Aucun ramassage trouvé",
     unit: "ramassage",
     unitPlural: "ramassages",
