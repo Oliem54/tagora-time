@@ -1079,9 +1079,17 @@
     pointer-events: auto;
     padding-bottom: env(safe-area-inset-bottom, 0px);
   }
+
+  .day-ops-mobile-field-dock .day-delivery-mobile-bar,
+  .day-ops-mobile-field-dock .day-ramassage-mobile-bar,
+  .day-ops-mobile-field-dock__empty,
+  .day-ops-mobile-field-dock .day-ramassage-mobile-select-hint {
+    display: block;
+    visibility: visible;
+  }
 }
 
-@media (min-width: 769px) {
+@media (min-width: 1025px), (min-width: 769px) and (hover: hover) and (pointer: fine) {
   .day-ops-mobile-field-dock {
     display: none !important;
   }
