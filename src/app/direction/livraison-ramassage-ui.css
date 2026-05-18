@@ -950,5 +950,22 @@
     border: 1px solid #dbe4f0;
     box-shadow: 0 4px 14px rgba(15, 41, 72, 0.06);
   }
+
+  .livraison-page--ramassage-field-mobile {
+    padding-bottom: calc(148px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .livraison-page--ramassage-field-mobile .livraison-hub-list-panel--mobile-field > header,
+  .livraison-page--ramassage-field-mobile .livraison-hub-list-panel--mobile-field > div:first-of-type,
+  .livraison-page--ramassage-field-mobile .livraison-hub-list-panel--mobile-field .ui-stack-sm {
+    display: none;
+  }
+
+  .livraison-page--ramassage-field-mobile .livraison-hub-list-panel--mobile-field {
+    padding-top: 0;
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+  }
 }
 

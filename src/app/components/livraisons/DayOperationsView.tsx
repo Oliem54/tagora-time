@@ -56,6 +56,7 @@ import DayOperationsMobileStopList from "@/app/components/livraisons/day-deliver
 import DayRamassageMobileActions from "@/app/components/livraisons/day-delivery/DayRamassageMobileActions";
 import DayRamassageMobileSelectHint from "@/app/components/livraisons/day-delivery/DayRamassageMobileSelectHint";
 import DayRamassageMobileStats from "@/app/components/livraisons/day-delivery/DayRamassageMobileStats";
+import DayRamassageMobileFieldPanel from "@/app/components/livraisons/day-delivery/DayRamassageMobileFieldPanel";
 import StopSignatureQuickCapture from "@/app/components/livraisons/day-delivery/StopSignatureQuickCapture";
 import StopVoiceQuickCapture from "@/app/components/livraisons/day-delivery/StopVoiceQuickCapture";
 
@@ -1381,7 +1382,7 @@ export default function DayOperationsView({ area, operationMode = "livraison" }:
 
   const mobileFieldChromeLocked =
     showLivraisonMobileFieldDock ||
-    (showRamassageMobileFieldDock && Boolean(ramassageSelectedStop)) ||
+    showRamassageMobileFieldDock ||
     showDetail ||
     mobileSignatureOpen ||
     mobileVoiceOpen;
@@ -2423,6 +2424,7 @@ export default function DayOperationsView({ area, operationMode = "livraison" }:
             onSelect={(id) => {
               setSelectedId(id);
               setShowDetail(true);
+              if (isRamassageMobileMode) return;
               window.requestAnimationFrame(() => {
                 document
                   .querySelector(".day-ops-detail-shell")
@@ -2844,7 +2846,9 @@ export default function DayOperationsView({ area, operationMode = "livraison" }:
           </section>
 
           {selected ? (
-            <section className="tagora-panel ui-stack-xs day-ops-detail-shell">
+            <section
+              className={`tagora-panel ui-stack-xs day-ops-detail-shell${isRamassageMobileMode ? " day-ops-detail-shell--ramassage-mobile" : ""}`}
+            >
               <div className="day-ops-detail-header">
                 <div className="day-ops-detail-header-copy">
                   <h2 className="section-title day-ops-section-title">Detail arret</h2>
@@ -2860,6 +2864,82 @@ export default function DayOperationsView({ area, operationMode = "livraison" }:
                   {showDetail ? "Masquer" : "Afficher"}
                 </button>
               </div>
+
+              {isRamassageMobileMode && ramassageSelectedStop ? (
+                <DayRamassageMobileFieldPanel
+                  clientLabel={ramassageSelectedStop.client}
+                  statusLabel={ramassageSelectedStop.statusText}
+                  statusTone={ramassageSelectedStop.statusTone}
+                  addressLabel={
+                    ramassageSelectedStop.fullAddress ||
+                    ramassageSelectedStop.address ||
+                    "Adresse non renseignee"
+                  }
+                  phone={getStopPhone(ramassageSelectedStop.row)}
+                  mapsUrl={buildMapsUrlForStop(
+                    ramassageSelectedStop,
+                    geoById[ramassageSelectedStop.id] ?? null
+                  )}
+                  commandeLabel={
+                    getStopCommandeLabel(
+                      ramassageSelectedStop.row,
+                      ramassageSelectedStop.dossierId != null
+                        ? dossiersById.get(ramassageSelectedStop.dossierId)
+                        : undefined
+                    ) || null
+                  }
+                  factureLabel={
+                    getStopFactureLabel(
+                      ramassageSelectedStop.row,
+                      ramassageSelectedStop.dossierId != null
+                        ? dossiersById.get(ramassageSelectedStop.dossierId)
+                        : undefined
+                    ) || null
+                  }
+                  canComplete={canCompleteSelectedStop}
+                  completeDisabledReason={deliverDisabledReason}
+                  completeLoading={quickActionLoading === `completer:${ramassageSelectedStop.id}`}
+                  problemLoading={quickActionLoading === `probleme:${ramassageSelectedStop.id}`}
+                  onCall={() => {
+                    const phone = getStopPhone(ramassageSelectedStop.row);
+                    if (!phone) return;
+                    window.location.href = `tel:${phone.replace(/\s+/g, "")}`;
+                  }}
+                  onMaps={() => {
+                    const mapsUrl = buildMapsUrlForStop(
+                      ramassageSelectedStop,
+                      geoById[ramassageSelectedStop.id] ?? null
+                    );
+                    if (!mapsUrl) return;
+                    window.open(mapsUrl, "_blank", "noopener,noreferrer");
+                  }}
+                  onSignature={() => {
+                    setMobileVoiceOpen(false);
+                    setMobileSignatureOpen(true);
+                  }}
+                  onVoice={() => {
+                    setMobileSignatureOpen(false);
+                    setMobileVoiceOpen(true);
+                  }}
+                  onScrollProofs={() => {
+                    setShowDetail(true);
+                    proofsPanelAnchorRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+                    if (proofsPanelAnchorRef.current && "open" in proofsPanelAnchorRef.current) {
+                      (proofsPanelAnchorRef.current as HTMLDetailsElement).open = true;
+                    }
+                  }}
+                  onComplete={() => void runQuickStopAction("completer")}
+                  onProblem={() => void markSelectedAsProblem()}
+                  onNote={() => {
+                    setShowDetail(true);
+                    setIsEditingStop(true);
+                    stopEditFormAnchorRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+                  }}
+                  onBackToList={() => {
+                    mobileOpsShellRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+                  }}
+                />
+              ) : null}
 
               <PaymentDetailBanner
                 payment={parsePaymentFromRow(selected.row as Record<string, unknown>)}

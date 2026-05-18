@@ -10,6 +10,7 @@ export function isCriticalFieldRoute(pathname: string | null | undefined): boole
     pathname.startsWith("/direction/livraisons/jour") ||
     pathname.startsWith("/employe/livraisons/jour") ||
     pathname.startsWith("/direction/ramassages/jour") ||
+    pathname === "/direction/ramassages" ||
     pathname.startsWith("/employe/ramassages/jour") ||
     pathname === "/employe/terrain" ||
     pathname.startsWith("/employe/terrain/") ||

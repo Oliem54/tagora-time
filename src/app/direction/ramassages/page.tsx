@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import HeaderTagora from "@/app/components/HeaderTagora";
 import FeedbackMessage from "@/app/components/FeedbackMessage";
 import AccessNotice from "@/app/components/AccessNotice";
@@ -38,6 +38,27 @@ import {
   PaymentFinalizeModal,
 } from "@/app/components/livraisons/PaymentClientUi";
 import MobileTodayOperationsEntry from "@/app/components/livraisons/MobileTodayOperationsEntry";
+import DayOperationsMobileSearch from "@/app/components/livraisons/day-delivery/DayOperationsMobileSearch";
+import DayOperationsMobileStopList from "@/app/components/livraisons/day-delivery/DayOperationsMobileStopList";
+import DayRamassageMobileStats from "@/app/components/livraisons/day-delivery/DayRamassageMobileStats";
+import DayRamassageMobileFieldPanel from "@/app/components/livraisons/day-delivery/DayRamassageMobileFieldPanel";
+import DayRamassageMobileActions from "@/app/components/livraisons/day-delivery/DayRamassageMobileActions";
+import DayRamassageMobileSelectHint from "@/app/components/livraisons/day-delivery/DayRamassageMobileSelectHint";
+import DayOpsMobileFieldDock from "@/app/components/livraisons/day-delivery/DayOpsMobileFieldDock";
+import { useMobileFieldChromeLock, useMobileViewport } from "@/app/hooks/useMobileFieldChromeLock";
+import {
+  buildStopSearchBlob,
+  getStopCommandeLabel,
+  getStopFactureLabel,
+  matchesRamassageStatusFilter,
+  matchesStopSearch,
+  type RamassageStatusFilter,
+} from "@/app/lib/livraisons/day-stop-search.shared";
+import {
+  buildPickupAddress,
+  buildPickupMapsUrl,
+  getPickupPhone,
+} from "@/app/lib/livraisons/pickup-field-mobile.shared";
 import {
   formatTodayOperationCount,
   formatTodayOperationCountShort,
@@ -275,6 +296,7 @@ function getPersonLabel(item: Row) {
 
 export default function DirectionRamassagesPage() {
   const { user, role, loading: accessLoading, hasPermission } = useCurrentAccess();
+  const isMobileFieldViewport = useMobileViewport();
   const canUseLivraisons = hasPermission("livraisons");
   const isAdmin = role === "admin";
   const canViewAlertSettings = role === "admin" || role === "direction";
@@ -309,6 +331,10 @@ export default function DirectionRamassagesPage() {
   const [calendarDate, setCalendarDate] = useState(new Date());
   const [statusFilter, setStatusFilter] = useState<PickupFilter>("");
   const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [ramassageSearchQuery, setRamassageSearchQuery] = useState("");
+  const [ramassageStatusFilter, setRamassageStatusFilter] = useState<RamassageStatusFilter>("all");
+  const mobileOpsShellRef = useRef<HTMLElement | null>(null);
+  const hubProofsPanelRef = useRef<HTMLDivElement | null>(null);
   const [overdueItems, setOverdueItems] = useState<OverdueItem[]>([]);
   const [overdueLoading, setOverdueLoading] = useState(false);
   const [delayDays, setDelayDays] = useState(2);
@@ -491,7 +517,78 @@ export default function DirectionRamassagesPage() {
     };
   }, [computed]);
 
-  const selected = listOrdered.find((entry) => entry.id === selectedId) ?? listOrdered[0] ?? null;
+  const hubMobileStats = useMemo(
+    () => ({
+      total: computed.length,
+      todo: computed.filter(
+        (entry) =>
+          entry.status !== "ramasse" &&
+          entry.status !== "a_replanifier" &&
+          !["probleme", "annulee"].includes(String(entry.item.statut || "").toLowerCase())
+      ).length,
+      done: computed.filter((entry) => entry.status === "ramasse").length,
+      problem: computed.filter((entry) => {
+        const raw = String(entry.item.statut || "").toLowerCase();
+        return raw === "probleme" || raw === "annulee";
+      }).length,
+      overdue: computed.filter((entry) => entry.isOverdue).length,
+    }),
+    [computed]
+  );
+
+  const hubMobileStopItems = useMemo(() => {
+    if (!isMobileFieldViewport) return [];
+    return listOrdered.map((entry) => {
+      const dossierId = Number(entry.item.dossier_id);
+      const dossier = Number.isFinite(dossierId) ? dossiersById.get(dossierId) : undefined;
+      const chauffeurId = Number(entry.item.chauffeur_id);
+      const chauffeur = chauffeurs.find((item) => Number(item.id) === chauffeurId);
+      const address = buildPickupAddress(entry.item, RAMASSAGE_DEFAULT_PICKUP_ADDRESS);
+      return {
+        id: entry.id,
+        client: String(entry.item.client || `Ramassage #${entry.id}`),
+        address,
+        time: normalizeTimeShort(entry.item.heure_prevue) || "-",
+        statusText: getPickupStatusLabel(entry.status),
+        statusTone: getPickupStatusTone(entry.status),
+        phone: getPickupPhone(entry.item),
+        commandeLabel: getStopCommandeLabel(entry.item, dossier),
+        factureLabel: getStopFactureLabel(entry.item, dossier),
+        isOverdue: entry.isOverdue,
+        searchBlob: buildStopSearchBlob(entry.item, dossier, {
+          chauffeurLabel: chauffeur ? getPersonLabel(chauffeur) : undefined,
+          companyLabel: getPickupCompanyValue(entry.item),
+          statusLabel: getPickupStatusLabel(entry.status),
+        }),
+        rawStatut: String(entry.item.statut || ""),
+      };
+    });
+  }, [chauffeurs, dossiersById, isMobileFieldViewport, listOrdered]);
+
+  const hubFilteredMobileStops = useMemo(() => {
+    return hubMobileStopItems.filter((stop) => {
+      if (!matchesRamassageStatusFilter(stop.rawStatut, ramassageStatusFilter)) return false;
+      return matchesStopSearch(stop.searchBlob, ramassageSearchQuery);
+    });
+  }, [hubMobileStopItems, ramassageSearchQuery, ramassageStatusFilter]);
+
+  const hubMobileEmptyMessage = useMemo(() => {
+    if (listOrdered.length === 0) return "Aucun ramassage pour ce filtre.";
+    if (ramassageSearchQuery.trim()) return "Aucun ramassage trouvé";
+    return "Aucun ramassage pour ce filtre.";
+  }, [listOrdered.length, ramassageSearchQuery]);
+
+  const selected = useMemo(() => {
+    if (selectedId != null) {
+      return listOrdered.find((entry) => entry.id === selectedId) ?? null;
+    }
+    if (!isMobileFieldViewport) {
+      return listOrdered[0] ?? null;
+    }
+    return null;
+  }, [isMobileFieldViewport, listOrdered, selectedId]);
+
+  useMobileFieldChromeLock(isMobileFieldViewport);
 
   useEffect(() => {
     if (!selected) return;
@@ -795,6 +892,37 @@ export default function DirectionRamassagesPage() {
     }
   }
 
+  async function markSelectedPickupProblem() {
+    if (!selected || !canEditRamassageDetails) return;
+    if (!window.confirm("Signaler un probleme sur ce ramassage ?")) return;
+    setQuickActionLoading(`probleme:${selected.id}`);
+    setMessage("");
+    setMessageType(null);
+    try {
+      const res = await fetch(`/api/livraisons/${selected.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({ statut: "probleme" }),
+      });
+      const payload = (await res.json().catch(() => ({}))) as {
+        updated_row?: Row;
+        error?: { message?: string };
+      };
+      if (!res.ok || !payload.updated_row) {
+        throw new Error(payload.error?.message || "Impossible de signaler le probleme.");
+      }
+      setMessage("Ramassage marque en probleme.");
+      setMessageType("success");
+      await fetchData();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Erreur.");
+      setMessageType("error");
+    } finally {
+      setQuickActionLoading(null);
+    }
+  }
+
   async function saveRamassageEdit() {
     if (!selected || !canEditRamassageDetails) return;
     const id = selected.id;
@@ -981,7 +1109,9 @@ export default function DirectionRamassagesPage() {
   }
 
   return (
-    <main className="page-container livraison-page livraison-page--ramassage-hub">
+    <main
+      className={`page-container livraison-page livraison-page--ramassage-hub${isMobileFieldViewport ? " livraison-page--ramassage-field-mobile" : ""}`}
+    >
       <HeaderTagora
         title="Livraison & ramassage"
         subtitle=""
@@ -1065,6 +1195,36 @@ export default function DirectionRamassagesPage() {
           </button>
         </div>
       </div>
+
+      {isMobileFieldViewport ? (
+        <section
+          ref={mobileOpsShellRef}
+          className="day-ops-mobile-shell day-ops-mobile-shell--priority day-ops-mobile-shell--ramassage day-ops-mobile-shell--hub"
+        >
+          <DayOperationsMobileSearch
+            mode="ramassage"
+            query={ramassageSearchQuery}
+            statusFilter={ramassageStatusFilter}
+            resultCount={hubFilteredMobileStops.length}
+            onQueryChange={setRamassageSearchQuery}
+            onStatusFilterChange={setRamassageStatusFilter}
+          />
+          <DayRamassageMobileStats stats={hubMobileStats} />
+          <DayOperationsMobileStopList
+            stops={hubFilteredMobileStops}
+            selectedId={selectedId}
+            emptyMessage={hubMobileEmptyMessage}
+            onSelect={(id) => {
+              setSelectedId(id);
+              window.requestAnimationFrame(() => {
+                document
+                  .querySelector(".day-ramassage-hub-field-anchor")
+                  ?.scrollIntoView({ behavior: "smooth", block: "start" });
+              });
+            }}
+          />
+        </section>
+      ) : null}
 
       <FeedbackMessage message={message} type={messageType} />
 
@@ -1421,7 +1581,9 @@ export default function DirectionRamassagesPage() {
         </div>
       </section>
 
-      <section className="tagora-panel livraison-calendar-card livraison-hub-zone--main">
+      <section
+        className={`tagora-panel livraison-calendar-card livraison-hub-zone--main${isMobileFieldViewport ? " livraison-hub-list-panel--mobile-field" : ""}`}
+      >
         <header className="livraison-calendar-card__header">
           <div>
             <h2 className="section-title livraison-calendar-card__title">Ramassages planifies</h2>
@@ -1654,7 +1816,75 @@ export default function DirectionRamassagesPage() {
       </section>
 
       {selected ? (
-        <section className="tagora-panel ui-stack-xs day-ops-detail-shell" style={{ marginTop: 20 }}>
+        <section
+          className={`tagora-panel ui-stack-xs day-ops-detail-shell day-ramassage-hub-field-anchor${isMobileFieldViewport ? " day-ops-detail-shell--ramassage-mobile" : ""}`}
+          style={{ marginTop: 20 }}
+        >
+          {isMobileFieldViewport ? (
+            <DayRamassageMobileFieldPanel
+              clientLabel={String(selected.item.client || `Ramassage #${selected.id}`)}
+              statusLabel={getPickupStatusLabel(selected.status)}
+              statusTone={getPickupStatusTone(selected.status)}
+              addressLabel={buildPickupAddress(selected.item, RAMASSAGE_DEFAULT_PICKUP_ADDRESS)}
+              phone={getPickupPhone(selected.item)}
+              mapsUrl={buildPickupMapsUrl(
+                selected.item,
+                buildPickupAddress(selected.item, RAMASSAGE_DEFAULT_PICKUP_ADDRESS)
+              )}
+              commandeLabel={
+                getStopCommandeLabel(
+                  selected.item,
+                  Number.isFinite(Number(selected.item.dossier_id))
+                    ? dossiersById.get(Number(selected.item.dossier_id))
+                    : undefined
+                ) || null
+              }
+              factureLabel={
+                getStopFactureLabel(
+                  selected.item,
+                  Number.isFinite(Number(selected.item.dossier_id))
+                    ? dossiersById.get(Number(selected.item.dossier_id))
+                    : undefined
+                ) || null
+              }
+              canComplete={canEditRamassageDetails && selected.status !== "ramasse"}
+              completeDisabledReason={null}
+              completeLoading={quickActionLoading === `ramasse:${selected.id}`}
+              problemLoading={quickActionLoading === `probleme:${selected.id}`}
+              onCall={() => {
+                const phone = getPickupPhone(selected.item);
+                if (!phone) return;
+                window.location.href = `tel:${phone.replace(/\s+/g, "")}`;
+              }}
+              onMaps={() => {
+                const mapsUrl = buildPickupMapsUrl(
+                  selected.item,
+                  buildPickupAddress(selected.item, RAMASSAGE_DEFAULT_PICKUP_ADDRESS)
+                );
+                if (!mapsUrl) return;
+                window.open(mapsUrl, "_blank", "noopener,noreferrer");
+              }}
+              onSignature={() => {
+                setEditingRamassage(false);
+              }}
+              onVoice={() => {
+                setEditingRamassage(true);
+              }}
+              onScrollProofs={() => {
+                hubProofsPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+              }}
+              onComplete={() => beginRamassageFinalize(selected.id)}
+              onProblem={() => void markSelectedPickupProblem()}
+              onNote={() => {
+                setEditingRamassage(true);
+                hubProofsPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+              }}
+              onBackToList={() => {
+                mobileOpsShellRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+              }}
+            />
+          ) : null}
+
           <h2 className="section-title day-ops-section-title" style={{ marginBottom: 14 }}>
             Détail ramassage #{selected.id}
           </h2>
@@ -2061,13 +2291,15 @@ export default function DirectionRamassagesPage() {
             </AppCard>
           ) : null}
 
-          <OperationProofsPanel
-            moduleSource="ramassage"
-            sourceId={selected.id}
-            categorieParDefaut="preuve_ramassage_direction"
-            titre="Documents et preuves"
-            commentairePlaceholder="Commentaire ramassage"
-          />
+          <div ref={hubProofsPanelRef}>
+            <OperationProofsPanel
+              moduleSource="ramassage"
+              sourceId={selected.id}
+              categorieParDefaut="preuve_ramassage_direction"
+              titre="Documents et preuves"
+              commentairePlaceholder="Commentaire ramassage"
+            />
+          </div>
           <InternalMentionsPanel
             entityType="ramassage"
             entityId={selected.id}
@@ -2088,6 +2320,73 @@ export default function DirectionRamassagesPage() {
           />
         </section>
       ) : null}
+      {isMobileFieldViewport ? (
+        <DayOpsMobileFieldDock mode="ramassage">
+          {selected ? (
+            <DayRamassageMobileActions
+              clientLabel={String(selected.item.client || `Ramassage #${selected.id}`)}
+              addressLabel={buildPickupAddress(selected.item, RAMASSAGE_DEFAULT_PICKUP_ADDRESS)}
+              phone={getPickupPhone(selected.item)}
+              mapsUrl={buildPickupMapsUrl(
+                selected.item,
+                buildPickupAddress(selected.item, RAMASSAGE_DEFAULT_PICKUP_ADDRESS)
+              )}
+              commandeLabel={
+                getStopCommandeLabel(
+                  selected.item,
+                  Number.isFinite(Number(selected.item.dossier_id))
+                    ? dossiersById.get(Number(selected.item.dossier_id))
+                    : undefined
+                ) || null
+              }
+              factureLabel={
+                getStopFactureLabel(
+                  selected.item,
+                  Number.isFinite(Number(selected.item.dossier_id))
+                    ? dossiersById.get(Number(selected.item.dossier_id))
+                    : undefined
+                ) || null
+              }
+              canComplete={canEditRamassageDetails && selected.status !== "ramasse"}
+              completeDisabledReason={null}
+              completeLoading={quickActionLoading === `ramasse:${selected.id}`}
+              problemLoading={quickActionLoading === `probleme:${selected.id}`}
+              onCall={() => {
+                const phone = getPickupPhone(selected.item);
+                if (!phone) return;
+                window.location.href = `tel:${phone.replace(/\s+/g, "")}`;
+              }}
+              onMaps={() => {
+                const mapsUrl = buildPickupMapsUrl(
+                  selected.item,
+                  buildPickupAddress(selected.item, RAMASSAGE_DEFAULT_PICKUP_ADDRESS)
+                );
+                if (!mapsUrl) return;
+                window.open(mapsUrl, "_blank", "noopener,noreferrer");
+              }}
+              onSignature={() => setEditingRamassage(true)}
+              onVoice={() => setEditingRamassage(true)}
+              onScrollProofs={() => {
+                hubProofsPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+              }}
+              onComplete={() => beginRamassageFinalize(selected.id)}
+              onProblem={() => void markSelectedPickupProblem()}
+              onNote={() => setEditingRamassage(true)}
+              onSelectStop={() => {
+                document
+                  .querySelector(".day-ramassage-hub-field-anchor")
+                  ?.scrollIntoView({ behavior: "smooth", block: "start" });
+              }}
+              onBackToList={() => {
+                mobileOpsShellRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+              }}
+            />
+          ) : (
+            <DayRamassageMobileSelectHint />
+          )}
+        </DayOpsMobileFieldDock>
+      ) : null}
+
       <PaymentFinalizeModal
         open={finalizeRamassageOpen}
         kind="ramassage"
