@@ -59,6 +59,9 @@ import DayRamassageMobileStats from "@/app/components/livraisons/day-delivery/Da
 import DayRamassageMobileFieldPanel from "@/app/components/livraisons/day-delivery/DayRamassageMobileFieldPanel";
 import StopSignatureQuickCapture from "@/app/components/livraisons/day-delivery/StopSignatureQuickCapture";
 import StopVoiceQuickCapture from "@/app/components/livraisons/day-delivery/StopVoiceQuickCapture";
+import StopPhotoQuickCapture from "@/app/components/livraisons/day-delivery/StopPhotoQuickCapture";
+import StopNoteQuickCapture from "@/app/components/livraisons/day-delivery/StopNoteQuickCapture";
+import StopProblemQuickCapture from "@/app/components/livraisons/day-delivery/StopProblemQuickCapture";
 
 const DayOperationsMap = dynamic(() => import("./DayOperationsMap"), { ssr: false });
 
@@ -646,6 +649,9 @@ export default function DayOperationsView({ area, operationMode = "livraison" }:
   const [quickActionLoading, setQuickActionLoading] = useState<string | null>(null);
   const [mobileSignatureOpen, setMobileSignatureOpen] = useState(false);
   const [mobileVoiceOpen, setMobileVoiceOpen] = useState(false);
+  const [mobilePhotoOpen, setMobilePhotoOpen] = useState(false);
+  const [mobileNoteOpen, setMobileNoteOpen] = useState(false);
+  const [mobileProblemOpen, setMobileProblemOpen] = useState(false);
   const [livraisonSearchQuery, setLivraisonSearchQuery] = useState("");
   const [ramassageSearchQuery, setRamassageSearchQuery] = useState("");
   const [ramassageStatusFilter, setRamassageStatusFilter] = useState<RamassageStatusFilter>("all");
@@ -1380,12 +1386,35 @@ export default function DayOperationsView({ area, operationMode = "livraison" }:
   const showLivraisonMobileFieldDock = isLivraisonMobileMode;
   const showRamassageMobileFieldDock = isRamassageMobileMode;
 
+  const closeMobileFieldCaptures = useCallback(() => {
+    setMobileSignatureOpen(false);
+    setMobileVoiceOpen(false);
+    setMobilePhotoOpen(false);
+    setMobileNoteOpen(false);
+    setMobileProblemOpen(false);
+  }, []);
+
+  const openMobileFieldCapture = useCallback(
+    (target: "signature" | "voice" | "photo" | "note" | "problem") => {
+      closeMobileFieldCaptures();
+      if (target === "signature") setMobileSignatureOpen(true);
+      if (target === "voice") setMobileVoiceOpen(true);
+      if (target === "photo") setMobilePhotoOpen(true);
+      if (target === "note") setMobileNoteOpen(true);
+      if (target === "problem") setMobileProblemOpen(true);
+    },
+    [closeMobileFieldCaptures]
+  );
+
   const mobileFieldChromeLocked =
     showLivraisonMobileFieldDock ||
     showRamassageMobileFieldDock ||
     showDetail ||
     mobileSignatureOpen ||
-    mobileVoiceOpen;
+    mobileVoiceOpen ||
+    mobilePhotoOpen ||
+    mobileNoteOpen ||
+    mobileProblemOpen;
 
   useMobileFieldChromeLock(mobileFieldChromeLocked);
 
@@ -2101,12 +2130,17 @@ export default function DayOperationsView({ area, operationMode = "livraison" }:
     }
   }
 
-  async function markSelectedAsProblem() {
+  async function markSelectedAsProblem(
+    description?: string
+  ): Promise<{ ok: boolean; message?: string }> {
     if (!selected || !canEditStopDetails) {
-      setStopFormMessage("Selectionnez un ramassage pour signaler un probleme.");
-      return;
+      const msg = "Selectionnez un ramassage pour signaler un probleme.";
+      setStopFormMessage(msg);
+      return { ok: false, message: msg };
     }
-    if (!window.confirm("Signaler un probleme sur ce ramassage ?")) return;
+    if (!description && !window.confirm("Signaler un probleme sur ce ramassage ?")) {
+      return { ok: false };
+    }
     const actionKey = `probleme:${selected.id}`;
     setQuickActionLoading(actionKey);
     setStopFormMessage("");
@@ -2122,13 +2156,15 @@ export default function DayOperationsView({ area, operationMode = "livraison" }:
         error?: { message?: string };
       };
       if (!response.ok || !data.updated_row) {
-        setStopFormMessage(data.error?.message || "Impossible de signaler le probleme.");
-        return;
+        const msg = data.error?.message || "Impossible de signaler le probleme.";
+        setStopFormMessage(msg);
+        return { ok: false, message: msg };
       }
       setRows((current) =>
         current.map((row) => (Number(row.id) === selected.id ? { ...row, ...data.updated_row } : row))
       );
       setStopFormMessage("Ramassage marque en probleme.");
+      return { ok: true };
     } finally {
       setQuickActionLoading(null);
     }
@@ -2913,28 +2949,12 @@ export default function DayOperationsView({ area, operationMode = "livraison" }:
                     if (!mapsUrl) return;
                     window.open(mapsUrl, "_blank", "noopener,noreferrer");
                   }}
-                  onSignature={() => {
-                    setMobileVoiceOpen(false);
-                    setMobileSignatureOpen(true);
-                  }}
-                  onVoice={() => {
-                    setMobileSignatureOpen(false);
-                    setMobileVoiceOpen(true);
-                  }}
-                  onScrollProofs={() => {
-                    setShowDetail(true);
-                    proofsPanelAnchorRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-                    if (proofsPanelAnchorRef.current && "open" in proofsPanelAnchorRef.current) {
-                      (proofsPanelAnchorRef.current as HTMLDetailsElement).open = true;
-                    }
-                  }}
+                  onSignature={() => openMobileFieldCapture("signature")}
+                  onVoice={() => openMobileFieldCapture("voice")}
+                  onScrollProofs={() => openMobileFieldCapture("photo")}
                   onComplete={() => void runQuickStopAction("completer")}
-                  onProblem={() => void markSelectedAsProblem()}
-                  onNote={() => {
-                    setShowDetail(true);
-                    setIsEditingStop(true);
-                    stopEditFormAnchorRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-                  }}
+                  onProblem={() => openMobileFieldCapture("problem")}
+                  onNote={() => openMobileFieldCapture("note")}
                   onBackToList={() => {
                     mobileOpsShellRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
                   }}
@@ -3829,13 +3849,11 @@ export default function DayOperationsView({ area, operationMode = "livraison" }:
           }}
           onSignature={() => {
             if (selectedId !== livraisonTerrainStop.id) setSelectedId(livraisonTerrainStop.id);
-            setMobileVoiceOpen(false);
-            setMobileSignatureOpen(true);
+            openMobileFieldCapture("signature");
           }}
           onVoice={() => {
             if (selectedId !== livraisonTerrainStop.id) setSelectedId(livraisonTerrainStop.id);
-            setMobileSignatureOpen(false);
-            setMobileVoiceOpen(true);
+            openMobileFieldCapture("voice");
           }}
           onDeliver={() => {
             if (selectedId !== livraisonTerrainStop.id) setSelectedId(livraisonTerrainStop.id);
@@ -3843,11 +3861,7 @@ export default function DayOperationsView({ area, operationMode = "livraison" }:
           }}
           onScrollProofs={() => {
             if (selectedId !== livraisonTerrainStop.id) setSelectedId(livraisonTerrainStop.id);
-            setShowDetail(true);
-            proofsPanelAnchorRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-            if (proofsPanelAnchorRef.current && "open" in proofsPanelAnchorRef.current) {
-              (proofsPanelAnchorRef.current as HTMLDetailsElement).open = true;
-            }
+            openMobileFieldCapture("photo");
           }}
           onSelectStop={() => {
             setSelectedId(livraisonTerrainStop.id);
@@ -3909,33 +3923,17 @@ export default function DayOperationsView({ area, operationMode = "livraison" }:
                 if (!mapsUrl) return;
                 window.open(mapsUrl, "_blank", "noopener,noreferrer");
               }}
-              onSignature={() => {
-                setMobileVoiceOpen(false);
-                setMobileSignatureOpen(true);
-              }}
-              onVoice={() => {
-                setMobileSignatureOpen(false);
-                setMobileVoiceOpen(true);
-              }}
-              onScrollProofs={() => {
-                setShowDetail(true);
-                proofsPanelAnchorRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-                if (proofsPanelAnchorRef.current && "open" in proofsPanelAnchorRef.current) {
-                  (proofsPanelAnchorRef.current as HTMLDetailsElement).open = true;
-                }
-              }}
+              onSignature={() => openMobileFieldCapture("signature")}
+              onVoice={() => openMobileFieldCapture("voice")}
+              onScrollProofs={() => openMobileFieldCapture("photo")}
               onComplete={() => void runQuickStopAction("completer")}
               onSelectStop={() => {
                 setShowDetail(true);
                 stopEditFormAnchorRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
               }}
-              onProblem={() => void markSelectedAsProblem()}
+              onProblem={() => openMobileFieldCapture("problem")}
               problemLoading={quickActionLoading === `probleme:${ramassageSelectedStop.id}`}
-              onNote={() => {
-                setShowDetail(true);
-                setIsEditingStop(true);
-                stopEditFormAnchorRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-              }}
+              onNote={() => openMobileFieldCapture("note")}
               onBackToList={() => {
                 mobileOpsShellRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
               }}
@@ -3974,6 +3972,46 @@ export default function DayOperationsView({ area, operationMode = "livraison" }:
               setStopFormMessage("Preuve vocale enregistree.");
               setMobileVoiceOpen(false);
             }}
+          />
+          <StopPhotoQuickCapture
+            open={mobilePhotoOpen}
+            onClose={() => setMobilePhotoOpen(false)}
+            sourceId={selected.id}
+            moduleSource={selected.type === "ramassage" ? "ramassage" : "livraison"}
+            clientLabel={selected.client}
+            onSaved={() => {
+              void refreshSelectedStopProofs();
+              setStopFormMessage("Photo enregistree comme preuve.");
+              setMobilePhotoOpen(false);
+            }}
+          />
+          <StopNoteQuickCapture
+            open={mobileNoteOpen}
+            onClose={() => setMobileNoteOpen(false)}
+            sourceId={selected.id}
+            moduleSource={selected.type === "ramassage" ? "ramassage" : "livraison"}
+            clientLabel={selected.client}
+            onSaved={() => {
+              void refreshSelectedStopProofs();
+              setStopFormMessage("Note terrain enregistree.");
+              setMobileNoteOpen(false);
+            }}
+          />
+          <StopProblemQuickCapture
+            open={mobileProblemOpen}
+            onClose={() => setMobileProblemOpen(false)}
+            sourceId={selected.id}
+            moduleSource={selected.type === "ramassage" ? "ramassage" : "livraison"}
+            clientLabel={selected.client}
+            onConfirm={async (description) => {
+              const result = await markSelectedAsProblem(description);
+              if (result.ok) {
+                void refreshSelectedStopProofs();
+                setStopFormMessage("Probleme signale sur ce ramassage.");
+              }
+              return result;
+            }}
+            onSaved={() => setMobileProblemOpen(false)}
           />
         </>
       ) : null}

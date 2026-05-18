@@ -45,6 +45,11 @@ import DayRamassageMobileFieldPanel from "@/app/components/livraisons/day-delive
 import DayRamassageMobileActions from "@/app/components/livraisons/day-delivery/DayRamassageMobileActions";
 import DayRamassageMobileSelectHint from "@/app/components/livraisons/day-delivery/DayRamassageMobileSelectHint";
 import DayOpsMobileFieldDock from "@/app/components/livraisons/day-delivery/DayOpsMobileFieldDock";
+import StopSignatureQuickCapture from "@/app/components/livraisons/day-delivery/StopSignatureQuickCapture";
+import StopVoiceQuickCapture from "@/app/components/livraisons/day-delivery/StopVoiceQuickCapture";
+import StopPhotoQuickCapture from "@/app/components/livraisons/day-delivery/StopPhotoQuickCapture";
+import StopNoteQuickCapture from "@/app/components/livraisons/day-delivery/StopNoteQuickCapture";
+import StopProblemQuickCapture from "@/app/components/livraisons/day-delivery/StopProblemQuickCapture";
 import { useMobileFieldChromeLock, useMobileViewport } from "@/app/hooks/useMobileFieldChromeLock";
 import {
   buildStopSearchBlob,
@@ -335,6 +340,11 @@ export default function DirectionRamassagesPage() {
   const [ramassageStatusFilter, setRamassageStatusFilter] = useState<RamassageStatusFilter>("all");
   const mobileOpsShellRef = useRef<HTMLElement | null>(null);
   const hubProofsPanelRef = useRef<HTMLDivElement | null>(null);
+  const [mobileSignatureOpen, setMobileSignatureOpen] = useState(false);
+  const [mobileVoiceOpen, setMobileVoiceOpen] = useState(false);
+  const [mobilePhotoOpen, setMobilePhotoOpen] = useState(false);
+  const [mobileNoteOpen, setMobileNoteOpen] = useState(false);
+  const [mobileProblemOpen, setMobileProblemOpen] = useState(false);
   const [overdueItems, setOverdueItems] = useState<OverdueItem[]>([]);
   const [overdueLoading, setOverdueLoading] = useState(false);
   const [delayDays, setDelayDays] = useState(2);
@@ -588,7 +598,34 @@ export default function DirectionRamassagesPage() {
     return null;
   }, [isMobileFieldViewport, listOrdered, selectedId]);
 
-  useMobileFieldChromeLock(isMobileFieldViewport);
+  const mobileFieldCaptureOpen =
+    mobileSignatureOpen ||
+    mobileVoiceOpen ||
+    mobilePhotoOpen ||
+    mobileNoteOpen ||
+    mobileProblemOpen;
+
+  useMobileFieldChromeLock(isMobileFieldViewport || mobileFieldCaptureOpen);
+
+  const closeOtherFieldCaptures = useCallback(() => {
+    setMobileSignatureOpen(false);
+    setMobileVoiceOpen(false);
+    setMobilePhotoOpen(false);
+    setMobileNoteOpen(false);
+    setMobileProblemOpen(false);
+  }, []);
+
+  const openFieldCapture = useCallback(
+    (target: "signature" | "voice" | "photo" | "note" | "problem") => {
+      closeOtherFieldCaptures();
+      if (target === "signature") setMobileSignatureOpen(true);
+      if (target === "voice") setMobileVoiceOpen(true);
+      if (target === "photo") setMobilePhotoOpen(true);
+      if (target === "note") setMobileNoteOpen(true);
+      if (target === "problem") setMobileProblemOpen(true);
+    },
+    [closeOtherFieldCaptures]
+  );
 
   useEffect(() => {
     if (!selected) return;
@@ -892,9 +929,15 @@ export default function DirectionRamassagesPage() {
     }
   }
 
-  async function markSelectedPickupProblem() {
-    if (!selected || !canEditRamassageDetails) return;
-    if (!window.confirm("Signaler un probleme sur ce ramassage ?")) return;
+  async function markSelectedPickupProblem(
+    description?: string
+  ): Promise<{ ok: boolean; message?: string }> {
+    if (!selected || !canEditRamassageDetails) {
+      return { ok: false, message: "Action non autorisee." };
+    }
+    if (!description && !window.confirm("Signaler un probleme sur ce ramassage ?")) {
+      return { ok: false };
+    }
     setQuickActionLoading(`probleme:${selected.id}`);
     setMessage("");
     setMessageType(null);
@@ -915,9 +958,12 @@ export default function DirectionRamassagesPage() {
       setMessage("Ramassage marque en probleme.");
       setMessageType("success");
       await fetchData();
+      return { ok: true };
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Erreur.");
+      const msg = error instanceof Error ? error.message : "Erreur.";
+      setMessage(msg);
       setMessageType("error");
+      return { ok: false, message: msg };
     } finally {
       setQuickActionLoading(null);
     }
@@ -1864,21 +1910,12 @@ export default function DirectionRamassagesPage() {
                 if (!mapsUrl) return;
                 window.open(mapsUrl, "_blank", "noopener,noreferrer");
               }}
-              onSignature={() => {
-                setEditingRamassage(false);
-              }}
-              onVoice={() => {
-                setEditingRamassage(true);
-              }}
-              onScrollProofs={() => {
-                hubProofsPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-              }}
+              onSignature={() => openFieldCapture("signature")}
+              onVoice={() => openFieldCapture("voice")}
+              onScrollProofs={() => openFieldCapture("photo")}
               onComplete={() => beginRamassageFinalize(selected.id)}
-              onProblem={() => void markSelectedPickupProblem()}
-              onNote={() => {
-                setEditingRamassage(true);
-                hubProofsPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-              }}
+              onProblem={() => openFieldCapture("problem")}
+              onNote={() => openFieldCapture("note")}
               onBackToList={() => {
                 mobileOpsShellRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
               }}
@@ -2364,14 +2401,12 @@ export default function DirectionRamassagesPage() {
                 if (!mapsUrl) return;
                 window.open(mapsUrl, "_blank", "noopener,noreferrer");
               }}
-              onSignature={() => setEditingRamassage(true)}
-              onVoice={() => setEditingRamassage(true)}
-              onScrollProofs={() => {
-                hubProofsPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-              }}
+              onSignature={() => openFieldCapture("signature")}
+              onVoice={() => openFieldCapture("voice")}
+              onScrollProofs={() => openFieldCapture("photo")}
               onComplete={() => beginRamassageFinalize(selected.id)}
-              onProblem={() => void markSelectedPickupProblem()}
-              onNote={() => setEditingRamassage(true)}
+              onProblem={() => openFieldCapture("problem")}
+              onNote={() => openFieldCapture("note")}
               onSelectStop={() => {
                 document
                   .querySelector(".day-ramassage-hub-field-anchor")
@@ -2385,6 +2420,70 @@ export default function DirectionRamassagesPage() {
             <DayRamassageMobileSelectHint />
           )}
         </DayOpsMobileFieldDock>
+      ) : null}
+
+      {selected && isMobileFieldViewport ? (
+        <>
+          <StopSignatureQuickCapture
+            open={mobileSignatureOpen}
+            onClose={() => setMobileSignatureOpen(false)}
+            sourceId={selected.id}
+            moduleSource="ramassage"
+            clientLabel={String(selected.item.client || `Ramassage #${selected.id}`)}
+            onSaved={() => {
+              setMessage("Signature enregistree.");
+              setMessageType("success");
+              setMobileSignatureOpen(false);
+            }}
+          />
+          <StopVoiceQuickCapture
+            open={mobileVoiceOpen}
+            onClose={() => setMobileVoiceOpen(false)}
+            sourceId={selected.id}
+            moduleSource="ramassage"
+            clientLabel={String(selected.item.client || `Ramassage #${selected.id}`)}
+            onSaved={() => {
+              setMessage("Preuve vocale enregistree.");
+              setMessageType("success");
+              setMobileVoiceOpen(false);
+            }}
+          />
+          <StopPhotoQuickCapture
+            open={mobilePhotoOpen}
+            onClose={() => setMobilePhotoOpen(false)}
+            sourceId={selected.id}
+            moduleSource="ramassage"
+            clientLabel={String(selected.item.client || `Ramassage #${selected.id}`)}
+            onSaved={() => {
+              setMessage("Photo enregistree.");
+              setMessageType("success");
+              setMobilePhotoOpen(false);
+            }}
+          />
+          <StopNoteQuickCapture
+            open={mobileNoteOpen}
+            onClose={() => setMobileNoteOpen(false)}
+            sourceId={selected.id}
+            moduleSource="ramassage"
+            clientLabel={String(selected.item.client || `Ramassage #${selected.id}`)}
+            onSaved={() => {
+              setMessage("Note terrain enregistree.");
+              setMessageType("success");
+              setMobileNoteOpen(false);
+            }}
+          />
+          <StopProblemQuickCapture
+            open={mobileProblemOpen}
+            onClose={() => setMobileProblemOpen(false)}
+            sourceId={selected.id}
+            moduleSource="ramassage"
+            clientLabel={String(selected.item.client || `Ramassage #${selected.id}`)}
+            onConfirm={(description) => markSelectedPickupProblem(description)}
+            onSaved={() => {
+              setMobileProblemOpen(false);
+            }}
+          />
+        </>
       ) : null}
 
       <PaymentFinalizeModal
