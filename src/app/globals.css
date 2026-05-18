@@ -999,6 +999,14 @@
   }
 }
 
+@media (max-width: 768px) {
+  .day-ops-page--mobile-livraison .day-delivery-mobile-bar,
+  .day-ops-page--mobile-ramassage .day-ramassage-mobile-bar {
+    display: block;
+    visibility: visible;
+  }
+}
+
 @media (min-width: 769px) {
   .day-delivery-mobile-bar,
   .day-delivery-next-stop,

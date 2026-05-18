@@ -27,7 +27,7 @@ import {
 } from "@/app/lib/livraisons/payment-embed";
 import { supabase } from "@/app/lib/supabase/client";
 import { useCurrentAccess } from "@/app/hooks/useCurrentAccess";
-import { useMobileFieldChromeLock } from "@/app/hooks/useMobileFieldChromeLock";
+import { useMobileFieldChromeLock, useMobileViewport } from "@/app/hooks/useMobileFieldChromeLock";
 import { getOperationCoordinates } from "@/app/lib/livraisons/coordinates";
 import { isChauffeurDeliveryPoolMember } from "@/app/lib/employee-fonctions.shared";
 import { buildDeliveryTrackingUrl } from "@/app/lib/delivery-tracking";
@@ -1240,6 +1240,46 @@ export default function DayOperationsView({ area, operationMode = "livraison" }:
     [canEditStopDetails, currentChauffeurId, role]
   );
 
+  const isMobileViewport = useMobileViewport();
+
+  const livraisonTerrainStop = useMemo(() => {
+    if (!isLivraisonMobileMode) return null;
+    if (selected?.type === "livraison") return selected;
+    if (nextOperationalStop) return nextOperationalStop;
+    return stops.find((stop) => stop.type === "livraison") ?? null;
+  }, [isLivraisonMobileMode, nextOperationalStop, selected, stops]);
+
+  const ramassageTerrainStop = useMemo(() => {
+    if (!isRamassageMobileMode) return null;
+    if (selected?.type === "ramassage") return selected;
+    const firstFiltered = filteredRamassageMobileStops[0];
+    if (firstFiltered) {
+      return stops.find((stop) => stop.id === firstFiltered.id) ?? null;
+    }
+    return stops[0] ?? null;
+  }, [filteredRamassageMobileStops, isRamassageMobileMode, selected, stops]);
+
+  useEffect(() => {
+    if (!isMobileViewport || stops.length === 0) return;
+    const targetId = isLivraisonMobileMode
+      ? livraisonTerrainStop?.id
+      : isRamassageMobileMode
+        ? ramassageTerrainStop?.id
+        : null;
+    if (targetId == null || !Number.isFinite(targetId)) return;
+    if (selectedId !== targetId) {
+      setSelectedId(targetId);
+    }
+  }, [
+    isMobileViewport,
+    isLivraisonMobileMode,
+    isRamassageMobileMode,
+    livraisonTerrainStop?.id,
+    ramassageTerrainStop?.id,
+    selectedId,
+    stops.length,
+  ]);
+
   const canEnRouteSelected =
     Boolean(selected) &&
     canEnRouteForStop(selected) &&
@@ -1247,19 +1287,39 @@ export default function DayOperationsView({ area, operationMode = "livraison" }:
     selectedRawStatut !== "annulee" &&
     selected?.status !== "terminee";
 
-  const canShowMobileTerrainBar =
-    isLivraisonMobileMode &&
-    Boolean(selected) &&
-    selected?.type === "livraison" &&
-    (canEditStopDetails || (role === "employe" && canEnRouteForStop(selected)));
+  const canEnRouteForLivraisonBar = livraisonTerrainStop
+    ? canEnRouteForStop(livraisonTerrainStop)
+    : false;
+  const livraisonBarRawStatut = livraisonTerrainStop
+    ? String(livraisonTerrainStop.row.statut || "").toLowerCase()
+    : "";
+  const canEnRouteLivraisonBar =
+    Boolean(livraisonTerrainStop) &&
+    canEnRouteForLivraisonBar &&
+    livraisonBarRawStatut !== "livree" &&
+    livraisonBarRawStatut !== "annulee" &&
+    livraisonTerrainStop?.status !== "terminee";
 
-  const canShowRamassageMobileTerrainBar =
-    isRamassageMobileMode && Boolean(selected) && canEditStopDetails;
+  const canInteractRamassageTerrainStop = ramassageTerrainStop
+    ? canEnRouteForStop(ramassageTerrainStop)
+    : false;
+
+  const canShowLivraisonMobileBar =
+    isMobileViewport &&
+    isLivraisonMobileMode &&
+    Boolean(livraisonTerrainStop) &&
+    (canEditStopDetails || (role === "employe" && canEnRouteForLivraisonBar));
+
+  const canShowRamassageMobileBar =
+    isMobileViewport &&
+    isRamassageMobileMode &&
+    Boolean(ramassageTerrainStop) &&
+    canInteractRamassageTerrainStop;
 
   const mobileFieldChromeLocked =
-    Boolean(selected) &&
-    (canShowMobileTerrainBar ||
-      canShowRamassageMobileTerrainBar ||
+    isMobileViewport &&
+    (canShowLivraisonMobileBar ||
+      canShowRamassageMobileBar ||
       showDetail ||
       mobileSignatureOpen ||
       mobileVoiceOpen);
@@ -3541,39 +3601,61 @@ export default function DayOperationsView({ area, operationMode = "livraison" }:
           {stopFormMessage}
         </p>
       ) : null}
-      {canShowMobileTerrainBar && selected ? (
+      {canShowLivraisonMobileBar && livraisonTerrainStop ? (
         <DayDeliveryMobileActions
-          clientLabel={selected.client}
-          addressLabel={selected.fullAddress || selected.address || "Adresse non renseignee"}
+          clientLabel={livraisonTerrainStop.client}
+          addressLabel={
+            livraisonTerrainStop.fullAddress ||
+            livraisonTerrainStop.address ||
+            "Adresse non renseignee"
+          }
           etaLabel={selectedEtaLabel}
-          phone={selectedPhone}
-          mapsUrl={selectedMapsUrl}
-          trackingUrl={selectedTrackingUrl}
-          canEnRoute={canEnRouteSelected}
+          phone={livraisonTerrainStop ? getStopPhone(livraisonTerrainStop.row) : null}
+          mapsUrl={
+            livraisonTerrainStop
+              ? buildMapsUrlForStop(
+                  livraisonTerrainStop,
+                  geoById[livraisonTerrainStop.id] ?? null
+                )
+              : null
+          }
+          trackingUrl={buildTrackingUrlFromRow(livraisonTerrainStop.row)}
+          canEnRoute={canEnRouteLivraisonBar}
           canDeliver={canCompleteSelectedStop}
           deliverLabel="Marquer livre"
           deliverDisabledReason={deliverDisabledReason}
-          enRouteLoading={quickActionLoading === `en-route:${selected.id}`}
-          deliverLoading={quickActionLoading === `completer:${selected.id}`}
-          onEnRoute={() => void handleEnRouteForStop(selected.id)}
+          enRouteLoading={quickActionLoading === `en-route:${livraisonTerrainStop.id}`}
+          deliverLoading={quickActionLoading === `completer:${livraisonTerrainStop.id}`}
+          onEnRoute={() => void handleEnRouteForStop(livraisonTerrainStop.id)}
           onCall={() => {
-            if (!selectedPhone) return;
-            window.location.href = `tel:${selectedPhone.replace(/\s+/g, "")}`;
+            const phone = getStopPhone(livraisonTerrainStop.row);
+            if (!phone) return;
+            window.location.href = `tel:${phone.replace(/\s+/g, "")}`;
           }}
           onMaps={() => {
-            if (!selectedMapsUrl) return;
-            window.open(selectedMapsUrl, "_blank", "noopener,noreferrer");
+            const mapsUrl = buildMapsUrlForStop(
+              livraisonTerrainStop,
+              geoById[livraisonTerrainStop.id] ?? null
+            );
+            if (!mapsUrl) return;
+            window.open(mapsUrl, "_blank", "noopener,noreferrer");
           }}
           onSignature={() => {
+            if (selectedId !== livraisonTerrainStop.id) setSelectedId(livraisonTerrainStop.id);
             setMobileVoiceOpen(false);
             setMobileSignatureOpen(true);
           }}
           onVoice={() => {
+            if (selectedId !== livraisonTerrainStop.id) setSelectedId(livraisonTerrainStop.id);
             setMobileSignatureOpen(false);
             setMobileVoiceOpen(true);
           }}
-          onDeliver={() => void runQuickStopAction("completer")}
+          onDeliver={() => {
+            if (selectedId !== livraisonTerrainStop.id) setSelectedId(livraisonTerrainStop.id);
+            void runQuickStopAction("completer");
+          }}
           onScrollProofs={() => {
+            if (selectedId !== livraisonTerrainStop.id) setSelectedId(livraisonTerrainStop.id);
             setShowDetail(true);
             proofsPanelAnchorRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
             if (proofsPanelAnchorRef.current && "open" in proofsPanelAnchorRef.current) {
@@ -3581,47 +3663,81 @@ export default function DayOperationsView({ area, operationMode = "livraison" }:
             }
           }}
           onSelectStop={() => {
+            setSelectedId(livraisonTerrainStop.id);
             setShowDetail(true);
             stopEditFormAnchorRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
           }}
         />
       ) : null}
-      {canShowRamassageMobileTerrainBar && selected ? (
+      {canShowRamassageMobileBar && ramassageTerrainStop ? (
         <DayRamassageMobileActions
-          clientLabel={selected.client}
-          addressLabel={selected.fullAddress || selected.address || "Adresse non renseignee"}
-          phone={selectedPhone}
-          mapsUrl={selectedMapsUrl}
-          commandeLabel={selectedCommandeLabel || null}
-          factureLabel={selectedFactureLabel || null}
+          clientLabel={ramassageTerrainStop.client}
+          addressLabel={
+            ramassageTerrainStop.fullAddress ||
+            ramassageTerrainStop.address ||
+            "Adresse non renseignee"
+          }
+          phone={getStopPhone(ramassageTerrainStop.row)}
+          mapsUrl={buildMapsUrlForStop(
+            ramassageTerrainStop,
+            geoById[ramassageTerrainStop.id] ?? null
+          )}
+          commandeLabel={
+            getStopCommandeLabel(
+              ramassageTerrainStop.row,
+              ramassageTerrainStop.dossierId != null
+                ? dossiersById.get(ramassageTerrainStop.dossierId)
+                : undefined
+            ) || null
+          }
+          factureLabel={
+            getStopFactureLabel(
+              ramassageTerrainStop.row,
+              ramassageTerrainStop.dossierId != null
+                ? dossiersById.get(ramassageTerrainStop.dossierId)
+                : undefined
+            ) || null
+          }
           canComplete={canCompleteSelectedStop}
           completeDisabledReason={deliverDisabledReason}
-          completeLoading={quickActionLoading === `completer:${selected.id}`}
+          completeLoading={quickActionLoading === `completer:${ramassageTerrainStop.id}`}
           onCall={() => {
-            if (!selectedPhone) return;
-            window.location.href = `tel:${selectedPhone.replace(/\s+/g, "")}`;
+            const phone = getStopPhone(ramassageTerrainStop.row);
+            if (!phone) return;
+            window.location.href = `tel:${phone.replace(/\s+/g, "")}`;
           }}
           onMaps={() => {
-            if (!selectedMapsUrl) return;
-            window.open(selectedMapsUrl, "_blank", "noopener,noreferrer");
+            const mapsUrl = buildMapsUrlForStop(
+              ramassageTerrainStop,
+              geoById[ramassageTerrainStop.id] ?? null
+            );
+            if (!mapsUrl) return;
+            window.open(mapsUrl, "_blank", "noopener,noreferrer");
           }}
           onSignature={() => {
+            if (selectedId !== ramassageTerrainStop.id) setSelectedId(ramassageTerrainStop.id);
             setMobileVoiceOpen(false);
             setMobileSignatureOpen(true);
           }}
           onVoice={() => {
+            if (selectedId !== ramassageTerrainStop.id) setSelectedId(ramassageTerrainStop.id);
             setMobileSignatureOpen(false);
             setMobileVoiceOpen(true);
           }}
           onScrollProofs={() => {
+            if (selectedId !== ramassageTerrainStop.id) setSelectedId(ramassageTerrainStop.id);
             setShowDetail(true);
             proofsPanelAnchorRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
             if (proofsPanelAnchorRef.current && "open" in proofsPanelAnchorRef.current) {
               (proofsPanelAnchorRef.current as HTMLDetailsElement).open = true;
             }
           }}
-          onComplete={() => void runQuickStopAction("completer")}
+          onComplete={() => {
+            if (selectedId !== ramassageTerrainStop.id) setSelectedId(ramassageTerrainStop.id);
+            void runQuickStopAction("completer");
+          }}
           onSelectStop={() => {
+            setSelectedId(ramassageTerrainStop.id);
             setShowDetail(true);
             stopEditFormAnchorRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
           }}
