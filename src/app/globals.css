@@ -3560,6 +3560,158 @@ select {
   border-color: #b9c7db;
 }
 
+.account-requests-action-button-danger {
+  border-color: rgba(185, 28, 28, 0.3);
+  color: #b91c1c;
+  background: rgba(254, 242, 242, 0.92);
+}
+
+.account-requests-cell-actions {
+  display: grid;
+  gap: 6px;
+  justify-items: end;
+  align-items: center;
+}
+
+.account-requests-mobile-list {
+  display: none;
+}
+
+.account-requests-mobile-card {
+  border: 1px solid #dfe6f0;
+  border-radius: 18px;
+  background: linear-gradient(180deg, #ffffff 0%, #fbfdff 100%);
+  padding: 16px;
+  box-shadow: 0 8px 22px rgba(15, 23, 42, 0.06);
+}
+
+.account-requests-mobile-card__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.account-requests-mobile-card__name {
+  margin: 0;
+  font-size: 18px;
+  line-height: 1.25;
+  font-weight: 800;
+  color: #13294a;
+  letter-spacing: -0.02em;
+  word-break: break-word;
+}
+
+.account-requests-mobile-card__fields {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+}
+
+.account-requests-mobile-card__field {
+  display: grid;
+  gap: 4px;
+}
+
+.account-requests-mobile-card__field-label {
+  display: block;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #8a98b0;
+}
+
+.account-requests-mobile-card__field-value {
+  display: block;
+  font-size: 14px;
+  line-height: 1.45;
+  color: #162946;
+  word-break: break-word;
+}
+
+.account-requests-mobile-card__sub {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: #72829a;
+  font-weight: 500;
+}
+
+.account-requests-mobile-card__date {
+  white-space: normal;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+.account-requests-mobile-card__actions {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid #edf2f7;
+}
+
+.account-requests-mobile-actions {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: 1fr;
+  width: 100%;
+}
+
+.account-requests-mobile-actions .account-requests-action-button {
+  width: 100%;
+  min-height: 44px;
+  height: auto;
+  padding: 10px 14px;
+  justify-content: center;
+}
+
+@media (min-width: 480px) and (max-width: 900px) {
+  .account-requests-mobile-actions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .account-requests-mobile-actions .account-requests-action-button:only-child,
+  .account-requests-mobile-actions .account-requests-action-button:last-child:nth-child(odd) {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 900px) {
+  .account-requests-premium-table-wrap--desktop {
+    display: none;
+  }
+
+  .account-requests-mobile-list {
+    display: grid;
+    gap: 14px;
+  }
+
+  .account-requests-page .tagora-app-content {
+    padding-bottom: calc(112px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .account-requests-premium-toolbar {
+    justify-content: stretch;
+  }
+
+  .account-requests-toolbar-button {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .account-requests-premium-hero-actions {
+    flex-wrap: wrap;
+  }
+
+  .account-requests-hero-button {
+    flex: 1 1 calc(50% - 6px);
+    min-width: 0;
+    justify-content: center;
+  }
+}
+
 @media (max-width: 1200px) {
   .account-requests-premium-hero {
     grid-template-columns: 220px minmax(0, 1fr);

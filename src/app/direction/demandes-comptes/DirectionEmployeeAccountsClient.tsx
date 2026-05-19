@@ -37,6 +37,7 @@ import AccountRequestManageModal, {
   type AccountSecurityAction,
   type ManageIdentityPayload,
 } from "./AccountRequestManageModal";
+import AccountRequestMobileCard from "./AccountRequestMobileCard";
 import AccountRequestRowActions from "./AccountRequestRowActions";
 import EmployeeLinkStatusBadge from "./EmployeeLinkStatusBadge";
 
@@ -681,7 +682,8 @@ export default function DirectionEmployeeAccountsClient() {
               </p>
             </div>
           ) : (
-            <div className="account-requests-premium-table-wrap">
+            <>
+            <div className="account-requests-premium-table-wrap account-requests-premium-table-wrap--desktop">
               <table className="account-requests-premium-table">
                 <colgroup>
                   <col style={{ width: "20%" }} />
@@ -779,6 +781,21 @@ export default function DirectionEmployeeAccountsClient() {
                 </tbody>
               </table>
             </div>
+
+            <div className="account-requests-mobile-list" aria-label="Liste des demandes de comptes">
+              {sortedRequests.map((request) => (
+                <AccountRequestMobileCard
+                  key={request.id}
+                  request={request}
+                  onManage={() => setManagingRequestId(request.id)}
+                  onDelete={() => void deleteRequest(request)}
+                  deleting={deletingRequestId === request.id}
+                  canDelete={canManageRoles}
+                  canManage={canOpenManage}
+                />
+              ))}
+            </div>
+            </>
           )}
         </section>
       </div>

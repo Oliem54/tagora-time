@@ -11,6 +11,7 @@ export default function AccountRequestRowActions({
   deleting,
   canDelete,
   canManage,
+  layout = "table",
 }: {
   request: AccountAccessRequestRecord;
   onManage: () => void;
@@ -18,15 +19,17 @@ export default function AccountRequestRowActions({
   deleting?: boolean;
   canDelete?: boolean;
   canManage?: boolean;
+  layout?: "table" | "mobile";
 }) {
+  const isMobile = layout === "mobile";
+
   return (
     <div
-      style={{
-        display: "grid",
-        gap: 6,
-        justifyItems: "end",
-        alignItems: "center",
-      }}
+      className={
+        isMobile
+          ? "account-requests-mobile-actions"
+          : "account-requests-cell-actions"
+      }
     >
       {canManage ? (
         <button
@@ -41,14 +44,9 @@ export default function AccountRequestRowActions({
       {canDelete ? (
         <button
           type="button"
-          className="account-requests-action-button"
+          className="account-requests-action-button account-requests-action-button-danger"
           onClick={onDelete}
           disabled={Boolean(deleting)}
-          style={{
-            borderColor: "rgba(185, 28, 28, 0.3)",
-            color: "#b91c1c",
-            background: "rgba(254, 242, 242, 0.92)",
-          }}
         >
           <Trash2 size={13} strokeWidth={2} />
           {deleting ? "Suppression..." : "Supprimer"}
