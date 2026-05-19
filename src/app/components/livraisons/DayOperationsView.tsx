@@ -57,6 +57,8 @@ import DayRamassageMobileActions from "@/app/components/livraisons/day-delivery/
 import DayRamassageMobileSelectHint from "@/app/components/livraisons/day-delivery/DayRamassageMobileSelectHint";
 import DayRamassageMobileStats from "@/app/components/livraisons/day-delivery/DayRamassageMobileStats";
 import DayRamassageMobileFieldPanel from "@/app/components/livraisons/day-delivery/DayRamassageMobileFieldPanel";
+import DayLivraisonMobileFieldPanel from "@/app/components/livraisons/day-delivery/DayLivraisonMobileFieldPanel";
+import { moduleSourceForOperationType } from "@/app/lib/livraisons/mobile-field-capture.shared";
 import StopSignatureQuickCapture from "@/app/components/livraisons/day-delivery/StopSignatureQuickCapture";
 import StopVoiceQuickCapture from "@/app/components/livraisons/day-delivery/StopVoiceQuickCapture";
 import StopPhotoQuickCapture from "@/app/components/livraisons/day-delivery/StopPhotoQuickCapture";
@@ -1406,6 +1408,14 @@ export default function DayOperationsView({ area, operationMode = "livraison" }:
     [closeMobileFieldCaptures]
   );
 
+  const selectLivraisonStopThenCapture = useCallback(
+    (stopId: number, target: Parameters<typeof openMobileFieldCapture>[0]) => {
+      if (selectedId !== stopId) setSelectedId(stopId);
+      openMobileFieldCapture(target);
+    },
+    [openMobileFieldCapture, selectedId]
+  );
+
   const mobileFieldChromeLocked =
     showLivraisonMobileFieldDock ||
     showRamassageMobileFieldDock ||
@@ -2134,11 +2144,12 @@ export default function DayOperationsView({ area, operationMode = "livraison" }:
     description?: string
   ): Promise<{ ok: boolean; message?: string }> {
     if (!selected || !canEditStopDetails) {
-      const msg = "Selectionnez un ramassage pour signaler un probleme.";
+      const msg = "Selectionnez une operation pour signaler un probleme.";
       setStopFormMessage(msg);
       return { ok: false, message: msg };
     }
-    if (!description && !window.confirm("Signaler un probleme sur ce ramassage ?")) {
+    const operationLabel = selected.type === "ramassage" ? "ce ramassage" : "cette livraison";
+    if (!description && !window.confirm(`Signaler un probleme sur ${operationLabel} ?`)) {
       return { ok: false };
     }
     const actionKey = `probleme:${selected.id}`;
@@ -2163,7 +2174,11 @@ export default function DayOperationsView({ area, operationMode = "livraison" }:
       setRows((current) =>
         current.map((row) => (Number(row.id) === selected.id ? { ...row, ...data.updated_row } : row))
       );
-      setStopFormMessage("Ramassage marque en probleme.");
+      setStopFormMessage(
+        selected.type === "ramassage"
+          ? "Ramassage marque en probleme."
+          : "Livraison marquee en probleme."
+      );
       return { ok: true };
     } finally {
       setQuickActionLoading(null);
@@ -2900,6 +2915,47 @@ export default function DayOperationsView({ area, operationMode = "livraison" }:
                   {showDetail ? "Masquer" : "Afficher"}
                 </button>
               </div>
+
+              {isLivraisonMobileMode && selected.type === "livraison" ? (
+                <DayLivraisonMobileFieldPanel
+                  clientLabel={selected.client}
+                  statusLabel={selected.statusText}
+                  statusTone={selected.statusTone}
+                  addressLabel={
+                    selected.fullAddress || selected.address || "Adresse non renseignee"
+                  }
+                  etaLabel={selectedEtaLabel}
+                  phone={getStopPhone(selected.row)}
+                  mapsUrl={buildMapsUrlForStop(selected, geoById[selected.id] ?? null)}
+                  trackingUrl={buildTrackingUrlFromRow(selected.row)}
+                  canEnRoute={canEnRouteSelected}
+                  canDeliver={canCompleteSelectedStop}
+                  deliverDisabledReason={deliverDisabledReason}
+                  enRouteLoading={quickActionLoading === `en-route:${selected.id}`}
+                  deliverLoading={quickActionLoading === `completer:${selected.id}`}
+                  problemLoading={quickActionLoading === `probleme:${selected.id}`}
+                  onEnRoute={() => void handleEnRouteForStop(selected.id)}
+                  onCall={() => {
+                    const phone = getStopPhone(selected.row);
+                    if (!phone) return;
+                    window.location.href = `tel:${phone.replace(/\s+/g, "")}`;
+                  }}
+                  onMaps={() => {
+                    const mapsUrl = buildMapsUrlForStop(selected, geoById[selected.id] ?? null);
+                    if (!mapsUrl) return;
+                    window.open(mapsUrl, "_blank", "noopener,noreferrer");
+                  }}
+                  onSignature={() => openMobileFieldCapture("signature")}
+                  onVoice={() => openMobileFieldCapture("voice")}
+                  onScrollProofs={() => openMobileFieldCapture("photo")}
+                  onDeliver={() => void runQuickStopAction("completer")}
+                  onNote={() => openMobileFieldCapture("note")}
+                  onProblem={() => openMobileFieldCapture("problem")}
+                  onBackToList={() => {
+                    mobileOpsShellRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+                  }}
+                />
+              ) : null}
 
               {isRamassageMobileMode && ramassageSelectedStop ? (
                 <DayRamassageMobileFieldPanel
@@ -3847,26 +3903,23 @@ export default function DayOperationsView({ area, operationMode = "livraison" }:
             if (!mapsUrl) return;
             window.open(mapsUrl, "_blank", "noopener,noreferrer");
           }}
-          onSignature={() => {
-            if (selectedId !== livraisonTerrainStop.id) setSelectedId(livraisonTerrainStop.id);
-            openMobileFieldCapture("signature");
-          }}
-          onVoice={() => {
-            if (selectedId !== livraisonTerrainStop.id) setSelectedId(livraisonTerrainStop.id);
-            openMobileFieldCapture("voice");
-          }}
+          onSignature={() => selectLivraisonStopThenCapture(livraisonTerrainStop.id, "signature")}
+          onVoice={() => selectLivraisonStopThenCapture(livraisonTerrainStop.id, "voice")}
+          onScrollProofs={() => selectLivraisonStopThenCapture(livraisonTerrainStop.id, "photo")}
+          onNote={() => selectLivraisonStopThenCapture(livraisonTerrainStop.id, "note")}
+          onProblem={() => selectLivraisonStopThenCapture(livraisonTerrainStop.id, "problem")}
+          problemLoading={quickActionLoading === `probleme:${livraisonTerrainStop.id}`}
           onDeliver={() => {
             if (selectedId !== livraisonTerrainStop.id) setSelectedId(livraisonTerrainStop.id);
             void runQuickStopAction("completer");
-          }}
-          onScrollProofs={() => {
-            if (selectedId !== livraisonTerrainStop.id) setSelectedId(livraisonTerrainStop.id);
-            openMobileFieldCapture("photo");
           }}
           onSelectStop={() => {
             setSelectedId(livraisonTerrainStop.id);
             setShowDetail(true);
             stopEditFormAnchorRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+          }}
+          onBackToList={() => {
+            mobileOpsShellRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
           }}
         />
           ) : (
@@ -3953,11 +4006,11 @@ export default function DayOperationsView({ area, operationMode = "livraison" }:
             open={mobileSignatureOpen}
             onClose={() => setMobileSignatureOpen(false)}
             sourceId={selected.id}
-            moduleSource={selected.type === "ramassage" ? "ramassage" : "livraison"}
+            moduleSource={moduleSourceForOperationType(selected.type)}
             clientLabel={selected.client}
             onSaved={() => {
               void refreshSelectedStopProofs();
-              setStopFormMessage("Signature client enregistree.");
+              setStopFormMessage("Signature enregistree.");
               setMobileSignatureOpen(false);
             }}
           />
@@ -3965,7 +4018,7 @@ export default function DayOperationsView({ area, operationMode = "livraison" }:
             open={mobileVoiceOpen}
             onClose={() => setMobileVoiceOpen(false)}
             sourceId={selected.id}
-            moduleSource={selected.type === "ramassage" ? "ramassage" : "livraison"}
+            moduleSource={moduleSourceForOperationType(selected.type)}
             clientLabel={selected.client}
             onSaved={() => {
               void refreshSelectedStopProofs();
@@ -3977,7 +4030,7 @@ export default function DayOperationsView({ area, operationMode = "livraison" }:
             open={mobilePhotoOpen}
             onClose={() => setMobilePhotoOpen(false)}
             sourceId={selected.id}
-            moduleSource={selected.type === "ramassage" ? "ramassage" : "livraison"}
+            moduleSource={moduleSourceForOperationType(selected.type)}
             clientLabel={selected.client}
             onSaved={() => {
               void refreshSelectedStopProofs();
@@ -3989,7 +4042,7 @@ export default function DayOperationsView({ area, operationMode = "livraison" }:
             open={mobileNoteOpen}
             onClose={() => setMobileNoteOpen(false)}
             sourceId={selected.id}
-            moduleSource={selected.type === "ramassage" ? "ramassage" : "livraison"}
+            moduleSource={moduleSourceForOperationType(selected.type)}
             clientLabel={selected.client}
             onSaved={() => {
               void refreshSelectedStopProofs();
@@ -4001,13 +4054,17 @@ export default function DayOperationsView({ area, operationMode = "livraison" }:
             open={mobileProblemOpen}
             onClose={() => setMobileProblemOpen(false)}
             sourceId={selected.id}
-            moduleSource={selected.type === "ramassage" ? "ramassage" : "livraison"}
+            moduleSource={moduleSourceForOperationType(selected.type)}
             clientLabel={selected.client}
             onConfirm={async (description) => {
               const result = await markSelectedAsProblem(description);
               if (result.ok) {
                 void refreshSelectedStopProofs();
-                setStopFormMessage("Probleme signale sur ce ramassage.");
+                setStopFormMessage(
+                  selected.type === "ramassage"
+                    ? "Probleme signale sur ce ramassage."
+                    : "Probleme signale sur cette livraison."
+                );
               }
               return result;
             }}
