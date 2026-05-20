@@ -2296,6 +2296,28 @@ select {
   line-height: 1.5;
 }
 
+.employee-portal-access-save-row {
+  margin-top: 4px;
+}
+
+.employee-portal-access-save-btn {
+  min-height: 44px;
+}
+
+@media (max-width: 640px) {
+  .employee-portal-access-section .employee-portal-access-save-btn {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .employee-portal-access-section .account-requests-permission-option input[type="checkbox"] {
+    width: 22px;
+    height: 22px;
+    min-width: 22px;
+    min-height: 22px;
+  }
+}
+
 .account-requests-form-section {
   display: grid;
   gap: 12px;

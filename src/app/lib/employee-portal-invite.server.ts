@@ -248,6 +248,57 @@ export function getRestorablePermissionsForPortal(user: User | null | undefined)
   return Array.from(new Set(disabledPermissions));
 }
 
+/** Rôle portail brut (inclut manager) pour la fiche employé — distinct de getUserRole. */
+export function readRawPortalInviteRole(user: User | null | undefined): PortalInviteRole {
+  const readActive = (slot: unknown): PortalInviteRole | null => {
+    if (typeof slot !== "string") {
+      return null;
+    }
+    const normalized = slot.trim().toLowerCase();
+    if (
+      normalized === "employe" ||
+      normalized === "employee" ||
+      normalized === "chauffeur"
+    ) {
+      return "employe";
+    }
+    if (
+      normalized === "direction" ||
+      normalized === "manager" ||
+      normalized === "admin"
+    ) {
+      return normalized as PortalInviteRole;
+    }
+    return null;
+  };
+
+  const active =
+    readActive(user?.app_metadata?.role) ?? readActive(user?.user_metadata?.role);
+  if (active) {
+    return active;
+  }
+
+  const readDisabled = (slot: unknown): PortalInviteRole | null => {
+    if (typeof slot !== "string") {
+      return null;
+    }
+    const normalized = slot.trim().toLowerCase();
+    if (normalized === "employe" || normalized === "employee" || normalized === "chauffeur") {
+      return "employe";
+    }
+    if (normalized === "direction" || normalized === "manager" || normalized === "admin") {
+      return normalized as PortalInviteRole;
+    }
+    return null;
+  };
+
+  return (
+    readDisabled(user?.app_metadata?.disabled_role) ??
+    readDisabled(user?.user_metadata?.disabled_role) ??
+    "employe"
+  );
+}
+
 export function buildDisabledPortalMetadata(
   metadata: unknown,
   user: User,
