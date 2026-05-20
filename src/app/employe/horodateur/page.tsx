@@ -198,6 +198,51 @@ function buildRequestedOccurredAtIso(templateIso: string, timeHHMM: string) {
   return `${year}-${month}-${day}T${hours}:${minutes}:00${offset}`;
 }
 
+function buildOccurredAtMinutesAgo(templateIso: string, minutesAgo: number) {
+  const target = new Date(Date.now() - minutesAgo * 60_000);
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Toronto",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(target);
+  const year = parts.find((part) => part.type === "year")?.value;
+  const month = parts.find((part) => part.type === "month")?.value;
+  const day = parts.find((part) => part.type === "day")?.value;
+  const hour = parts.find((part) => part.type === "hour")?.value;
+  const minute = parts.find((part) => part.type === "minute")?.value;
+  if (!year || !month || !day || !hour || !minute) {
+    return { iso: null as string | null, timeHHMM: null as string | null };
+  }
+  const offset = templateIso.match(/([+-]\d{2}:\d{2})$/)?.[1] ?? "-04:00";
+  const timeHHMM = `${hour.padStart(2, "0")}:${minute}`;
+  return {
+    iso: `${year}-${month}-${day}T${timeHHMM}:00${offset}`,
+    timeHHMM,
+  };
+}
+
+function readCurrentGpsCoords(): Promise<{ latitude: number; longitude: number } | null> {
+  return new Promise((resolve) => {
+    if (typeof navigator === "undefined" || !navigator.geolocation) {
+      resolve(null);
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      (pos) =>
+        resolve({
+          latitude: pos.coords.latitude,
+          longitude: pos.coords.longitude,
+        }),
+      () => resolve(null),
+      { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 }
+    );
+  });
+}
+
 function normalizeSnapshotPayload(payload: unknown): EmployeeSnapshot | null {
   const raw = payload && typeof payload === "object" ? (payload as Record<string, unknown>) : null;
   const source =
@@ -542,6 +587,8 @@ export default function EmployeHorodateurPage() {
 
   const latenessContext = snapshot?.latenessContext ?? null;
 
+  const canStartShiftPunch = latenessContext?.canPunchNow === true;
+
   async function handlePunch(
     eventType: string,
     options?: {
@@ -549,6 +596,7 @@ export default function EmployeHorodateurPage() {
       retroactive?: boolean;
       occurredAt?: string;
       noteOverride?: string;
+      requireGps?: boolean;
     }
   ) {
     const {
@@ -563,6 +611,20 @@ export default function EmployeHorodateurPage() {
     setMessage("");
 
     try {
+      let latitude: number | undefined;
+      let longitude: number | undefined;
+
+      if (options?.requireGps) {
+        const coords = await readCurrentGpsCoords();
+        if (!coords) {
+          throw new Error(
+            "Vous devez être dans la zone autorisée pour puncher. Autorisez la géolocalisation et réessayez."
+          );
+        }
+        latitude = coords.latitude;
+        longitude = coords.longitude;
+      }
+
       const response = await fetch("/api/horodateur/punch", {
         method: "POST",
         headers: {
@@ -576,6 +638,8 @@ export default function EmployeHorodateurPage() {
           note: (options?.noteOverride ?? note).trim() || null,
           companyContext: snapshot?.employee.primaryCompany ?? null,
           acknowledgeLongLeavePunch: options?.acknowledgeLongLeave === true,
+          latitude,
+          longitude,
         }),
       });
 
@@ -600,7 +664,7 @@ export default function EmployeHorodateurPage() {
       setNote("");
       setMessage(
         options?.retroactive
-          ? "Demande envoyee a la direction pour approbation."
+          ? "Demande envoyée à la direction pour approbation."
           : payload.exception
             ? "Pointage enregistre avec exception en attente d approbation."
             : "Pointage enregistre."
@@ -618,7 +682,7 @@ export default function EmployeHorodateurPage() {
   }
 
   async function handleLatePunchNow() {
-    await handlePunch("punch_in");
+    await handlePunch("punch_in", { requireGps: true });
   }
 
   async function handleRetroactiveRequest() {
@@ -645,7 +709,20 @@ export default function EmployeHorodateurPage() {
       retroactive: true,
       occurredAt,
       noteOverride: reason,
+      requireGps: true,
     });
+  }
+
+  function applyRetroactiveShortcut(minutesAgo: number) {
+    const template =
+      latenessContext?.scheduledStartAt ?? latenessContext?.currentAt ?? null;
+    if (!template) {
+      return;
+    }
+    const built = buildOccurredAtMinutesAgo(template, minutesAgo);
+    if (built.timeHHMM) {
+      setRetroactiveTime(built.timeHHMM);
+    }
   }
 
   if (accessLoading || loading) {
@@ -749,6 +826,46 @@ export default function EmployeHorodateurPage() {
         </div>
       </section>
 
+      {canStartShiftPunch ? (
+        <section className="tagora-panel" style={{ marginTop: 24 }}>
+          <h2 className="section-title" style={{ marginBottom: 8 }}>
+            Debut de quart
+          </h2>
+          <p className="tagora-note" style={{ marginTop: 0, marginBottom: 16 }}>
+            Pointez a l heure reelle ou demandez une correction si vous avez commence plus tot.
+            La geolocalisation est requise pour valider votre presence sur site.
+          </p>
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <button
+              type="button"
+              className="tagora-dark-action"
+              style={{ width: "100%", minHeight: 52, fontSize: 17, fontWeight: 700 }}
+              disabled={saving}
+              onClick={() => void handleLatePunchNow()}
+            >
+              Puncher maintenant
+            </button>
+            <button
+              type="button"
+              className="tagora-dark-outline-action"
+              style={{ width: "100%", minHeight: 52, fontSize: 16 }}
+              disabled={saving}
+              onClick={() => {
+                if (
+                  latenessContext?.scheduledStartLabel &&
+                  /^\d{1,2}:\d{2}$/.test(latenessContext.scheduledStartLabel.slice(0, 5))
+                ) {
+                  setRetroactiveTime(latenessContext.scheduledStartLabel.slice(0, 5));
+                }
+                setRetroactiveModalOpen(true);
+              }}
+            >
+              Demander correction retroactive
+            </button>
+          </div>
+        </section>
+      ) : null}
+
       {latenessContext?.showLateStartCard ? (
         <section
           className="tagora-panel"
@@ -770,7 +887,6 @@ export default function EmployeHorodateurPage() {
               display: "grid",
               gap: 12,
               gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
-              marginBottom: 16,
             }}
           >
             <div className="tagora-panel-muted" style={{ padding: 14 }}>
@@ -792,44 +908,6 @@ export default function EmployeHorodateurPage() {
                   {formatMinutes(latenessContext.lateMinutes)}
                 </div>
               </div>
-            ) : null}
-          </div>
-          <div
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              gap: 12,
-            }}
-          >
-            {latenessContext.canPunchNow ? (
-              <button
-                type="button"
-                className="tagora-dark-action"
-                style={{ width: "100%", minHeight: 48, fontSize: 16 }}
-                disabled={saving}
-                onClick={() => void handleLatePunchNow()}
-              >
-                Puncher maintenant
-              </button>
-            ) : null}
-            {latenessContext.canRequestRetroactiveCorrection ? (
-              <button
-                type="button"
-                className="tagora-dark-outline-action"
-                style={{ width: "100%", minHeight: 48, fontSize: 16 }}
-                disabled={saving}
-                onClick={() => {
-                  if (
-                    latenessContext.scheduledStartLabel &&
-                    /^\d{1,2}:\d{2}$/.test(latenessContext.scheduledStartLabel.slice(0, 5))
-                  ) {
-                    setRetroactiveTime(latenessContext.scheduledStartLabel.slice(0, 5));
-                  }
-                  setRetroactiveModalOpen(true);
-                }}
-              >
-                Demander une correction retroactive
-              </button>
             ) : null}
           </div>
           <p className="tagora-note" style={{ marginTop: 12, marginBottom: 0 }}>
@@ -876,11 +954,64 @@ export default function EmployeHorodateurPage() {
               Demande de correction retroactive
             </h2>
             <p className="tagora-note" style={{ marginTop: 0, marginBottom: 16 }}>
-              Indique l heure a laquelle tu aurais du pointer. La direction devra approuver avant
-              comptabilisation.
+              Indiquez l heure a laquelle vous avez reellement commence. La direction devra approuver
+              avant comptabilisation. Votre position actuelle sera enregistree (meme hors zone GPS)
+              pour que la direction puisse decider.
             </p>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+                gap: 8,
+                marginBottom: 16,
+              }}
+            >
+              <button
+                type="button"
+                className="tagora-dark-outline-action"
+                style={{ minHeight: 44, fontSize: 14 }}
+                disabled={saving}
+                onClick={() => applyRetroactiveShortcut(15)}
+              >
+                Il y a 15 minutes
+              </button>
+              <button
+                type="button"
+                className="tagora-dark-outline-action"
+                style={{ minHeight: 44, fontSize: 14 }}
+                disabled={saving}
+                onClick={() => applyRetroactiveShortcut(30)}
+              >
+                Il y a 30 minutes
+              </button>
+              <button
+                type="button"
+                className="tagora-dark-outline-action"
+                style={{ minHeight: 44, fontSize: 14 }}
+                disabled={saving}
+                onClick={() => applyRetroactiveShortcut(60)}
+              >
+                Il y a 1 heure
+              </button>
+              <button
+                type="button"
+                className="tagora-dark-outline-action"
+                style={{ minHeight: 44, fontSize: 14 }}
+                disabled={saving}
+                onClick={() => {
+                  if (
+                    latenessContext?.scheduledStartLabel &&
+                    /^\d{1,2}:\d{2}$/.test(latenessContext.scheduledStartLabel.slice(0, 5))
+                  ) {
+                    setRetroactiveTime(latenessContext.scheduledStartLabel.slice(0, 5));
+                  }
+                }}
+              >
+                Heure prevue du jour
+              </button>
+            </div>
             <label className="tagora-field" style={{ marginBottom: 16 }}>
-              <span className="tagora-label">Heure demandee</span>
+              <span className="tagora-label">Heure reellement commencée</span>
               <input
                 className="tagora-input"
                 type="time"
@@ -907,7 +1038,7 @@ export default function EmployeHorodateurPage() {
                 disabled={saving}
                 onClick={() => void handleRetroactiveRequest()}
               >
-                Envoyer la demande
+                Envoyer à la direction
               </button>
               <button
                 type="button"

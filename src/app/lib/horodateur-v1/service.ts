@@ -1203,8 +1203,21 @@ export function buildEmployeeLatenessContext(options: {
     showLateStartCard: false,
   };
 
+  const horsQuartEarly = resolveInitialCurrentState(options.currentState) === "hors_quart";
+  const shiftStartedEarly = hasStartedShiftToday(
+    options.eventsToday,
+    options.currentState
+  );
+  const pendingStartEarly = hasPendingShiftStartException(options.pendingExceptions);
+  const canStartWithoutSchedule =
+    horsQuartEarly && !shiftStartedEarly && !pendingStartEarly;
+
   if (!options.employee.scheduleStart?.trim()) {
-    return empty;
+    return {
+      ...empty,
+      canPunchNow: canStartWithoutSchedule,
+      canRequestRetroactiveCorrection: canStartWithoutSchedule,
+    };
   }
 
   if (!isValidScheduledWorkDayForEmployee(options.employee, nowIso)) {
@@ -1250,11 +1263,8 @@ export function buildEmployeeLatenessContext(options: {
   const horsQuart = resolveInitialCurrentState(options.currentState) === "hors_quart";
   const pendingStartException = hasPendingShiftStartException(options.pendingExceptions);
 
-  const canActOnLateStart =
-    isLate && horsQuart && !shiftAlreadyStarted && !pendingStartException;
-
-  const canPunchNow = canActOnLateStart;
-  const canRequestRetroactiveCorrection = canActOnLateStart;
+  const canStartShiftActions =
+    horsQuart && !shiftAlreadyStarted && !pendingStartException;
 
   return {
     workDate,
@@ -1265,9 +1275,9 @@ export function buildEmployeeLatenessContext(options: {
     currentAt: nowIso,
     currentLabel: formatLocalTimeLabel(now),
     isWithinScheduleWindow,
-    canPunchNow,
-    canRequestRetroactiveCorrection,
-    showLateStartCard: canActOnLateStart,
+    canPunchNow: canStartShiftActions,
+    canRequestRetroactiveCorrection: canStartShiftActions,
+    showLateStartCard: isLate && canStartShiftActions,
   };
 }
 
@@ -2263,6 +2273,13 @@ export async function createEmployeePunch(options: {
     workCompanyKey: string | null;
     employerCompanyKey: string | null;
   };
+  /** Position web horodateur (bases GPS entreprise). */
+  webGps?: {
+    latitude: number;
+    longitude: number;
+    zoneValidated: boolean;
+    matchedBaseName: string | null;
+  };
 }) : Promise<HorodateurPhase1CreatePunchResult> {
   const occurredAt = options.occurredAt ?? new Date().toISOString();
   const canonicalType = toCanonicalEventType(options.eventType);
@@ -2319,6 +2336,7 @@ export async function createEmployeePunch(options: {
 
   const sourceKind = options.sourceKind ?? "employe";
   const pt = options.punchTrace;
+  const wg = options.webGps;
 
   const event = await insertHorodateurEvent({
     userId: requireEmployeeAuthUserId(employee),
@@ -2348,7 +2366,17 @@ export async function createEmployeePunch(options: {
           workCompanyKey: pt.workCompanyKey,
           employerCompanyKey: pt.employerCompanyKey,
         }
-      : {}),
+      : wg
+        ? {
+            punchSource: "employe_web",
+            punchZoneKey: wg.matchedBaseName,
+            zoneValidated: wg.zoneValidated,
+            gpsLatitude: wg.latitude,
+            gpsLongitude: wg.longitude,
+            workCompanyKey: companyContext,
+            employerCompanyKey: employee.primaryCompany,
+          }
+        : {}),
   });
 
   let exception: HorodateurPhase1ExceptionRecord | null = null;
