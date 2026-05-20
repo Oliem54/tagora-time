@@ -37,6 +37,7 @@ export async function GET(req: NextRequest) {
       shift: snapshot.todayShift,
       weeklyProjection: snapshot.weeklyProjection,
       pendingExceptions: snapshot.pendingExceptions,
+      latenessContext: snapshot.latenessContext,
       longLeave,
     });
   } catch (error) {

@@ -55,6 +55,21 @@ type EmployeeSnapshot = {
     impact_minutes: number;
     status: string;
   }>;
+  latenessContext?: LatenessContext | null;
+};
+
+type LatenessContext = {
+  workDate: string;
+  isLate: boolean;
+  lateMinutes: number;
+  scheduledStartAt: string | null;
+  scheduledStartLabel: string | null;
+  currentAt: string;
+  currentLabel: string;
+  isWithinScheduleWindow: boolean;
+  canPunchNow: boolean;
+  canRequestRetroactiveCorrection: boolean;
+  showLateStartCard: boolean;
 };
 
 type HistoryPayload = {
@@ -124,6 +139,63 @@ function resolveOccurredAt(event: {
 
 function resolveNotes(event: { notes?: string | null; note?: string | null }) {
   return event.notes ?? event.note ?? null;
+}
+
+function normalizeLatenessContext(raw: unknown): LatenessContext | null {
+  if (!raw || typeof raw !== "object") {
+    return null;
+  }
+  const source = raw as Record<string, unknown>;
+  return {
+    workDate: typeof source.workDate === "string" ? source.workDate : "",
+    isLate: Boolean(source.isLate),
+    lateMinutes:
+      typeof source.lateMinutes === "number" && Number.isFinite(source.lateMinutes)
+        ? source.lateMinutes
+        : 0,
+    scheduledStartAt:
+      typeof source.scheduledStartAt === "string" ? source.scheduledStartAt : null,
+    scheduledStartLabel:
+      typeof source.scheduledStartLabel === "string" ? source.scheduledStartLabel : null,
+    currentAt: typeof source.currentAt === "string" ? source.currentAt : "",
+    currentLabel: typeof source.currentLabel === "string" ? source.currentLabel : "",
+    isWithinScheduleWindow: Boolean(source.isWithinScheduleWindow),
+    canPunchNow: Boolean(source.canPunchNow),
+    canRequestRetroactiveCorrection: Boolean(source.canRequestRetroactiveCorrection),
+    showLateStartCard: Boolean(source.showLateStartCard),
+  };
+}
+
+function buildRequestedOccurredAtIso(templateIso: string, timeHHMM: string) {
+  const match = timeHHMM.trim().match(/^(\d{1,2}):(\d{2})$/);
+  if (!match) {
+    return null;
+  }
+
+  const template = new Date(templateIso);
+  if (!Number.isFinite(template.getTime())) {
+    return null;
+  }
+
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Toronto",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(template);
+  const year = parts.find((part) => part.type === "year")?.value;
+  const month = parts.find((part) => part.type === "month")?.value;
+  const day = parts.find((part) => part.type === "day")?.value;
+
+  if (!year || !month || !day) {
+    return null;
+  }
+
+  const hours = match[1].padStart(2, "0");
+  const minutes = match[2];
+  const offset = templateIso.match(/([+-]\d{2}:\d{2})$/)?.[1] ?? "-04:00";
+
+  return `${year}-${month}-${day}T${hours}:${minutes}:00${offset}`;
 }
 
 function normalizeSnapshotPayload(payload: unknown): EmployeeSnapshot | null {
@@ -286,6 +358,11 @@ function normalizeSnapshotPayload(payload: unknown): EmployeeSnapshot | null {
     pendingExceptions: Array.isArray(source.pendingExceptions)
       ? (source.pendingExceptions as EmployeeSnapshot["pendingExceptions"])
       : [],
+    latenessContext:
+      normalizeLatenessContext(source.latenessContext) ??
+      normalizeLatenessContext(
+        raw && typeof raw === "object" ? (raw as Record<string, unknown>).latenessContext : null
+      ),
   };
 }
 
@@ -305,6 +382,9 @@ export default function EmployeHorodateurPage() {
     startDate: string;
     returnSummary: string;
   } | null>(null);
+  const [retroactiveModalOpen, setRetroactiveModalOpen] = useState(false);
+  const [retroactiveTime, setRetroactiveTime] = useState("");
+  const [retroactiveReason, setRetroactiveReason] = useState("");
 
   const gpsReport = useEmployeeGpsReporting({
     enabled: Boolean(user && canUseTerrain && !accessLoading),
@@ -379,7 +459,26 @@ export default function EmployeHorodateurPage() {
         setLongLeaveBanner(null);
       }
 
-      setSnapshot(normalizeSnapshotPayload(snapshotPayload));
+      const normalized = normalizeSnapshotPayload(snapshotPayload);
+      const latenessFromPayload =
+        normalizeLatenessContext(
+          (snapshotPayload as { latenessContext?: unknown }).latenessContext
+        ) ??
+        normalized?.latenessContext ??
+        null;
+
+      if (latenessFromPayload?.scheduledStartLabel) {
+        const defaultTime = latenessFromPayload.scheduledStartLabel.slice(0, 5);
+        if (/^\d{1,2}:\d{2}$/.test(defaultTime)) {
+          setRetroactiveTime((current) => current || defaultTime);
+        }
+      }
+
+      setSnapshot(
+        normalized
+          ? { ...normalized, latenessContext: latenessFromPayload }
+          : null
+      );
       setHistory({
         workDate: historyPayload.workDate,
         events: Array.isArray(historyPayload.events) ? historyPayload.events : [],
@@ -441,7 +540,17 @@ export default function EmployeHorodateurPage() {
     };
   }, [canUseTerrain, loadData, user]);
 
-  async function handlePunch(eventType: string, options?: { acknowledgeLongLeave?: boolean }) {
+  const latenessContext = snapshot?.latenessContext ?? null;
+
+  async function handlePunch(
+    eventType: string,
+    options?: {
+      acknowledgeLongLeave?: boolean;
+      retroactive?: boolean;
+      occurredAt?: string;
+      noteOverride?: string;
+    }
+  ) {
     const {
       data: { session },
     } = await supabase.auth.getSession();
@@ -461,8 +570,10 @@ export default function EmployeHorodateurPage() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          eventType,
-          note: note.trim() || null,
+          eventType: options?.retroactive ? undefined : eventType,
+          retroactive: options?.retroactive === true ? true : undefined,
+          occurredAt: options?.occurredAt ?? undefined,
+          note: (options?.noteOverride ?? note).trim() || null,
           companyContext: snapshot?.employee.primaryCompany ?? null,
           acknowledgeLongLeavePunch: options?.acknowledgeLongLeave === true,
         }),
@@ -488,16 +599,53 @@ export default function EmployeHorodateurPage() {
 
       setNote("");
       setMessage(
-        payload.exception
-          ? "Pointage enregistre avec exception en attente d approbation."
-          : "Pointage enregistre."
+        options?.retroactive
+          ? "Demande envoyee a la direction pour approbation."
+          : payload.exception
+            ? "Pointage enregistre avec exception en attente d approbation."
+            : "Pointage enregistre."
       );
+      if (options?.retroactive) {
+        setRetroactiveModalOpen(false);
+        setRetroactiveReason("");
+      }
       await loadData({ preserveMessage: true });
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Erreur de pointage.");
     } finally {
       setSaving(false);
     }
+  }
+
+  async function handleLatePunchNow() {
+    await handlePunch("punch_in");
+  }
+
+  async function handleRetroactiveRequest() {
+    const reason = retroactiveReason.trim();
+    if (!reason) {
+      setMessage("La raison est obligatoire pour une demande de correction retroactive.");
+      return;
+    }
+
+    const template =
+      latenessContext?.scheduledStartAt ?? latenessContext?.currentAt ?? null;
+    if (!template) {
+      setMessage("Impossible de determiner la date de travail pour la demande.");
+      return;
+    }
+
+    const occurredAt = buildRequestedOccurredAtIso(template, retroactiveTime);
+    if (!occurredAt) {
+      setMessage("Heure demandee invalide (format HH:MM attendu).");
+      return;
+    }
+
+    await handlePunch("punch_in", {
+      retroactive: true,
+      occurredAt,
+      noteOverride: reason,
+    });
   }
 
   if (accessLoading || loading) {
@@ -600,6 +748,180 @@ export default function EmployeHorodateurPage() {
           </div>
         </div>
       </section>
+
+      {latenessContext?.showLateStartCard ? (
+        <section
+          className="tagora-panel"
+          style={{
+            marginTop: 24,
+            border: "1px solid rgba(245, 158, 11, 0.45)",
+            background:
+              "linear-gradient(180deg, rgba(255,251,235,0.98) 0%, rgba(255,255,255,0.98) 100%)",
+          }}
+        >
+          <h2 className="section-title" style={{ marginBottom: 8 }}>
+            Retard sur le punch prevu
+          </h2>
+          <p style={{ margin: "0 0 16px", lineHeight: 1.55, color: "#0f172a" }}>
+            Tu es en retard sur ton punch prevu.
+          </p>
+          <div
+            style={{
+              display: "grid",
+              gap: 12,
+              gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
+              marginBottom: 16,
+            }}
+          >
+            <div className="tagora-panel-muted" style={{ padding: 14 }}>
+              <div className="tagora-label">Heure prevue</div>
+              <div style={{ marginTop: 6, fontSize: 22, fontWeight: 800 }}>
+                {latenessContext.scheduledStartLabel ?? "—"}
+              </div>
+            </div>
+            <div className="tagora-panel-muted" style={{ padding: 14 }}>
+              <div className="tagora-label">Heure actuelle</div>
+              <div style={{ marginTop: 6, fontSize: 22, fontWeight: 800 }}>
+                {latenessContext.currentLabel}
+              </div>
+            </div>
+            {latenessContext.lateMinutes > 0 ? (
+              <div className="tagora-panel-muted" style={{ padding: 14 }}>
+                <div className="tagora-label">Retard</div>
+                <div style={{ marginTop: 6, fontSize: 22, fontWeight: 800 }}>
+                  {formatMinutes(latenessContext.lateMinutes)}
+                </div>
+              </div>
+            ) : null}
+          </div>
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              gap: 12,
+            }}
+          >
+            {latenessContext.canPunchNow ? (
+              <button
+                type="button"
+                className="tagora-dark-action"
+                style={{ width: "100%", minHeight: 48, fontSize: 16 }}
+                disabled={saving}
+                onClick={() => void handleLatePunchNow()}
+              >
+                Puncher maintenant
+              </button>
+            ) : null}
+            {latenessContext.canRequestRetroactiveCorrection ? (
+              <button
+                type="button"
+                className="tagora-dark-outline-action"
+                style={{ width: "100%", minHeight: 48, fontSize: 16 }}
+                disabled={saving}
+                onClick={() => {
+                  if (
+                    latenessContext.scheduledStartLabel &&
+                    /^\d{1,2}:\d{2}$/.test(latenessContext.scheduledStartLabel.slice(0, 5))
+                  ) {
+                    setRetroactiveTime(latenessContext.scheduledStartLabel.slice(0, 5));
+                  }
+                  setRetroactiveModalOpen(true);
+                }}
+              >
+                Demander une correction retroactive
+              </button>
+            ) : null}
+          </div>
+          <p className="tagora-note" style={{ marginTop: 12, marginBottom: 0 }}>
+            {latenessContext.isWithinScheduleWindow
+              ? "Toute demande ou pointage en retard sera soumis a la direction avant d etre comptabilise."
+              : "Tu es hors fenetre horaire : le pointage necessitera une validation direction."}
+          </p>
+        </section>
+      ) : null}
+
+      {retroactiveModalOpen ? (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="retroactive-modal-title"
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 50,
+            display: "flex",
+            alignItems: "flex-end",
+            justifyContent: "center",
+            padding: 16,
+            background: "rgba(15, 23, 42, 0.45)",
+          }}
+          onClick={() => {
+            if (!saving) {
+              setRetroactiveModalOpen(false);
+            }
+          }}
+        >
+          <div
+            className="tagora-panel"
+            style={{
+              width: "100%",
+              maxWidth: 480,
+              maxHeight: "90vh",
+              overflow: "auto",
+              marginBottom: 0,
+            }}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <h2 id="retroactive-modal-title" className="section-title" style={{ marginBottom: 12 }}>
+              Demande de correction retroactive
+            </h2>
+            <p className="tagora-note" style={{ marginTop: 0, marginBottom: 16 }}>
+              Indique l heure a laquelle tu aurais du pointer. La direction devra approuver avant
+              comptabilisation.
+            </p>
+            <label className="tagora-field" style={{ marginBottom: 16 }}>
+              <span className="tagora-label">Heure demandee</span>
+              <input
+                className="tagora-input"
+                type="time"
+                value={retroactiveTime}
+                onChange={(event) => setRetroactiveTime(event.target.value)}
+                style={{ minHeight: 48, fontSize: 16 }}
+              />
+            </label>
+            <label className="tagora-field" style={{ marginBottom: 16 }}>
+              <span className="tagora-label">Raison (obligatoire)</span>
+              <textarea
+                className="tagora-textarea"
+                value={retroactiveReason}
+                onChange={(event) => setRetroactiveReason(event.target.value)}
+                placeholder="Ex. embouteillage, rendez-vous client..."
+                rows={4}
+              />
+            </label>
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              <button
+                type="button"
+                className="tagora-dark-action"
+                style={{ width: "100%", minHeight: 48 }}
+                disabled={saving}
+                onClick={() => void handleRetroactiveRequest()}
+              >
+                Envoyer la demande
+              </button>
+              <button
+                type="button"
+                className="tagora-dark-outline-action"
+                style={{ width: "100%", minHeight: 44 }}
+                disabled={saving}
+                onClick={() => setRetroactiveModalOpen(false)}
+              >
+                Annuler
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       <section className="tagora-panel" style={{ marginTop: 24 }}>
         <h2 className="section-title" style={{ marginBottom: 12 }}>Pointage</h2>

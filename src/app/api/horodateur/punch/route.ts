@@ -43,6 +43,7 @@ export async function GET(req: NextRequest) {
       shift: snapshot.todayShift,
       weeklyProjection: snapshot.weeklyProjection,
       pendingExceptions: snapshot.pendingExceptions,
+      latenessContext: snapshot.latenessContext,
     });
   } catch (error) {
     return buildHorodateurErrorResponse(error, {
@@ -91,6 +92,24 @@ export async function POST(req: NextRequest) {
         code: occurredAtValidation.code,
         route: "/api/horodateur/punch",
       });
+    }
+
+    if (body.retroactive === true) {
+      const retroNote = normalizeNonEmptyString(body.note);
+      if (!retroNote) {
+        return buildHorodateurValidationErrorResponse({
+          error: "Une raison est obligatoire pour une demande de correction retroactive.",
+          code: "retroactive_note_required",
+          route: "/api/horodateur/punch",
+        });
+      }
+      if (!occurredAtValidation.value) {
+        return buildHorodateurValidationErrorResponse({
+          error: "L heure demandee est obligatoire pour une correction retroactive.",
+          code: "retroactive_occurred_at_required",
+          route: "/api/horodateur/punch",
+        });
+      }
     }
 
     const admin = createAdminSupabaseClient();
@@ -311,6 +330,7 @@ export async function POST(req: NextRequest) {
           shift: snapshot.todayShift,
           weeklyProjection: snapshot.weeklyProjection,
           pendingExceptions: snapshot.pendingExceptions,
+          latenessContext: snapshot.latenessContext,
         });
       } catch (punchErr) {
         await insertQrPunchAppAlert(admin, {
@@ -383,6 +403,7 @@ export async function POST(req: NextRequest) {
       shift: snapshot.todayShift,
       weeklyProjection: snapshot.weeklyProjection,
       pendingExceptions: snapshot.pendingExceptions,
+      latenessContext: snapshot.latenessContext,
     });
   } catch (error) {
     return buildHorodateurErrorResponse(error, {
