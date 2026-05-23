@@ -122,6 +122,8 @@ export default function JournalAlertCard({
     row.status === "handled" ||
     row.status === "snoozed";
   const isCritical = row.priority === "critical";
+  const isHorodateurExceptionOpen =
+    row.category === "horodateur_exception" && row.status === "open";
 
   return (
     <article
@@ -215,6 +217,28 @@ export default function JournalAlertCard({
               <dd>{view.recommendedAction}</dd>
             </dl>
           </div>
+
+          {isHorodateurExceptionOpen ? (
+            <div
+              role="note"
+              style={{
+                marginTop: 4,
+                padding: "12px 14px",
+                borderRadius: 10,
+                border: "1px solid #fde68a",
+                background: "#fffbeb",
+                fontSize: 13,
+                lineHeight: 1.5,
+                color: "#92400e",
+              }}
+            >
+              <strong style={{ display: "block", marginBottom: 4 }}>
+                Décision requise
+              </strong>
+              Approuver ou refuser dans Horodateur direction. Le bouton « Traité » marque
+              seulement l&apos;alerte comme lue — ce n&apos;est pas une approbation métier.
+            </div>
+          ) : null}
 
           {row.employeeId != null ? (
             <nav
@@ -321,7 +345,7 @@ export default function JournalAlertCard({
                 className="ui-button ui-button-primary"
                 style={{ fontSize: 13, padding: "9px 16px", borderRadius: 10 }}
               >
-                Ouvrir
+                {isHorodateurExceptionOpen ? "Ouvrir horodateur" : "Ouvrir"}
               </Link>
             ) : null}
             <button
@@ -330,6 +354,11 @@ export default function JournalAlertCard({
               style={{ fontSize: 13, padding: "9px 16px", borderRadius: 10, fontWeight: 600 }}
               disabled={busy || !canHandle}
               onClick={onMarkHandled}
+              title={
+                isHorodateurExceptionOpen
+                  ? "Marquer l'alerte comme lue — n'approuve ni ne refuse l'exception horodateur."
+                  : undefined
+              }
             >
               {busy ? "…" : "Traité"}
             </button>
