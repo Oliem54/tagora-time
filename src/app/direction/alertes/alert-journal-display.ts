@@ -320,6 +320,11 @@ function buildSummaryAndGuidance(
     probableCause = errLine.replace(/^erreur courriel\s*:\s*/i, "").trim();
   }
 
+  if (!recommendedAction && row.category === "horodateur_exception" && row.status === "open") {
+    recommendedAction =
+      "Décision requise : approuver ou refuser dans Horodateur direction. « Traité » ne valide pas la demande.";
+  }
+
   if (!recommendedAction && row.linkHref) {
     recommendedAction = "Ouvrir la fiche liée pour plus de contexte.";
   }

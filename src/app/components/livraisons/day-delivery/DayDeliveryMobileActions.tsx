@@ -9,15 +9,22 @@ type Props = {
   trackingUrl: string | null;
   canEnRoute: boolean;
   canDeliver?: boolean;
+  deliverLabel?: string;
+  deliverDisabledReason?: string | null;
   enRouteLoading: boolean;
   deliverLoading: boolean;
+  problemLoading?: boolean;
   onEnRoute: () => void;
   onCall: () => void;
   onMaps: () => void;
   onSignature: () => void;
-  onDeliver: () => void;
+  onVoice: () => void;
   onScrollProofs: () => void;
+  onDeliver: () => void;
   onSelectStop: () => void;
+  onNote?: () => void;
+  onProblem?: () => void;
+  onBackToList?: () => void;
 };
 
 export default function DayDeliveryMobileActions({
@@ -29,18 +36,28 @@ export default function DayDeliveryMobileActions({
   trackingUrl,
   canEnRoute,
   canDeliver = true,
+  deliverLabel = "Marquer livré",
+  deliverDisabledReason = null,
   enRouteLoading,
   deliverLoading,
+  problemLoading = false,
   onEnRoute,
   onCall,
   onMaps,
   onSignature,
-  onDeliver,
+  onVoice,
   onScrollProofs,
+  onDeliver,
   onSelectStop,
+  onNote,
+  onProblem,
+  onBackToList,
 }: Props) {
   return (
-    <aside className="day-delivery-mobile-bar" aria-label="Actions terrain livraison">
+    <aside
+      className="day-delivery-mobile-bar day-delivery-mobile-bar--premium"
+      aria-label="Actions terrain livraison"
+    >
       <div className="day-delivery-mobile-bar__summary">
         <button type="button" className="day-delivery-mobile-bar__summary-btn" onClick={onSelectStop}>
           <strong>{clientLabel}</strong>
@@ -62,7 +79,7 @@ export default function DayDeliveryMobileActions({
           </span>
         )}
       </div>
-      <div className="day-delivery-mobile-bar__grid">
+      <div className="day-delivery-mobile-bar__grid day-delivery-mobile-bar__grid--primary">
         <button
           type="button"
           className="day-delivery-mobile-bar__btn day-delivery-mobile-bar__btn--primary"
@@ -73,7 +90,7 @@ export default function DayDeliveryMobileActions({
         </button>
         <button
           type="button"
-          className="day-delivery-mobile-bar__btn"
+          className="day-delivery-mobile-bar__btn day-delivery-mobile-bar__btn--call"
           disabled={!phone}
           onClick={onCall}
         >
@@ -81,27 +98,62 @@ export default function DayDeliveryMobileActions({
         </button>
         <button
           type="button"
-          className="day-delivery-mobile-bar__btn"
+          className="day-delivery-mobile-bar__btn day-delivery-mobile-bar__btn--maps"
           disabled={!mapsUrl}
           onClick={onMaps}
         >
-          Maps
-        </button>
-        <button type="button" className="day-delivery-mobile-bar__btn" onClick={onSignature}>
-          Signature
-        </button>
-        <button type="button" className="day-delivery-mobile-bar__btn" onClick={onScrollProofs}>
-          Preuves
+          Itinéraire
         </button>
         <button
           type="button"
           className="day-delivery-mobile-bar__btn day-delivery-mobile-bar__btn--success"
           disabled={!canDeliver || deliverLoading}
+          title={!canDeliver && deliverDisabledReason ? deliverDisabledReason : undefined}
           onClick={onDeliver}
         >
-          {deliverLoading ? "..." : "Livre"}
+          {deliverLoading ? "..." : deliverLabel}
         </button>
       </div>
+      <div className="day-delivery-mobile-bar__grid day-delivery-mobile-bar__grid--secondary">
+        <button type="button" className="day-delivery-mobile-bar__btn" onClick={onSignature}>
+          Signature
+        </button>
+        <button type="button" className="day-delivery-mobile-bar__btn" onClick={onVoice}>
+          Note vocale
+        </button>
+        <button type="button" className="day-delivery-mobile-bar__btn" onClick={onScrollProofs}>
+          Preuve / photo
+        </button>
+        {onNote ? (
+          <button type="button" className="day-delivery-mobile-bar__btn" onClick={onNote}>
+            Note
+          </button>
+        ) : null}
+        {onProblem ? (
+          <button
+            type="button"
+            className="day-delivery-mobile-bar__btn day-delivery-mobile-bar__btn--danger"
+            disabled={problemLoading}
+            onClick={onProblem}
+          >
+            {problemLoading ? "..." : "Problème"}
+          </button>
+        ) : null}
+        {onBackToList ? (
+          <button
+            type="button"
+            className="day-delivery-mobile-bar__btn day-delivery-mobile-bar__btn--ghost"
+            onClick={onBackToList}
+          >
+            Retour liste
+          </button>
+        ) : null}
+      </div>
+      {!canDeliver && deliverDisabledReason ? (
+        <p className="day-delivery-mobile-bar__proof-hint" role="status">
+          {deliverDisabledReason}
+        </p>
+      ) : null}
     </aside>
   );
 }

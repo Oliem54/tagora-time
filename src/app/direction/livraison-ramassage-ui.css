@@ -133,11 +133,142 @@
   outline-offset: 2px;
 }
 
+.livraison-hub-layout {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.livraison-hub-layout__main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
 .livraison-toolbar-stack {
   margin-top: 14px;
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+
+.livraison-today-entry {
+  padding: 16px 18px;
+  border-radius: var(--livraison-radius-lg);
+  border: 1px solid rgba(205, 219, 238, 0.98);
+  background: linear-gradient(155deg, #ffffff 0%, #f3f8fe 48%, #e9f2fc 100%);
+  box-shadow:
+    0 10px 30px rgba(15, 41, 72, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.72);
+  display: grid;
+  gap: 12px;
+}
+
+.livraison-today-entry--ramassage {
+  background: linear-gradient(155deg, #ffffff 0%, #f4fbf8 48%, #e8f6f1 100%);
+}
+
+.livraison-today-entry--active {
+  border-color: #b9d2ef;
+  box-shadow:
+    0 14px 36px rgba(15, 41, 72, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.8);
+}
+
+.livraison-today-entry__head {
+  display: grid;
+  gap: 4px;
+}
+
+.livraison-today-entry__eyebrow {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--livraison-muted);
+}
+
+.livraison-today-entry__title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--livraison-navy);
+}
+
+.livraison-today-entry__date {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--livraison-slate);
+}
+
+.livraison-today-entry__count {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--livraison-navy);
+}
+
+.livraison-today-entry__count-short {
+  display: none;
+}
+
+.livraison-today-entry__count-suffix {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--livraison-muted);
+}
+
+.livraison-today-entry__empty {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--livraison-navy);
+}
+
+.livraison-today-entry__hint {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--livraison-muted);
+}
+
+.livraison-today-entry__cta {
+  min-height: 52px;
+  padding: 0 18px;
+  border-radius: 14px;
+  border: 1px solid #0a1f36;
+  background: linear-gradient(180deg, #1a3f66 0%, var(--livraison-navy) 100%);
+  color: #ffffff;
+  font-size: 15px;
+  font-weight: 800;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  box-shadow: 0 10px 24px rgba(15, 41, 72, 0.22);
+  transition:
+    filter 0.15s ease,
+    transform 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.livraison-today-entry__cta:hover {
+  filter: brightness(1.05);
+  transform: translateY(-1px);
+  box-shadow: 0 12px 28px rgba(15, 41, 72, 0.26);
+}
+
+.livraison-today-entry__cta:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 2px;
 }
 
 .livraison-segmented-bar {
@@ -618,6 +749,95 @@
   letter-spacing: 0.02em;
 }
 
+.livraison-cal-day-badge {
+  display: none;
+  width: 100%;
+  min-height: 36px;
+  margin-top: 2px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(15, 41, 72, 0.14);
+  background: linear-gradient(180deg, #1a3f66 0%, var(--livraison-navy) 100%);
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.2;
+  text-decoration: none;
+  text-align: center;
+  box-shadow: 0 4px 12px rgba(15, 41, 72, 0.18);
+}
+
+.livraison-cal-day-badge--ramassage {
+  background: linear-gradient(180deg, #0d7a5c 0%, #0b5f48 100%);
+  border-color: rgba(11, 95, 72, 0.35);
+}
+
+.livraison-cal-day-badge__short {
+  display: none;
+}
+
+.livraison-cal-day-badge:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 2px;
+}
+
+@media (max-width: 900px) {
+  .livraison-hub-layout__planning {
+    order: 20;
+    margin-top: 8px;
+  }
+
+  .livraison-hub-layout__main {
+    order: 1;
+  }
+
+  .livraison-today-entry__count-full {
+    display: none;
+  }
+
+  .livraison-today-entry__count-short {
+    display: inline;
+  }
+
+  .livraison-cal-cell {
+    min-height: 92px;
+    padding: 8px;
+  }
+
+  .livraison-cal-cell--empty {
+    min-height: 92px;
+  }
+
+  .livraison-cal-daynum {
+    font-size: 13px;
+    padding: 5px 11px;
+  }
+
+  .livraison-cal-day-badge {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .livraison-cal-day-badge__full {
+    display: none;
+  }
+
+  .livraison-cal-day-badge__short {
+    display: inline;
+  }
+
+  .livraison-cal-events--desktop {
+    display: none;
+  }
+}
+
+@media (min-width: 901px) {
+  .livraison-today-entry {
+    display: none;
+  }
+}
+
 .livraison-data-table {
   border-radius: var(--livraison-radius-md);
   overflow: hidden;
@@ -687,5 +907,65 @@
 
 .livraison-datetime-control__input::-moz-calendar-picker-indicator {
   opacity: 0;
+}
+
+/* Hub Ramassages — priorité mobile : indicateurs et liste avant paramètres alertes */
+@media (max-width: 768px), (max-width: 1024px) and (hover: none) and (pointer: coarse) {
+  .livraison-page--ramassage-hub {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .livraison-hub-zone--toolbar {
+    order: 1;
+  }
+
+  .livraison-hub-zone--metrics {
+    order: 2;
+  }
+
+  .livraison-hub-zone--main {
+    order: 3;
+  }
+
+  .livraison-hub-zone--overdue {
+    order: 4;
+  }
+
+  .livraison-hub-zone--alerts {
+    order: 20;
+    margin-top: 12px !important;
+  }
+
+  .livraison-metrics-panel__grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .livraison-metrics-panel__grid .section-card,
+  .livraison-metrics-panel__grid > * {
+    border-radius: 14px;
+    padding: 12px 14px;
+    border: 1px solid #dbe4f0;
+    box-shadow: 0 4px 14px rgba(15, 41, 72, 0.06);
+  }
+
+  .livraison-page--ramassage-field-mobile {
+    padding-bottom: calc(148px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .livraison-page--ramassage-field-mobile .livraison-hub-list-panel--mobile-field > header,
+  .livraison-page--ramassage-field-mobile .livraison-hub-list-panel--mobile-field > div:first-of-type,
+  .livraison-page--ramassage-field-mobile .livraison-hub-list-panel--mobile-field .ui-stack-sm {
+    display: none;
+  }
+
+  .livraison-page--ramassage-field-mobile .livraison-hub-list-panel--mobile-field {
+    padding-top: 0;
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+  }
 }
 

@@ -421,7 +421,7 @@ export default function DirectionDashboardClient() {
   }
 
   return (
-    <main className="tagora-app-shell">
+    <main className="tagora-app-shell tagora-dashboard-page tagora-dashboard-page--direction">
       <div className="tagora-app-content ui-stack-lg">
         <AuthenticatedPageHeader
           title="Tableau de bord direction"
@@ -429,6 +429,7 @@ export default function DirectionDashboardClient() {
           showNavigation={false}
           actions={
             <div
+              className="tagora-dashboard-header-actions"
               style={{
                 display: "flex",
                 gap: "var(--ui-space-3)",
@@ -455,6 +456,7 @@ export default function DirectionDashboardClient() {
               }}
             >
               <div
+                className="direction-dashboard-alert-summary"
                 style={{
                   display: "flex",
                   flexWrap: "wrap",
@@ -511,6 +513,7 @@ export default function DirectionDashboardClient() {
               subtitle={group.subtitle}
             >
               <div
+                className="tagora-dashboard-module-grid direction-dashboard-module-grid"
                 style={{
                   display: "grid",
                   gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
@@ -641,6 +644,7 @@ export default function DirectionDashboardClient() {
             >
               <AppCard className="ui-stack-md">
                 <div
+                  className="direction-dashboard-archive-toolbar"
                   style={{
                     display: "grid",
                     gridTemplateColumns: "minmax(220px, 1fr) auto auto",

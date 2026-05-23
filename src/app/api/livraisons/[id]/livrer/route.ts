@@ -9,6 +9,8 @@ import {
   buildPaymentConfirmationFields,
   normalizePaymentBalanceDue,
 } from "@/app/lib/livraisons/livraison-payment.server";
+import { assertReceptionProofsForCompletion } from "@/app/lib/livraisons/reception-proofs.server";
+import { moduleSourceFromTypeOperation } from "@/app/lib/livraisons/reception-proofs.shared";
 
 type LivraisonRow = {
   id: number;
@@ -153,6 +155,14 @@ export async function POST(
     });
     if (!paymentGate.ok) {
       return NextResponse.json({ error: paymentGate.message }, { status: paymentGate.httpStatus });
+    }
+
+    const proofCheck = await assertReceptionProofsForCompletion(supabase, {
+      moduleSource: moduleSourceFromTypeOperation(livraison.type_operation),
+      sourceId: livraisonId,
+    });
+    if (!proofCheck.ok) {
+      return NextResponse.json({ error: proofCheck.message }, { status: 409 });
     }
 
     const heureLivree = new Date().toISOString();

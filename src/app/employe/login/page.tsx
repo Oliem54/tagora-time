@@ -160,7 +160,7 @@ export default function LoginPage() {
   };
 
   return (
-    <main className="ui-auth-shell">
+    <main className="ui-auth-shell tagora-auth-page tagora-auth-page--employe">
       <div className="ui-auth-content">
         <PageHeader
           title="Connexion"

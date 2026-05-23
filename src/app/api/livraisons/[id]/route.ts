@@ -12,6 +12,11 @@ import {
   parsePaymentFromRow,
   stripPaymentDbColumns,
 } from "@/app/lib/livraisons/payment-embed";
+import { assertReceptionProofsForCompletion } from "@/app/lib/livraisons/reception-proofs.server";
+import {
+  isTransitionToCompletion,
+  moduleSourceFromTypeOperation,
+} from "@/app/lib/livraisons/reception-proofs.shared";
 
 // Champs autorises a etre mis a jour via cette API generique.
 // Note : les champs d'audit (created_by_*, scheduled_by_*) ne peuvent pas etre
@@ -209,6 +214,21 @@ export async function PATCH(
     });
     if (!gate.ok) {
       return NextResponse.json({ error: { message: gate.message } }, { status: gate.httpStatus });
+    }
+
+    const completionPatch = { ...payload, ...mergedPayment.merge };
+    const nextStatut =
+      completionPatch.statut !== undefined && completionPatch.statut !== null
+        ? String(completionPatch.statut)
+        : null;
+    if (isTransitionToCompletion(currentRow.statut, nextStatut)) {
+      const proofCheck = await assertReceptionProofsForCompletion(supabase, {
+        moduleSource: moduleSourceFromTypeOperation(currentRow.type_operation),
+        sourceId: livraisonId,
+      });
+      if (!proofCheck.ok) {
+        return NextResponse.json({ error: { message: proofCheck.message } }, { status: 409 });
+      }
     }
 
     const dbPatch = stripPaymentDbColumns(mergedPayment.merge);

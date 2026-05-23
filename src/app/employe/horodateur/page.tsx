@@ -4,6 +4,9 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import HeaderTagora from "@/app/components/HeaderTagora";
 import AccessNotice from "@/app/components/AccessNotice";
+import CorrectionRequestModal, {
+  type CorrectionRequestType,
+} from "@/app/components/horodateur/CorrectionRequestModal";
 import { useCurrentAccess } from "@/app/hooks/useCurrentAccess";
 import { useEmployeeGpsReporting } from "@/app/hooks/useEmployeeGpsReporting";
 import { supabase } from "@/app/lib/supabase/client";
@@ -55,6 +58,21 @@ type EmployeeSnapshot = {
     impact_minutes: number;
     status: string;
   }>;
+  latenessContext?: LatenessContext | null;
+};
+
+type LatenessContext = {
+  workDate: string;
+  isLate: boolean;
+  lateMinutes: number;
+  scheduledStartAt: string | null;
+  scheduledStartLabel: string | null;
+  currentAt: string;
+  currentLabel: string;
+  isWithinScheduleWindow: boolean;
+  canPunchNow: boolean;
+  canRequestRetroactiveCorrection: boolean;
+  showLateStartCard: boolean;
 };
 
 type HistoryPayload = {
@@ -80,14 +98,42 @@ type HistoryPayload = {
   }>;
 };
 
-const EMPLOYEE_ACTIONS = [
-  { eventType: "punch_in", label: "Entree" },
+const PRIMARY_PUNCH_ACTIONS = [
+  { eventType: "punch_in", label: "Entree maintenant" },
+  { eventType: "punch_out", label: "Sortie" },
+] as const;
+
+const SECONDARY_PUNCH_ACTIONS = [
   { eventType: "break_start", label: "Debut pause" },
   { eventType: "break_end", label: "Fin pause" },
   { eventType: "meal_start", label: "Debut diner" },
   { eventType: "meal_end", label: "Fin diner" },
-  { eventType: "punch_out", label: "Sortie" },
 ] as const;
+
+const punchPrimaryGridStyle: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
+  gap: 12,
+};
+
+const punchSecondaryGridStyle: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(148px, 1fr))",
+  gap: 10,
+};
+
+const punchActionButtonStyle: React.CSSProperties = {
+  width: "100%",
+  minHeight: 52,
+  fontSize: 16,
+  fontWeight: 600,
+};
+
+const punchPrimaryButtonStyle: React.CSSProperties = {
+  ...punchActionButtonStyle,
+  fontSize: 17,
+  fontWeight: 700,
+};
 
 function formatDateTime(value: string | null | undefined) {
   if (!value) return "-";
@@ -124,6 +170,125 @@ function resolveOccurredAt(event: {
 
 function resolveNotes(event: { notes?: string | null; note?: string | null }) {
   return event.notes ?? event.note ?? null;
+}
+
+function normalizeLatenessContext(raw: unknown): LatenessContext | null {
+  if (!raw || typeof raw !== "object") {
+    return null;
+  }
+  const source = raw as Record<string, unknown>;
+  return {
+    workDate: typeof source.workDate === "string" ? source.workDate : "",
+    isLate: Boolean(source.isLate),
+    lateMinutes:
+      typeof source.lateMinutes === "number" && Number.isFinite(source.lateMinutes)
+        ? source.lateMinutes
+        : 0,
+    scheduledStartAt:
+      typeof source.scheduledStartAt === "string" ? source.scheduledStartAt : null,
+    scheduledStartLabel:
+      typeof source.scheduledStartLabel === "string" ? source.scheduledStartLabel : null,
+    currentAt: typeof source.currentAt === "string" ? source.currentAt : "",
+    currentLabel: typeof source.currentLabel === "string" ? source.currentLabel : "",
+    isWithinScheduleWindow: Boolean(source.isWithinScheduleWindow),
+    canPunchNow: Boolean(source.canPunchNow),
+    canRequestRetroactiveCorrection: Boolean(source.canRequestRetroactiveCorrection),
+    showLateStartCard: Boolean(source.showLateStartCard),
+  };
+}
+
+function buildRequestedOccurredAtIso(templateIso: string, timeHHMM: string) {
+  const match = timeHHMM.trim().match(/^(\d{1,2}):(\d{2})$/);
+  if (!match) {
+    return null;
+  }
+
+  const template = new Date(templateIso);
+  if (!Number.isFinite(template.getTime())) {
+    return null;
+  }
+
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Toronto",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(template);
+  const year = parts.find((part) => part.type === "year")?.value;
+  const month = parts.find((part) => part.type === "month")?.value;
+  const day = parts.find((part) => part.type === "day")?.value;
+
+  if (!year || !month || !day) {
+    return null;
+  }
+
+  const hours = match[1].padStart(2, "0");
+  const minutes = match[2];
+  const offset = templateIso.match(/([+-]\d{2}:\d{2})$/)?.[1] ?? "-04:00";
+
+  return `${year}-${month}-${day}T${hours}:${minutes}:00${offset}`;
+}
+
+function resolveCorrectionTimeTemplate(
+  latenessContext: LatenessContext | null,
+  workDate: string | null | undefined
+): string | null {
+  if (latenessContext?.scheduledStartAt) {
+    return latenessContext.scheduledStartAt;
+  }
+  if (latenessContext?.currentAt) {
+    return latenessContext.currentAt;
+  }
+  if (workDate && /^\d{4}-\d{2}-\d{2}$/.test(workDate)) {
+    const offset = new Date().toISOString().match(/([+-]\d{2}:\d{2})$/)?.[1] ?? "-04:00";
+    return `${workDate}T12:00:00${offset}`;
+  }
+  return new Date().toISOString();
+}
+
+function buildOccurredAtMinutesAgo(templateIso: string, minutesAgo: number) {
+  const target = new Date(Date.now() - minutesAgo * 60_000);
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Toronto",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(target);
+  const year = parts.find((part) => part.type === "year")?.value;
+  const month = parts.find((part) => part.type === "month")?.value;
+  const day = parts.find((part) => part.type === "day")?.value;
+  const hour = parts.find((part) => part.type === "hour")?.value;
+  const minute = parts.find((part) => part.type === "minute")?.value;
+  if (!year || !month || !day || !hour || !minute) {
+    return { iso: null as string | null, timeHHMM: null as string | null };
+  }
+  const offset = templateIso.match(/([+-]\d{2}:\d{2})$/)?.[1] ?? "-04:00";
+  const timeHHMM = `${hour.padStart(2, "0")}:${minute}`;
+  return {
+    iso: `${year}-${month}-${day}T${timeHHMM}:00${offset}`,
+    timeHHMM,
+  };
+}
+
+function readCurrentGpsCoords(): Promise<{ latitude: number; longitude: number } | null> {
+  return new Promise((resolve) => {
+    if (typeof navigator === "undefined" || !navigator.geolocation) {
+      resolve(null);
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      (pos) =>
+        resolve({
+          latitude: pos.coords.latitude,
+          longitude: pos.coords.longitude,
+        }),
+      () => resolve(null),
+      { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 }
+    );
+  });
 }
 
 function normalizeSnapshotPayload(payload: unknown): EmployeeSnapshot | null {
@@ -286,6 +451,11 @@ function normalizeSnapshotPayload(payload: unknown): EmployeeSnapshot | null {
     pendingExceptions: Array.isArray(source.pendingExceptions)
       ? (source.pendingExceptions as EmployeeSnapshot["pendingExceptions"])
       : [],
+    latenessContext:
+      normalizeLatenessContext(source.latenessContext) ??
+      normalizeLatenessContext(
+        raw && typeof raw === "object" ? (raw as Record<string, unknown>).latenessContext : null
+      ),
   };
 }
 
@@ -305,6 +475,10 @@ export default function EmployeHorodateurPage() {
     startDate: string;
     returnSummary: string;
   } | null>(null);
+  const [retroactiveModalOpen, setRetroactiveModalOpen] = useState(false);
+  const [correctionType, setCorrectionType] = useState<CorrectionRequestType>("entry");
+  const [retroactiveTime, setRetroactiveTime] = useState("");
+  const [retroactiveReason, setRetroactiveReason] = useState("");
 
   const gpsReport = useEmployeeGpsReporting({
     enabled: Boolean(user && canUseTerrain && !accessLoading),
@@ -379,7 +553,26 @@ export default function EmployeHorodateurPage() {
         setLongLeaveBanner(null);
       }
 
-      setSnapshot(normalizeSnapshotPayload(snapshotPayload));
+      const normalized = normalizeSnapshotPayload(snapshotPayload);
+      const latenessFromPayload =
+        normalizeLatenessContext(
+          (snapshotPayload as { latenessContext?: unknown }).latenessContext
+        ) ??
+        normalized?.latenessContext ??
+        null;
+
+      if (latenessFromPayload?.scheduledStartLabel) {
+        const defaultTime = latenessFromPayload.scheduledStartLabel.slice(0, 5);
+        if (/^\d{1,2}:\d{2}$/.test(defaultTime)) {
+          setRetroactiveTime((current) => current || defaultTime);
+        }
+      }
+
+      setSnapshot(
+        normalized
+          ? { ...normalized, latenessContext: latenessFromPayload }
+          : null
+      );
       setHistory({
         workDate: historyPayload.workDate,
         events: Array.isArray(historyPayload.events) ? historyPayload.events : [],
@@ -441,7 +634,20 @@ export default function EmployeHorodateurPage() {
     };
   }, [canUseTerrain, loadData, user]);
 
-  async function handlePunch(eventType: string, options?: { acknowledgeLongLeave?: boolean }) {
+  const latenessContext = snapshot?.latenessContext ?? null;
+
+  const canStartShiftPunch = latenessContext?.canPunchNow === true;
+
+  async function handlePunch(
+    eventType: string,
+    options?: {
+      acknowledgeLongLeave?: boolean;
+      retroactive?: boolean;
+      occurredAt?: string;
+      noteOverride?: string;
+      requireGps?: boolean;
+    }
+  ) {
     const {
       data: { session },
     } = await supabase.auth.getSession();
@@ -454,6 +660,20 @@ export default function EmployeHorodateurPage() {
     setMessage("");
 
     try {
+      let latitude: number | undefined;
+      let longitude: number | undefined;
+
+      if (options?.requireGps) {
+        const coords = await readCurrentGpsCoords();
+        if (!coords) {
+          throw new Error(
+            "Vous devez être dans la zone autorisée pour puncher. Autorisez la géolocalisation et réessayez."
+          );
+        }
+        latitude = coords.latitude;
+        longitude = coords.longitude;
+      }
+
       const response = await fetch("/api/horodateur/punch", {
         method: "POST",
         headers: {
@@ -461,10 +681,14 @@ export default function EmployeHorodateurPage() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          eventType,
-          note: note.trim() || null,
+          eventType: options?.retroactive ? undefined : eventType,
+          retroactive: options?.retroactive === true ? true : undefined,
+          occurredAt: options?.occurredAt ?? undefined,
+          note: (options?.noteOverride ?? note).trim() || null,
           companyContext: snapshot?.employee.primaryCompany ?? null,
           acknowledgeLongLeavePunch: options?.acknowledgeLongLeave === true,
+          latitude,
+          longitude,
         }),
       });
 
@@ -488,15 +712,102 @@ export default function EmployeHorodateurPage() {
 
       setNote("");
       setMessage(
-        payload.exception
-          ? "Pointage enregistre avec exception en attente d approbation."
-          : "Pointage enregistre."
+        options?.retroactive
+          ? "Demande envoyée à la direction pour approbation."
+          : payload.exception
+            ? "Pointage enregistre avec exception en attente d approbation."
+            : "Pointage enregistre."
       );
+      if (options?.retroactive) {
+        setRetroactiveModalOpen(false);
+        setRetroactiveReason("");
+        setCorrectionType("entry");
+      }
       await loadData({ preserveMessage: true });
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Erreur de pointage.");
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function handleLatePunchNow() {
+    await handlePunch("punch_in", { requireGps: true });
+  }
+
+  function openCorrectionModal(options?: { type?: CorrectionRequestType }) {
+    if (
+      latenessContext?.scheduledStartLabel &&
+      /^\d{1,2}:\d{2}$/.test(latenessContext.scheduledStartLabel.slice(0, 5))
+    ) {
+      setRetroactiveTime(latenessContext.scheduledStartLabel.slice(0, 5));
+    }
+    setCorrectionType(options?.type ?? "entry");
+    setRetroactiveModalOpen(true);
+  }
+
+  function closeCorrectionModal() {
+    setRetroactiveModalOpen(false);
+    setCorrectionType("entry");
+  }
+
+  async function handleCorrectionSubmit() {
+    if (correctionType === "other") {
+      setMessage(
+        "Cette option n'est pas encore disponible. Contactez la direction directement pour signaler une autre correction."
+      );
+      return;
+    }
+
+    const reason = retroactiveReason.trim();
+    if (!reason) {
+      setMessage("La raison est obligatoire pour une demande de correction.");
+      return;
+    }
+
+    const template = resolveCorrectionTimeTemplate(
+      latenessContext,
+      snapshot?.todayShift?.work_date
+    );
+    if (!template) {
+      setMessage("Impossible de determiner la date de travail pour la demande.");
+      return;
+    }
+
+    const occurredAt = buildRequestedOccurredAtIso(template, retroactiveTime);
+    if (!occurredAt) {
+      setMessage("Heure demandee invalide (format HH:MM attendu).");
+      return;
+    }
+
+    await handlePunch("punch_in", {
+      retroactive: true,
+      occurredAt,
+      noteOverride: reason,
+      requireGps: true,
+    });
+  }
+
+  function applyRetroactiveShortcut(minutesAgo: number) {
+    const template = resolveCorrectionTimeTemplate(
+      latenessContext,
+      snapshot?.todayShift?.work_date
+    );
+    if (!template) {
+      return;
+    }
+    const built = buildOccurredAtMinutesAgo(template, minutesAgo);
+    if (built.timeHHMM) {
+      setRetroactiveTime(built.timeHHMM);
+    }
+  }
+
+  function applyScheduledStartShortcut() {
+    if (
+      latenessContext?.scheduledStartLabel &&
+      /^\d{1,2}:\d{2}$/.test(latenessContext.scheduledStartLabel.slice(0, 5))
+    ) {
+      setRetroactiveTime(latenessContext.scheduledStartLabel.slice(0, 5));
     }
   }
 
@@ -602,8 +913,14 @@ export default function EmployeHorodateurPage() {
       </section>
 
       <section className="tagora-panel" style={{ marginTop: 24 }}>
-        <h2 className="section-title" style={{ marginBottom: 12 }}>Pointage</h2>
-        <label className="tagora-field" style={{ marginBottom: 16 }}>
+        <h2 className="section-title" style={{ marginBottom: 8 }}>
+          Pointage
+        </h2>
+        <p className="tagora-note" style={{ marginTop: 0, marginBottom: 20, lineHeight: 1.55 }}>
+          Pointez votre temps ou demandez une correction si une heure est incorrecte.
+        </p>
+
+        <label className="tagora-field" style={{ marginBottom: 20 }}>
           <span className="tagora-label">Note optionnelle</span>
           <textarea
             className="tagora-textarea"
@@ -612,29 +929,149 @@ export default function EmployeHorodateurPage() {
             placeholder="Ajoutez une note si necessaire"
           />
         </label>
-        <div className="actions-row">
-          {EMPLOYEE_ACTIONS.map((action) => {
-            const pausePaid = snapshot?.employee.pausePaid !== false;
-            const isPauseAction =
-              action.eventType === "break_start" || action.eventType === "break_end";
-            return (
+
+        <div style={{ display: "grid", gap: 18 }}>
+          <div style={punchPrimaryGridStyle}>
+            {PRIMARY_PUNCH_ACTIONS.map((action) => (
+              <button
+                key={action.eventType}
+                type="button"
+                className="tagora-dark-action"
+                style={punchPrimaryButtonStyle}
+                disabled={saving}
+                onClick={() => {
+                  if (action.eventType === "punch_in" && canStartShiftPunch) {
+                    void handleLatePunchNow();
+                    return;
+                  }
+                  void handlePunch(action.eventType);
+                }}
+              >
+                {action.label}
+              </button>
+            ))}
+          </div>
+
+          {canStartShiftPunch ? (
+            <p className="tagora-note" style={{ margin: 0, lineHeight: 1.5 }}>
+              La geolocalisation est requise pour valider votre presence sur site.
+            </p>
+          ) : null}
+
+          <div style={punchSecondaryGridStyle}>
+            {SECONDARY_PUNCH_ACTIONS.map((action) => {
+              const pausePaid = snapshot?.employee.pausePaid !== false;
+              const isPauseAction =
+                action.eventType === "break_start" || action.eventType === "break_end";
+              return (
+                <button
+                  key={action.eventType}
+                  type="button"
+                  className="tagora-dark-outline-action"
+                  style={punchActionButtonStyle}
+                  onClick={() => void handlePunch(action.eventType)}
+                  disabled={saving || (pausePaid && isPauseAction)}
+                >
+                  {action.label}
+                </button>
+              );
+            })}
+          </div>
+
+          <div
+            style={{
+              marginTop: 4,
+              padding: "20px 18px",
+              borderRadius: 14,
+              border: "1px solid #dbeafe",
+              background: "linear-gradient(180deg, #f8fbff 0%, #ffffff 100%)",
+              display: "grid",
+              gap: 12,
+            }}
+          >
+            <p className="tagora-note" style={{ margin: 0, lineHeight: 1.55 }}>
+              Oubli de pointage ou heure incorrecte? Envoyez une demande a la direction.
+            </p>
             <button
-              key={action.eventType}
               type="button"
-              className={
-                action.eventType === "punch_in" || action.eventType === "punch_out"
-                  ? "tagora-dark-action"
-                  : "tagora-dark-outline-action"
-              }
-              onClick={() => void handlePunch(action.eventType)}
-              disabled={saving || (pausePaid && isPauseAction)}
+              className="tagora-dark-outline-action"
+              style={punchActionButtonStyle}
+              disabled={saving}
+              onClick={() => openCorrectionModal({ type: "entry" })}
             >
-              {action.label}
+              Demander une correction
             </button>
-          );
-          })}
+          </div>
         </div>
       </section>
+
+      {latenessContext?.showLateStartCard ? (
+        <section
+          className="tagora-panel"
+          style={{
+            marginTop: 24,
+            border: "1px solid rgba(245, 158, 11, 0.45)",
+            background:
+              "linear-gradient(180deg, rgba(255,251,235,0.98) 0%, rgba(255,255,255,0.98) 100%)",
+          }}
+        >
+          <h2 className="section-title" style={{ marginBottom: 8 }}>
+            Retard sur le punch prevu
+          </h2>
+          <p style={{ margin: "0 0 16px", lineHeight: 1.55, color: "#0f172a" }}>
+            Tu es en retard sur ton punch prevu.
+          </p>
+          <div
+            style={{
+              display: "grid",
+              gap: 12,
+              gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
+            }}
+          >
+            <div className="tagora-panel-muted" style={{ padding: 14 }}>
+              <div className="tagora-label">Heure prevue</div>
+              <div style={{ marginTop: 6, fontSize: 22, fontWeight: 800 }}>
+                {latenessContext.scheduledStartLabel ?? "—"}
+              </div>
+            </div>
+            <div className="tagora-panel-muted" style={{ padding: 14 }}>
+              <div className="tagora-label">Heure actuelle</div>
+              <div style={{ marginTop: 6, fontSize: 22, fontWeight: 800 }}>
+                {latenessContext.currentLabel}
+              </div>
+            </div>
+            {latenessContext.lateMinutes > 0 ? (
+              <div className="tagora-panel-muted" style={{ padding: 14 }}>
+                <div className="tagora-label">Retard</div>
+                <div style={{ marginTop: 6, fontSize: 22, fontWeight: 800 }}>
+                  {formatMinutes(latenessContext.lateMinutes)}
+                </div>
+              </div>
+            ) : null}
+          </div>
+          <p className="tagora-note" style={{ marginTop: 12, marginBottom: 0 }}>
+            {latenessContext.isWithinScheduleWindow
+              ? "Toute demande ou pointage en retard sera soumis a la direction avant d etre comptabilise."
+              : "Tu es hors fenetre horaire : le pointage necessitera une validation direction."}
+          </p>
+        </section>
+      ) : null}
+
+      <CorrectionRequestModal
+        open={retroactiveModalOpen}
+        saving={saving}
+        correctionType={correctionType}
+        time={retroactiveTime}
+        reason={retroactiveReason}
+        scheduledStartLabel={latenessContext?.scheduledStartLabel ?? null}
+        onClose={closeCorrectionModal}
+        onCorrectionTypeChange={setCorrectionType}
+        onTimeChange={setRetroactiveTime}
+        onReasonChange={setRetroactiveReason}
+        onApplyShortcut={applyRetroactiveShortcut}
+        onApplyScheduledStart={applyScheduledStartShortcut}
+        onSubmit={() => void handleCorrectionSubmit()}
+      />
 
       <section className="tagora-panel" style={{ marginTop: 24 }}>
         <h2 className="section-title" style={{ marginBottom: 12 }}>Exceptions en attente</h2>

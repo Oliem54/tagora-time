@@ -19,6 +19,10 @@ import {
   type AppPermission,
 } from "@/app/lib/auth/permissions";
 import { getUserRole, type AppRole } from "@/app/lib/auth/roles";
+import {
+  getRestorablePermissionsForPortal,
+  readRawPortalInviteRole,
+} from "@/app/lib/employee-portal-invite.server";
 import { createAdminSupabaseClient } from "@/app/lib/supabase/admin";
 import { createPublicServerSupabaseClient } from "@/app/lib/supabase/server";
 
@@ -358,6 +362,8 @@ function buildAccountSecuritySnapshot(employee: EmployeeRow, authUser: User | nu
             ? "Compte desactive"
             : "Aucun compte lie",
     role: currentRole ?? readDisabledRole(authUser?.app_metadata) ?? null,
+    portalRole: readRawPortalInviteRole(authUser),
+    permissions: getRestorablePermissionsForPortal(authUser),
     passwordChangeRequired: hasPasswordChangeRequired(authUser),
     activationDate:
       authUser?.email_confirmed_at ?? authUser?.confirmed_at ?? null,

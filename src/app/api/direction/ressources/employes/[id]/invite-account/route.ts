@@ -23,14 +23,20 @@ import { createAdminSupabaseClient } from "@/app/lib/supabase/admin";
 
 export const dynamic = "force-dynamic";
 
-type InviteAction = "invite" | "link" | "resend" | "disable_access";
+type InviteAction = "invite" | "link" | "resend" | "disable_access" | "update_portal_access";
 
 function jsonErr(status: number, error: string, code?: string) {
   return NextResponse.json({ success: false, error, ...(code ? { code } : {}) }, { status });
 }
 
 function parseAction(value: unknown): InviteAction | null {
-  if (value === "invite" || value === "link" || value === "resend" || value === "disable_access") {
+  if (
+    value === "invite" ||
+    value === "link" ||
+    value === "resend" ||
+    value === "disable_access" ||
+    value === "update_portal_access"
+  ) {
     return value;
   }
   return null;
@@ -203,6 +209,66 @@ export async function POST(
   };
 
   try {
+    if (action === "update_portal_access") {
+      const authUser = await resolveAuthUserForEmployeeRow(employee);
+      if (!authUser) {
+        return jsonErr(
+          404,
+          "Aucun compte lie. Invitez ou liez un compte avant d enregistrer les permissions."
+        );
+      }
+
+      if (authUser.id === actor.id) {
+        return jsonErr(
+          403,
+          "Vous ne pouvez pas modifier vos propres permissions depuis cette fiche."
+        );
+      }
+
+      const targetRole = getUserRole(authUser);
+      if (actorAppRole === "direction" && targetRole === "admin") {
+        return jsonErr(403, "Modification reservee aux administrateurs pour ce compte.");
+      }
+
+      if (actorAppRole === "direction" && authUserHasProtectedPortalRole(authUser)) {
+        return jsonErr(
+          403,
+          "Ce compte possede un role protege et ne peut pas etre modifie par un utilisateur direction."
+        );
+      }
+
+      const parsed = parsePortalRole(body.portalRole, actorAppRole);
+      if (!parsed) {
+        return jsonErr(400, "Role portail invalide ou non autorise pour votre compte.");
+      }
+
+      const meta = buildEmployeePortalAuthMetadata({
+        employee,
+        portalRole: parsed,
+        permissions,
+        actorUserId: actor.id,
+        existingApp: (authUser.app_metadata ?? {}) as Record<string, unknown>,
+        existingUser: (authUser.user_metadata ?? {}) as Record<string, unknown>,
+        requirePasswordChange: shouldRequirePasswordChangeForPortal(authUser),
+      });
+
+      const { error: updErr } = await supabase.auth.admin.updateUserById(authUser.id, {
+        app_metadata: meta.appMetadata as Record<string, unknown>,
+        user_metadata: meta.userMetadata as Record<string, unknown>,
+      });
+
+      if (updErr) {
+        return jsonErr(500, updErr.message);
+      }
+
+      return NextResponse.json({
+        success: true,
+        message: "Permissions portail enregistrees.",
+        portalRole: parsed,
+        permissions,
+      });
+    }
+
     if (action === "disable_access") {
       const authUser = await resolveAuthUserForEmployeeRow(employee);
       if (!authUser) {

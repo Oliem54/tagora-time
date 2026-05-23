@@ -12,6 +12,8 @@ type AccountSecuritySnapshot = {
   accountExists: boolean;
   accountActivated: boolean;
   accessDisabled: boolean;
+  portalRole?: PortalRoleChoice;
+  permissions?: string[];
   availableActions: {
     resetPassword: boolean;
     sendResetLink: boolean;
@@ -38,6 +40,13 @@ function formatDateTime(value: string | null | undefined) {
   }
 }
 
+function parsePortalRoleChoice(value: unknown): PortalRoleChoice {
+  if (value === "direction" || value === "manager" || value === "admin") {
+    return value;
+  }
+  return "employe";
+}
+
 export default function EmployeePortalAccessSection({
   employeeId,
   accessToken,
@@ -60,6 +69,18 @@ export default function EmployeePortalAccessSection({
   );
   const [portalRole, setPortalRole] = useState<PortalRoleChoice>("employe");
   const [portalPermissions, setPortalPermissions] = useState<string[]>([]);
+
+  const applySecurityToForm = useCallback((snapshot: AccountSecuritySnapshot | null) => {
+    if (!snapshot) {
+      return;
+    }
+    setPortalRole(parsePortalRoleChoice(snapshot.portalRole));
+    setPortalPermissions(
+      Array.isArray(snapshot.permissions)
+        ? snapshot.permissions.filter((p) => typeof p === "string")
+        : []
+    );
+  }, []);
 
   const loadSecurity = useCallback(async () => {
     if (!accessToken || !canManage) {
@@ -86,14 +107,16 @@ export default function EmployeePortalAccessSection({
         });
         return;
       }
-      setSecurity(json.security ?? null);
+      const nextSecurity = json.security ?? null;
+      setSecurity(nextSecurity);
+      applySecurityToForm(nextSecurity);
     } catch {
       setSecurity(null);
       setLocalMessage({ type: "err", text: "Erreur reseau lors du chargement du statut." });
     } finally {
       setLoading(false);
     }
-  }, [accessToken, canManage, employeeId]);
+  }, [accessToken, applySecurityToForm, canManage, employeeId]);
 
   useEffect(() => {
     void loadSecurity();
@@ -118,9 +141,12 @@ export default function EmployeePortalAccessSection({
     return "Aucun compte";
   }, [profile?.account_invitation_error, profile?.account_invitation_status, security]);
 
-  const linked = Boolean(profile?.auth_user_id);
+  const linked = Boolean(profile?.auth_user_id ?? security?.authUserId);
+  const canSavePortalAccess = Boolean(linked && security?.accountExists && !security.accessDisabled);
 
-  async function postInvite(action: "invite" | "link" | "resend" | "disable_access") {
+  async function postInvite(
+    action: "invite" | "link" | "resend" | "disable_access" | "update_portal_access"
+  ) {
     if (!accessToken) {
       setLocalMessage({ type: "err", text: "Session expiree. Reconnectez-vous." });
       return;
@@ -163,7 +189,12 @@ export default function EmployeePortalAccessSection({
 
       setLocalMessage({
         type: "ok",
-        text: typeof json.message === "string" ? json.message : "Operation reussie.",
+        text:
+          typeof json.message === "string"
+            ? json.message
+            : action === "update_portal_access"
+              ? "Permissions portail enregistrees."
+              : "Operation reussie.",
       });
       await onRefresh();
       await loadSecurity();
@@ -191,7 +222,10 @@ export default function EmployeePortalAccessSection({
   const canDisable = Boolean(security?.availableActions?.disableAccount);
 
   return (
-    <section className="tagora-panel ui-stack-md" style={{ marginTop: 16 }}>
+    <section
+      className="tagora-panel ui-stack-md employee-portal-access-section"
+      style={{ marginTop: 16, position: "relative", zIndex: 2, paddingBottom: 24 }}
+    >
       <div className="ui-stack-xs">
         <h2 className="section-title" style={{ margin: 0 }}>
           Acces utilisateur
@@ -297,12 +331,36 @@ export default function EmployeePortalAccessSection({
                     checked={portalPermissions.includes(opt.value)}
                     onChange={() => togglePermission(opt.value)}
                     disabled={busy}
+                    style={{ width: 18, height: 18, minWidth: 18, minHeight: 18 }}
                   />
                   <span>{opt.label}</span>
                 </label>
               ))}
             </div>
           </div>
+
+          <div className="tagora-actions employee-portal-access-save-row">
+            <button
+              type="button"
+              className="tagora-dark-action employee-portal-access-save-btn"
+              disabled={busy || !accessToken || !canSavePortalAccess}
+              onClick={() => void postInvite("update_portal_access")}
+              title={
+                canSavePortalAccess
+                  ? undefined
+                  : "Liez ou activez un compte avant d enregistrer les permissions."
+              }
+            >
+              {busy ? "Enregistrement..." : "Enregistrer les permissions portail"}
+            </button>
+          </div>
+
+          {!canSavePortalAccess && linked ? (
+            <p className="tagora-note" style={{ margin: 0 }}>
+              Le compte est desactive ou introuvable : reactivez l acces avant de modifier les
+              permissions.
+            </p>
+          ) : null}
 
           <div className="tagora-actions" style={{ flexWrap: "wrap" }}>
             <button

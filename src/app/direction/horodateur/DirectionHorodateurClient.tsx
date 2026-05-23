@@ -296,6 +296,35 @@ function resolveOccurredAt(value: {
   return value.occurredAt ?? value.occurred_at ?? value.event_time ?? null;
 }
 
+function truncateEmployeeNote(value: string | null | undefined, maxLen = 160) {
+  const trimmed = (value ?? "").trim();
+  if (!trimmed) {
+    return "Aucune note fournie.";
+  }
+  if (trimmed.length <= maxLen) {
+    return trimmed;
+  }
+  return `${trimmed.slice(0, maxLen - 1)}…`;
+}
+
+function exceptionSummaryRow(label: string, value: string) {
+  return (
+    <div
+      key={label}
+      style={{
+        display: "grid",
+        gridTemplateColumns: "minmax(88px, 120px) 1fr",
+        gap: 8,
+        fontSize: 14,
+        lineHeight: 1.45,
+      }}
+    >
+      <span style={{ fontWeight: 600, color: "#475569" }}>{label}</span>
+      <span style={{ color: "#0f172a" }}>{value}</span>
+    </div>
+  );
+}
+
 function getRowState(row: LiveRow) {
   return row.currentState || row.status || "hors_quart";
 }
@@ -486,6 +515,11 @@ export default function DirectionHorodateurPage() {
     useState<(typeof DIRECTION_EVENT_TYPES)[number]>("punch_in");
   const [note, setNote] = useState("");
   const [liveFilter, setLiveFilter] = useState<LiveFilter>("tous");
+  const [refusingExceptionId, setRefusingExceptionId] = useState<string | null>(null);
+  const [refuseNoteById, setRefuseNoteById] = useState<Record<string, string>>({});
+  const [timeCorrectionById, setTimeCorrectionById] = useState<
+    Record<string, { main: string; related: string }>
+  >({});
   /** Date `work_date` utilisée pour la colonne « Quart du jour » (alignée sur l’API live, Toronto). */
   const [liveTodayWorkDate, setLiveTodayWorkDate] = useState<string | null>(null);
   const [config, setConfig] = useState<AlertConfig>({
@@ -1009,30 +1043,25 @@ export default function DirectionHorodateurPage() {
     setActiveActionKey(`approve:${exceptionId}`);
     setMessage("");
     setError("");
+    setRefusingExceptionId(null);
 
     const selectedException = exceptions.find((item) => item.id === exceptionId) ?? null;
-    const baseOccurredAt =
-      selectedException?.event?.occurredAt ??
-      selectedException?.event?.occurred_at ??
-      selectedException?.event?.event_time ??
-      null;
-    const sourceTimePrompt = window.prompt(
-      "Heure corrigée événement principal (HH:MM) — laisser vide pour conserver.",
-      ""
-    );
-    const correctedOccurredAt = toIsoWithOptionalTime(baseOccurredAt, sourceTimePrompt);
-    if ((sourceTimePrompt ?? "").trim() && !correctedOccurredAt) {
+    const baseOccurredAt = selectedException?.event
+      ? resolveOccurredAt(selectedException.event)
+      : null;
+    const correction = timeCorrectionById[exceptionId] ?? { main: "", related: "" };
+    const correctedOccurredAt = toIsoWithOptionalTime(baseOccurredAt, correction.main);
+    if (correction.main.trim() && !correctedOccurredAt) {
       setError("Format heure invalide (attendu HH:MM) ou horodatage source manquant.");
       setActiveActionKey(null);
       return;
     }
 
-    const relatedTimePrompt = window.prompt(
-      "Heure corrigée événement lié (HH:MM) — optionnel, vide si non applicable.",
-      ""
+    const correctedRelatedOccurredAt = toIsoWithOptionalTime(
+      baseOccurredAt,
+      correction.related
     );
-    const correctedRelatedOccurredAt = toIsoWithOptionalTime(baseOccurredAt, relatedTimePrompt);
-    if ((relatedTimePrompt ?? "").trim() && !correctedRelatedOccurredAt) {
+    if (correction.related.trim() && !correctedRelatedOccurredAt) {
       setError("Format heure liée invalide (attendu HH:MM).");
       setActiveActionKey(null);
       return;
@@ -1070,6 +1099,11 @@ export default function DirectionHorodateurPage() {
 
       patchBoardRow(payload.exception.employee_id, payload);
       setExceptions((current) => current.filter((item) => item.id !== exceptionId));
+      setTimeCorrectionById((current) => {
+        const next = { ...current };
+        delete next[exceptionId];
+        return next;
+      });
       setMessage("Exception approuvee.");
       await loadData("refresh", { preserveMessage: true });
     } catch (approveError) {
@@ -1083,10 +1117,21 @@ export default function DirectionHorodateurPage() {
     }
   }
 
-  async function handleRefuse(exceptionId: string) {
-    const reviewNote = window.prompt("Note de refus obligatoire") ?? "";
+  function handleStartRefuse(exceptionId: string) {
+    setRefusingExceptionId(exceptionId);
+    setMessage("");
+    setError("");
+  }
 
-    if (!reviewNote.trim()) {
+  function handleCancelRefuse() {
+    setRefusingExceptionId(null);
+    setError("");
+  }
+
+  async function handleConfirmRefuse(exceptionId: string) {
+    const reviewNote = (refuseNoteById[exceptionId] ?? "").trim();
+
+    if (!reviewNote) {
       setError("Une note est obligatoire pour refuser.");
       return;
     }
@@ -1122,6 +1167,12 @@ export default function DirectionHorodateurPage() {
 
       patchBoardRow(payload.exception.employee_id, payload);
       setExceptions((current) => current.filter((item) => item.id !== exceptionId));
+      setRefusingExceptionId(null);
+      setRefuseNoteById((current) => {
+        const next = { ...current };
+        delete next[exceptionId];
+        return next;
+      });
       setMessage("Exception refusee.");
       await loadData("refresh", { preserveMessage: true });
     } catch (refuseError) {
@@ -1349,7 +1400,14 @@ export default function DirectionHorodateurPage() {
                 gap: "var(--ui-space-3)",
               }}
             >
-              {exceptions.map((item) => (
+              {exceptions.map((item) => {
+                const occurredAt = item.event ? resolveOccurredAt(item.event) : null;
+                const employeeName =
+                  item.employee?.fullName || item.employee?.email || item.id;
+                const isRefusing = refusingExceptionId === item.id;
+                const correction = timeCorrectionById[item.id] ?? { main: "", related: "" };
+
+                return (
                 <AppCard
                   key={item.id}
                   className="ui-stack-sm"
@@ -1368,103 +1426,246 @@ export default function DirectionHorodateurPage() {
                       alignItems: "flex-start",
                     }}
                   >
-                    <div className="ui-stack-xs">
-                      <span className="ui-eyebrow">Employe</span>
-                      <strong style={{ fontSize: 18 }}>
-                        {item.employee?.fullName || item.employee?.email || item.id}
-                      </strong>
-                      <span className="ui-text-muted">
-                        {item.event
-                          ? `${item.event.event_type} - ${formatDateTime(resolveOccurredAt(item.event))}`
-                          : "Evenement lie"}
-                      </span>
-                    </div>
+                    <h3
+                      style={{
+                        margin: 0,
+                        fontSize: 17,
+                        fontWeight: 800,
+                        color: "#92400e",
+                        lineHeight: 1.35,
+                      }}
+                    >
+                      Exception horodateur à traiter
+                    </h3>
                     <StatusBadge label="En attente" tone="warning" />
                   </div>
 
-                  <div
-                    style={{
-                      display: "grid",
-                      gridTemplateColumns: "1fr 1fr",
-                      gap: "var(--ui-space-2)",
-                    }}
-                  >
-                    <AppCard tone="default" className="ui-stack-xs">
-                      <span className="ui-eyebrow">Motif système</span>
-                      <strong>{item.reason_label}</strong>
-                      <span className="ui-text-muted">{item.exception_type}</span>
-                    </AppCard>
-                    <AppCard tone="default" className="ui-stack-xs">
-                      <span className="ui-eyebrow">Impact</span>
-                      <strong>{formatMinutes(item.impact_minutes)}</strong>
-                      <span className="ui-text-muted">{item.status}</span>
-                    </AppCard>
+                  <div className="ui-stack-xs" style={{ gap: 10 }}>
+                    {exceptionSummaryRow("Employé", employeeName)}
+                    {exceptionSummaryRow("Type", item.reason_label || item.exception_type)}
+                    {exceptionSummaryRow(
+                      "Heure",
+                      occurredAt ? formatDateTime(occurredAt) : "—"
+                    )}
+                    {exceptionSummaryRow(
+                      "Note employé",
+                      truncateEmployeeNote(item.details)
+                    )}
                   </div>
 
-                  <AppCard tone="default" className="ui-stack-xs">
-                    <span className="ui-eyebrow">Note employé</span>
-                    <span className="ui-text-muted">
-                      {item.details?.trim() ? item.details : "Aucune note fournie."}
-                    </span>
-                  </AppCard>
-
-                  <AppCard tone="default" className="ui-stack-xs">
-                    <span className="ui-eyebrow">Journal des notifications</span>
-                    <span className="ui-text-muted">
-                      Email initial: {formatDateTime(item.direction_email_notified_at ?? null)}
-                    </span>
-                    <span className="ui-text-muted">
-                      SMS initial: {formatDateTime(item.direction_sms_notified_at ?? null)}
-                    </span>
-                    <span className="ui-text-muted">
-                      Rappel email: {formatDateTime(item.direction_reminder_email_notified_at ?? null)}
-                    </span>
-                    <span className="ui-text-muted">
-                      Rappel SMS: {formatDateTime(item.direction_reminder_sms_notified_at ?? null)}
-                    </span>
-                  </AppCard>
-
-                  <div
-                    style={{
-                      display: "flex",
-                      gap: "var(--ui-space-2)",
-                      flexWrap: "wrap",
-                    }}
-                  >
-                    <PrimaryButton
-                      onClick={() => void handleApprove(item.id)}
-                      disabled={isBusy}
+                  {!isRefusing ? (
+                    <div
+                      style={{
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: "var(--ui-space-2)",
+                      }}
                     >
-                      <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
-                        <ShieldCheck size={16} />
-                        {activeActionKey === `approve:${item.id}`
-                          ? "Approbation..."
-                          : "Approuver"}
-                      </span>
-                    </PrimaryButton>
-                    <SecondaryButton
-                      onClick={() => void handleRefuse(item.id)}
-                      disabled={isBusy}
-                    >
-                      <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
-                        <TimerReset size={16} />
-                        {activeActionKey === `refuse:${item.id}`
-                          ? "Refus..."
-                          : "Refuser"}
-                      </span>
-                    </SecondaryButton>
-                    {item.employee?.employeeId ? (
-                      <Link
-                        href={`/direction/ressources/employes/${item.employee.employeeId}`}
-                        className="tagora-dark-outline-action"
-                        style={{ textDecoration: "none" }}
+                      <PrimaryButton
+                        onClick={() => void handleApprove(item.id)}
+                        disabled={isBusy}
+                        style={{
+                          width: "100%",
+                          minHeight: 52,
+                          fontSize: 16,
+                          fontWeight: 700,
+                          justifyContent: "center",
+                        }}
                       >
-                        <span>Voir l employe</span>
-                      </Link>
-                    ) : null}
-                  </div>
+                        <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+                          <ShieldCheck size={18} />
+                          {activeActionKey === `approve:${item.id}`
+                            ? "Approbation..."
+                            : "Approuver"}
+                        </span>
+                      </PrimaryButton>
+                      <SecondaryButton
+                        onClick={() => handleStartRefuse(item.id)}
+                        disabled={isBusy}
+                        style={{
+                          width: "100%",
+                          minHeight: 52,
+                          fontSize: 16,
+                          fontWeight: 600,
+                          justifyContent: "center",
+                        }}
+                      >
+                        <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+                          <TimerReset size={18} />
+                          Refuser
+                        </span>
+                      </SecondaryButton>
+                    </div>
+                  ) : (
+                    <div className="ui-stack-sm">
+                      <label className="ui-stack-xs" style={{ width: "100%" }}>
+                        <span className="ui-eyebrow">Raison du refus (obligatoire)</span>
+                        <textarea
+                          className="tagora-textarea"
+                          value={refuseNoteById[item.id] ?? ""}
+                          onChange={(event) =>
+                            setRefuseNoteById((current) => ({
+                              ...current,
+                              [item.id]: event.target.value,
+                            }))
+                          }
+                          placeholder="Expliquez brièvement le motif du refus..."
+                          rows={4}
+                          disabled={isBusy}
+                          style={{ width: "100%" }}
+                        />
+                      </label>
+                      <PrimaryButton
+                        onClick={() => void handleConfirmRefuse(item.id)}
+                        disabled={isBusy}
+                        style={{
+                          width: "100%",
+                          minHeight: 48,
+                          fontWeight: 700,
+                          justifyContent: "center",
+                          background: "#b91c1c",
+                          borderColor: "#b91c1c",
+                        }}
+                      >
+                        {activeActionKey === `refuse:${item.id}`
+                          ? "Refus en cours..."
+                          : "Confirmer le refus"}
+                      </PrimaryButton>
+                      <SecondaryButton
+                        type="button"
+                        onClick={handleCancelRefuse}
+                        disabled={isBusy}
+                        style={{ width: "100%", minHeight: 44, justifyContent: "center" }}
+                      >
+                        Annuler
+                      </SecondaryButton>
+                    </div>
+                  )}
+
+                  <details>
+                    <summary
+                      style={{
+                        cursor: "pointer",
+                        fontWeight: 600,
+                        color: "#0d9488",
+                        fontSize: 14,
+                      }}
+                    >
+                      Voir les détails
+                    </summary>
+                    <div
+                      className="ui-stack-sm"
+                      style={{
+                        marginTop: 12,
+                        paddingTop: 12,
+                        borderTop: "1px solid #e2e8f0",
+                      }}
+                    >
+                      <AppCard tone="default" className="ui-stack-xs">
+                        <span className="ui-eyebrow">Type technique</span>
+                        <span className="ui-text-muted">{item.exception_type}</span>
+                      </AppCard>
+                      <AppCard tone="default" className="ui-stack-xs">
+                        <span className="ui-eyebrow">Impact</span>
+                        <strong>{formatMinutes(item.impact_minutes)}</strong>
+                        <span className="ui-text-muted">{item.status}</span>
+                      </AppCard>
+                      {item.event ? (
+                        <AppCard tone="default" className="ui-stack-xs">
+                          <span className="ui-eyebrow">Événement lié</span>
+                          <span className="ui-text-muted">
+                            {item.event.event_type}
+                            {occurredAt ? ` — ${formatDateTime(occurredAt)}` : ""}
+                          </span>
+                        </AppCard>
+                      ) : null}
+                      <AppCard tone="default" className="ui-stack-xs">
+                        <span className="ui-eyebrow">Journal des notifications</span>
+                        <span className="ui-text-muted">
+                          Email initial:{" "}
+                          {formatDateTime(item.direction_email_notified_at ?? null)}
+                        </span>
+                        <span className="ui-text-muted">
+                          SMS initial: {formatDateTime(item.direction_sms_notified_at ?? null)}
+                        </span>
+                        <span className="ui-text-muted">
+                          Rappel email:{" "}
+                          {formatDateTime(item.direction_reminder_email_notified_at ?? null)}
+                        </span>
+                        <span className="ui-text-muted">
+                          Rappel SMS:{" "}
+                          {formatDateTime(item.direction_reminder_sms_notified_at ?? null)}
+                        </span>
+                      </AppCard>
+                      <AppCard tone="default" className="ui-stack-xs">
+                        <span className="ui-eyebrow">Correction d&apos;heure (avancée)</span>
+                        <p className="ui-text-muted" style={{ margin: "0 0 8px" }}>
+                          Optionnel — laisser vide pour approuver tel quel depuis le bouton
+                          Approuver.
+                        </p>
+                        <label className="ui-stack-xs">
+                          <span className="ui-text-muted" style={{ fontSize: 13 }}>
+                            Heure corrigée événement principal (HH:MM)
+                          </span>
+                          <input
+                            type="text"
+                            className="tagora-input"
+                            placeholder="Ex. 08:30"
+                            value={correction.main}
+                            disabled={isBusy}
+                            onChange={(event) =>
+                              setTimeCorrectionById((current) => ({
+                                ...current,
+                                [item.id]: {
+                                  main: event.target.value,
+                                  related: current[item.id]?.related ?? "",
+                                },
+                              }))
+                            }
+                          />
+                        </label>
+                        <label className="ui-stack-xs">
+                          <span className="ui-text-muted" style={{ fontSize: 13 }}>
+                            Heure corrigée événement lié (HH:MM)
+                          </span>
+                          <input
+                            type="text"
+                            className="tagora-input"
+                            placeholder="Optionnel"
+                            value={correction.related}
+                            disabled={isBusy}
+                            onChange={(event) =>
+                              setTimeCorrectionById((current) => ({
+                                ...current,
+                                [item.id]: {
+                                  main: current[item.id]?.main ?? "",
+                                  related: event.target.value,
+                                },
+                              }))
+                            }
+                          />
+                        </label>
+                      </AppCard>
+                    </div>
+                  </details>
+
+                  {item.employee?.employeeId ? (
+                    <Link
+                      href={`/direction/ressources/employes/${item.employee.employeeId}`}
+                      className="tagora-dark-outline-action"
+                      style={{
+                        textDecoration: "none",
+                        alignSelf: "flex-start",
+                        fontSize: 13,
+                        padding: "8px 14px",
+                      }}
+                    >
+                      Voir l&apos;employé
+                    </Link>
+                  ) : null}
                 </AppCard>
-              ))}
+                );
+              })}
             </div>
           ) : (
             <AppCard tone="muted" className="ui-stack-sm">

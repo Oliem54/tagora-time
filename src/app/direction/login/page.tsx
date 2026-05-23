@@ -186,7 +186,7 @@ export default function DirectionLoginPage() {
   };
 
   return (
-    <main className="ui-auth-shell">
+    <main className="ui-auth-shell tagora-auth-page tagora-auth-page--direction">
       <div className="ui-auth-content">
         <PageHeader
           title="Connexion"

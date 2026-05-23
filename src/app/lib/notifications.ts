@@ -14,6 +14,10 @@ import {
 } from "@/app/lib/horodateur-exception-quick-action.server";
 import { isAppActionTokensHorodateurEnabled } from "@/app/lib/app-action-tokens.shared";
 import {
+  buildEmployeeExceptionFocusUrl,
+  buildEmployeePunchUrl,
+} from "@/app/lib/employee-deep-links";
+import {
   normalizePhoneNumber,
   normalizePhoneToTwilioE164,
 } from "@/app/lib/timeclock-api.shared";
@@ -1098,8 +1102,17 @@ export async function notifyEmployeeExpectedPunchSms(payload: {
 }): Promise<EmployeeExpectedPunchSmsResult> {
   const phoneE164 = normalizePhoneToTwilioE164(payload.phoneRaw);
   const hasPhone = Boolean(phoneE164);
-  /** Phase 2 : suffixe optionnel avec lien sécurisé à usage unique. */
-  const maybeLinkSuffix = "";
+  /**
+   * Phase 1 : lien direct vers /employe/horodateur avec l'intent de punch
+   * et le type d'événement attendu. Aucun jeton serveur — l'employé doit
+   * être (ou se) connecter pour ouvrir la page. Si NEXT_PUBLIC_APP_URL /
+   * APP_PUBLIC_BASE_URL / VERCEL_URL ne résolvent rien, on tombe sur un
+   * message texte clair sans lien (jamais d'URL relative dans un SMS).
+   */
+  const deepLink = buildEmployeePunchUrl(payload.eventType);
+  const maybeLinkSuffix = deepLink
+    ? ` Punche ici : ${deepLink}`
+    : " Ouvre l'application TAGORA Time.";
 
   const logBase = {
     sms_target_type: "employee_expected_punch" as const,
@@ -1302,7 +1315,10 @@ export async function notifyEmployeeHorodateurExceptionDecision(options: {
   const { employee, outcome, exceptionId } = options;
   const logPrefix = "[horodateur-exception-employee-notify]";
   const baseUrl = resolvePublicAppBaseUrl();
-  const linkLine = baseUrl ? `${baseUrl}/employe/horodateur` : "/employe/horodateur";
+  const exceptionFocusUrl = buildEmployeeExceptionFocusUrl(exceptionId);
+  const linkLine =
+    exceptionFocusUrl ??
+    (baseUrl ? `${baseUrl}/employe/horodateur` : "/employe/horodateur");
   const { firstName } = splitFullName(employee.fullName ?? "");
 
   let admin: ReturnType<typeof createAdminSupabaseClient> | null = null;
@@ -1366,11 +1382,12 @@ export async function notifyEmployeeHorodateurExceptionDecision(options: {
         ? `Bonjour ${firstName},\n\nVotre demande d'exception horodateur a été approuvée.\n\nVeuillez consulter votre horodateur dans TAGORA Time.\n\n${linkLine}`
         : `Bonjour ${firstName},\n\nVotre demande d'exception horodateur a été refusée.\n\nVeuillez consulter le détail dans TAGORA Time.\n\n${linkLine}`;
 
-    const htmlBody = `<p>Bonjour ${escapeHtml(firstName)},</p><p>${
+    const ctaButton = `<a href="${escapeHtml(linkLine)}" style="display:inline-block;background:#0f2948;color:#ffffff;text-decoration:none;font-size:15px;font-weight:700;padding:12px 22px;border-radius:10px;">Ouvrir mon horodateur</a>`;
+    const htmlBody = `<p style="margin:0 0 10px;">Bonjour ${escapeHtml(firstName)},</p><p style="margin:0 0 12px;">${
       outcome === "approved"
         ? "Votre demande d’exception horodateur a été <strong>approuvée</strong>."
         : "Votre demande d’exception horodateur a été <strong>refusée</strong>."
-    }</p><p>Veuillez consulter votre horodateur dans TAGORA Time.</p><p><a href="${escapeHtml(linkLine)}">${escapeHtml(linkLine)}</a></p>`;
+    }</p><p style="margin:0 0 18px;">Consultez le détail de l’exception directement dans TAGORA Time.</p><p style="margin:0 0 12px;">${ctaButton}</p><p style="margin:0;color:#64748b;font-size:12px;word-break:break-all;">${escapeHtml(linkLine)}</p>`;
 
     if (email && isValidEmail(email)) {
       const apiKey = process.env.RESEND_API_KEY;
@@ -1440,11 +1457,11 @@ export async function notifyEmployeeHorodateurExceptionDecision(options: {
     if (admin) {
       await createMissingCommunicationTemplateAlert(admin, smsKey, "sms", "employee");
     }
-    const horodateurUrl = baseUrl ? `${baseUrl}/employe/horodateur` : "";
+    const horodateurUrl = exceptionFocusUrl ?? (baseUrl ? `${baseUrl}/employe/horodateur` : "");
     const smsBody =
       outcome === "approved"
-        ? `TAGORA Time : votre exception horodateur a été approuvée. Consultez votre horodateur.${horodateurUrl ? ` ${horodateurUrl}` : ""}`
-        : `TAGORA Time : votre exception horodateur a été refusée. Consultez votre horodateur.${horodateurUrl ? ` ${horodateurUrl}` : ""}`;
+        ? `TAGORA Time : ton exception horodateur a été approuvée.${horodateurUrl ? ` Détails : ${horodateurUrl}` : " Consulte l'application TAGORA Time."}`
+        : `TAGORA Time : ton exception horodateur a été refusée.${horodateurUrl ? ` Détails : ${horodateurUrl}` : " Consulte l'application TAGORA Time."}`;
 
     try {
       const smsResult = await sendSmsToPhone({
@@ -1720,6 +1737,7 @@ export async function notifyHorodateurLateness(
     }
   );
 
+  const employeePunchUrl = buildEmployeePunchUrl("quart_debut");
   const employeeSms =
     payload.employeeSmsEnabled === false
       ? {
@@ -1732,9 +1750,11 @@ export async function notifyHorodateurLateness(
           phone: payload.employeePhone,
           body: [
             "TAGORA Time",
-            `Votre quart devait commencer a ${formattedScheduledStart}.`,
+            `Ton quart devait commencer a ${formattedScheduledStart}.`,
             `Heure actuelle: ${formattedDetectedAt}.`,
-            "Si vous etes en route ou si une correction est requise, contactez la direction.",
+            employeePunchUrl
+              ? `Punche ici : ${employeePunchUrl}`
+              : "Ouvre l'application TAGORA Time ou contacte la direction.",
           ].join(" "),
         });
 

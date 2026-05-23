@@ -15,10 +15,15 @@ import {
   insertPunchDuringLongLeaveAlert,
 } from "@/app/lib/employee-leave-period.server";
 import {
+  evaluateEmployeeWebPunchGps,
+  formatHorodateurGpsJournalSuffix,
+} from "@/app/lib/horodateur-gps-punch.server";
+import {
   evaluateQrPunchAttempt,
   insertQrPunchAppAlert,
   resolveWorkCompanyKeyForEvent,
 } from "@/app/lib/horodateur-qr-punch.server";
+import { toCanonicalEventType } from "@/app/lib/horodateur-v1/rules";
 import type { PunchZoneCompanyKey } from "@/app/lib/horodateur-qr-punch.shared";
 import {
   createEmployeePunch,
@@ -43,6 +48,7 @@ export async function GET(req: NextRequest) {
       shift: snapshot.todayShift,
       weeklyProjection: snapshot.weeklyProjection,
       pendingExceptions: snapshot.pendingExceptions,
+      latenessContext: snapshot.latenessContext,
     });
   } catch (error) {
     return buildHorodateurErrorResponse(error, {
@@ -68,6 +74,8 @@ export async function POST(req: NextRequest) {
       relatedEventId?: unknown;
       retroactive?: unknown;
       acknowledgeLongLeavePunch?: unknown;
+      latitude?: unknown;
+      longitude?: unknown;
       qr?: unknown;
     };
 
@@ -91,6 +99,24 @@ export async function POST(req: NextRequest) {
         code: occurredAtValidation.code,
         route: "/api/horodateur/punch",
       });
+    }
+
+    if (body.retroactive === true) {
+      const retroNote = normalizeNonEmptyString(body.note);
+      if (!retroNote) {
+        return buildHorodateurValidationErrorResponse({
+          error: "Une raison est obligatoire pour une demande de correction retroactive.",
+          code: "retroactive_note_required",
+          route: "/api/horodateur/punch",
+        });
+      }
+      if (!occurredAtValidation.value) {
+        return buildHorodateurValidationErrorResponse({
+          error: "L heure demandee est obligatoire pour une correction retroactive.",
+          code: "retroactive_occurred_at_required",
+          route: "/api/horodateur/punch",
+        });
+      }
     }
 
     const admin = createAdminSupabaseClient();
@@ -311,6 +337,7 @@ export async function POST(req: NextRequest) {
           shift: snapshot.todayShift,
           weeklyProjection: snapshot.weeklyProjection,
           pendingExceptions: snapshot.pendingExceptions,
+          latenessContext: snapshot.latenessContext,
         });
       } catch (punchErr) {
         await insertQrPunchAppAlert(admin, {
@@ -353,13 +380,90 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    const preSnapshot = await getEmployeeDashboardSnapshotByAuthUserId(auth.user.id);
+    const punchCompany =
+      preSnapshot.employee.primaryCompany ??
+      normalizeDirectionCompanyContext(body.companyContext);
+
+    if (!punchCompany) {
+      return buildHorodateurValidationErrorResponse({
+        error: "Compagnie de travail introuvable pour ce pointage.",
+        code: "missing_company_context",
+        route: "/api/horodateur/punch",
+      });
+    }
+
+    const canonicalPunchType = toCanonicalEventType(normalizedEventType);
+    const isRetroactivePunch = canonicalPunchType === "retroactive_entry";
+    const requiresWebGps =
+      canonicalPunchType === "punch_in" || isRetroactivePunch;
+
+    let webGps:
+      | {
+          latitude: number;
+          longitude: number;
+          zoneValidated: boolean;
+          matchedBaseName: string | null;
+        }
+      | undefined;
+
+    let punchNote = normalizeNonEmptyString(body.note);
+
+    if (requiresWebGps) {
+      const gpsEval = await evaluateEmployeeWebPunchGps({
+        latitude: body.latitude,
+        longitude: body.longitude,
+        companyContext: punchCompany,
+        punchGpsMode: isRetroactivePunch ? "retroactive_request" : "strict_punch",
+      });
+
+      if (!gpsEval.ok) {
+        const status =
+          gpsEval.code === "GPS_OUT_OF_ZONE"
+            ? 403
+            : gpsEval.code === "GPS_NOT_CONFIGURED"
+              ? 503
+              : 400;
+        return NextResponse.json(
+          {
+            success: false,
+            ok: false,
+            error: gpsEval.message,
+            code: gpsEval.code,
+            route: "/api/horodateur/punch",
+          },
+          { status }
+        );
+      }
+
+      webGps = {
+        latitude: gpsEval.latitude,
+        longitude: gpsEval.longitude,
+        zoneValidated: gpsEval.zoneValidated,
+        matchedBaseName: gpsEval.matchedBaseName,
+      };
+
+      const gpsSuffix = formatHorodateurGpsJournalSuffix({
+        latitude: gpsEval.latitude,
+        longitude: gpsEval.longitude,
+        zoneValidated: gpsEval.zoneValidated,
+        matchedBaseName: gpsEval.matchedBaseName,
+        requestedAtIso: new Date().toISOString(),
+        basesConfigured: isRetroactivePunch
+          ? gpsEval.gpsBasesConfigured
+          : undefined,
+      });
+      punchNote = punchNote ? `${punchNote}\n${gpsSuffix}` : gpsSuffix;
+    }
+
     const result = await createEmployeePunch({
       actorUserId: auth.user.id,
       eventType: normalizedEventType,
       occurredAt: occurredAtValidation.value,
-      note: normalizeNonEmptyString(body.note),
-      companyContext: normalizeDirectionCompanyContext(body.companyContext),
+      note: punchNote,
+      companyContext: punchCompany,
       relatedEventId: normalizeNonEmptyString(body.relatedEventId),
+      webGps,
     });
 
     const snapshot = await getEmployeeDashboardSnapshotByAuthUserId(auth.user.id);
@@ -383,6 +487,7 @@ export async function POST(req: NextRequest) {
       shift: snapshot.todayShift,
       weeklyProjection: snapshot.weeklyProjection,
       pendingExceptions: snapshot.pendingExceptions,
+      latenessContext: snapshot.latenessContext,
     });
   } catch (error) {
     return buildHorodateurErrorResponse(error, {

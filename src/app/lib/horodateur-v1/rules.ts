@@ -157,6 +157,13 @@ export function getEventOccurredAt(
   return event?.occurred_at ?? event?.event_time ?? event?.created_at ?? null;
 }
 
+export function isWithinScheduledWindowForEmployee(
+  employee: HorodateurPhase1EmployeeProfile,
+  occurredAt: string
+) {
+  return isWithinScheduledWindow(employee, occurredAt);
+}
+
 function isWithinScheduledWindow(
   employee: HorodateurPhase1EmployeeProfile,
   occurredAt: string
@@ -176,6 +183,13 @@ function isWithinScheduledWindow(
   return currentMinutes >= windowStart && currentMinutes <= windowEnd;
 }
 
+export function isValidScheduledWorkDayForEmployee(
+  employee: HorodateurPhase1EmployeeProfile,
+  occurredAt: string
+) {
+  return isValidScheduledWorkDay(employee, occurredAt);
+}
+
 function isValidScheduledWorkDay(
   employee: HorodateurPhase1EmployeeProfile,
   occurredAt: string
@@ -187,6 +201,35 @@ function isValidScheduledWorkDay(
   }
 
   return workDays.includes(getDatePartsInTimeZone(occurredAt).weekday);
+}
+
+/** Retard au début de quart : après l'heure prévue + tolérance avant début. */
+export function isEmployeeLateForScheduledShiftStart(
+  employee: HorodateurPhase1EmployeeProfile,
+  occurredAt: string,
+  defaultToleranceMinutes = 5
+) {
+  if (!employee.scheduleStart?.trim()) {
+    return false;
+  }
+
+  if (!isValidScheduledWorkDay(employee, occurredAt)) {
+    return false;
+  }
+
+  const scheduledStartMinutes = parseTimeToMinutes(employee.scheduleStart);
+  if (scheduledStartMinutes == null) {
+    return false;
+  }
+
+  const toleranceMinutes = Math.max(
+    0,
+    employee.toleranceBeforeStartMinutes ?? defaultToleranceMinutes
+  );
+  const lateThresholdMinutes = scheduledStartMinutes + toleranceMinutes;
+  const currentMinutes = getMinutesSinceLocalMidnight(occurredAt);
+
+  return currentMinutes > lateThresholdMinutes;
 }
 
 const LEGACY_TO_CANONICAL_EVENT_TYPE: Record<

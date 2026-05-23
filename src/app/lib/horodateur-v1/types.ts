@@ -309,6 +309,20 @@ export type HorodateurPhase1DirectionLiveRow = {
   hasOpenException: boolean;
 };
 
+export type HorodateurPhase1LatenessContext = {
+  workDate: string;
+  isLate: boolean;
+  lateMinutes: number;
+  scheduledStartAt: string | null;
+  scheduledStartLabel: string | null;
+  currentAt: string;
+  currentLabel: string;
+  isWithinScheduleWindow: boolean;
+  canPunchNow: boolean;
+  canRequestRetroactiveCorrection: boolean;
+  showLateStartCard: boolean;
+};
+
 export type HorodateurPhase1EmployeeDashboardSnapshot = {
   employee: HorodateurPhase1EmployeeProfile;
   currentState: HorodateurPhase1CurrentStateRecord;
@@ -324,6 +338,7 @@ export type HorodateurPhase1EmployeeDashboardSnapshot = {
     primaryCompanyLabel: string;
   };
   pendingExceptions: HorodateurPhase1ExceptionRecord[];
+  latenessContext: HorodateurPhase1LatenessContext;
 };
 
 export type HorodateurPhase1Classification = {
