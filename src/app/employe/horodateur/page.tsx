@@ -98,14 +98,42 @@ type HistoryPayload = {
   }>;
 };
 
-const EMPLOYEE_ACTIONS = [
+const PRIMARY_PUNCH_ACTIONS = [
   { eventType: "punch_in", label: "Entree maintenant" },
+  { eventType: "punch_out", label: "Sortie" },
+] as const;
+
+const SECONDARY_PUNCH_ACTIONS = [
   { eventType: "break_start", label: "Debut pause" },
   { eventType: "break_end", label: "Fin pause" },
   { eventType: "meal_start", label: "Debut diner" },
   { eventType: "meal_end", label: "Fin diner" },
-  { eventType: "punch_out", label: "Sortie" },
 ] as const;
+
+const punchPrimaryGridStyle: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
+  gap: 12,
+};
+
+const punchSecondaryGridStyle: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(148px, 1fr))",
+  gap: 10,
+};
+
+const punchActionButtonStyle: React.CSSProperties = {
+  width: "100%",
+  minHeight: 52,
+  fontSize: 16,
+  fontWeight: 600,
+};
+
+const punchPrimaryButtonStyle: React.CSSProperties = {
+  ...punchActionButtonStyle,
+  fontSize: 17,
+  fontWeight: 700,
+};
 
 function formatDateTime(value: string | null | undefined) {
   if (!value) return "-";
@@ -886,54 +914,96 @@ export default function EmployeHorodateurPage() {
 
       <section className="tagora-panel" style={{ marginTop: 24 }}>
         <h2 className="section-title" style={{ marginBottom: 8 }}>
-          Correction de pointage
+          Pointage
         </h2>
-        <p className="tagora-note" style={{ marginTop: 0, marginBottom: 16, lineHeight: 1.55 }}>
-          Si tu as oublie de pointer ou si une heure est incorrecte, envoie une demande a la
-          direction.
+        <p className="tagora-note" style={{ marginTop: 0, marginBottom: 20, lineHeight: 1.55 }}>
+          Pointez votre temps ou demandez une correction si une heure est incorrecte.
         </p>
-        <button
-          type="button"
-          className="tagora-dark-outline-action"
-          style={{ width: "100%", minHeight: 52, fontSize: 16, fontWeight: 600 }}
-          disabled={saving}
-          onClick={() => openCorrectionModal({ type: "entry" })}
-        >
-          Demander une correction
-        </button>
-      </section>
 
-      {canStartShiftPunch ? (
-        <section className="tagora-panel" style={{ marginTop: 24 }}>
-          <h2 className="section-title" style={{ marginBottom: 8 }}>
-            Debut de quart
-          </h2>
-          <p className="tagora-note" style={{ marginTop: 0, marginBottom: 16 }}>
-            Pointez a l heure reelle ou demandez une correction si vous avez commence plus tot.
-            La geolocalisation est requise pour valider votre presence sur site.
-          </p>
-          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-            <button
-              type="button"
-              className="tagora-dark-action"
-              style={{ width: "100%", minHeight: 52, fontSize: 17, fontWeight: 700 }}
-              disabled={saving}
-              onClick={() => void handleLatePunchNow()}
-            >
-              Entree maintenant
-            </button>
+        <label className="tagora-field" style={{ marginBottom: 20 }}>
+          <span className="tagora-label">Note optionnelle</span>
+          <textarea
+            className="tagora-textarea"
+            value={note}
+            onChange={(event) => setNote(event.target.value)}
+            placeholder="Ajoutez une note si necessaire"
+          />
+        </label>
+
+        <div style={{ display: "grid", gap: 18 }}>
+          <div style={punchPrimaryGridStyle}>
+            {PRIMARY_PUNCH_ACTIONS.map((action) => (
+              <button
+                key={action.eventType}
+                type="button"
+                className="tagora-dark-action"
+                style={punchPrimaryButtonStyle}
+                disabled={saving}
+                onClick={() => {
+                  if (action.eventType === "punch_in" && canStartShiftPunch) {
+                    void handleLatePunchNow();
+                    return;
+                  }
+                  void handlePunch(action.eventType);
+                }}
+              >
+                {action.label}
+              </button>
+            ))}
+          </div>
+
+          {canStartShiftPunch ? (
+            <p className="tagora-note" style={{ margin: 0, lineHeight: 1.5 }}>
+              La geolocalisation est requise pour valider votre presence sur site.
+            </p>
+          ) : null}
+
+          <div style={punchSecondaryGridStyle}>
+            {SECONDARY_PUNCH_ACTIONS.map((action) => {
+              const pausePaid = snapshot?.employee.pausePaid !== false;
+              const isPauseAction =
+                action.eventType === "break_start" || action.eventType === "break_end";
+              return (
+                <button
+                  key={action.eventType}
+                  type="button"
+                  className="tagora-dark-outline-action"
+                  style={punchActionButtonStyle}
+                  onClick={() => void handlePunch(action.eventType)}
+                  disabled={saving || (pausePaid && isPauseAction)}
+                >
+                  {action.label}
+                </button>
+              );
+            })}
+          </div>
+
+          <div
+            style={{
+              marginTop: 4,
+              padding: "20px 18px",
+              borderRadius: 14,
+              border: "1px solid #dbeafe",
+              background: "linear-gradient(180deg, #f8fbff 0%, #ffffff 100%)",
+              display: "grid",
+              gap: 12,
+            }}
+          >
+            <p className="tagora-note" style={{ margin: 0, lineHeight: 1.55 }}>
+              Oubli de pointage ou heure incorrecte? Envoyez une demande a la direction.
+            </p>
             <button
               type="button"
               className="tagora-dark-outline-action"
-              style={{ width: "100%", minHeight: 52, fontSize: 16 }}
+              style={punchActionButtonStyle}
               disabled={saving}
               onClick={() => openCorrectionModal({ type: "entry" })}
             >
-              Demander correction retroactive
+              Demander une correction
             </button>
           </div>
-        </section>
-      ) : null}
+        </div>
+      </section>
 
       {latenessContext?.showLateStartCard ? (
         <section
@@ -1002,41 +1072,6 @@ export default function EmployeHorodateurPage() {
         onApplyScheduledStart={applyScheduledStartShortcut}
         onSubmit={() => void handleCorrectionSubmit()}
       />
-
-      <section className="tagora-panel" style={{ marginTop: 24 }}>
-        <h2 className="section-title" style={{ marginBottom: 12 }}>Pointage</h2>
-        <label className="tagora-field" style={{ marginBottom: 16 }}>
-          <span className="tagora-label">Note optionnelle</span>
-          <textarea
-            className="tagora-textarea"
-            value={note}
-            onChange={(event) => setNote(event.target.value)}
-            placeholder="Ajoutez une note si necessaire"
-          />
-        </label>
-        <div className="actions-row">
-          {EMPLOYEE_ACTIONS.map((action) => {
-            const pausePaid = snapshot?.employee.pausePaid !== false;
-            const isPauseAction =
-              action.eventType === "break_start" || action.eventType === "break_end";
-            return (
-            <button
-              key={action.eventType}
-              type="button"
-              className={
-                action.eventType === "punch_in" || action.eventType === "punch_out"
-                  ? "tagora-dark-action"
-                  : "tagora-dark-outline-action"
-              }
-              onClick={() => void handlePunch(action.eventType)}
-              disabled={saving || (pausePaid && isPauseAction)}
-            >
-              {action.label}
-            </button>
-          );
-          })}
-        </div>
-      </section>
 
       <section className="tagora-panel" style={{ marginTop: 24 }}>
         <h2 className="section-title" style={{ marginBottom: 12 }}>Exceptions en attente</h2>
