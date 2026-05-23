@@ -4,6 +4,9 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import HeaderTagora from "@/app/components/HeaderTagora";
 import AccessNotice from "@/app/components/AccessNotice";
+import CorrectionRequestModal, {
+  type CorrectionRequestType,
+} from "@/app/components/horodateur/CorrectionRequestModal";
 import { useCurrentAccess } from "@/app/hooks/useCurrentAccess";
 import { useEmployeeGpsReporting } from "@/app/hooks/useEmployeeGpsReporting";
 import { supabase } from "@/app/lib/supabase/client";
@@ -96,7 +99,7 @@ type HistoryPayload = {
 };
 
 const EMPLOYEE_ACTIONS = [
-  { eventType: "punch_in", label: "Entree" },
+  { eventType: "punch_in", label: "Entree maintenant" },
   { eventType: "break_start", label: "Debut pause" },
   { eventType: "break_end", label: "Fin pause" },
   { eventType: "meal_start", label: "Debut diner" },
@@ -196,6 +199,23 @@ function buildRequestedOccurredAtIso(templateIso: string, timeHHMM: string) {
   const offset = templateIso.match(/([+-]\d{2}:\d{2})$/)?.[1] ?? "-04:00";
 
   return `${year}-${month}-${day}T${hours}:${minutes}:00${offset}`;
+}
+
+function resolveCorrectionTimeTemplate(
+  latenessContext: LatenessContext | null,
+  workDate: string | null | undefined
+): string | null {
+  if (latenessContext?.scheduledStartAt) {
+    return latenessContext.scheduledStartAt;
+  }
+  if (latenessContext?.currentAt) {
+    return latenessContext.currentAt;
+  }
+  if (workDate && /^\d{4}-\d{2}-\d{2}$/.test(workDate)) {
+    const offset = new Date().toISOString().match(/([+-]\d{2}:\d{2})$/)?.[1] ?? "-04:00";
+    return `${workDate}T12:00:00${offset}`;
+  }
+  return new Date().toISOString();
 }
 
 function buildOccurredAtMinutesAgo(templateIso: string, minutesAgo: number) {
@@ -428,6 +448,7 @@ export default function EmployeHorodateurPage() {
     returnSummary: string;
   } | null>(null);
   const [retroactiveModalOpen, setRetroactiveModalOpen] = useState(false);
+  const [correctionType, setCorrectionType] = useState<CorrectionRequestType>("entry");
   const [retroactiveTime, setRetroactiveTime] = useState("");
   const [retroactiveReason, setRetroactiveReason] = useState("");
 
@@ -672,6 +693,7 @@ export default function EmployeHorodateurPage() {
       if (options?.retroactive) {
         setRetroactiveModalOpen(false);
         setRetroactiveReason("");
+        setCorrectionType("entry");
       }
       await loadData({ preserveMessage: true });
     } catch (error) {
@@ -685,15 +707,40 @@ export default function EmployeHorodateurPage() {
     await handlePunch("punch_in", { requireGps: true });
   }
 
-  async function handleRetroactiveRequest() {
-    const reason = retroactiveReason.trim();
-    if (!reason) {
-      setMessage("La raison est obligatoire pour une demande de correction retroactive.");
+  function openCorrectionModal(options?: { type?: CorrectionRequestType }) {
+    if (
+      latenessContext?.scheduledStartLabel &&
+      /^\d{1,2}:\d{2}$/.test(latenessContext.scheduledStartLabel.slice(0, 5))
+    ) {
+      setRetroactiveTime(latenessContext.scheduledStartLabel.slice(0, 5));
+    }
+    setCorrectionType(options?.type ?? "entry");
+    setRetroactiveModalOpen(true);
+  }
+
+  function closeCorrectionModal() {
+    setRetroactiveModalOpen(false);
+    setCorrectionType("entry");
+  }
+
+  async function handleCorrectionSubmit() {
+    if (correctionType === "other") {
+      setMessage(
+        "Cette option n'est pas encore disponible. Contactez la direction directement pour signaler une autre correction."
+      );
       return;
     }
 
-    const template =
-      latenessContext?.scheduledStartAt ?? latenessContext?.currentAt ?? null;
+    const reason = retroactiveReason.trim();
+    if (!reason) {
+      setMessage("La raison est obligatoire pour une demande de correction.");
+      return;
+    }
+
+    const template = resolveCorrectionTimeTemplate(
+      latenessContext,
+      snapshot?.todayShift?.work_date
+    );
     if (!template) {
       setMessage("Impossible de determiner la date de travail pour la demande.");
       return;
@@ -714,14 +761,25 @@ export default function EmployeHorodateurPage() {
   }
 
   function applyRetroactiveShortcut(minutesAgo: number) {
-    const template =
-      latenessContext?.scheduledStartAt ?? latenessContext?.currentAt ?? null;
+    const template = resolveCorrectionTimeTemplate(
+      latenessContext,
+      snapshot?.todayShift?.work_date
+    );
     if (!template) {
       return;
     }
     const built = buildOccurredAtMinutesAgo(template, minutesAgo);
     if (built.timeHHMM) {
       setRetroactiveTime(built.timeHHMM);
+    }
+  }
+
+  function applyScheduledStartShortcut() {
+    if (
+      latenessContext?.scheduledStartLabel &&
+      /^\d{1,2}:\d{2}$/.test(latenessContext.scheduledStartLabel.slice(0, 5))
+    ) {
+      setRetroactiveTime(latenessContext.scheduledStartLabel.slice(0, 5));
     }
   }
 
@@ -826,6 +884,25 @@ export default function EmployeHorodateurPage() {
         </div>
       </section>
 
+      <section className="tagora-panel" style={{ marginTop: 24 }}>
+        <h2 className="section-title" style={{ marginBottom: 8 }}>
+          Correction de pointage
+        </h2>
+        <p className="tagora-note" style={{ marginTop: 0, marginBottom: 16, lineHeight: 1.55 }}>
+          Si tu as oublie de pointer ou si une heure est incorrecte, envoie une demande a la
+          direction.
+        </p>
+        <button
+          type="button"
+          className="tagora-dark-outline-action"
+          style={{ width: "100%", minHeight: 52, fontSize: 16, fontWeight: 600 }}
+          disabled={saving}
+          onClick={() => openCorrectionModal({ type: "entry" })}
+        >
+          Demander une correction
+        </button>
+      </section>
+
       {canStartShiftPunch ? (
         <section className="tagora-panel" style={{ marginTop: 24 }}>
           <h2 className="section-title" style={{ marginBottom: 8 }}>
@@ -843,22 +920,14 @@ export default function EmployeHorodateurPage() {
               disabled={saving}
               onClick={() => void handleLatePunchNow()}
             >
-              Puncher maintenant
+              Entree maintenant
             </button>
             <button
               type="button"
               className="tagora-dark-outline-action"
               style={{ width: "100%", minHeight: 52, fontSize: 16 }}
               disabled={saving}
-              onClick={() => {
-                if (
-                  latenessContext?.scheduledStartLabel &&
-                  /^\d{1,2}:\d{2}$/.test(latenessContext.scheduledStartLabel.slice(0, 5))
-                ) {
-                  setRetroactiveTime(latenessContext.scheduledStartLabel.slice(0, 5));
-                }
-                setRetroactiveModalOpen(true);
-              }}
+              onClick={() => openCorrectionModal({ type: "entry" })}
             >
               Demander correction retroactive
             </button>
@@ -918,141 +987,21 @@ export default function EmployeHorodateurPage() {
         </section>
       ) : null}
 
-      {retroactiveModalOpen ? (
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="retroactive-modal-title"
-          style={{
-            position: "fixed",
-            inset: 0,
-            zIndex: 50,
-            display: "flex",
-            alignItems: "flex-end",
-            justifyContent: "center",
-            padding: 16,
-            background: "rgba(15, 23, 42, 0.45)",
-          }}
-          onClick={() => {
-            if (!saving) {
-              setRetroactiveModalOpen(false);
-            }
-          }}
-        >
-          <div
-            className="tagora-panel"
-            style={{
-              width: "100%",
-              maxWidth: 480,
-              maxHeight: "90vh",
-              overflow: "auto",
-              marginBottom: 0,
-            }}
-            onClick={(event) => event.stopPropagation()}
-          >
-            <h2 id="retroactive-modal-title" className="section-title" style={{ marginBottom: 12 }}>
-              Demande de correction retroactive
-            </h2>
-            <p className="tagora-note" style={{ marginTop: 0, marginBottom: 16 }}>
-              Indiquez l heure a laquelle vous avez reellement commence. La direction devra approuver
-              avant comptabilisation. Votre position actuelle sera enregistree (meme hors zone GPS)
-              pour que la direction puisse decider.
-            </p>
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
-                gap: 8,
-                marginBottom: 16,
-              }}
-            >
-              <button
-                type="button"
-                className="tagora-dark-outline-action"
-                style={{ minHeight: 44, fontSize: 14 }}
-                disabled={saving}
-                onClick={() => applyRetroactiveShortcut(15)}
-              >
-                Il y a 15 minutes
-              </button>
-              <button
-                type="button"
-                className="tagora-dark-outline-action"
-                style={{ minHeight: 44, fontSize: 14 }}
-                disabled={saving}
-                onClick={() => applyRetroactiveShortcut(30)}
-              >
-                Il y a 30 minutes
-              </button>
-              <button
-                type="button"
-                className="tagora-dark-outline-action"
-                style={{ minHeight: 44, fontSize: 14 }}
-                disabled={saving}
-                onClick={() => applyRetroactiveShortcut(60)}
-              >
-                Il y a 1 heure
-              </button>
-              <button
-                type="button"
-                className="tagora-dark-outline-action"
-                style={{ minHeight: 44, fontSize: 14 }}
-                disabled={saving}
-                onClick={() => {
-                  if (
-                    latenessContext?.scheduledStartLabel &&
-                    /^\d{1,2}:\d{2}$/.test(latenessContext.scheduledStartLabel.slice(0, 5))
-                  ) {
-                    setRetroactiveTime(latenessContext.scheduledStartLabel.slice(0, 5));
-                  }
-                }}
-              >
-                Heure prevue du jour
-              </button>
-            </div>
-            <label className="tagora-field" style={{ marginBottom: 16 }}>
-              <span className="tagora-label">Heure reellement commencée</span>
-              <input
-                className="tagora-input"
-                type="time"
-                value={retroactiveTime}
-                onChange={(event) => setRetroactiveTime(event.target.value)}
-                style={{ minHeight: 48, fontSize: 16 }}
-              />
-            </label>
-            <label className="tagora-field" style={{ marginBottom: 16 }}>
-              <span className="tagora-label">Raison (obligatoire)</span>
-              <textarea
-                className="tagora-textarea"
-                value={retroactiveReason}
-                onChange={(event) => setRetroactiveReason(event.target.value)}
-                placeholder="Ex. embouteillage, rendez-vous client..."
-                rows={4}
-              />
-            </label>
-            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-              <button
-                type="button"
-                className="tagora-dark-action"
-                style={{ width: "100%", minHeight: 48 }}
-                disabled={saving}
-                onClick={() => void handleRetroactiveRequest()}
-              >
-                Envoyer à la direction
-              </button>
-              <button
-                type="button"
-                className="tagora-dark-outline-action"
-                style={{ width: "100%", minHeight: 44 }}
-                disabled={saving}
-                onClick={() => setRetroactiveModalOpen(false)}
-              >
-                Annuler
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
+      <CorrectionRequestModal
+        open={retroactiveModalOpen}
+        saving={saving}
+        correctionType={correctionType}
+        time={retroactiveTime}
+        reason={retroactiveReason}
+        scheduledStartLabel={latenessContext?.scheduledStartLabel ?? null}
+        onClose={closeCorrectionModal}
+        onCorrectionTypeChange={setCorrectionType}
+        onTimeChange={setRetroactiveTime}
+        onReasonChange={setRetroactiveReason}
+        onApplyShortcut={applyRetroactiveShortcut}
+        onApplyScheduledStart={applyScheduledStartShortcut}
+        onSubmit={() => void handleCorrectionSubmit()}
+      />
 
       <section className="tagora-panel" style={{ marginTop: 24 }}>
         <h2 className="section-title" style={{ marginBottom: 12 }}>Pointage</h2>
