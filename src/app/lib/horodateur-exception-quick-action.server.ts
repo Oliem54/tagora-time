@@ -3,6 +3,13 @@ import "server-only";
 import { createHash, randomBytes } from "node:crypto";
 
 import {
+  APP_ACTION_MODULES,
+  APP_ACTION_TARGET_TYPES,
+  APP_ACTION_TYPES,
+  type AppActionTokenMetadata,
+} from "@/app/lib/app-action-tokens.shared";
+import { issueAppActionToken } from "@/app/lib/app-action-tokens.server";
+import {
   deleteUnusedQuickActionTokensForException,
   insertQuickActionToken,
 } from "@/app/lib/horodateur-v1/repository";
@@ -82,6 +89,33 @@ export async function issueHorodateurExceptionQuickActionPair(exceptionId: strin
     approveUrl: buildUrl("approve", approveRaw),
     rejectUrl: buildUrl("reject", rejectRaw),
   };
+}
+
+/**
+ * Émet un jeton unique vers /action/[token] (moteur global Phase 1).
+ * Invalide aussi les jetons legacy non utilisés pour la même exception.
+ */
+export async function issueHorodateurExceptionAppActionToken(input: {
+  exceptionId: string;
+  metadata: AppActionTokenMetadata;
+}): Promise<{ respondUrl: string } | null> {
+  await deleteUnusedQuickActionTokensForException(input.exceptionId);
+
+  const issued = await issueAppActionToken({
+    actionType: APP_ACTION_TYPES.horodateurExceptionReview,
+    module: APP_ACTION_MODULES.horodateur,
+    targetType: APP_ACTION_TARGET_TYPES.horodateurException,
+    targetId: input.exceptionId,
+    metadata: input.metadata,
+    recipientRole: "direction",
+    ttlMs: QUICK_ACTION_TTL_MS,
+  });
+
+  if (!issued) {
+    return null;
+  }
+
+  return { respondUrl: issued.respondUrl };
 }
 
 const PLACEHOLDER_ACTOR_UUID = /^xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx$/i;
