@@ -8,9 +8,11 @@ import {
 import type { HorodateurPhase1EmployeeProfile } from "@/app/lib/horodateur-v1/types";
 import {
   getHorodateurQuickActionActorUserId,
+  issueHorodateurExceptionAppActionToken,
   issueHorodateurExceptionQuickActionPair,
   resolvePublicAppBaseUrl,
 } from "@/app/lib/horodateur-exception-quick-action.server";
+import { isAppActionTokensHorodateurEnabled } from "@/app/lib/app-action-tokens.shared";
 import {
   normalizePhoneNumber,
   normalizePhoneToTwilioE164,
@@ -53,6 +55,8 @@ type DirectionAlertPayload = {
   /** URLs absolues (jeton inclus) — exception horodateur uniquement. */
   quickApproveUrl?: string | null;
   quickRejectUrl?: string | null;
+  /** Lien unique vers /action/[token] — moteur global Phase 1. */
+  quickRespondUrl?: string | null;
 };
 
 type DirectionAlertResult = {
@@ -340,7 +344,11 @@ function buildDirectionAlertText(payload: DirectionAlertPayload) {
     lines.push(payload.managementUrl);
   }
 
-  if (payload.quickApproveUrl && payload.quickRejectUrl) {
+  if (payload.quickRespondUrl) {
+    lines.push("");
+    lines.push("Action requise (24 h) — repondre a la demande :");
+    lines.push(payload.quickRespondUrl);
+  } else if (payload.quickApproveUrl && payload.quickRejectUrl) {
     lines.push("");
     lines.push("Actions rapides (24 h) — si les boutons HTML ne s’affichent pas :");
     lines.push(`Approuver : ${payload.quickApproveUrl}`);
@@ -409,9 +417,12 @@ function buildDirectionAlertHtml(payload: DirectionAlertPayload) {
   );
   const approveU = payload.quickApproveUrl;
   const rejectU = payload.quickRejectUrl;
+  const respondU = payload.quickRespondUrl;
 
   const quickLinksMissingBanner =
-    payload.alertType === "horodateur_exception" && (!approveU || !rejectU)
+    payload.alertType === "horodateur_exception" &&
+    !respondU &&
+    (!approveU || !rejectU)
       ? `
             <tr>
               <td style="padding:8px 28px 8px 28px;">
@@ -423,8 +434,27 @@ function buildDirectionAlertHtml(payload: DirectionAlertPayload) {
             </tr>`
       : "";
 
+  const quickRespondBlock = respondU
+    ? `
+            <tr>
+              <td style="padding:16px 28px 4px 28px;">
+                <p style="margin:0 0 8px 0;font-family:Arial,Helvetica,sans-serif;font-size:14px;font-weight:700;color:#0f172a;">Action requise</p>
+                <p style="margin:0 0 14px 0;font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:1.5;color:#64748b;">Lien securise a usage unique — expire apres 24 h. Choisissez Accepter ou Refuser sur la page TAGORA.</p>
+                <table role="presentation" cellspacing="0" cellpadding="0" border="0" style="border-collapse:collapse;">
+                  <tr>
+                    <td bgcolor="#1d4ed8" style="background-color:#1d4ed8;border-radius:8px;">
+                      <a href="${escapeHtml(respondU)}" target="_blank" rel="noopener" style="display:inline-block;padding:14px 26px;font-family:Arial,Helvetica,sans-serif;font-size:15px;font-weight:700;line-height:1.2;color:#ffffff;text-decoration:none;border-radius:8px;">Repondre a la demande</a>
+                    </td>
+                  </tr>
+                </table>
+                <p style="margin:16px 0 8px 0;font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:1.5;color:#475569;font-weight:700;">Si le bouton ne fonctionne pas, copiez-collez ce lien :</p>
+                <div style="font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:1.55;word-break:break-all;overflow-wrap:anywhere;color:#0f172a;background-color:#f8fafc;border:1px solid #cbd5e1;border-radius:8px;padding:12px 14px;margin:0 0 12px 0;">${escapeHtml(respondU)}</div>
+              </td>
+            </tr>`
+    : "";
+
   const quickActionsBlock =
-    approveU && rejectU
+    !respondU && approveU && rejectU
       ? `
             <tr>
               <td style="padding:16px 28px 4px 28px;">
@@ -471,6 +501,7 @@ function buildDirectionAlertHtml(payload: DirectionAlertPayload) {
 
   const ctaRows =
     quickLinksMissingBanner +
+    quickRespondBlock +
     quickActionsBlock +
     (managementUrl
       ? `
@@ -1228,12 +1259,20 @@ function buildHorodateurExceptionDirectionSmsBody(options: {
   isReminder: boolean;
   employeeName: string | null | undefined;
   noteShort: string | null;
+  quickRespondUrl?: string | null;
   quickPair: { approveUrl: string; rejectUrl: string } | null;
   openUrl: string | null;
 }) {
   const head = options.isReminder ? "TAGORA Time (rappel)" : "TAGORA Time";
-  const name = options.employeeName?.trim() || "employé";
-  const parts: string[] = [`${head} : exception horodateur de ${name}.`];
+  const name = options.employeeName?.trim() || "employe";
+  const parts: string[] = [];
+
+  if (options.quickRespondUrl) {
+    parts.push(`TAGORA : action requise. Repondre : ${options.quickRespondUrl}`);
+    return parts.join(" ");
+  }
+
+  parts.push(`${head} : exception horodateur de ${name}.`);
   if (options.noteShort) {
     parts.push(`Note : ${options.noteShort}`);
   }
@@ -1455,18 +1494,6 @@ export async function notifyDirectionOfHorodateurException(
     ? "TAGORA Time — Rappel : exception horodateur à traiter"
     : "TAGORA Time — Exception horodateur à traiter";
 
-  let quickPair: { approveUrl: string; rejectUrl: string } | null = null;
-  let quickPairIssueMessage: string | null = null;
-  try {
-    quickPair = await issueHorodateurExceptionQuickActionPair(payload.exceptionId);
-  } catch (error) {
-    quickPairIssueMessage = error instanceof Error ? error.message : String(error);
-    console.error("[horodateur-exception-quick-action]", "issue_failed", {
-      exceptionId: payload.exceptionId,
-      message: quickPairIssueMessage,
-    });
-  }
-
   const employeeNote =
     payload.employeeNote && payload.employeeNote.trim()
       ? payload.employeeNote.trim()
@@ -1480,6 +1507,54 @@ export async function notifyDirectionOfHorodateurException(
       ? getCompanyLabel(payload.company as AccountRequestCompany)
       : "-";
 
+  let quickPair: { approveUrl: string; rejectUrl: string } | null = null;
+  let quickRespondUrl: string | null = null;
+  let quickPairIssueMessage: string | null = null;
+
+  const useAppActionTokens = isAppActionTokensHorodateurEnabled();
+
+  try {
+    if (useAppActionTokens) {
+      const issued = await issueHorodateurExceptionAppActionToken({
+        exceptionId: payload.exceptionId,
+        metadata: {
+          title: payload.isReminder
+            ? "Rappel : exception horodateur"
+            : "Exception horodateur",
+          summary: payload.isReminder
+            ? "Une exception horodateur est toujours en attente. Acceptez ou refusez la demande."
+            : "Une exception horodateur est en attente. Acceptez ou refusez la demande.",
+          detailRows: [
+            { label: "Employe", value: payload.employeeName ?? "-" },
+            { label: "Courriel", value: payload.employeeEmail ?? "-" },
+            { label: "Telephone", value: phoneDisplay },
+            { label: "Compagnie", value: companyLabel },
+            { label: "Type d'exception", value: payload.exceptionType },
+            { label: "Motif systeme", value: payload.reasonLabel },
+            {
+              label: "Note employe",
+              value: employeeNote ?? "Aucune note fournie.",
+            },
+            { label: "Heure de l'evenement", value: formattedOccurredAt },
+            { label: "Heure de creation", value: formattedRequestedAt },
+          ],
+          managementUrl,
+          managementLabel: "Ouvrir l horodateur direction",
+        },
+      });
+      quickRespondUrl = issued?.respondUrl ?? null;
+    } else {
+      quickPair = await issueHorodateurExceptionQuickActionPair(payload.exceptionId);
+    }
+  } catch (error) {
+    quickPairIssueMessage = error instanceof Error ? error.message : String(error);
+    console.error("[horodateur-exception-quick-action]", "issue_failed", {
+      exceptionId: payload.exceptionId,
+      message: quickPairIssueMessage,
+      useAppActionTokens,
+    });
+  }
+
   const directionLink = buildManagementUrl(managementUrl) ?? managementUrl;
   const resolvedBaseUrl = resolvePublicAppBaseUrl();
   const rawNextPublic = process.env.NEXT_PUBLIC_APP_URL?.trim() || null;
@@ -1490,17 +1565,20 @@ export async function notifyDirectionOfHorodateurException(
         ? `${resolvedBaseUrl}${managementUrl.startsWith("/") ? managementUrl : `/${managementUrl}`}`
         : managementUrl;
 
-  if (!quickPair) {
+  if (useAppActionTokens ? !quickRespondUrl : !quickPair) {
     console.error("[horodateur-exception-quick-action-links-missing]", {
       exceptionId: payload.exceptionId,
       appUrl: resolvedBaseUrl,
       rawNextPublicAppUrl: rawNextPublic,
       hasActorUuid: Boolean(getHorodateurQuickActionActorUserId()),
       tokenError: quickPairIssueMessage,
+      useAppActionTokens,
       message: !resolvedBaseUrl
-        ? "Aucune URL publique résolue (NEXT_PUBLIC_APP_URL / APP_PUBLIC_BASE_URL / VERCEL_URL) — impossible de construire les liens Approuver / Refuser."
+        ? "Aucune URL publique resolue (NEXT_PUBLIC_APP_URL / APP_PUBLIC_BASE_URL / VERCEL_URL) — impossible de construire le lien de reponse."
         : quickPairIssueMessage ??
-          "issueHorodateurExceptionQuickActionPair returned null (voir tokenError).",
+          (useAppActionTokens
+            ? "issueHorodateurExceptionAppActionToken returned null (voir tokenError)."
+            : "issueHorodateurExceptionQuickActionPair returned null (voir tokenError)."),
     });
   }
 
@@ -1528,6 +1606,7 @@ export async function notifyDirectionOfHorodateurException(
       managementLabel: "Ouvrir l’horodateur direction",
       quickApproveUrl: quickPair?.approveUrl ?? null,
       quickRejectUrl: quickPair?.rejectUrl ?? null,
+      quickRespondUrl,
       details: {
         Employé: payload.employeeName,
         Courriel: payload.employeeEmail ?? "-",
@@ -1571,6 +1650,7 @@ export async function notifyDirectionOfHorodateurException(
     isReminder: Boolean(payload.isReminder),
     employeeName: payload.employeeName ?? payload.employeeEmail,
     noteShort: noteForSms,
+    quickRespondUrl,
     quickPair,
     openUrl: smsOpenUrl,
   });
