@@ -634,12 +634,19 @@
 }
 
 .livraison-cal-daynum {
-  width: fit-content;
-  padding: 4px 10px;
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
+  padding: 0;
   margin-bottom: 8px;
   border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
   font-size: 12px;
   font-weight: 800;
+  line-height: 1;
   text-decoration: none;
   color: var(--livraison-navy);
   background: #eef4fb;
@@ -810,7 +817,10 @@
 
   .livraison-cal-daynum {
     font-size: 13px;
-    padding: 5px 11px;
+    width: 28px;
+    height: 28px;
+    min-width: 28px;
+    padding: 0;
   }
 
   .livraison-cal-day-badge {
