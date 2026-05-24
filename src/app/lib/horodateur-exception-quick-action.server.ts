@@ -93,14 +93,13 @@ export async function issueHorodateurExceptionQuickActionPair(exceptionId: strin
 
 /**
  * Émet un jeton unique vers /action/[token] (moteur global Phase 1).
- * Invalide aussi les jetons legacy non utilisés pour la même exception.
+ * Les jetons pending précédents sont annulés via issueAppActionToken (app_action_tokens).
+ * Ne dépend pas de horodateur_exception_action_tokens.
  */
 export async function issueHorodateurExceptionAppActionToken(input: {
   exceptionId: string;
   metadata: AppActionTokenMetadata;
 }): Promise<{ respondUrl: string } | null> {
-  await deleteUnusedQuickActionTokensForException(input.exceptionId);
-
   const issued = await issueAppActionToken({
     actionType: APP_ACTION_TYPES.horodateurExceptionReview,
     module: APP_ACTION_MODULES.horodateur,

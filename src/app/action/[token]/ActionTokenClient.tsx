@@ -156,45 +156,53 @@ export default function ActionTokenClient({ token, initialView }: ActionTokenCli
         <DecisionButtons
           saving={saving}
           rejectSelected={rejectSelected}
-          selectedResponse={selectedResponse}
-          onSelect={setSelectedResponse}
+          onAccept={() => void submitDecision("accept")}
+          onReject={() => {
+            setSelectedResponse("reject");
+            setSubmitState({ status: "idle" });
+          }}
         />
 
         {rejectSelected ? (
-          <label className="tagora-field" style={{ marginBottom: 16 }}>
-            <span className="tagora-label">Raison du refus (obligatoire)</span>
-            <textarea
-              className="tagora-textarea"
-              value={responseNote}
-              onChange={(event) => setResponseNote(event.target.value)}
-              placeholder="Expliquez brievement le motif du refus..."
-              rows={4}
+          <>
+            <label className="tagora-field" style={{ marginBottom: 16 }}>
+              <span className="tagora-label">Raison du refus (obligatoire)</span>
+              <textarea
+                className="tagora-textarea"
+                value={responseNote}
+                onChange={(event) => setResponseNote(event.target.value)}
+                placeholder="Expliquez brievement le motif du refus..."
+                rows={4}
+                disabled={saving}
+              />
+            </label>
+            <button
+              type="button"
+              className="tagora-dark-outline-action"
+              style={{
+                width: "100%",
+                minHeight: 48,
+                marginBottom: 12,
+                borderColor: "#b91c1c",
+                color: "#b91c1c",
+              }}
               disabled={saving}
-            />
-          </label>
-        ) : null}
+              onClick={() => void submitDecision("reject")}
+            >
+              {saving ? "Envoi en cours..." : "Confirmer le refus"}
+            </button>
+          </>
+        ) : (
+          <p className="tagora-note" style={{ margin: 0 }}>
+            Accepter enregistre la decision immediatement. Refuser demande une raison.
+          </p>
+        )}
 
         {submitState.status === "error" ? (
-          <p style={{ margin: "0 0 16px", color: "#b91c1c", lineHeight: 1.5 }}>
+          <p style={{ margin: "16px 0 0", color: "#b91c1c", lineHeight: 1.5 }}>
             {submitState.message}
           </p>
         ) : null}
-
-        {selectedResponse ? (
-          <button
-            type="button"
-            className="tagora-dark-action"
-            style={{ width: "100%", minHeight: 48 }}
-            disabled={saving}
-            onClick={() => void submitDecision(selectedResponse)}
-          >
-            {saving ? "Envoi en cours..." : "Confirmer ma decision"}
-          </button>
-        ) : (
-          <p className="tagora-note" style={{ margin: 0 }}>
-            Choisissez Accepter ou Refuser, puis confirmez.
-          </p>
-        )}
       </ActionPanel>
     </main>
   );
@@ -282,13 +290,13 @@ function DetailRows({ rows }: { rows: AppActionTokenDetailRow[] }) {
 function DecisionButtons({
   saving,
   rejectSelected,
-  selectedResponse,
-  onSelect,
+  onAccept,
+  onReject,
 }: {
   saving: boolean;
   rejectSelected: boolean;
-  selectedResponse: AppActionResponse | null;
-  onSelect: (value: AppActionResponse) => void;
+  onAccept: () => void;
+  onReject: () => void;
 }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 16 }}>
@@ -300,12 +308,11 @@ function DecisionButtons({
           minHeight: 52,
           fontSize: 17,
           fontWeight: 700,
-          outline: selectedResponse === "accept" ? "2px solid #1e3a5f" : undefined,
         }}
         disabled={saving}
-        onClick={() => onSelect("accept")}
+        onClick={onAccept}
       >
-        Accepter
+        {saving && !rejectSelected ? "Envoi en cours..." : "Accepter"}
       </button>
       <button
         type="button"
@@ -316,10 +323,10 @@ function DecisionButtons({
           fontSize: 16,
           fontWeight: 600,
           borderColor: rejectSelected ? "#b91c1c" : undefined,
-          outline: selectedResponse === "reject" ? "2px solid #b91c1c" : undefined,
+          outline: rejectSelected ? "2px solid #b91c1c" : undefined,
         }}
         disabled={saving}
-        onClick={() => onSelect("reject")}
+        onClick={onReject}
       >
         Refuser
       </button>
