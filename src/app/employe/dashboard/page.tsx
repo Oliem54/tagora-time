@@ -3,7 +3,16 @@
 import Image from "next/image";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowUpRight, CalendarDays, Clock3, FileStack, ShieldCheck, Truck, Waypoints } from "lucide-react";
+import {
+  ArrowUpRight,
+  CalendarDays,
+  Clock3,
+  FileStack,
+  Package,
+  ShieldCheck,
+  Truck,
+  Waypoints,
+} from "lucide-react";
 import { useCurrentAccess } from "@/app/hooks/useCurrentAccess";
 import { supabase } from "../../lib/supabase/client";
 import AuthenticatedPageHeader from "@/app/components/ui/AuthenticatedPageHeader";
@@ -323,18 +332,38 @@ export default function EmployeDashboardPage() {
               }
             />
             {canUseLivraisons ? (
-              <ModuleTile
-                title="Livraison & ramassage"
-                description="Suivi a venir."
-                icon={<Truck size={24} strokeWidth={2.1} />}
-                tone="blue"
-                action={
-                  <SecondaryButton onClick={() => router.push("/employe/livraisons")} style={{ width: "100%", justifyContent: "space-between" }}>
-                    <span>Acceder</span>
-                    <ArrowUpRight size={16} />
-                  </SecondaryButton>
-                }
-              />
+              <>
+                <ModuleTile
+                  title="Livraisons"
+                  description="Suivi des livraisons a venir."
+                  icon={<Truck size={24} strokeWidth={2.1} />}
+                  tone="blue"
+                  action={
+                    <SecondaryButton
+                      onClick={() => router.push("/employe/livraisons")}
+                      style={{ width: "100%", justifyContent: "space-between" }}
+                    >
+                      <span>Acceder</span>
+                      <ArrowUpRight size={16} />
+                    </SecondaryButton>
+                  }
+                />
+                <ModuleTile
+                  title="Ramassages"
+                  description="Suivi des ramassages a venir."
+                  icon={<Package size={24} strokeWidth={2.1} />}
+                  tone="blue"
+                  action={
+                    <SecondaryButton
+                      onClick={() => router.push("/employe/livraisons?view=ramassages")}
+                      style={{ width: "100%", justifyContent: "space-between" }}
+                    >
+                      <span>Acceder</span>
+                      <ArrowUpRight size={16} />
+                    </SecondaryButton>
+                  }
+                />
+              </>
             ) : null}
             {canUseDossiers ? (
               <ModuleTile

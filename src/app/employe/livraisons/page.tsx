@@ -2,7 +2,7 @@
 
 import { type FormEvent, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "../../lib/supabase/client";
 import { useCurrentAccess } from "../../hooks/useCurrentAccess";
 import {
@@ -103,8 +103,14 @@ function monthLabel(date: Date) {
   return new Intl.DateTimeFormat("fr-CA", { month: "long", year: "numeric" }).format(date);
 }
 
+function operationViewFromSearchParam(view: string | null): "livraisons" | "ramassages" {
+  return view === "ramassages" ? "ramassages" : "livraisons";
+}
+
 export default function EmployeLivraisonsPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const viewParam = searchParams.get("view");
   const { user, loading: accessLoading, hasPermission } = useCurrentAccess();
 
   const [livraisons, setLivraisons] = useState<Livraison[]>([]);
@@ -129,8 +135,8 @@ export default function EmployeLivraisonsPage() {
   const [incidentDescriptionValues, setIncidentDescriptionValues] = useState<
     Record<number, string>
   >({});
-  const [operationView, setOperationView] = useState<"livraisons" | "ramassages">(
-    "livraisons"
+  const [operationView, setOperationView] = useState<"livraisons" | "ramassages">(() =>
+    operationViewFromSearchParam(viewParam)
   );
   const [viewMode, setViewMode] = useState<"liste" | "calendrier">("calendrier");
   const [calendarDate, setCalendarDate] = useState(new Date());
@@ -141,6 +147,10 @@ export default function EmployeLivraisonsPage() {
   const dateDuJour = getTodayLocalDate();
   const canUseLivraisons = hasPermission("livraisons");
   const canManagePlanning = false;
+
+  useEffect(() => {
+    setOperationView(operationViewFromSearchParam(viewParam));
+  }, [viewParam]);
 
   const chargerLivraisons = useCallback(async () => {
     const { data, error } = await supabase
