@@ -92,11 +92,17 @@ export async function POST(
       ? await sendSmsReminder(contact.phone, reminderText)
       : { sent: false, skipped: true, reason: "phone_missing" };
 
-    const existingNotes = typeof pickup.notes === "string" ? pickup.notes : "";
+    const existingCommentaire =
+      typeof pickup.commentaire_operationnel === "string" ? pickup.commentaire_operationnel : "";
     const stamp = new Date().toISOString();
     const noteLine = `[${stamp}] Relance client par ${user.email ?? user.id} | email=${emailResult.sent ? "ok" : emailResult.reason} | sms=${smsResult.sent ? "ok" : smsResult.reason}`;
-    const notes = existingNotes ? `${existingNotes}\n${noteLine}` : noteLine;
-    await supabase.from("livraisons_planifiees").update({ notes }).eq("id", pickupId);
+    const commentaire_operationnel = existingCommentaire
+      ? `${existingCommentaire}\n${noteLine}`
+      : noteLine;
+    await supabase
+      .from("livraisons_planifiees")
+      .update({ commentaire_operationnel })
+      .eq("id", pickupId);
 
     return NextResponse.json({ success: true, emailResult, smsResult });
   } catch (error) {
