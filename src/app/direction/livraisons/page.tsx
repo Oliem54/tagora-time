@@ -37,11 +37,14 @@ import {
   PaymentFinalizeModal,
 } from "@/app/components/livraisons/PaymentClientUi";
 import MobileTodayOperationsEntry from "@/app/components/livraisons/MobileTodayOperationsEntry";
+import OperationsMonthCalendar from "@/app/components/livraisons/OperationsMonthCalendar";
 import {
-  formatTodayOperationCount,
-  formatTodayOperationCountShort,
   getLocalTodayIso,
 } from "@/app/lib/livraisons/today-operations.shared";
+import {
+  livraisonCalendarEventStatusClass,
+  shiftOperationsCalendarMonth,
+} from "@/app/lib/livraisons/operations-calendar.shared";
 
 type Row = Record<string, string | number | null | undefined>;
 type LivraisonFormState = {
@@ -391,39 +394,6 @@ export default function Page() {
     );
   }
 
-  function getCalendarDays() {
-    const year = calendarDate.getFullYear();
-    const month = calendarDate.getMonth();
-    const firstDay = new Date(year, month, 1);
-    const lastDay = new Date(year, month + 1, 0);
-    const daysInMonth = lastDay.getDate();
-    const startingDayOfWeek = (firstDay.getDay() + 6) % 7;
-
-    const days = [];
-    for (let i = 0; i < startingDayOfWeek; i++) days.push(null);
-    for (let i = 1; i <= daysInMonth; i++) days.push(i);
-    return days;
-  }
-
-  function formatDateISO(day: number) {
-    const year = calendarDate.getFullYear();
-    const month = String(calendarDate.getMonth() + 1).padStart(2, "0");
-    const d = String(day).padStart(2, "0");
-    return `${year}-${month}-${d}`;
-  }
-
-  function getLivraisonsByDate(dateStr: string) {
-    return livraisonsFiltrees.filter((l) => l.date_livraison === dateStr);
-  }
-
-  function prevMonth() {
-    setCalendarDate(new Date(calendarDate.getFullYear(), calendarDate.getMonth() - 1, 1));
-  }
-
-  function nextMonth() {
-    setCalendarDate(new Date(calendarDate.getFullYear(), calendarDate.getMonth() + 1, 1));
-  }
-
   const canEditLivraisonNotes = livraisons.some((item) =>
     Object.prototype.hasOwnProperty.call(item, "notes")
   );
@@ -506,6 +476,29 @@ export default function Page() {
     [livraisonsFiltrees, todayIso]
   );
   const todayLivraisonsHref = `/direction/livraisons/jour?date=${todayIso}`;
+
+  const calendarEventsByDate = useMemo(() => {
+    const map: Record<
+      string,
+      Array<{ id: string | number; label: string; href: string; eventClassName: string }>
+    > = {};
+    for (const item of livraisonsFiltrees) {
+      const dateStr = String(item.date_livraison || "");
+      if (!dateStr) continue;
+      if (!map[dateStr]) map[dateStr] = [];
+      const clientLabel = getLivraisonClient(item, getDossierById(item.dossier_id)) || `#${item.id}`;
+      const timeSuffix = item.heure_prevue ? ` @ ${item.heure_prevue}` : "";
+      map[dateStr].push({
+        id: item.id ?? `${dateStr}-${map[dateStr].length}`,
+        label: `${clientLabel}${timeSuffix}`,
+        href: `/direction/livraisons/jour?date=${dateStr}`,
+        eventClassName: livraisonCalendarEventStatusClass(
+          typeof item.statut === "string" ? item.statut : null
+        ),
+      });
+    }
+    return map;
+  }, [livraisonsFiltrees, dossiers]);
 
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
@@ -1333,82 +1326,19 @@ export default function Page() {
               )}
             </>
           ) : (
-            <>
-              <div className="livraison-cal-nav" aria-label="Navigation calendrier">
-                <button type="button" onClick={prevMonth} className="livraison-cal-nav-btn">
-                  ← Mois prec
-                </button>
-                <h3 className="livraison-cal-month">
-                  {calendarDate.toLocaleString("fr-FR", { month: "long", year: "numeric" })}
-                </h3>
-                <button type="button" onClick={nextMonth} className="livraison-cal-nav-btn">
-                  Mois suiv →
-                </button>
-              </div>
-              <div className="livraison-cal-weekdays">
-                {["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"].map((d) => (
-                  <div key={d} className="livraison-cal-weekday">
-                    {d}
-                  </div>
-                ))}
-              </div>
-              <div className="livraison-cal-grid">
-                {getCalendarDays().map((day, idx) => {
-                  const dateStr = day ? formatDateISO(day) : "";
-                  const datumsForDay = day ? getLivraisonsByDate(dateStr) : [];
-                  return (
-                    <div
-                      key={idx}
-                      className={day ? "livraison-cal-cell" : "livraison-cal-cell livraison-cal-cell--empty"}
-                    >
-                      {day ? (
-                        <Link href={`/direction/livraisons/jour?date=${dateStr}`} className="livraison-cal-daynum">
-                          {day}
-                        </Link>
-                      ) : null}
-                      {datumsForDay.length > 0 ? (
-                        <Link
-                          href={`/direction/livraisons/jour?date=${dateStr}`}
-                          className="livraison-cal-day-badge livraison-cal-day-badge--livraison"
-                        >
-                          <span className="livraison-cal-day-badge__full">
-                            {formatTodayOperationCount("livraison", datumsForDay.length)}
-                          </span>
-                          <span className="livraison-cal-day-badge__short">
-                            {formatTodayOperationCountShort("livraison", datumsForDay.length)}
-                          </span>
-                        </Link>
-                      ) : null}
-                      <div className="livraison-cal-events livraison-cal-events--desktop">
-                        {datumsForDay.slice(0, 3).map((item) => {
-                          const statutKey =
-                            item.statut === "en_cours"
-                              ? "en_cours"
-                              : item.statut === "livree"
-                                ? "livree"
-                                : item.statut === "probleme"
-                                  ? "probleme"
-                                  : "planifiee";
-                          return (
-                            <Link
-                              key={item.id}
-                              href={`/direction/livraisons/jour?date=${dateStr}`}
-                              className={`livraison-cal-event livraison-cal-event--${statutKey}`}
-                            >
-                              {getLivraisonClient(item, getDossierById(item.dossier_id)) || `#${item.id}`}{" "}
-                              {item.heure_prevue ? `@ ${item.heure_prevue}` : ""}
-                            </Link>
-                          );
-                        })}
-                        {datumsForDay.length > 3 && (
-                          <div className="livraison-cal-more">+{datumsForDay.length - 3} autre(s)</div>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </>
+            <OperationsMonthCalendar
+              mode="livraison"
+              calendarDate={calendarDate}
+              onPrevMonth={() =>
+                setCalendarDate(shiftOperationsCalendarMonth(calendarDate, -1))
+              }
+              onNextMonth={() =>
+                setCalendarDate(shiftOperationsCalendarMonth(calendarDate, 1))
+              }
+              dayHref={(isoDate) => `/direction/livraisons/jour?date=${isoDate}`}
+              eventsByDate={calendarEventsByDate}
+              navAriaLabel="Navigation calendrier"
+            />
           )}
       </section>
         </div>
