@@ -14,7 +14,8 @@ values
   ('dossiers', 'Dossiers', 'dossiers', 'Acces aux dossiers terrain et a leurs notes.', 20),
   ('terrain', 'Terrain', 'terrain', 'Acces aux sorties terrain et operations reliees.', 30),
   ('livraisons', 'Livraisons', 'livraisons', 'Acces a la planification et au suivi des livraisons.', 40),
-  ('ressources', 'Ressources', 'ressources', 'Acces aux ressources direction comme vehicules et remorques.', 50)
+  ('ressources', 'Ressources', 'ressources', 'Acces aux ressources direction comme vehicules et remorques.', 50),
+  ('commissions', 'Commissions', 'commissions', 'Acces au module objectifs de vente et commissions.', 60)
 on conflict (slug) do update
 set
   label = excluded.label,

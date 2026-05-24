@@ -14,6 +14,7 @@ import {
   TimerReset,
   Truck,
   Package,
+  Target,
   ClipboardList,
   Bell,
   Waypoints,
@@ -31,7 +32,7 @@ import TagoraCountBadge from "@/app/components/TagoraCountBadge";
 import TagoraIconBadge from "@/app/components/TagoraIconBadge";
 import type { TagoraStatTone } from "@/app/components/tagora-stat-tone";
 
-type ModulePermission = "documents" | "livraisons" | "terrain" | "ressources" | null;
+type ModulePermission = "documents" | "livraisons" | "terrain" | "ressources" | "commissions" | null;
 type ModuleGroupId = "supervision" | "operations" | "gestion";
 
 type ModuleDefinition = {
@@ -179,6 +180,15 @@ const MODULES: ModuleDefinition[] = [
     group: "gestion",
     icon: FileStack,
     tone: "purple",
+  },
+  {
+    href: "/direction/commissions",
+    label: "Commissions & objectifs",
+    description: "Objectifs de vente, performance et suivi des commissions.",
+    permission: "commissions",
+    group: "gestion",
+    icon: Target,
+    tone: "green",
   },
   {
     href: "/ameliorations",

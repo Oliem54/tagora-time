@@ -37,6 +37,13 @@ export const APP_PERMISSION_DEFINITIONS = [
     description: "Acces aux ressources direction comme vehicules et remorques.",
     sortOrder: 50,
   },
+  {
+    value: "commissions",
+    label: "Commissions",
+    module: "commissions",
+    description: "Acces aux objectifs de vente et au suivi des commissions.",
+    sortOrder: 60,
+  },
 ] as const;
 
 export type AppPermission = (typeof APP_PERMISSION_DEFINITIONS)[number]["value"];
@@ -123,6 +130,10 @@ export function getRequiredPermissionForPath(pathname: string) {
 
   if (pathname.startsWith("/direction/ressources")) {
     return "ressources" as const;
+  }
+
+  if (pathname.startsWith("/direction/commissions")) {
+    return "commissions" as const;
   }
 
   return null;
