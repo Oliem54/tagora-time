@@ -5,6 +5,7 @@ export type CorrectionRequestType = "entry" | "other";
 type CorrectionRequestModalProps = {
   open: boolean;
   saving: boolean;
+  submitError?: string | null;
   correctionType: CorrectionRequestType;
   time: string;
   reason: string;
@@ -21,6 +22,7 @@ type CorrectionRequestModalProps = {
 export default function CorrectionRequestModal({
   open,
   saving,
+  submitError,
   correctionType,
   time,
   reason,
@@ -62,6 +64,20 @@ export default function CorrectionRequestModal({
           Votre position actuelle sera enregistree avec la demande, meme si elle est hors zone GPS.
           La direction devra approuver avant comptabilisation.
         </p>
+
+        {submitError ? (
+          <div
+            className="tagora-panel-muted"
+            style={{
+              marginBottom: 16,
+              padding: 14,
+              borderColor: "rgba(239, 68, 68, 0.45)",
+            }}
+            role="alert"
+          >
+            <p style={{ margin: 0, lineHeight: 1.55, color: "#0f172a" }}>{submitError}</p>
+          </div>
+        ) : null}
 
         <label className="tagora-field" style={{ marginBottom: 16 }}>
           <span className="tagora-label">Type de correction</span>
@@ -171,7 +187,7 @@ export default function CorrectionRequestModal({
             disabled={saving || otherBlocked}
             onClick={onSubmit}
           >
-            Envoyer a la direction
+            {saving ? "Envoi en cours..." : "Envoyer a la direction"}
           </button>
           <button
             type="button"
