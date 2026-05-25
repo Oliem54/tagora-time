@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import DirectionFinancePhase2Notice from "@/app/components/admin/DirectionFinancePhase2Notice";
+import { hasFinanceModuleAccess } from "@/app/lib/auth/admin-finance";
 import HeaderTagora from "@/app/components/HeaderTagora";
 import AccessNotice from "@/app/components/AccessNotice";
 import { supabase } from "@/app/lib/supabase/client";
@@ -300,7 +301,8 @@ export default function TempsTitanPage() {
     setLoading(false);
   }, []);
 
-  const blocked = !accessLoading && !!user && !hasPermission("terrain");
+  const blocked =
+    !accessLoading && !!user && !hasFinanceModuleAccess(user, hasPermission);
   const userId = user?.id ?? null;
 
   useEffect(() => {

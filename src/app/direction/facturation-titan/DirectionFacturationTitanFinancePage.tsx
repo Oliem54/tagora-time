@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import DirectionFinancePhase2Notice from "@/app/components/admin/DirectionFinancePhase2Notice";
+import { hasFinanceModuleAccess } from "@/app/lib/auth/admin-finance";
 import HeaderTagora from "@/app/components/HeaderTagora";
 import AccessNotice from "@/app/components/AccessNotice";
 import { supabase } from "@/app/lib/supabase/client";
@@ -110,18 +111,18 @@ export default function FacturationTitanPage() {
     }
   }, []);
 
-  const hasTerrainPerm = hasPermission("terrain");
+  const canAccessFinance = hasFinanceModuleAccess(user, hasPermission);
 
   useEffect(() => {
     if (accessLoading) return;
     if (!user) return;
-    if (!hasTerrainPerm) {
+    if (!canAccessFinance) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setLoading(false);
       return;
     }
     void loadData();
-  }, [accessLoading, hasTerrainPerm, loadData, user]);
+  }, [accessLoading, canAccessFinance, loadData, user]);
 
   const filteredRows = useMemo(() => {
     return rows.filter((row) => {
@@ -156,11 +157,11 @@ export default function FacturationTitanPage() {
     return null;
   }
 
-  if (!hasTerrainPerm) {
+  if (!canAccessFinance) {
     return (
       <div className="page-container">
         <HeaderTagora title="Facturation Titan" subtitle="Synthese des elements a facturer a Titan" />
-        <AccessNotice description="La permission terrain n est pas active sur ce compte direction. La synthese Titan reste donc masquee." />
+        <AccessNotice description="Acces reserve au role admin ou a la permission terrain. La synthese Titan reste masquee." />
       </div>
     );
   }

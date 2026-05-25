@@ -33,6 +33,8 @@ function formatHours(value: number) {
   return `${value.toFixed(2)} h`;
 }
 
+const OPERATIONAL_QUERY_LIMIT = 2000;
+
 function normalizePaymentStatus(value: unknown): string {
   const raw = String(value ?? "").trim().toLowerCase();
   if (raw === "paye") return "Paye";
@@ -47,12 +49,14 @@ export default function DirectionFacturationTitanOperationalPage() {
   const [error, setError] = useState("");
   const [dateDebut, setDateDebut] = useState(firstDayOfMonthIso());
   const [dateFin, setDateFin] = useState(todayIso());
+  const [rowCapReached, setRowCapReached] = useState(false);
 
   const blocked = !accessLoading && !!user && !hasPermission("terrain");
 
   const loadData = useCallback(async () => {
     setLoading(true);
     setError("");
+    setRowCapReached(false);
 
     const { data, error: queryError } = await supabase
       .from("temps_titan")
@@ -60,25 +64,27 @@ export default function DirectionFacturationTitanOperationalPage() {
       .gte("date_travail", dateDebut)
       .lte("date_travail", dateFin)
       .order("date_travail", { ascending: false })
-      .limit(400);
+      .limit(OPERATIONAL_QUERY_LIMIT);
 
     if (queryError) {
       setRows([]);
       setError(queryError.message);
+      setRowCapReached(false);
       setLoading(false);
       return;
     }
 
-    setRows(
-      (data ?? []).map((row: Record<string, unknown>) => ({
-        id: row.id as string | number,
-        employe_nom: typeof row.employe_nom === "string" ? row.employe_nom : null,
-        date_travail: typeof row.date_travail === "string" ? row.date_travail : null,
-        duree_heures: toNumber(row.duree_heures),
-        type_travail: typeof row.type_travail === "string" ? row.type_travail : null,
-        statut_paiement_titan: normalizePaymentStatus(row.statut_paiement_titan),
-      }))
-    );
+    const mapped = (data ?? []).map((row: Record<string, unknown>) => ({
+      id: row.id as string | number,
+      employe_nom: typeof row.employe_nom === "string" ? row.employe_nom : null,
+      date_travail: typeof row.date_travail === "string" ? row.date_travail : null,
+      duree_heures: toNumber(row.duree_heures),
+      type_travail: typeof row.type_travail === "string" ? row.type_travail : null,
+      statut_paiement_titan: normalizePaymentStatus(row.statut_paiement_titan),
+    }));
+
+    setRows(mapped);
+    setRowCapReached(mapped.length >= OPERATIONAL_QUERY_LIMIT);
     setLoading(false);
   }, [dateDebut, dateFin]);
 
@@ -172,6 +178,12 @@ export default function DirectionFacturationTitanOperationalPage() {
                 <div style={{ marginTop: 6, fontWeight: 800 }}>{rows.length}</div>
               </div>
             </div>
+            {rowCapReached ? (
+              <p className="tagora-note" style={{ marginTop: 12, marginBottom: 0 }}>
+                Affichage limite a {OPERATIONAL_QUERY_LIMIT} lignes pour cette periode. Les
+                totaux peuvent etre incomplets : affinez la periode si necessaire.
+              </p>
+            ) : null}
           </div>
 
           <div className="tagora-panel" style={{ overflowX: "auto" }}>

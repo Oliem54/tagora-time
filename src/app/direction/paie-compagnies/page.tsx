@@ -32,6 +32,9 @@ function formatHours(value: number) {
   return `${value.toFixed(2)} h`;
 }
 
+/** Plafond affichage ; requete filtree par periode cote serveur. */
+const OPERATIONAL_QUERY_LIMIT = 2000;
+
 export default function DirectionPaieCompagniesOperationalPage() {
   const { user, loading: accessLoading, hasPermission } = useCurrentAccess();
   const [rows, setRows] = useState<OperationalTimeRow[]>([]);
@@ -39,55 +42,58 @@ export default function DirectionPaieCompagniesOperationalPage() {
   const [errorMessage, setErrorMessage] = useState("");
   const [dateFrom, setDateFrom] = useState(firstDayOfMonthIso());
   const [dateTo, setDateTo] = useState(todayIso());
+  const [rowCapReached, setRowCapReached] = useState(false);
 
   const blocked = !accessLoading && !!user && !hasPermission("terrain");
 
   const loadRows = useCallback(async () => {
     setLoading(true);
     setErrorMessage("");
+    setRowCapReached(false);
 
-    const { data, error } = await supabase
+    let query = supabase
       .from("temps_titan")
       .select("id, employe_nom, date_travail, duree_heures, type_travail")
-      .order("date_travail", { ascending: false })
-      .limit(500);
+      .order("date_travail", { ascending: false });
+
+    if (dateFrom) {
+      query = query.gte("date_travail", dateFrom);
+    }
+    if (dateTo) {
+      query = query.lte("date_travail", dateTo);
+    }
+
+    const { data, error } = await query.limit(OPERATIONAL_QUERY_LIMIT);
 
     if (error) {
       setRows([]);
       setErrorMessage(error.message);
+      setRowCapReached(false);
       setLoading(false);
       return;
     }
 
-    setRows(
-      (data ?? []).map((row: Record<string, unknown>) => ({
-        id: row.id as string | number,
-        employe_nom: typeof row.employe_nom === "string" ? row.employe_nom : null,
-        date_travail: typeof row.date_travail === "string" ? row.date_travail : null,
-        duree_heures: toNumber(row.duree_heures),
-        type_travail: typeof row.type_travail === "string" ? row.type_travail : null,
-      }))
-    );
+    const mapped = (data ?? []).map((row: Record<string, unknown>) => ({
+      id: row.id as string | number,
+      employe_nom: typeof row.employe_nom === "string" ? row.employe_nom : null,
+      date_travail: typeof row.date_travail === "string" ? row.date_travail : null,
+      duree_heures: toNumber(row.duree_heures),
+      type_travail: typeof row.type_travail === "string" ? row.type_travail : null,
+    }));
+
+    setRows(mapped);
+    setRowCapReached(mapped.length >= OPERATIONAL_QUERY_LIMIT);
     setLoading(false);
-  }, []);
+  }, [dateFrom, dateTo]);
 
   useEffect(() => {
     if (blocked || accessLoading) return;
     void loadRows();
   }, [accessLoading, blocked, loadRows]);
 
-  const filteredRows = useMemo(() => {
-    return rows.filter((row) => {
-      const date = row.date_travail ?? "";
-      if (dateFrom && date && date < dateFrom) return false;
-      if (dateTo && date && date > dateTo) return false;
-      return true;
-    });
-  }, [dateFrom, dateTo, rows]);
-
   const totalHours = useMemo(
-    () => filteredRows.reduce((sum, row) => sum + row.duree_heures, 0),
-    [filteredRows]
+    () => rows.reduce((sum, row) => sum + row.duree_heures, 0),
+    [rows]
   );
 
   if (accessLoading || (!blocked && loading)) {
@@ -142,6 +148,13 @@ export default function DirectionPaieCompagniesOperationalPage() {
                   onChange={(e) => setDateTo(e.target.value)}
                 />
               </label>
+              <button
+                type="button"
+                className="tagora-dark-outline-action"
+                onClick={() => void loadRows()}
+              >
+                Actualiser
+              </button>
               <div className="tagora-panel-muted" style={{ padding: 14 }}>
                 <div className="tagora-label">Total heures</div>
                 <div style={{ marginTop: 6, fontSize: 22, fontWeight: 800 }}>
@@ -149,6 +162,12 @@ export default function DirectionPaieCompagniesOperationalPage() {
                 </div>
               </div>
             </div>
+            {rowCapReached ? (
+              <p className="tagora-note" style={{ marginTop: 12, marginBottom: 0 }}>
+                Affichage limite a {OPERATIONAL_QUERY_LIMIT} lignes pour cette periode. Les
+                totaux peuvent etre incomplets : affinez la periode si necessaire.
+              </p>
+            ) : null}
           </div>
 
           <div className="tagora-panel" style={{ overflowX: "auto" }}>
@@ -162,14 +181,14 @@ export default function DirectionPaieCompagniesOperationalPage() {
                 </tr>
               </thead>
               <tbody>
-                {filteredRows.length === 0 ? (
+                {rows.length === 0 ? (
                   <tr>
                     <td colSpan={4} style={{ padding: 16, color: "#64748b" }}>
                       Aucune ligne sur la periode.
                     </td>
                   </tr>
                 ) : (
-                  filteredRows.map((row) => (
+                  rows.map((row) => (
                     <tr key={String(row.id)} style={{ borderBottom: "1px solid #f1f5f9" }}>
                       <td style={{ padding: "10px 12px" }}>{row.date_travail ?? "—"}</td>
                       <td style={{ padding: "10px 12px" }}>{row.employe_nom ?? "—"}</td>

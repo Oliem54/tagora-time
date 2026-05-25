@@ -1,5 +1,6 @@
 import type { User } from "@supabase/supabase-js";
 import { getUserRole } from "@/app/lib/auth/roles";
+import type { AppPermission } from "@/app/lib/auth/permissions";
 
 /**
  * Permission code pour paie, remuneration, commissions et donnees confidentielles.
@@ -30,4 +31,14 @@ export function isAdminFinancePath(pathname: string): boolean {
 /** Acces finance : role admin uniquement (phase 1, sans JWT prod). */
 export function hasAdminFinanceAccess(user: User | null | undefined): boolean {
   return getUserRole(user) === "admin";
+}
+
+/** Ecrans *FinancePage : admin ou permission terrain (Direction). */
+export function hasFinanceModuleAccess(
+  user: User | null | undefined,
+  hasPermission: (permission: AppPermission) => boolean
+): boolean {
+  if (!user) return false;
+  if (hasAdminFinanceAccess(user)) return true;
+  return hasPermission("terrain");
 }

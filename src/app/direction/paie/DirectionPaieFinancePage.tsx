@@ -11,6 +11,7 @@ import {
   type AccountRequestCompany,
 } from "@/app/lib/account-requests.shared";
 import DirectionFinancePhase2Notice from "@/app/components/admin/DirectionFinancePhase2Notice";
+import { hasFinanceModuleAccess } from "@/app/lib/auth/admin-finance";
 import { getProfitTone } from "@/app/lib/terrain-gps";
 
 type PayrollSummaryRow = {
@@ -121,7 +122,8 @@ export default function DirectionPayrollPage() {
   const [dateFrom, setDateFrom] = useState(firstDayOfMonthIso());
   const [dateTo, setDateTo] = useState(todayIso());
 
-  const blocked = !accessLoading && !!user && !hasPermission("terrain");
+  const blocked =
+    !accessLoading && !!user && !hasFinanceModuleAccess(user, hasPermission);
   const userId = user?.id ?? null;
 
   const loadRows = useCallback(async () => {

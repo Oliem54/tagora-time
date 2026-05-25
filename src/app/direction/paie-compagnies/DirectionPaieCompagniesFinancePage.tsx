@@ -6,6 +6,7 @@ import AccessNotice from "@/app/components/AccessNotice";
 import { supabase } from "@/app/lib/supabase/client";
 import { useCurrentAccess } from "@/app/hooks/useCurrentAccess";
 import DirectionFinancePhase2Notice from "@/app/components/admin/DirectionFinancePhase2Notice";
+import { hasFinanceModuleAccess } from "@/app/lib/auth/admin-finance";
 import {
   ACCOUNT_REQUEST_COMPANIES,
   getCompanyLabel,
@@ -99,7 +100,8 @@ export default function DirectionPayrollByCompanyPage() {
   const [dateTo, setDateTo] = useState(todayIso());
   const [companyFilter, setCompanyFilter] = useState<AccountRequestCompany | "">("");
 
-  const blocked = !accessLoading && !!user && !hasPermission("terrain");
+  const blocked =
+    !accessLoading && !!user && !hasFinanceModuleAccess(user, hasPermission);
   const userId = user?.id ?? null;
 
   const loadRows = useCallback(async () => {
