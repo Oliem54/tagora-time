@@ -640,6 +640,23 @@ function resolveExpectedPunchScheduleItems(options: {
       }
     }
 
+    if (day.breakPm.enabled && !options.employee.pausePaid) {
+      const pauseStart = getScheduledStartMinutes(day.breakPm.time);
+      if (pauseStart != null) {
+        expected.push({
+          eventType: "pause_debut",
+          scheduledMinutes: pauseStart,
+          scheduledLabel: formatMinutesLabel(pauseStart),
+        });
+        const pauseEnd = pauseStart + Math.max(0, day.breakPm.minutes);
+        expected.push({
+          eventType: "pause_fin",
+          scheduledMinutes: pauseEnd,
+          scheduledLabel: formatMinutesLabel(pauseEnd),
+        });
+      }
+    }
+
     if (day.lunch.enabled) {
       const dinnerStart = getScheduledStartMinutes(day.lunch.time);
       if (dinnerStart != null) {
@@ -648,8 +665,12 @@ function resolveExpectedPunchScheduleItems(options: {
           scheduledMinutes: dinnerStart,
           scheduledLabel: formatMinutesLabel(dinnerStart),
         });
-        // Pas de rappel « dinner_fin » : évite tout relance automatique de type punch
-        // après la plage dîner (le retour se fait par pointage manuel meal_end).
+        const dinnerEnd = dinnerStart + Math.max(0, day.lunch.minutes);
+        expected.push({
+          eventType: "dinner_fin",
+          scheduledMinutes: dinnerEnd,
+          scheduledLabel: formatMinutesLabel(dinnerEnd),
+        });
       }
     }
 
@@ -1439,6 +1460,14 @@ export async function processLateEmployeeNotifications() {
 
     detectedCount += 1;
 
+    const expectedScheduleItems = resolveExpectedPunchScheduleItems({
+      employee,
+      weekdayFr: weekday,
+    });
+    const expectedPunchCoversShiftStart = expectedScheduleItems.some(
+      (item) => item.eventType === "quart_debut"
+    );
+
     const shouldSendDirectionEmail =
       config.email_enabled && !notification.late_direction_email_notified_at;
     const shouldSendDirectionSms =
@@ -1446,7 +1475,8 @@ export async function processLateEmployeeNotifications() {
     const shouldSendEmployeeSms =
       employee.alertSmsEnabled !== false &&
       employee.smsAlertQuartDebut !== false &&
-      !notification.late_employee_sms_notified_at;
+      !notification.late_employee_sms_notified_at &&
+      !expectedPunchCoversShiftStart;
 
     if (
       !shouldSendDirectionEmail &&
@@ -1643,29 +1673,30 @@ export async function processExpectedPunchSmsNotifications(options?: {
         preferenceEnabled: true,
       });
 
+      const logAttemptAt = new Date().toISOString();
+      await insertHorodateurSmsAlertLog({
+        userId: employee.authUserId,
+        chauffeurId: employee.employeeId,
+        companyContext: employee.primaryCompany,
+        alertType: `horodateur_expected_punch:${expected.eventType}`,
+        message: expected.scheduledLabel,
+        status: sms.sent ? "sent" : "failed",
+        relatedTable: "horodateur_events",
+        relatedId: null,
+        metadata: {
+          sms_target_type: "employee_expected_punch",
+          work_date: workDate,
+          event_type: expected.eventType,
+          scheduled_at: expected.scheduledLabel,
+          tolerance_minutes: toleranceMinutes,
+          phone_present: true,
+          sms_skipped: sms.skipped,
+          sms_reason: sms.reason ?? null,
+        },
+        sentAt: sms.sent ? logAttemptAt : null,
+      });
+
       if (sms.sent) {
-        const sentAt = new Date().toISOString();
-        await insertHorodateurSmsAlertLog({
-          userId: employee.authUserId,
-          chauffeurId: employee.employeeId,
-          companyContext: employee.primaryCompany,
-          alertType: `horodateur_expected_punch:${expected.eventType}`,
-          message: expected.scheduledLabel,
-          status: "sent",
-          relatedTable: "horodateur_events",
-          relatedId: null,
-          metadata: {
-            sms_target_type: "employee_expected_punch",
-            work_date: workDate,
-            event_type: expected.eventType,
-            scheduled_at: expected.scheduledLabel,
-            tolerance_minutes: toleranceMinutes,
-            phone_present: true,
-            sms_skipped: false,
-            sms_reason: null,
-          },
-          sentAt,
-        });
         console.info("[horodateur-expected-punch-sms] result", {
           ...logBase,
           reason: "sms_sent",

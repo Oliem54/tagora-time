@@ -10,10 +10,10 @@ async function run(req: NextRequest) {
     return NextResponse.json({ error: "Acces refuse." }, { status: 401 });
   }
 
-  const [lateness, expectedPunchSms] = await Promise.all([
-    processLateEmployeeNotifications(),
-    processExpectedPunchSmsNotifications(),
-  ]);
+  // Expected punch d'abord : journalise dans sms_alerts_log avant le check retard
+  // (évite un double SMS employé quart_debut le même jour).
+  const expectedPunchSms = await processExpectedPunchSmsNotifications();
+  const lateness = await processLateEmployeeNotifications();
   return NextResponse.json({
     success: true,
     lateness,

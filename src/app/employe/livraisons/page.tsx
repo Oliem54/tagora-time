@@ -1,8 +1,8 @@
 "use client";
 
-import { type FormEvent, useCallback, useEffect, useState } from "react";
+import { type FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "../../lib/supabase/client";
 import { useCurrentAccess } from "../../hooks/useCurrentAccess";
 import {
@@ -19,6 +19,11 @@ import PrimaryButton from "@/app/components/ui/PrimaryButton";
 import StatusBadge from "@/app/components/ui/StatusBadge";
 import OperationProofsPanel, { type ModuleSource } from "@/app/components/proofs/OperationProofsPanel";
 import TagoraLoadingScreen from "@/app/components/ui/TagoraLoadingScreen";
+import OperationsMonthCalendar from "@/app/components/livraisons/OperationsMonthCalendar";
+import {
+  livraisonCalendarEventStatusClass,
+  shiftOperationsCalendarMonth,
+} from "@/app/lib/livraisons/operations-calendar.shared";
 
 type Livraison = {
   id: number;
@@ -99,12 +104,14 @@ function getTodayLocalDate() {
   return `${year}-${month}-${day}`;
 }
 
-function monthLabel(date: Date) {
-  return new Intl.DateTimeFormat("fr-CA", { month: "long", year: "numeric" }).format(date);
+function operationViewFromSearchParam(view: string | null): "livraisons" | "ramassages" {
+  return view === "ramassages" ? "ramassages" : "livraisons";
 }
 
 export default function EmployeLivraisonsPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const viewParam = searchParams.get("view");
   const { user, loading: accessLoading, hasPermission } = useCurrentAccess();
 
   const [livraisons, setLivraisons] = useState<Livraison[]>([]);
@@ -129,8 +136,8 @@ export default function EmployeLivraisonsPage() {
   const [incidentDescriptionValues, setIncidentDescriptionValues] = useState<
     Record<number, string>
   >({});
-  const [operationView, setOperationView] = useState<"livraisons" | "ramassages">(
-    "livraisons"
+  const [operationView, setOperationView] = useState<"livraisons" | "ramassages">(() =>
+    operationViewFromSearchParam(viewParam)
   );
   const [viewMode, setViewMode] = useState<"liste" | "calendrier">("calendrier");
   const [calendarDate, setCalendarDate] = useState(new Date());
@@ -141,6 +148,10 @@ export default function EmployeLivraisonsPage() {
   const dateDuJour = getTodayLocalDate();
   const canUseLivraisons = hasPermission("livraisons");
   const canManagePlanning = false;
+
+  useEffect(() => {
+    setOperationView(operationViewFromSearchParam(viewParam));
+  }, [viewParam]);
 
   const chargerLivraisons = useCallback(async () => {
     const { data, error } = await supabase
@@ -236,6 +247,27 @@ export default function EmployeLivraisonsPage() {
     if (statusFilter === "en_retard") return isOverdue;
     return normalizeOperationStatus(item.statut) === statusFilter;
   });
+
+  const calendarEventsByDate = useMemo(() => {
+    const map: Record<
+      string,
+      Array<{ id: string | number; label: string; href: string; eventClassName: string }>
+    > = {};
+    for (const entry of filteredOrdered) {
+      const dateStr = String(entry.date_livraison || "");
+      if (!dateStr) continue;
+      if (!map[dateStr]) map[dateStr] = [];
+      const label = String(entry.client || `#${entry.id}`);
+      const timeSuffix = entry.heure_prevue ? ` @ ${entry.heure_prevue}` : "";
+      map[dateStr].push({
+        id: entry.id,
+        label: `${label}${timeSuffix}`,
+        href: `/employe/livraisons/jour?date=${dateStr}`,
+        eventClassName: livraisonCalendarEventStatusClass(entry.statut),
+      });
+    }
+    return map;
+  }, [filteredOrdered]);
   const navButtonBase: React.CSSProperties = {
     minHeight: 40,
     padding: "10px 16px",
@@ -255,24 +287,6 @@ export default function EmployeLivraisonsPage() {
     active
       ? { background: "#0f2948", color: "#ffffff" }
       : { background: "#ffffff", color: "#0f2948" };
-  const getDaysForMonth = () => {
-    const year = calendarDate.getFullYear();
-    const month = calendarDate.getMonth();
-    const first = new Date(year, month, 1);
-    const last = new Date(year, month + 1, 0);
-    const days: (number | null)[] = [];
-    const offset = (first.getDay() + 6) % 7;
-    for (let i = 0; i < offset; i += 1) days.push(null);
-    for (let day = 1; day <= last.getDate(); day += 1) days.push(day);
-    return days;
-  };
-  const getDateIsoForDay = (day: number) => {
-    const year = calendarDate.getFullYear();
-    const month = `${calendarDate.getMonth() + 1}`.padStart(2, "0");
-    const d = `${day}`.padStart(2, "0");
-    return `${year}-${month}-${d}`;
-  };
-
   const handleDemarrer = async (livraison: Livraison) => {
     const kmDepart = kmDepartValues[livraison.id];
 
@@ -540,7 +554,7 @@ export default function EmployeLivraisonsPage() {
               <option value="en_retard">En retard</option>
             </select>
           </div>
-          {viewMode === "calendrier" ? (
+{viewMode === "calendrier" ? (
             <div className="ui-stack-sm">
               {filteredOrdered.length === 0 ? (
                 <AppCard tone="muted">
@@ -551,85 +565,23 @@ export default function EmployeLivraisonsPage() {
                   </p>
                 </AppCard>
               ) : null}
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-                <button
-                  type="button"
-                  className="tagora-dark-outline-action"
-                  onClick={() =>
-                    setCalendarDate(
-                      new Date(calendarDate.getFullYear(), calendarDate.getMonth() - 1, 1)
-                    )
-                  }
-                >
-                  ← Mois prec
-                </button>
-                <strong style={{ textTransform: "capitalize" }}>{monthLabel(calendarDate)}</strong>
-                <button
-                  type="button"
-                  className="tagora-dark-outline-action"
-                  onClick={() =>
-                    setCalendarDate(
-                      new Date(calendarDate.getFullYear(), calendarDate.getMonth() + 1, 1)
-                    )
-                  }
-                >
-                  Mois suiv →
-                </button>
-              </div>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 8, marginBottom: 8 }}>
-                {["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"].map((day) => (
-                  <div key={day} style={{ textAlign: "center", fontWeight: 700, fontSize: 12 }}>
-                    {day}
-                  </div>
-                ))}
-              </div>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 8 }}>
-                {getDaysForMonth().map((day, index) => {
-                  const isoDate = day ? getDateIsoForDay(day) : "";
-                  const entries = day
-                    ? filteredOrdered.filter((entry) => String(entry.date_livraison || "") === isoDate)
-                    : [];
-                  return (
-                    <div
-                      key={`${isoDate}-${index}`}
-                      style={{
-                        minHeight: 110,
-                        border: "1px solid #e5e7eb",
-                        borderRadius: 10,
-                        padding: 8,
-                        background: day ? "#fff" : "#f8fafc",
-                      }}
-                    >
-                      {day ? (
-                        <Link
-                          href={`/employe/livraisons/jour?date=${isoDate}`}
-                          className="tagora-dark-outline-action"
-                          style={{ width: "fit-content", padding: "2px 8px", marginBottom: 6 }}
-                        >
-                          {day}
-                        </Link>
-                      ) : null}
-                      <div style={{ display: "grid", gap: 4 }}>
-                        {entries.slice(0, 3).map((entry) => (
-                          <Link
-                            key={entry.id}
-                            href={`/employe/livraisons/jour?date=${isoDate}`}
-                            className="tagora-dark-outline-action"
-                            style={{ textAlign: "left", padding: "4px 8px", fontSize: 11 }}
-                          >
-                            {String(entry.client || `#${entry.id}`)}
-                          </Link>
-                        ))}
-                        {entries.length > 3 ? (
-                          <span className="ui-text-muted" style={{ fontSize: 11 }}>
-                            +{entries.length - 3} autre(s)
-                          </span>
-                        ) : null}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
+              <OperationsMonthCalendar
+                mode={operationView === "ramassages" ? "ramassage" : "livraison"}
+                calendarDate={calendarDate}
+                onPrevMonth={() =>
+                  setCalendarDate(shiftOperationsCalendarMonth(calendarDate, -1))
+                }
+                onNextMonth={() =>
+                  setCalendarDate(shiftOperationsCalendarMonth(calendarDate, 1))
+                }
+                dayHref={(isoDate) => `/employe/livraisons/jour?date=${isoDate}`}
+                eventsByDate={calendarEventsByDate}
+                navAriaLabel={
+                  operationView === "ramassages"
+                    ? "Navigation calendrier ramassages"
+                    : "Navigation calendrier"
+                }
+              />
             </div>
           ) : (
             <div className="ui-stack-md">

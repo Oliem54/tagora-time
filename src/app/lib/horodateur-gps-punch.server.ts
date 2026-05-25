@@ -17,6 +17,7 @@ export type HorodateurWebPunchGpsEvaluation =
       zoneValidated: boolean;
       matchedBaseName: string | null;
       matchedBaseId: string | null;
+      matchedBaseAddress: string | null;
       gpsBasesConfigured: boolean;
     }
   | {
@@ -28,6 +29,7 @@ export type HorodateurWebPunchGpsEvaluation =
 type GpsBaseRow = {
   id: string;
   nom: string;
+  adresse: string;
   latitude: number | string;
   longitude: number | string;
   rayon_m: number | string;
@@ -41,23 +43,42 @@ export function formatHorodateurGpsJournalSuffix(options: {
   longitude: number;
   zoneValidated: boolean;
   matchedBaseName: string | null;
+  matchedBaseAddress?: string | null;
   requestedAtIso?: string;
   basesConfigured?: boolean;
 }) {
-  const parts = [
-    `[GPS] lat=${options.latitude.toFixed(5)}, lng=${options.longitude.toFixed(5)}`,
-    options.zoneValidated ? "dans zone" : "hors zone",
+  const statutLabel =
+    options.basesConfigured === false
+      ? "verification impossible (bases GPS non configurees)"
+      : options.zoneValidated
+        ? "dans la zone autorisee"
+        : "hors de la zone autorisee";
+
+  const baseName = options.matchedBaseName?.trim() || null;
+  const address = options.matchedBaseAddress?.trim() || "";
+
+  let presDeLabel: string;
+  if (address) {
+    presDeLabel = `Pres de : ${address}`;
+  } else if (baseName) {
+    presDeLabel = `Pres de : base ${baseName}, adresse non configuree`;
+  } else {
+    presDeLabel = "Pres de : adresse non configuree";
+  }
+
+  const lines = [
+    "[GPS]",
+    `Statut : ${statutLabel}`,
+    baseName ? `Base : ${baseName}` : "Base : —",
+    presDeLabel,
+    `Coordonnees : ${options.latitude.toFixed(5)}, ${options.longitude.toFixed(5)}`,
   ];
-  if (options.basesConfigured === false) {
-    parts.push("bases_non_configurees");
-  }
-  if (options.matchedBaseName) {
-    parts.push(`base=${options.matchedBaseName}`);
-  }
+
   if (options.requestedAtIso) {
-    parts.push(`demande_a=${options.requestedAtIso}`);
+    lines.push(`Demande enregistree le : ${options.requestedAtIso}`);
   }
-  return parts.join(" · ");
+
+  return lines.join("\n");
 }
 
 function findMatchingGpsBase(
@@ -118,7 +139,7 @@ export async function evaluateEmployeeWebPunchGps(options: {
   const supabase = createAdminSupabaseClient();
   const { data, error } = await supabase
     .from("gps_bases")
-    .select("id, nom, latitude, longitude, rayon_m, company_context")
+    .select("id, nom, adresse, latitude, longitude, rayon_m, company_context")
     .eq("company_context", options.companyContext);
 
   if (error) {
@@ -131,6 +152,7 @@ export async function evaluateEmployeeWebPunchGps(options: {
         zoneValidated: false,
         matchedBaseName: null,
         matchedBaseId: null,
+        matchedBaseAddress: null,
         gpsBasesConfigured: false,
       };
     }
@@ -153,6 +175,7 @@ export async function evaluateEmployeeWebPunchGps(options: {
         zoneValidated: false,
         matchedBaseName: null,
         matchedBaseId: null,
+        matchedBaseAddress: null,
         gpsBasesConfigured: false,
       };
     }
@@ -174,6 +197,7 @@ export async function evaluateEmployeeWebPunchGps(options: {
       zoneValidated: true,
       matchedBaseName: matched.nom,
       matchedBaseId: matched.id,
+      matchedBaseAddress: matched.adresse?.trim() || null,
       gpsBasesConfigured: true,
     };
   }
@@ -186,6 +210,7 @@ export async function evaluateEmployeeWebPunchGps(options: {
       zoneValidated: false,
       matchedBaseName: null,
       matchedBaseId: null,
+      matchedBaseAddress: null,
       gpsBasesConfigured: true,
     };
   }

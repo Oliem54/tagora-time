@@ -448,6 +448,7 @@ export async function POST(req: NextRequest) {
         longitude: gpsEval.longitude,
         zoneValidated: gpsEval.zoneValidated,
         matchedBaseName: gpsEval.matchedBaseName,
+        matchedBaseAddress: gpsEval.matchedBaseAddress,
         requestedAtIso: new Date().toISOString(),
         basesConfigured: isRetroactivePunch
           ? gpsEval.gpsBasesConfigured

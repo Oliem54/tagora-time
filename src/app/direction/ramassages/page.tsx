@@ -38,6 +38,11 @@ import {
   PaymentFinalizeModal,
 } from "@/app/components/livraisons/PaymentClientUi";
 import MobileTodayOperationsEntry from "@/app/components/livraisons/MobileTodayOperationsEntry";
+import OperationsMonthCalendar from "@/app/components/livraisons/OperationsMonthCalendar";
+import {
+  ramassageCalendarEventClass,
+  shiftOperationsCalendarMonth,
+} from "@/app/lib/livraisons/operations-calendar.shared";
 import DayOperationsMobileSearch from "@/app/components/livraisons/day-delivery/DayOperationsMobileSearch";
 import DayOperationsMobileStopList from "@/app/components/livraisons/day-delivery/DayOperationsMobileStopList";
 import DayRamassageMobileStats from "@/app/components/livraisons/day-delivery/DayRamassageMobileStats";
@@ -207,18 +212,6 @@ function getPickupStatusTone(status: PickupStatus) {
   return "default" as const;
 }
 
-/** Classes événement calendrier (même grille que Livraisons). */
-function pickupCalendarEventClass(status: PickupStatus) {
-  if (status === "ramasse") return "livraison-cal-event livraison-cal-event--livree";
-  if (status === "en_cours" || status === "pret_a_ramasser") {
-    return "livraison-cal-event livraison-cal-event--en_cours";
-  }
-  if (status === "non_ramasse" || status === "a_replanifier") {
-    return "livraison-cal-event livraison-cal-event--probleme";
-  }
-  return "livraison-cal-event livraison-cal-event--planifiee";
-}
-
 function toPickupDateTimeValue(date: string, time: string) {
   if (!date) return Number.MAX_SAFE_INTEGER;
   const safeTime = time && time.length >= 4 ? time : "23:59";
@@ -235,10 +228,6 @@ function getPickupSortPriority(status: PickupStatus, isOverdue: boolean) {
   if (status === "planifie") return 4;
   if (status === "non_ramasse") return 5;
   return 6;
-}
-
-function monthLabel(viewDate: Date) {
-  return viewDate.toLocaleString("fr-CA", { month: "long", year: "numeric" });
 }
 
 function createPickupForm(): PickupCreateFormState {
@@ -515,6 +504,24 @@ export default function DirectionRamassagesPage() {
   );
   const todayRamassagesHref = `/direction/ramassages/jour?date=${todayIso}`;
 
+  const calendarEventsByDate = useMemo(() => {
+    const map: Record<
+      string,
+      Array<{ id: string | number; label: string; href: string; eventClassName: string }>
+    > = {};
+    for (const entry of listOrdered) {
+      if (!entry.date) continue;
+      if (!map[entry.date]) map[entry.date] = [];
+      map[entry.date].push({
+        id: entry.id,
+        label: String(entry.item.client || `#${entry.id}`),
+        href: `/direction/ramassages/jour?date=${entry.date}`,
+        eventClassName: ramassageCalendarEventClass(entry.status),
+      });
+    }
+    return map;
+  }, [listOrdered]);
+
   const indicators = useMemo(() => {
     return {
       pret: computed.filter((entry) => entry.status === "pret_a_ramasser").length,
@@ -674,25 +681,6 @@ export default function DirectionRamassagesPage() {
     }
     return pool;
   }, [chauffeurs, chauffeursLivreurs, selected]);
-
-  function getDaysForMonth() {
-    const y = calendarDate.getFullYear();
-    const m = calendarDate.getMonth();
-    const first = new Date(y, m, 1);
-    const last = new Date(y, m + 1, 0);
-    const daysInMonth = last.getDate();
-    const startOffset = (first.getDay() + 6) % 7;
-    const cells: Array<number | null> = [];
-    for (let i = 0; i < startOffset; i += 1) cells.push(null);
-    for (let day = 1; day <= daysInMonth; day += 1) cells.push(day);
-    return cells;
-  }
-
-  function getDateIsoForDay(day: number) {
-    const y = calendarDate.getFullYear();
-    const m = String(calendarDate.getMonth() + 1).padStart(2, "0");
-    return `${y}-${m}-${String(day).padStart(2, "0")}`;
-  }
 
   async function updatePickupStatus(id: number, nextStatus: PickupStatus, nextDate?: string) {
     if (nextStatus === "ramasse") {
@@ -1663,78 +1651,20 @@ export default function DirectionRamassagesPage() {
           </select>
         </div>
 
-        {viewMode === "calendrier" ? (
-          <>
-            <div className="livraison-cal-nav" aria-label="Navigation calendrier ramassages">
-              <button
-                type="button"
-                className="livraison-cal-nav-btn"
-                onClick={() => setCalendarDate(new Date(calendarDate.getFullYear(), calendarDate.getMonth() - 1, 1))}
-              >
-                ← Mois prec
-              </button>
-              <h3 className="livraison-cal-month">{monthLabel(calendarDate)}</h3>
-              <button
-                type="button"
-                className="livraison-cal-nav-btn"
-                onClick={() => setCalendarDate(new Date(calendarDate.getFullYear(), calendarDate.getMonth() + 1, 1))}
-              >
-                Mois suiv →
-              </button>
-            </div>
-            <div className="livraison-cal-weekdays">
-              {["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"].map((day) => (
-                <div key={day} className="livraison-cal-weekday">
-                  {day}
-                </div>
-              ))}
-            </div>
-            <div className="livraison-cal-grid">
-              {getDaysForMonth().map((day, index) => {
-                const isoDate = day ? getDateIsoForDay(day) : "";
-                const entries = day ? listOrdered.filter((entry) => entry.date === isoDate) : [];
-                return (
-                  <div
-                    key={`${isoDate}-${index}`}
-                    className={day ? "livraison-cal-cell" : "livraison-cal-cell livraison-cal-cell--empty"}
-                  >
-                    {day ? (
-                      <Link href={`/direction/ramassages/jour?date=${isoDate}`} className="livraison-cal-daynum">
-                        {day}
-                      </Link>
-                    ) : null}
-                    {entries.length > 0 ? (
-                      <Link
-                        href={`/direction/ramassages/jour?date=${isoDate}`}
-                        className="livraison-cal-day-badge livraison-cal-day-badge--ramassage"
-                      >
-                        <span className="livraison-cal-day-badge__full">
-                          {formatTodayOperationCount("ramassage", entries.length)}
-                        </span>
-                        <span className="livraison-cal-day-badge__short">
-                          {formatTodayOperationCountShort("ramassage", entries.length)}
-                        </span>
-                      </Link>
-                    ) : null}
-                    <div className="livraison-cal-events livraison-cal-events--desktop">
-                      {entries.slice(0, 3).map((entry) => (
-                        <Link
-                          key={entry.id}
-                          href={`/direction/ramassages/jour?date=${isoDate}`}
-                          className={pickupCalendarEventClass(entry.status)}
-                        >
-                          {String(entry.item.client || `#${entry.id}`)}
-                        </Link>
-                      ))}
-                      {entries.length > 3 ? (
-                        <div className="livraison-cal-more">+{entries.length - 3} autre(s)</div>
-                      ) : null}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </>
+{viewMode === "calendrier" ? (
+          <OperationsMonthCalendar
+            mode="ramassage"
+            calendarDate={calendarDate}
+            onPrevMonth={() =>
+              setCalendarDate(shiftOperationsCalendarMonth(calendarDate, -1))
+            }
+            onNextMonth={() =>
+              setCalendarDate(shiftOperationsCalendarMonth(calendarDate, 1))
+            }
+            dayHref={(isoDate) => `/direction/ramassages/jour?date=${isoDate}`}
+            eventsByDate={calendarEventsByDate}
+            navAriaLabel="Navigation calendrier ramassages"
+          />
         ) : (
           <div className="ui-stack-sm">
             {listOrdered.length === 0 ? (

@@ -35,14 +35,19 @@ export async function POST(
 
     const existingRes = await supabase
       .from("livraisons_planifiees")
-      .select("notes")
+      .select("commentaire_operationnel")
       .eq("id", pickupId)
       .maybeSingle();
-    const currentNotes = typeof existingRes.data?.notes === "string" ? existingRes.data.notes : "";
+    const currentCommentaire =
+      typeof existingRes.data?.commentaire_operationnel === "string"
+        ? existingRes.data.commentaire_operationnel
+        : "";
     const stamp = new Date().toISOString();
     const actorLabel = getUserDisplayName(user);
     const noteLine = `[${stamp}] Replanifie par ${actorLabel} vers ${body.dateLivraison}${body.heurePrevue ? ` ${body.heurePrevue}` : ""}${body.note ? ` — ${body.note}` : ""}`;
-    updatePayload.notes = currentNotes ? `${currentNotes}\n${noteLine}` : noteLine;
+    updatePayload.commentaire_operationnel = currentCommentaire
+      ? `${currentCommentaire}\n${noteLine}`
+      : noteLine;
 
     const stampedPayload = { ...updatePayload, ...buildUpdateStamp(user) };
 
