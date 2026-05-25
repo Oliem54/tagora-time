@@ -299,6 +299,32 @@ const PUNCH_GPS_UI_IDLE: PunchGpsUi = { phase: "idle", message: "" };
 const PUNCH_GPS_PUNCH_NOT_COMPLETED_MESSAGE =
   "Position obtenue, mais le pointage n'a pas pu être complété. Vérifiez le message ci-dessus et réessayez.";
 
+const PUNCH_FETCH_TIMEOUT_MS = 60_000;
+const HORODATEUR_DATA_FETCH_TIMEOUT_MS = 30_000;
+const LOAD_DATA_AFTER_PUNCH_FAILED_MESSAGE =
+  "Action enregistrée, mais l'actualisation des données a échoué. Rafraîchissez la page ou réessayez dans un instant.";
+
+async function fetchWithTimeout(
+  input: RequestInfo | URL,
+  init: RequestInit | undefined,
+  timeoutMs: number,
+  timeoutMessage: string
+): Promise<Response> {
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    return await fetch(input, { ...init, signal: controller.signal });
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new Error(timeoutMessage);
+    }
+    throw error;
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
+}
+
 function isGpsTimeoutMessage(message: string | null | undefined): boolean {
   if (!message) {
     return false;
@@ -495,6 +521,7 @@ export default function EmployeHorodateurPage() {
   const [correctionType, setCorrectionType] = useState<CorrectionRequestType>("entry");
   const [retroactiveTime, setRetroactiveTime] = useState("");
   const [retroactiveReason, setRetroactiveReason] = useState("");
+  const [correctionModalError, setCorrectionModalError] = useState("");
   const [punchGpsUi, setPunchGpsUi] = useState<PunchGpsUi>(PUNCH_GPS_UI_IDLE);
   const [punchGpsRetrying, setPunchGpsRetrying] = useState(false);
 
@@ -517,30 +544,41 @@ export default function EmployeHorodateurPage() {
     return "Hors quart";
   }, [snapshot?.currentState.current_state, snapshot?.currentState.status]);
 
-  const loadData = useCallback(async (options?: { preserveMessage?: boolean }) => {
+  const loadData = useCallback(async (options?: {
+    preserveMessage?: boolean;
+    background?: boolean;
+  }): Promise<boolean> => {
     const {
       data: { session },
     } = await supabase.auth.getSession();
 
     if (!session?.access_token) {
-      setLoading(false);
-      return;
+      if (!options?.background) {
+        setLoading(false);
+      }
+      return false;
     }
 
-    setLoading(true);
+    const background = options?.background === true;
+    if (!background) {
+      setLoading(true);
+    }
 
     try {
+      const authHeaders = { Authorization: `Bearer ${session.access_token}` };
       const [snapshotResponse, historyResponse] = await Promise.all([
-        fetch("/api/horodateur/me", {
-          headers: {
-            Authorization: `Bearer ${session.access_token}`,
-          },
-        }),
-        fetch("/api/horodateur/me/history", {
-          headers: {
-            Authorization: `Bearer ${session.access_token}`,
-          },
-        }),
+        fetchWithTimeout(
+          "/api/horodateur/me",
+          { headers: authHeaders },
+          HORODATEUR_DATA_FETCH_TIMEOUT_MS,
+          "Le chargement de l'horodateur a pris trop de temps. Réessayez."
+        ),
+        fetchWithTimeout(
+          "/api/horodateur/me/history",
+          { headers: authHeaders },
+          HORODATEUR_DATA_FETCH_TIMEOUT_MS,
+          "Le chargement de l'historique a pris trop de temps. Réessayez."
+        ),
       ]);
 
       const snapshotPayload = await snapshotResponse.json();
@@ -601,10 +639,19 @@ export default function EmployeHorodateurPage() {
       if (!options?.preserveMessage) {
         setMessage("");
       }
+      return true;
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Erreur de chargement.");
+      const msg = error instanceof Error ? error.message : "Erreur de chargement.";
+      if (background && options?.preserveMessage) {
+        setMessage((current) => current || msg);
+      } else {
+        setMessage(msg);
+      }
+      return false;
     } finally {
-      setLoading(false);
+      if (!background) {
+        setLoading(false);
+      }
     }
   }, []);
 
@@ -691,6 +738,23 @@ export default function EmployeHorodateurPage() {
     }
   }
 
+  function reportPunchFailure(
+    msg: string,
+    options?: { retroactive?: boolean; requireGps?: boolean }
+  ) {
+    setMessage(msg);
+    if (options?.retroactive) {
+      setCorrectionModalError(msg);
+    }
+    if (options?.requireGps) {
+      setPunchGpsUi((prev) =>
+        prev.phase === "ready" || prev.phase === "loading"
+          ? { phase: "unknown", message: PUNCH_GPS_PUNCH_NOT_COMPLETED_MESSAGE }
+          : prev
+      );
+    }
+  }
+
   async function handlePunch(
     eventType: string,
     options?: {
@@ -706,11 +770,17 @@ export default function EmployeHorodateurPage() {
     } = await supabase.auth.getSession();
 
     if (!session?.access_token) {
+      reportPunchFailure("Session expirée. Reconnectez-vous et réessayez.", options);
       return;
     }
 
     setSaving(true);
+    if (!options?.retroactive) {
+      setCorrectionModalError("");
+    }
     setMessage("");
+
+    let punchSucceeded = false;
 
     try {
       let latitude: number | undefined;
@@ -746,25 +816,35 @@ export default function EmployeHorodateurPage() {
         longitude = gpsResult.longitude;
       }
 
-      const response = await fetch("/api/horodateur/punch", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${session.access_token}`,
-          "Content-Type": "application/json",
+      const response = await fetchWithTimeout(
+        "/api/horodateur/punch",
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${session.access_token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            eventType: options?.retroactive ? undefined : eventType,
+            retroactive: options?.retroactive === true ? true : undefined,
+            occurredAt: options?.occurredAt ?? undefined,
+            note: (options?.noteOverride ?? note).trim() || null,
+            companyContext: snapshot?.employee.primaryCompany ?? null,
+            acknowledgeLongLeavePunch: options?.acknowledgeLongLeave === true,
+            latitude,
+            longitude,
+          }),
         },
-        body: JSON.stringify({
-          eventType: options?.retroactive ? undefined : eventType,
-          retroactive: options?.retroactive === true ? true : undefined,
-          occurredAt: options?.occurredAt ?? undefined,
-          note: (options?.noteOverride ?? note).trim() || null,
-          companyContext: snapshot?.employee.primaryCompany ?? null,
-          acknowledgeLongLeavePunch: options?.acknowledgeLongLeave === true,
-          latitude,
-          longitude,
-        }),
-      });
+        PUNCH_FETCH_TIMEOUT_MS,
+        "La requête de pointage a pris trop de temps. Vérifiez votre connexion et réessayez."
+      );
 
-      const payload = await response.json();
+      let payload: Record<string, unknown> = {};
+      try {
+        payload = (await response.json()) as Record<string, unknown>;
+      } catch {
+        throw new Error("Réponse du serveur invalide. Réessayez.");
+      }
 
       if (response.status === 409 && payload?.code === "LONG_LEAVE_CONFIRMATION_REQUIRED") {
         const msg =
@@ -774,12 +854,11 @@ export default function EmployeHorodateurPage() {
         const ok = window.confirm(msg);
         if (ok) {
           await handlePunch(eventType, { ...options, acknowledgeLongLeave: true });
-        } else if (options?.requireGps) {
-          setPunchGpsUi({
-            phase: "unknown",
-            message: PUNCH_GPS_PUNCH_NOT_COMPLETED_MESSAGE,
-          });
+          return;
         }
+        const cancelMsg =
+          "Pointage annulé. Aucune demande n'a été envoyée à la direction.";
+        reportPunchFailure(cancelMsg, options);
         return;
       }
 
@@ -814,7 +893,9 @@ export default function EmployeHorodateurPage() {
         });
       }
 
+      punchSucceeded = true;
       setNote("");
+      setCorrectionModalError("");
       setMessage(
         options?.retroactive
           ? "Demande envoyée à la direction pour approbation."
@@ -827,18 +908,20 @@ export default function EmployeHorodateurPage() {
         setRetroactiveReason("");
         setCorrectionType("entry");
       }
-      await loadData({ preserveMessage: true });
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Erreur de pointage.");
-      if (options?.requireGps) {
-        setPunchGpsUi((prev) =>
-          prev.phase === "ready"
-            ? { phase: "unknown", message: PUNCH_GPS_PUNCH_NOT_COMPLETED_MESSAGE }
-            : prev
-        );
-      }
+      const msg = error instanceof Error ? error.message : "Erreur de pointage.";
+      reportPunchFailure(msg, options);
     } finally {
       setSaving(false);
+    }
+
+    if (punchSucceeded) {
+      void (async () => {
+        const refreshed = await loadData({ preserveMessage: true, background: true });
+        if (!refreshed) {
+          setMessage((current) => current || LOAD_DATA_AFTER_PUNCH_FAILED_MESSAGE);
+        }
+      })();
     }
   }
 
@@ -854,25 +937,32 @@ export default function EmployeHorodateurPage() {
       setRetroactiveTime(latenessContext.scheduledStartLabel.slice(0, 5));
     }
     setCorrectionType(options?.type ?? "entry");
+    setCorrectionModalError("");
     setRetroactiveModalOpen(true);
   }
 
   function closeCorrectionModal() {
     setRetroactiveModalOpen(false);
     setCorrectionType("entry");
+    setCorrectionModalError("");
   }
 
   async function handleCorrectionSubmit() {
+    setCorrectionModalError("");
+
     if (correctionType === "other") {
-      setMessage(
-        "Cette option n'est pas encore disponible. Contactez la direction directement pour signaler une autre correction."
-      );
+      const msg =
+        "Cette option n'est pas encore disponible. Contactez la direction directement pour signaler une autre correction.";
+      setCorrectionModalError(msg);
+      setMessage(msg);
       return;
     }
 
     const reason = retroactiveReason.trim();
     if (!reason) {
-      setMessage("La raison est obligatoire pour une demande de correction.");
+      const msg = "La raison est obligatoire pour une demande de correction.";
+      setCorrectionModalError(msg);
+      setMessage(msg);
       return;
     }
 
@@ -881,13 +971,17 @@ export default function EmployeHorodateurPage() {
       snapshot?.todayShift?.work_date
     );
     if (!template) {
-      setMessage("Impossible de determiner la date de travail pour la demande.");
+      const msg = "Impossible de determiner la date de travail pour la demande.";
+      setCorrectionModalError(msg);
+      setMessage(msg);
       return;
     }
 
     const occurredAt = buildRequestedOccurredAtIso(template, retroactiveTime);
     if (!occurredAt) {
-      setMessage("Heure demandee invalide (format HH:MM attendu).");
+      const msg = "Heure demandee invalide (format HH:MM attendu).";
+      setCorrectionModalError(msg);
+      setMessage(msg);
       return;
     }
 
@@ -1212,6 +1306,7 @@ export default function EmployeHorodateurPage() {
       <CorrectionRequestModal
         open={retroactiveModalOpen}
         saving={saving}
+        submitError={correctionModalError || null}
         correctionType={correctionType}
         time={retroactiveTime}
         reason={retroactiveReason}
