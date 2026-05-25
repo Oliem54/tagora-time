@@ -21,6 +21,12 @@ const RETRY_ATTEMPT_TIMEOUT_MS = 22000;
 const MAX_ATTEMPTS = 3;
 const RETRY_DELAY_MS = 1200;
 
+/** Durée maximale théorique : 3 tentatives + délais entre retries + marge. */
+export const EMPLOYEE_PUNCH_GEOLOCATION_MAX_DURATION_MS =
+  FIRST_ATTEMPT_TIMEOUT_MS +
+  (MAX_ATTEMPTS - 1) * (RETRY_ATTEMPT_TIMEOUT_MS + RETRY_DELAY_MS) +
+  4_000;
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => {
     window.setTimeout(resolve, ms);

@@ -12,6 +12,7 @@ import { useEmployeeGpsReporting } from "@/app/hooks/useEmployeeGpsReporting";
 import { supabase } from "@/app/lib/supabase/client";
 import { getCompanyLabel } from "@/app/lib/account-requests.shared";
 import {
+  EMPLOYEE_PUNCH_GEOLOCATION_MAX_DURATION_MS,
   messageForHorodateurPunchGpsServerCode,
   readEmployeePunchGeolocation,
   readEmployeePunchGeolocationWithDeadline,
@@ -302,12 +303,19 @@ const PUNCH_GPS_PUNCH_NOT_COMPLETED_MESSAGE =
 
 const PUNCH_FETCH_TIMEOUT_MS = 60_000;
 const CORRECTION_FETCH_TIMEOUT_MS = 30_000;
-const CORRECTION_GPS_DEADLINE_MS = 72_000;
+const CORRECTION_GPS_DEADLINE_MS = EMPLOYEE_PUNCH_GEOLOCATION_MAX_DURATION_MS;
 const SESSION_READ_TIMEOUT_MS = 15_000;
 const HORODATEUR_DATA_FETCH_TIMEOUT_MS = 30_000;
 const CORRECTION_FETCH_TIMEOUT_MESSAGE =
   "La demande prend trop de temps. Vérifiez votre connexion et réessayez.";
-const CORRECTION_CANCELLED_MESSAGE = "Envoi annulé. Vous pouvez modifier la demande et réessayer.";
+const CORRECTION_CANCELLED_MESSAGE =
+  "Envoi annulé. Vous pouvez corriger et réessayer.";
+
+function throwIfCorrectionAborted(abortSignal?: AbortSignal): void {
+  if (abortSignal?.aborted) {
+    throw new Error(CORRECTION_CANCELLED_MESSAGE);
+  }
+}
 const LOAD_DATA_AFTER_PUNCH_FAILED_MESSAGE =
   "Action enregistrée, mais l'actualisation des données a échoué. Rafraîchissez la page ou réessayez dans un instant.";
 
@@ -792,11 +800,12 @@ export default function EmployeHorodateurPage() {
     msg: string,
     options?: { retroactive?: boolean; requireGps?: boolean }
   ) {
+    const cancelled = msg === CORRECTION_CANCELLED_MESSAGE;
     setMessage(msg);
     if (options?.retroactive) {
       setCorrectionModalError(msg);
     }
-    if (options?.requireGps) {
+    if (options?.requireGps && !cancelled) {
       setPunchGpsUi((prev) =>
         prev.phase === "ready" || prev.phase === "loading"
           ? { phase: "unknown", message: PUNCH_GPS_PUNCH_NOT_COMPLETED_MESSAGE }
@@ -819,6 +828,7 @@ export default function EmployeHorodateurPage() {
     let accessToken: string | null;
     try {
       accessToken = await readAccessTokenWithTimeout(SESSION_READ_TIMEOUT_MS);
+      throwIfCorrectionAborted(options?.abortSignal);
     } catch (error) {
       const msg =
         error instanceof Error
@@ -832,6 +842,8 @@ export default function EmployeHorodateurPage() {
       reportPunchFailure("Session expirée. Reconnectez-vous et réessayez.", options);
       return;
     }
+
+    throwIfCorrectionAborted(options?.abortSignal);
 
     if (options?.retroactive) {
       setCorrectionSubmitting(true);
@@ -863,6 +875,7 @@ export default function EmployeHorodateurPage() {
         const gpsResult = options.retroactive
           ? await readEmployeePunchGeolocationWithDeadline(CORRECTION_GPS_DEADLINE_MS)
           : await readEmployeePunchGeolocation();
+        throwIfCorrectionAborted(options?.abortSignal);
         if (!gpsResult.ok) {
           setPunchGpsUi({
             phase:
@@ -912,6 +925,7 @@ export default function EmployeHorodateurPage() {
           : "La requête de pointage a pris trop de temps. Vérifiez votre connexion et réessayez.",
         options?.abortSignal
       );
+      throwIfCorrectionAborted(options?.abortSignal);
 
       let payload: Record<string, unknown> = {};
       try {
@@ -919,14 +933,17 @@ export default function EmployeHorodateurPage() {
       } catch {
         throw new Error("Réponse du serveur invalide. Réessayez.");
       }
+      throwIfCorrectionAborted(options?.abortSignal);
 
       if (response.status === 409 && payload?.code === "LONG_LEAVE_CONFIRMATION_REQUIRED") {
         const msg =
           typeof payload.error === "string"
             ? payload.error
             : "Vous êtes en congé prolongé. Voulez-vous quand même pointer ?";
+        throwIfCorrectionAborted(options?.abortSignal);
         const ok = window.confirm(msg);
         if (ok) {
+          throwIfCorrectionAborted(options?.abortSignal);
           await handlePunch(eventType, { ...options, acknowledgeLongLeave: true });
           return;
         }
@@ -958,6 +975,8 @@ export default function EmployeHorodateurPage() {
         throw new Error(serverMessage);
       }
 
+      throwIfCorrectionAborted(options?.abortSignal);
+
       if (options?.requireGps) {
         setPunchGpsUi({
           phase: "in_zone",
@@ -978,6 +997,7 @@ export default function EmployeHorodateurPage() {
             : "Pointage enregistre."
       );
       if (options?.retroactive) {
+        throwIfCorrectionAborted(options?.abortSignal);
         setRetroactiveModalOpen(false);
         setRetroactiveReason("");
         setCorrectionType("entry");
@@ -993,7 +1013,7 @@ export default function EmployeHorodateurPage() {
       }
     }
 
-    if (punchSucceeded) {
+    if (punchSucceeded && !options?.abortSignal?.aborted) {
       void (async () => {
         const refreshed = await loadData({ preserveMessage: true, background: true });
         if (!refreshed) {
