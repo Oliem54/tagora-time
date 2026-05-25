@@ -282,12 +282,13 @@ export default function MfaVerifyPage() {
               </PrimaryButton>
               {challengeId ? (
                 <p style={{ margin: 0, fontSize: 13, color: "#64748b" }}>
-                  Code demandé. Saisissez les 6 chiffres reçus.
+                  Un code vient d’être envoyé par texto au numéro configuré. Saisissez les 6
+                  chiffres reçus. Sur mobile, le code peut parfois s’insérer automatiquement.
                 </p>
               ) : (
                 <p style={{ margin: 0, fontSize: 13, color: "#64748b" }}>
-                  Un texto est envoyé au numéro enregistré pour votre compte MFA. Sur mobile, le code
-                  peut parfois s’insérer automatiquement.
+                  Aucun code SMS actif pour le moment. Cliquez sur « Envoyer un code par texto » pour
+                  recevoir un code.
                 </p>
               )}
             </div>
