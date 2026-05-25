@@ -1,4 +1,9 @@
 import type { User } from "@supabase/supabase-js";
+import {
+  ADMIN_FINANCE_PERMISSION,
+  hasAdminFinanceAccess,
+  isAdminFinancePath,
+} from "@/app/lib/auth/admin-finance";
 import { getUserRole } from "@/app/lib/auth/roles";
 
 export const APP_PERMISSION_DEFINITIONS = [
@@ -36,6 +41,14 @@ export const APP_PERMISSION_DEFINITIONS = [
     module: "ressources",
     description: "Acces aux ressources direction comme vehicules et remorques.",
     sortOrder: 50,
+  },
+  {
+    value: ADMIN_FINANCE_PERMISSION,
+    label: "Finance admin",
+    module: "admin_finance",
+    description:
+      "Paie, remuneration, commissions monetaires et donnees confidentielles (role admin uniquement, phase 1).",
+    sortOrder: 70,
   },
 ] as const;
 
@@ -85,6 +98,9 @@ export function hasUserPermission(
   user: User | null | undefined,
   permission: AppPermission
 ) {
+  if (permission === ADMIN_FINANCE_PERMISSION) {
+    return hasAdminFinanceAccess(user);
+  }
   if (getUserRole(user) === "admin") {
     return true;
   }
@@ -92,6 +108,10 @@ export function hasUserPermission(
 }
 
 export function getRequiredPermissionForPath(pathname: string) {
+  if (isAdminFinancePath(pathname)) {
+    return ADMIN_FINANCE_PERMISSION;
+  }
+
   if (
     pathname.startsWith("/employe/documents") ||
     pathname.startsWith("/direction/documents")

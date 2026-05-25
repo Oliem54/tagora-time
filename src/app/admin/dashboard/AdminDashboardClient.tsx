@@ -12,6 +12,9 @@ import {
   Files,
   ReceiptText,
   Sparkles,
+  Target,
+  TimerReset,
+  Wallet,
   Truck,
   UsersRound,
   Bell,
@@ -30,7 +33,7 @@ import TagoraCountBadge from "@/app/components/TagoraCountBadge";
 import TagoraIconBadge from "@/app/components/TagoraIconBadge";
 import type { TagoraStatTone } from "@/app/components/tagora-stat-tone";
 
-type ModuleGroupId = "supervision" | "operations" | "administration";
+type ModuleGroupId = "supervision" | "operations" | "administration" | "finance";
 
 type ModuleDefinition = {
   id: string;
@@ -60,7 +63,12 @@ const MODULE_GROUPS: { id: ModuleGroupId; title: string; subtitle: string }[] = 
   {
     id: "administration",
     title: "Administration",
-    subtitle: "Comptes, paie, facturation et controles.",
+    subtitle: "Comptes, horodateur, effectifs et controles.",
+  },
+  {
+    id: "finance",
+    title: "Finance & remuneration",
+    subtitle: "Paie, commissions et donnees confidentielles (admin uniquement).",
   },
 ];
 
@@ -150,22 +158,58 @@ const MODULES: ModuleDefinition[] = [
     pendingKey: "effectifs_schedule",
   },
   {
+    id: "remuneration",
+    href: "/admin/remuneration",
+    label: "Remuneration",
+    description: "Hub paie, taux et donnees confidentielles.",
+    group: "finance",
+    icon: Wallet,
+    tone: "purple",
+  },
+  {
     id: "paie",
-    href: "/direction/paie-compagnies",
-    label: "Paie par compagnie",
-    description: "Heures et couts par compagnie.",
-    group: "administration",
+    href: "/admin/paie",
+    label: "Paie (synthese)",
+    description: "Synthese payroll par compagnie.",
+    group: "finance",
     icon: ReceiptText,
     tone: "purple",
   },
   {
+    id: "paie-compagnies",
+    href: "/admin/paie-compagnies",
+    label: "Paie par compagnie",
+    description: "Detail lignes et ventilation Oliem / Titan.",
+    group: "finance",
+    icon: ReceiptText,
+    tone: "purple",
+  },
+  {
+    id: "temps-titan-finance",
+    href: "/admin/temps-titan-finance",
+    label: "Temps Titan (finance)",
+    description: "Couts salariaux et refacturation.",
+    group: "finance",
+    icon: TimerReset,
+    tone: "orange",
+  },
+  {
     id: "facturation",
-    href: "/direction/facturation-titan",
+    href: "/admin/facturation-titan",
     label: "Facturation Titan",
-    description: "Montants a facturer.",
-    group: "administration",
+    description: "Montants facturables et salaires.",
+    group: "finance",
     icon: FileStack,
     tone: "orange",
+  },
+  {
+    id: "commissions",
+    href: "/admin/commissions",
+    label: "Commissions & objectifs",
+    description: "Placeholder — MVP commissions non inclus sur cette branche.",
+    group: "finance",
+    icon: Target,
+    tone: "green",
   },
   {
     id: "ressources",
