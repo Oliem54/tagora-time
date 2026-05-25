@@ -20,7 +20,7 @@ import {
   getUserRole,
 } from "@/app/lib/auth/roles";
 import { hasPasswordChangeRequired } from "@/app/lib/auth/passwords";
-import { getMandatoryMfaGate, postMfaAuditEvent } from "@/app/lib/auth/mfa.client";
+import { getMandatoryMfaGate } from "@/app/lib/auth/mfa.client";
 import { isAuthMfaPath } from "@/app/lib/auth/mfa.shared";
 import TagoraLoadingScreen from "@/app/components/ui/TagoraLoadingScreen";
 
@@ -136,36 +136,10 @@ export default function AuthGate({
           if (needsDirMfaGate && !isAuthMfaPath(pathname)) {
             const gate = await getMandatoryMfaGate(role);
             if (gate.kind === "setup") {
-              const {
-                data: { session },
-              } = await supabase.auth.getSession();
-              const portalPath =
-                pathname.startsWith("/admin/") || pathname.startsWith("/direction/");
-              if (
-                portalPath &&
-                typeof window !== "undefined" &&
-                !sessionStorage.getItem("tagora_mfa_gate_audit")
-              ) {
-                sessionStorage.setItem("tagora_mfa_gate_audit", "1");
-                void postMfaAuditEvent("mfa_access_blocked", session?.access_token ?? null);
-              }
               router.replace("/auth/mfa/setup?required=1");
               return;
             }
             if (gate.kind === "verify") {
-              const {
-                data: { session },
-              } = await supabase.auth.getSession();
-              const portalPath =
-                pathname.startsWith("/admin/") || pathname.startsWith("/direction/");
-              if (
-                portalPath &&
-                typeof window !== "undefined" &&
-                !sessionStorage.getItem("tagora_mfa_gate_audit")
-              ) {
-                sessionStorage.setItem("tagora_mfa_gate_audit", "1");
-                void postMfaAuditEvent("mfa_access_blocked", session?.access_token ?? null);
-              }
               router.replace("/auth/mfa/verify");
               return;
             }
