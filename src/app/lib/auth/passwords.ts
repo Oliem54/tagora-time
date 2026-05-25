@@ -1,6 +1,6 @@
 import type { User } from "@supabase/supabase-js";
 
-const PASSWORD_MIN_LENGTH = 12;
+const PASSWORD_MIN_LENGTH = 8;
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -20,7 +20,7 @@ function readPasswordFlag(metadata: unknown) {
 }
 
 export function getPasswordPolicyMessage() {
-  return "12 caracteres minimum avec une majuscule, une minuscule et un chiffre.";
+  return "Minimum 8 caractères, avec au moins une lettre et un chiffre.";
 }
 
 export function validatePasswordStrength(password: string) {
@@ -30,7 +30,7 @@ export function validatePasswordStrength(password: string) {
     return getPasswordPolicyMessage();
   }
 
-  if (!/[A-Z]/.test(value) || !/[a-z]/.test(value) || !/[0-9]/.test(value)) {
+  if (!/[a-zA-Z]/.test(value) || !/[0-9]/.test(value)) {
     return getPasswordPolicyMessage();
   }
 
