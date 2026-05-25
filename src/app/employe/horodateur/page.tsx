@@ -311,10 +311,35 @@ const CORRECTION_FETCH_TIMEOUT_MESSAGE =
 const CORRECTION_CANCELLED_MESSAGE =
   "Envoi annulé. Vous pouvez corriger et réessayer.";
 
-function throwIfCorrectionAborted(abortSignal?: AbortSignal): void {
-  if (abortSignal?.aborted) {
+type CorrectionSubmitContext = {
+  submitId: number;
+  abortSignal: AbortSignal;
+};
+
+function isCorrectionCancelledMessage(message: string): boolean {
+  return message === CORRECTION_CANCELLED_MESSAGE;
+}
+
+function assertActiveCorrectionSubmit(
+  ctx: CorrectionSubmitContext | undefined,
+  activeSubmitId: number
+): void {
+  if (!ctx) {
+    return;
+  }
+  if (ctx.abortSignal.aborted || activeSubmitId !== ctx.submitId) {
     throw new Error(CORRECTION_CANCELLED_MESSAGE);
   }
+}
+
+function isStaleCorrectionSubmit(
+  ctx: CorrectionSubmitContext | undefined,
+  activeSubmitId: number
+): boolean {
+  if (!ctx) {
+    return false;
+  }
+  return activeSubmitId !== ctx.submitId;
 }
 const LOAD_DATA_AFTER_PUNCH_FAILED_MESSAGE =
   "Action enregistrée, mais l'actualisation des données a échoué. Rafraîchissez la page ou réessayez dans un instant.";
@@ -565,6 +590,10 @@ export default function EmployeHorodateurPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [correctionSubmitting, setCorrectionSubmitting] = useState(false);
+  const correctionSubmitIdSeqRef = useRef(0);
+  const activeCorrectionSubmitIdRef = useRef(0);
+  const correctionSubmittingRef = useRef(false);
+  const correctionInFlightRef = useRef(false);
   const correctionAbortRef = useRef<AbortController | null>(null);
   const [message, setMessage] = useState("");
   const [note, setNote] = useState("");
@@ -796,16 +825,37 @@ export default function EmployeHorodateurPage() {
     }
   }
 
+  function reportCorrectionCancellation() {
+    setMessage(CORRECTION_CANCELLED_MESSAGE);
+    setCorrectionModalError(CORRECTION_CANCELLED_MESSAGE);
+  }
+
   function reportPunchFailure(
     msg: string,
-    options?: { retroactive?: boolean; requireGps?: boolean }
+    options?: {
+      retroactive?: boolean;
+      requireGps?: boolean;
+      correctionSubmit?: CorrectionSubmitContext;
+    }
   ) {
-    const cancelled = msg === CORRECTION_CANCELLED_MESSAGE;
+    if (
+      options?.correctionSubmit &&
+      isStaleCorrectionSubmit(
+        options.correctionSubmit,
+        activeCorrectionSubmitIdRef.current
+      )
+    ) {
+      return;
+    }
+    if (isCorrectionCancelledMessage(msg)) {
+      reportCorrectionCancellation();
+      return;
+    }
     setMessage(msg);
     if (options?.retroactive) {
       setCorrectionModalError(msg);
     }
-    if (options?.requireGps && !cancelled) {
+    if (options?.requireGps) {
       setPunchGpsUi((prev) =>
         prev.phase === "ready" || prev.phase === "loading"
           ? { phase: "unknown", message: PUNCH_GPS_PUNCH_NOT_COMPLETED_MESSAGE }
@@ -822,13 +872,18 @@ export default function EmployeHorodateurPage() {
       occurredAt?: string;
       noteOverride?: string;
       requireGps?: boolean;
-      abortSignal?: AbortSignal;
+      correctionSubmit?: CorrectionSubmitContext;
     }
   ) {
+    const correctionCtx = options?.correctionSubmit;
+
     let accessToken: string | null;
     try {
       accessToken = await readAccessTokenWithTimeout(SESSION_READ_TIMEOUT_MS);
-      throwIfCorrectionAborted(options?.abortSignal);
+      assertActiveCorrectionSubmit(
+        correctionCtx,
+        activeCorrectionSubmitIdRef.current
+      );
     } catch (error) {
       const msg =
         error instanceof Error
@@ -843,11 +898,11 @@ export default function EmployeHorodateurPage() {
       return;
     }
 
-    throwIfCorrectionAborted(options?.abortSignal);
+    assertActiveCorrectionSubmit(correctionCtx, activeCorrectionSubmitIdRef.current);
 
-    if (options?.retroactive) {
+    if (options?.retroactive && !correctionCtx) {
       setCorrectionSubmitting(true);
-    } else {
+    } else if (!options?.retroactive) {
       setSaving(true);
     }
     if (!options?.retroactive) {
@@ -858,9 +913,7 @@ export default function EmployeHorodateurPage() {
     let punchSucceeded = false;
 
     try {
-      if (options?.abortSignal?.aborted) {
-        throw new Error(CORRECTION_CANCELLED_MESSAGE);
-      }
+      assertActiveCorrectionSubmit(correctionCtx, activeCorrectionSubmitIdRef.current);
 
       let latitude: number | undefined;
       let longitude: number | undefined;
@@ -875,7 +928,7 @@ export default function EmployeHorodateurPage() {
         const gpsResult = options.retroactive
           ? await readEmployeePunchGeolocationWithDeadline(CORRECTION_GPS_DEADLINE_MS)
           : await readEmployeePunchGeolocation();
-        throwIfCorrectionAborted(options?.abortSignal);
+        assertActiveCorrectionSubmit(correctionCtx, activeCorrectionSubmitIdRef.current);
         if (!gpsResult.ok) {
           setPunchGpsUi({
             phase:
@@ -923,9 +976,9 @@ export default function EmployeHorodateurPage() {
         options?.retroactive
           ? CORRECTION_FETCH_TIMEOUT_MESSAGE
           : "La requête de pointage a pris trop de temps. Vérifiez votre connexion et réessayez.",
-        options?.abortSignal
+        correctionCtx?.abortSignal
       );
-      throwIfCorrectionAborted(options?.abortSignal);
+      assertActiveCorrectionSubmit(correctionCtx, activeCorrectionSubmitIdRef.current);
 
       let payload: Record<string, unknown> = {};
       try {
@@ -933,17 +986,17 @@ export default function EmployeHorodateurPage() {
       } catch {
         throw new Error("Réponse du serveur invalide. Réessayez.");
       }
-      throwIfCorrectionAborted(options?.abortSignal);
+      assertActiveCorrectionSubmit(correctionCtx, activeCorrectionSubmitIdRef.current);
 
       if (response.status === 409 && payload?.code === "LONG_LEAVE_CONFIRMATION_REQUIRED") {
         const msg =
           typeof payload.error === "string"
             ? payload.error
             : "Vous êtes en congé prolongé. Voulez-vous quand même pointer ?";
-        throwIfCorrectionAborted(options?.abortSignal);
+        assertActiveCorrectionSubmit(correctionCtx, activeCorrectionSubmitIdRef.current);
         const ok = window.confirm(msg);
         if (ok) {
-          throwIfCorrectionAborted(options?.abortSignal);
+          assertActiveCorrectionSubmit(correctionCtx, activeCorrectionSubmitIdRef.current);
           await handlePunch(eventType, { ...options, acknowledgeLongLeave: true });
           return;
         }
@@ -975,9 +1028,9 @@ export default function EmployeHorodateurPage() {
         throw new Error(serverMessage);
       }
 
-      throwIfCorrectionAborted(options?.abortSignal);
+      assertActiveCorrectionSubmit(correctionCtx, activeCorrectionSubmitIdRef.current);
 
-      if (options?.requireGps) {
+      if (options?.requireGps && !correctionCtx) {
         setPunchGpsUi({
           phase: "in_zone",
           message: options.retroactive
@@ -985,6 +1038,8 @@ export default function EmployeHorodateurPage() {
             : "Position obtenue : vous êtes dans la zone autorisée. Pointage enregistré.",
         });
       }
+
+      assertActiveCorrectionSubmit(correctionCtx, activeCorrectionSubmitIdRef.current);
 
       punchSucceeded = true;
       setNote("");
@@ -997,7 +1052,7 @@ export default function EmployeHorodateurPage() {
             : "Pointage enregistre."
       );
       if (options?.retroactive) {
-        throwIfCorrectionAborted(options?.abortSignal);
+        assertActiveCorrectionSubmit(correctionCtx, activeCorrectionSubmitIdRef.current);
         setRetroactiveModalOpen(false);
         setRetroactiveReason("");
         setCorrectionType("entry");
@@ -1006,14 +1061,18 @@ export default function EmployeHorodateurPage() {
       const msg = error instanceof Error ? error.message : "Erreur de pointage.";
       reportPunchFailure(msg, options);
     } finally {
-      if (options?.retroactive) {
+      if (options?.retroactive && !correctionCtx) {
         setCorrectionSubmitting(false);
-      } else {
+      } else if (!options?.retroactive) {
         setSaving(false);
       }
     }
 
-    if (punchSucceeded && !options?.abortSignal?.aborted) {
+    if (
+      punchSucceeded &&
+      !correctionCtx?.abortSignal.aborted &&
+      !isStaleCorrectionSubmit(correctionCtx, activeCorrectionSubmitIdRef.current)
+    ) {
       void (async () => {
         const refreshed = await loadData({ preserveMessage: true, background: true });
         if (!refreshed) {
@@ -1039,13 +1098,18 @@ export default function EmployeHorodateurPage() {
     setRetroactiveModalOpen(true);
   }
 
+  function cancelActiveCorrectionSubmit() {
+    activeCorrectionSubmitIdRef.current = 0;
+    correctionAbortRef.current?.abort();
+    correctionAbortRef.current = null;
+    correctionSubmittingRef.current = false;
+    setCorrectionSubmitting(false);
+    reportCorrectionCancellation();
+  }
+
   function closeCorrectionModal() {
-    if (correctionSubmitting) {
-      correctionAbortRef.current?.abort();
-      correctionAbortRef.current = null;
-      setCorrectionSubmitting(false);
-      setCorrectionModalError(CORRECTION_CANCELLED_MESSAGE);
-      setMessage(CORRECTION_CANCELLED_MESSAGE);
+    if (correctionInFlightRef.current) {
+      cancelActiveCorrectionSubmit();
       return;
     }
     setRetroactiveModalOpen(false);
@@ -1054,7 +1118,7 @@ export default function EmployeHorodateurPage() {
   }
 
   async function handleCorrectionSubmit() {
-    if (correctionSubmitting) {
+    if (correctionInFlightRef.current || correctionSubmittingRef.current) {
       return;
     }
 
@@ -1095,8 +1159,19 @@ export default function EmployeHorodateurPage() {
       return;
     }
 
+    const submitId = correctionSubmitIdSeqRef.current + 1;
+    correctionSubmitIdSeqRef.current = submitId;
+    activeCorrectionSubmitIdRef.current = submitId;
+    correctionSubmittingRef.current = true;
+    correctionInFlightRef.current = true;
+    setCorrectionSubmitting(true);
+
     const abortController = new AbortController();
     correctionAbortRef.current = abortController;
+    const correctionSubmit: CorrectionSubmitContext = {
+      submitId,
+      abortSignal: abortController.signal,
+    };
 
     try {
       await handlePunch("punch_in", {
@@ -1104,12 +1179,17 @@ export default function EmployeHorodateurPage() {
         occurredAt,
         noteOverride: reason,
         requireGps: true,
-        abortSignal: abortController.signal,
+        correctionSubmit,
       });
     } finally {
-      if (correctionAbortRef.current === abortController) {
-        correctionAbortRef.current = null;
+      correctionInFlightRef.current = false;
+      if (activeCorrectionSubmitIdRef.current === submitId) {
+        activeCorrectionSubmitIdRef.current = 0;
+        if (correctionAbortRef.current === abortController) {
+          correctionAbortRef.current = null;
+        }
       }
+      correctionSubmittingRef.current = false;
       setCorrectionSubmitting(false);
     }
   }

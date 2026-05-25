@@ -21,7 +21,11 @@ const RETRY_ATTEMPT_TIMEOUT_MS = 22000;
 const MAX_ATTEMPTS = 3;
 const RETRY_DELAY_MS = 1200;
 
-/** Durée maximale théorique : 3 tentatives + délais entre retries + marge. */
+/**
+ * Borne haute pour une lecture GPS complète :
+ * 1ère tentative (30s) + (MAX_ATTEMPTS-1) × (retry 22s + pause 1,2s) + marge 4s ≈ 80,4s.
+ * Doit rester alignée avec readEmployeePunchGeolocation().
+ */
 export const EMPLOYEE_PUNCH_GEOLOCATION_MAX_DURATION_MS =
   FIRST_ATTEMPT_TIMEOUT_MS +
   (MAX_ATTEMPTS - 1) * (RETRY_ATTEMPT_TIMEOUT_MS + RETRY_DELAY_MS) +
