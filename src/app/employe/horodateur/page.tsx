@@ -296,6 +296,9 @@ type PunchGpsUi = {
 
 const PUNCH_GPS_UI_IDLE: PunchGpsUi = { phase: "idle", message: "" };
 
+const PUNCH_GPS_PUNCH_NOT_COMPLETED_MESSAGE =
+  "Position obtenue, mais le pointage n'a pas pu être complété. Vérifiez le message ci-dessus et réessayez.";
+
 function isGpsTimeoutMessage(message: string | null | undefined): boolean {
   if (!message) {
     return false;
@@ -770,7 +773,12 @@ export default function EmployeHorodateurPage() {
             : "Vous êtes en congé prolongé. Voulez-vous quand même pointer ?";
         const ok = window.confirm(msg);
         if (ok) {
-          await handlePunch(eventType, { acknowledgeLongLeave: true });
+          await handlePunch(eventType, { ...options, acknowledgeLongLeave: true });
+        } else if (options?.requireGps) {
+          setPunchGpsUi({
+            phase: "unknown",
+            message: PUNCH_GPS_PUNCH_NOT_COMPLETED_MESSAGE,
+          });
         }
         return;
       }
@@ -787,6 +795,11 @@ export default function EmployeHorodateurPage() {
             setPunchGpsUi({ phase: "out_of_zone", message: serverMessage });
           } else if (serverCode === "GPS_REQUIRED") {
             setPunchGpsUi({ phase: "unknown", message: serverMessage });
+          } else {
+            setPunchGpsUi({
+              phase: "unknown",
+              message: PUNCH_GPS_PUNCH_NOT_COMPLETED_MESSAGE,
+            });
           }
         }
         throw new Error(serverMessage);
@@ -817,6 +830,13 @@ export default function EmployeHorodateurPage() {
       await loadData({ preserveMessage: true });
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Erreur de pointage.");
+      if (options?.requireGps) {
+        setPunchGpsUi((prev) =>
+          prev.phase === "ready"
+            ? { phase: "unknown", message: PUNCH_GPS_PUNCH_NOT_COMPLETED_MESSAGE }
+            : prev
+        );
+      }
     } finally {
       setSaving(false);
     }
