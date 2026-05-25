@@ -21,6 +21,16 @@ const RETRY_ATTEMPT_TIMEOUT_MS = 22000;
 const MAX_ATTEMPTS = 3;
 const RETRY_DELAY_MS = 1200;
 
+/**
+ * Borne haute pour une lecture GPS complète :
+ * 1ère tentative (30s) + (MAX_ATTEMPTS-1) × (retry 22s + pause 1,2s) + marge 4s ≈ 80,4s.
+ * Doit rester alignée avec readEmployeePunchGeolocation().
+ */
+export const EMPLOYEE_PUNCH_GEOLOCATION_MAX_DURATION_MS =
+  FIRST_ATTEMPT_TIMEOUT_MS +
+  (MAX_ATTEMPTS - 1) * (RETRY_ATTEMPT_TIMEOUT_MS + RETRY_DELAY_MS) +
+  4_000;
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => {
     window.setTimeout(resolve, ms);
@@ -167,4 +177,33 @@ export async function readEmployeePunchGeolocation(): Promise<EmployeePunchGeolo
       attempts: MAX_ATTEMPTS,
     }
   );
+}
+
+/**
+ * Borne le temps total de lecture GPS (évite un chargement infini si le navigateur
+ * ne rappelle jamais getCurrentPosition).
+ */
+export async function readEmployeePunchGeolocationWithDeadline(
+  deadlineMs: number
+): Promise<EmployeePunchGeolocationResult> {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+
+  const deadlineResult = new Promise<EmployeePunchGeolocationResult>((resolve) => {
+    timeoutId = setTimeout(() => {
+      resolve({
+        ok: false,
+        code: "timeout",
+        message: messageForPunchGeolocationFailure("timeout"),
+        attempts: MAX_ATTEMPTS,
+      });
+    }, deadlineMs);
+  });
+
+  try {
+    return await Promise.race([readEmployeePunchGeolocation(), deadlineResult]);
+  } finally {
+    if (timeoutId !== undefined) {
+      clearTimeout(timeoutId);
+    }
+  }
 }
