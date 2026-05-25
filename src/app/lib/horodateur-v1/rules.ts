@@ -311,7 +311,17 @@ export function resolvePayableApprovedExceptionMinutes(
     HorodateurPhase1ExceptionRecord,
     "exception_type" | "source_event_id" | "status" | "approved_minutes" | "impact_minutes"
   >,
-  sourceEvent: Pick<HorodateurPhase1EventRecord, "event_type" | "status"> | null | undefined
+  sourceEvent:
+    | Pick<
+        HorodateurPhase1EventRecord,
+        "event_type" | "status" | "occurred_at" | "event_time" | "created_at"
+      >
+    | null
+    | undefined,
+  sameDayEvents: Pick<
+    HorodateurPhase1EventRecord,
+    "event_type" | "status" | "occurred_at" | "event_time" | "created_at"
+  >[] = []
 ): number {
   const minutes = resolveEffectiveExceptionImpactMinutes(exception);
   if (exception.exception_type !== "missing_punch_adjustment" || !sourceEvent) {
@@ -321,12 +331,30 @@ export function resolvePayableApprovedExceptionMinutes(
     return minutes;
   }
   if (
-    (sourceEvent.status === "approuve" || sourceEvent.status === "normal") &&
-    resolveShiftRecomputeCanonicalEventType(sourceEvent) === "punch_in"
+    sourceEvent.status !== "approuve" &&
+    sourceEvent.status !== "normal"
   ) {
-    return 0;
+    return minutes;
   }
-  return minutes;
+  if (resolveShiftRecomputeCanonicalEventType(sourceEvent) !== "punch_in") {
+    return minutes;
+  }
+
+  const entryAt = getEventOccurredAt(sourceEvent);
+  if (!entryAt) {
+    return minutes;
+  }
+  const entryTime = new Date(entryAt).getTime();
+  const hasPunchOutAfterEntry = sameDayEvents.some((event) => {
+    const occurredAt = getEventOccurredAt(event);
+    return (
+      resolveShiftRecomputeCanonicalEventType(event) === "punch_out" &&
+      occurredAt != null &&
+      new Date(occurredAt).getTime() > entryTime
+    );
+  });
+
+  return hasPunchOutAfterEntry ? 0 : minutes;
 }
 
 function mapCanonicalInvalidSequenceException(

@@ -2257,7 +2257,8 @@ export async function recomputeShiftForDate(
       sum +
       resolvePayableApprovedExceptionMinutes(
         item,
-        eventsById.get(item.source_event_id)
+        eventsById.get(item.source_event_id),
+        orderedEvents
       ),
     0
   );
@@ -2983,7 +2984,8 @@ export async function approveHorodateurException(options: {
 
   if (
     resolvedApprovedMinutes == null &&
-    exception.exception_type === "missing_punch_adjustment"
+    exception.exception_type === "missing_punch_adjustment" &&
+    toCanonicalEventType(sourceEvent.event_type) === "retroactive_entry"
   ) {
     const entryOccurredAt = getEventOccurredAt(sourceEvent);
     if (entryOccurredAt) {

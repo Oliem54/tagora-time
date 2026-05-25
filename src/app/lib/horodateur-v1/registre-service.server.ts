@@ -419,7 +419,7 @@ export async function buildHorodateurRegistre(options: {
     titanRefundablePayableMinutes += titanPay;
 
     for (const ex of empExceptions) {
-      totalExceptionImpactMinutes += Math.max(0, ex.impact_minutes ?? 0);
+      totalExceptionImpactMinutes += resolveEffectiveExceptionImpactMinutes(ex);
     }
 
     for (const s of empShifts) {
