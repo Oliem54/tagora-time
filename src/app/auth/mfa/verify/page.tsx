@@ -1,6 +1,6 @@
 "use client";
 
-import { type FormEvent, useEffect, useState } from "react";
+import { type FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import FeedbackMessage from "@/app/components/FeedbackMessage";
 import PageHeader from "@/app/components/ui/PageHeader";
@@ -41,6 +41,45 @@ export default function MfaVerifyPage() {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [messageType, setMessageType] = useState<"success" | "error" | null>(null);
+  const autoSmsAttemptedRef = useRef(false);
+  const busyRef = useRef(false);
+
+  useEffect(() => {
+    busyRef.current = busy;
+  }, [busy]);
+
+  const sendPhoneChallengeForFactor = useCallback(async (factorId: string) => {
+    if (busyRef.current) return false;
+    busyRef.current = true;
+    setBusy(true);
+    setMessage("");
+    setMessageType(null);
+    try {
+      const { data: ch, error: chErr } = await challengePhoneMfa(factorId);
+      if (chErr || !ch?.id) {
+        const codeErr = readErrCode(chErr);
+        console.warn("[mfa] sms_challenge_failed", { code: codeErr ?? "unknown" });
+        setMessage(
+          describeSupabaseMfaPhoneError(
+            codeErr,
+            chErr?.message ?? "Impossible d’envoyer le texto."
+          )
+        );
+        setMessageType("error");
+        return false;
+      }
+      setChallengeId(ch.id);
+      console.info("[mfa] sms_challenge_requested");
+      setMessage(
+        "Un code a été demandé par texto. Saisissez les 6 chiffres reçus. Si rien n’arrive sous 2 minutes, utilisez « Renvoyer un code »."
+      );
+      setMessageType("success");
+      return true;
+    } finally {
+      busyRef.current = false;
+      setBusy(false);
+    }
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -65,9 +104,10 @@ export default function MfaVerifyPage() {
       const phone = listed.find((f) => f.factor_type === "phone" && f.status === "verified");
       const totp = listed.find((f) => f.factor_type === "totp" && f.status === "verified");
 
+      const usePhone = preferred.kind === "phone" && Boolean(phone);
       setPhoneFactorId(phone?.id ?? null);
       setTotpFactorId(totp?.id ?? null);
-      setMode(preferred.kind === "phone" && phone ? "phone" : "totp");
+      setMode(usePhone ? "phone" : "totp");
 
       setLoading(false);
     })();
@@ -75,6 +115,14 @@ export default function MfaVerifyPage() {
       cancelled = true;
     };
   }, [router]);
+
+  useEffect(() => {
+    if (loading || mode !== "phone" || !phoneFactorId || autoSmsAttemptedRef.current) {
+      return;
+    }
+    autoSmsAttemptedRef.current = true;
+    void sendPhoneChallengeForFactor(phoneFactorId);
+  }, [loading, mode, phoneFactorId, sendPhoneChallengeForFactor]);
 
   async function syncCookie() {
     const {
@@ -112,29 +160,8 @@ export default function MfaVerifyPage() {
   }
 
   async function sendPhoneChallenge() {
-    if (!phoneFactorId || busy) return;
-    setBusy(true);
-    setMessage("");
-    setMessageType(null);
-    try {
-      const { data: ch, error: chErr } = await challengePhoneMfa(phoneFactorId);
-      if (chErr || !ch?.id) {
-        const codeErr = readErrCode(chErr);
-        setMessage(
-          describeSupabaseMfaPhoneError(
-            codeErr,
-            chErr?.message ?? "Impossible d’envoyer le texto."
-          )
-        );
-        setMessageType("error");
-        return;
-      }
-      setChallengeId(ch.id);
-      setMessage("Si votre ligne accepte les texto, un code vient d’être envoyé.");
-      setMessageType("success");
-    } finally {
-      setBusy(false);
-    }
+    if (!phoneFactorId) return;
+    await sendPhoneChallengeForFactor(phoneFactorId);
   }
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
@@ -251,7 +278,7 @@ export default function MfaVerifyPage() {
           <SectionCard title="Code par texto">
             <div className="ui-stack-md">
               <PrimaryButton type="button" disabled={busy} onClick={() => void sendPhoneChallenge()}>
-                Envoyer un code par texto
+                {challengeId ? "Renvoyer un code par texto" : "Envoyer un code par texto"}
               </PrimaryButton>
               {challengeId ? (
                 <p style={{ margin: 0, fontSize: 13, color: "#64748b" }}>
@@ -259,7 +286,8 @@ export default function MfaVerifyPage() {
                 </p>
               ) : (
                 <p style={{ margin: 0, fontSize: 13, color: "#64748b" }}>
-                  Nous enverrons un SMS au numéro configuré pour votre compte.
+                  Un texto est envoyé au numéro enregistré pour votre compte MFA. Sur mobile, le code
+                  peut parfois s’insérer automatiquement.
                 </p>
               )}
             </div>
