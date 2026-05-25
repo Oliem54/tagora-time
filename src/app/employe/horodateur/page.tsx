@@ -11,6 +11,10 @@ import { useCurrentAccess } from "@/app/hooks/useCurrentAccess";
 import { useEmployeeGpsReporting } from "@/app/hooks/useEmployeeGpsReporting";
 import { supabase } from "@/app/lib/supabase/client";
 import { getCompanyLabel } from "@/app/lib/account-requests.shared";
+import {
+  messageForHorodateurPunchGpsServerCode,
+  readEmployeePunchGeolocation,
+} from "@/app/lib/employee-punch-geolocation.client";
 
 type EmployeeSnapshot = {
   employee: {
@@ -273,22 +277,31 @@ function buildOccurredAtMinutesAgo(templateIso: string, minutesAgo: number) {
   };
 }
 
-function readCurrentGpsCoords(): Promise<{ latitude: number; longitude: number } | null> {
-  return new Promise((resolve) => {
-    if (typeof navigator === "undefined" || !navigator.geolocation) {
-      resolve(null);
-      return;
-    }
-    navigator.geolocation.getCurrentPosition(
-      (pos) =>
-        resolve({
-          latitude: pos.coords.latitude,
-          longitude: pos.coords.longitude,
-        }),
-      () => resolve(null),
-      { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 }
-    );
-  });
+type PunchGpsUiPhase =
+  | "idle"
+  | "loading"
+  | "ready"
+  | "denied"
+  | "timeout"
+  | "unavailable"
+  | "unsupported"
+  | "unknown"
+  | "in_zone"
+  | "out_of_zone";
+
+type PunchGpsUi = {
+  phase: PunchGpsUiPhase;
+  message: string;
+};
+
+const PUNCH_GPS_UI_IDLE: PunchGpsUi = { phase: "idle", message: "" };
+
+function isGpsTimeoutMessage(message: string | null | undefined): boolean {
+  if (!message) {
+    return false;
+  }
+  const lower = message.toLowerCase();
+  return lower.includes("timeout") || lower.includes("delai") || lower.includes("délai");
 }
 
 function normalizeSnapshotPayload(payload: unknown): EmployeeSnapshot | null {
@@ -479,6 +492,8 @@ export default function EmployeHorodateurPage() {
   const [correctionType, setCorrectionType] = useState<CorrectionRequestType>("entry");
   const [retroactiveTime, setRetroactiveTime] = useState("");
   const [retroactiveReason, setRetroactiveReason] = useState("");
+  const [punchGpsUi, setPunchGpsUi] = useState<PunchGpsUi>(PUNCH_GPS_UI_IDLE);
+  const [punchGpsRetrying, setPunchGpsRetrying] = useState(false);
 
   const gpsReport = useEmployeeGpsReporting({
     enabled: Boolean(user && canUseTerrain && !accessLoading),
@@ -637,6 +652,41 @@ export default function EmployeHorodateurPage() {
   const latenessContext = snapshot?.latenessContext ?? null;
 
   const canStartShiftPunch = latenessContext?.canPunchNow === true;
+  const showPunchGpsPanel =
+    canStartShiftPunch || punchGpsUi.phase !== "idle" || isGpsTimeoutMessage(gpsReport.lastError);
+
+  async function handleRetryPunchLocation() {
+    setPunchGpsRetrying(true);
+    setPunchGpsUi({ phase: "loading", message: "Obtention de la position en cours..." });
+    try {
+      const gpsResult = await readEmployeePunchGeolocation();
+      if (gpsResult.ok) {
+        setPunchGpsUi({
+          phase: "ready",
+          message:
+            "Position obtenue. Vous pouvez maintenant pointer ou envoyer une demande de correction.",
+        });
+        setMessage("");
+        return;
+      }
+      setPunchGpsUi({
+        phase:
+          gpsResult.code === "permission_denied"
+            ? "denied"
+            : gpsResult.code === "timeout"
+              ? "timeout"
+              : gpsResult.code === "position_unavailable"
+                ? "unavailable"
+                : gpsResult.code === "unsupported"
+                  ? "unsupported"
+                  : "unknown",
+        message: gpsResult.message,
+      });
+      setMessage(gpsResult.message);
+    } finally {
+      setPunchGpsRetrying(false);
+    }
+  }
 
   async function handlePunch(
     eventType: string,
@@ -664,14 +714,33 @@ export default function EmployeHorodateurPage() {
       let longitude: number | undefined;
 
       if (options?.requireGps) {
-        const coords = await readCurrentGpsCoords();
-        if (!coords) {
-          throw new Error(
-            "Vous devez être dans la zone autorisée pour puncher. Autorisez la géolocalisation et réessayez."
-          );
+        setPunchGpsUi({
+          phase: "loading",
+          message: "Obtention de la position en cours (peut prendre jusqu’à une minute)...",
+        });
+        const gpsResult = await readEmployeePunchGeolocation();
+        if (!gpsResult.ok) {
+          setPunchGpsUi({
+            phase:
+              gpsResult.code === "permission_denied"
+                ? "denied"
+                : gpsResult.code === "timeout"
+                  ? "timeout"
+                  : gpsResult.code === "position_unavailable"
+                    ? "unavailable"
+                    : gpsResult.code === "unsupported"
+                      ? "unsupported"
+                      : "unknown",
+            message: gpsResult.message,
+          });
+          throw new Error(gpsResult.message);
         }
-        latitude = coords.latitude;
-        longitude = coords.longitude;
+        setPunchGpsUi({
+          phase: "ready",
+          message: "Position obtenue. Validation de la zone en cours...",
+        });
+        latitude = gpsResult.latitude;
+        longitude = gpsResult.longitude;
       }
 
       const response = await fetch("/api/horodateur/punch", {
@@ -707,7 +776,29 @@ export default function EmployeHorodateurPage() {
       }
 
       if (!response.ok) {
-        throw new Error(payload.error ?? "Impossible d enregistrer ce pointage.");
+        const serverCode =
+          typeof payload?.code === "string" ? (payload.code as string) : undefined;
+        const serverMessage = messageForHorodateurPunchGpsServerCode(
+          serverCode,
+          typeof payload?.error === "string" ? payload.error : undefined
+        );
+        if (options?.requireGps) {
+          if (serverCode === "GPS_OUT_OF_ZONE") {
+            setPunchGpsUi({ phase: "out_of_zone", message: serverMessage });
+          } else if (serverCode === "GPS_REQUIRED") {
+            setPunchGpsUi({ phase: "unknown", message: serverMessage });
+          }
+        }
+        throw new Error(serverMessage);
+      }
+
+      if (options?.requireGps) {
+        setPunchGpsUi({
+          phase: "in_zone",
+          message: options.retroactive
+            ? "Position obtenue et enregistrée avec votre demande de correction."
+            : "Position obtenue : vous êtes dans la zone autorisée. Pointage enregistré.",
+        });
       }
 
       setNote("");
@@ -865,7 +956,9 @@ export default function EmployeHorodateurPage() {
                 : gpsReport.status === "unsupported"
                   ? "La geolocalisation n est pas disponible sur cet appareil."
                   : gpsReport.status === "error"
-                    ? `GPS : ${gpsReport.lastError ?? "erreur d envoi ou de position."}`
+                    ? isGpsTimeoutMessage(gpsReport.lastError)
+                      ? "La localisation est autorisée, mais la position n a pas ete obtenue a temps. Utilisez « Réessayer la localisation » dans la section Pointage."
+                      : `GPS : ${gpsReport.lastError ?? "erreur d envoi ou de position."}`
                     : gpsReport.status === "requesting"
                       ? "Demande d acces a la localisation en cours..."
                       : "En attente de la localisation..."
@@ -952,10 +1045,49 @@ export default function EmployeHorodateurPage() {
             ))}
           </div>
 
-          {canStartShiftPunch ? (
-            <p className="tagora-note" style={{ margin: 0, lineHeight: 1.5 }}>
-              La geolocalisation est requise pour valider votre presence sur site.
-            </p>
+          {showPunchGpsPanel ? (
+            <div
+              style={{
+                padding: "16px 18px",
+                borderRadius: 14,
+                border:
+                  punchGpsUi.phase === "in_zone"
+                    ? "1px solid rgba(34,197,94,0.45)"
+                    : punchGpsUi.phase === "out_of_zone"
+                      ? "1px solid rgba(239,68,68,0.45)"
+                      : punchGpsUi.phase === "timeout" || isGpsTimeoutMessage(gpsReport.lastError)
+                        ? "1px solid rgba(245,158,11,0.5)"
+                        : "1px solid #dbeafe",
+                background:
+                  punchGpsUi.phase === "in_zone"
+                    ? "linear-gradient(180deg, #f0fdf4 0%, #ffffff 100%)"
+                    : punchGpsUi.phase === "out_of_zone"
+                      ? "linear-gradient(180deg, #fef2f2 0%, #ffffff 100%)"
+                      : "linear-gradient(180deg, #f8fbff 0%, #ffffff 100%)",
+                display: "grid",
+                gap: 12,
+              }}
+            >
+              <div className="tagora-label">Géolocalisation pour le punch</div>
+              <p style={{ margin: 0, lineHeight: 1.55, color: "#0f172a" }}>
+                {punchGpsUi.phase === "idle"
+                  ? canStartShiftPunch
+                    ? "La géolocalisation est requise pour valider votre présence sur site."
+                    : isGpsTimeoutMessage(gpsReport.lastError)
+                      ? "La localisation est autorisée, mais votre appareil n’a pas retourné la position à temps. Cliquez sur Réessayer la localisation."
+                      : "La géolocalisation est requise pour valider votre présence sur site."
+                  : punchGpsUi.message}
+              </p>
+              <button
+                type="button"
+                className="tagora-dark-outline-action"
+                style={punchActionButtonStyle}
+                disabled={saving || punchGpsRetrying}
+                onClick={() => void handleRetryPunchLocation()}
+              >
+                {punchGpsRetrying ? "Localisation en cours..." : "Réessayer la localisation"}
+              </button>
+            </div>
           ) : null}
 
           <div style={punchSecondaryGridStyle}>
