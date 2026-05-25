@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import HeaderTagora from "@/app/components/HeaderTagora";
 import AccessNotice from "@/app/components/AccessNotice";
@@ -14,6 +14,7 @@ import { getCompanyLabel } from "@/app/lib/account-requests.shared";
 import {
   messageForHorodateurPunchGpsServerCode,
   readEmployeePunchGeolocation,
+  readEmployeePunchGeolocationWithDeadline,
 } from "@/app/lib/employee-punch-geolocation.client";
 
 type EmployeeSnapshot = {
@@ -300,28 +301,75 @@ const PUNCH_GPS_PUNCH_NOT_COMPLETED_MESSAGE =
   "Position obtenue, mais le pointage n'a pas pu être complété. Vérifiez le message ci-dessus et réessayez.";
 
 const PUNCH_FETCH_TIMEOUT_MS = 60_000;
+const CORRECTION_FETCH_TIMEOUT_MS = 30_000;
+const CORRECTION_GPS_DEADLINE_MS = 72_000;
+const SESSION_READ_TIMEOUT_MS = 15_000;
 const HORODATEUR_DATA_FETCH_TIMEOUT_MS = 30_000;
+const CORRECTION_FETCH_TIMEOUT_MESSAGE =
+  "La demande prend trop de temps. Vérifiez votre connexion et réessayez.";
+const CORRECTION_CANCELLED_MESSAGE = "Envoi annulé. Vous pouvez modifier la demande et réessayer.";
 const LOAD_DATA_AFTER_PUNCH_FAILED_MESSAGE =
   "Action enregistrée, mais l'actualisation des données a échoué. Rafraîchissez la page ou réessayez dans un instant.";
+
+async function readAccessTokenWithTimeout(timeoutMs: number): Promise<string | null> {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => {
+      reject(
+        new Error(
+          "La session prend trop de temps à charger. Reconnectez-vous et réessayez."
+        )
+      );
+    }, timeoutMs);
+  });
+
+  try {
+    const {
+      data: { session },
+    } = await Promise.race([supabase.auth.getSession(), timeoutPromise]);
+    return session?.access_token ?? null;
+  } finally {
+    if (timeoutId !== undefined) {
+      clearTimeout(timeoutId);
+    }
+  }
+}
 
 async function fetchWithTimeout(
   input: RequestInfo | URL,
   init: RequestInit | undefined,
   timeoutMs: number,
-  timeoutMessage: string
+  timeoutMessage: string,
+  externalSignal?: AbortSignal
 ): Promise<Response> {
   const controller = new AbortController();
   const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
+
+  const onExternalAbort = () => controller.abort();
+  if (externalSignal) {
+    if (externalSignal.aborted) {
+      window.clearTimeout(timeoutId);
+      throw new Error(CORRECTION_CANCELLED_MESSAGE);
+    }
+    externalSignal.addEventListener("abort", onExternalAbort);
+  }
 
   try {
     return await fetch(input, { ...init, signal: controller.signal });
   } catch (error) {
     if (error instanceof Error && error.name === "AbortError") {
+      if (externalSignal?.aborted) {
+        throw new Error(CORRECTION_CANCELLED_MESSAGE);
+      }
       throw new Error(timeoutMessage);
     }
     throw error;
   } finally {
     window.clearTimeout(timeoutId);
+    if (externalSignal) {
+      externalSignal.removeEventListener("abort", onExternalAbort);
+    }
   }
 }
 
@@ -508,6 +556,8 @@ export default function EmployeHorodateurPage() {
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [correctionSubmitting, setCorrectionSubmitting] = useState(false);
+  const correctionAbortRef = useRef<AbortController | null>(null);
   const [message, setMessage] = useState("");
   const [note, setNote] = useState("");
   const [snapshot, setSnapshot] = useState<EmployeeSnapshot | null>(null);
@@ -763,18 +813,31 @@ export default function EmployeHorodateurPage() {
       occurredAt?: string;
       noteOverride?: string;
       requireGps?: boolean;
+      abortSignal?: AbortSignal;
     }
   ) {
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
+    let accessToken: string | null;
+    try {
+      accessToken = await readAccessTokenWithTimeout(SESSION_READ_TIMEOUT_MS);
+    } catch (error) {
+      const msg =
+        error instanceof Error
+          ? error.message
+          : "Session expirée. Reconnectez-vous et réessayez.";
+      reportPunchFailure(msg, options);
+      return;
+    }
 
-    if (!session?.access_token) {
+    if (!accessToken) {
       reportPunchFailure("Session expirée. Reconnectez-vous et réessayez.", options);
       return;
     }
 
-    setSaving(true);
+    if (options?.retroactive) {
+      setCorrectionSubmitting(true);
+    } else {
+      setSaving(true);
+    }
     if (!options?.retroactive) {
       setCorrectionModalError("");
     }
@@ -783,15 +846,23 @@ export default function EmployeHorodateurPage() {
     let punchSucceeded = false;
 
     try {
+      if (options?.abortSignal?.aborted) {
+        throw new Error(CORRECTION_CANCELLED_MESSAGE);
+      }
+
       let latitude: number | undefined;
       let longitude: number | undefined;
 
       if (options?.requireGps) {
         setPunchGpsUi({
           phase: "loading",
-          message: "Obtention de la position en cours (peut prendre jusqu’à une minute)...",
+          message: options.retroactive
+            ? "Obtention de la position pour la demande de correction..."
+            : "Obtention de la position en cours (peut prendre jusqu’à une minute)...",
         });
-        const gpsResult = await readEmployeePunchGeolocation();
+        const gpsResult = options.retroactive
+          ? await readEmployeePunchGeolocationWithDeadline(CORRECTION_GPS_DEADLINE_MS)
+          : await readEmployeePunchGeolocation();
         if (!gpsResult.ok) {
           setPunchGpsUi({
             phase:
@@ -821,7 +892,7 @@ export default function EmployeHorodateurPage() {
         {
           method: "POST",
           headers: {
-            Authorization: `Bearer ${session.access_token}`,
+            Authorization: `Bearer ${accessToken}`,
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
@@ -835,8 +906,11 @@ export default function EmployeHorodateurPage() {
             longitude,
           }),
         },
-        PUNCH_FETCH_TIMEOUT_MS,
-        "La requête de pointage a pris trop de temps. Vérifiez votre connexion et réessayez."
+        options?.retroactive ? CORRECTION_FETCH_TIMEOUT_MS : PUNCH_FETCH_TIMEOUT_MS,
+        options?.retroactive
+          ? CORRECTION_FETCH_TIMEOUT_MESSAGE
+          : "La requête de pointage a pris trop de temps. Vérifiez votre connexion et réessayez.",
+        options?.abortSignal
       );
 
       let payload: Record<string, unknown> = {};
@@ -912,7 +986,11 @@ export default function EmployeHorodateurPage() {
       const msg = error instanceof Error ? error.message : "Erreur de pointage.";
       reportPunchFailure(msg, options);
     } finally {
-      setSaving(false);
+      if (options?.retroactive) {
+        setCorrectionSubmitting(false);
+      } else {
+        setSaving(false);
+      }
     }
 
     if (punchSucceeded) {
@@ -942,12 +1020,24 @@ export default function EmployeHorodateurPage() {
   }
 
   function closeCorrectionModal() {
+    if (correctionSubmitting) {
+      correctionAbortRef.current?.abort();
+      correctionAbortRef.current = null;
+      setCorrectionSubmitting(false);
+      setCorrectionModalError(CORRECTION_CANCELLED_MESSAGE);
+      setMessage(CORRECTION_CANCELLED_MESSAGE);
+      return;
+    }
     setRetroactiveModalOpen(false);
     setCorrectionType("entry");
     setCorrectionModalError("");
   }
 
   async function handleCorrectionSubmit() {
+    if (correctionSubmitting) {
+      return;
+    }
+
     setCorrectionModalError("");
 
     if (correctionType === "other") {
@@ -985,12 +1075,23 @@ export default function EmployeHorodateurPage() {
       return;
     }
 
-    await handlePunch("punch_in", {
-      retroactive: true,
-      occurredAt,
-      noteOverride: reason,
-      requireGps: true,
-    });
+    const abortController = new AbortController();
+    correctionAbortRef.current = abortController;
+
+    try {
+      await handlePunch("punch_in", {
+        retroactive: true,
+        occurredAt,
+        noteOverride: reason,
+        requireGps: true,
+        abortSignal: abortController.signal,
+      });
+    } finally {
+      if (correctionAbortRef.current === abortController) {
+        correctionAbortRef.current = null;
+      }
+      setCorrectionSubmitting(false);
+    }
   }
 
   function applyRetroactiveShortcut(minutesAgo: number) {
@@ -1305,7 +1406,7 @@ export default function EmployeHorodateurPage() {
 
       <CorrectionRequestModal
         open={retroactiveModalOpen}
-        saving={saving}
+        saving={correctionSubmitting}
         submitError={correctionModalError || null}
         correctionType={correctionType}
         time={retroactiveTime}

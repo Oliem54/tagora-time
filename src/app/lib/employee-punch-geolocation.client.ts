@@ -168,3 +168,32 @@ export async function readEmployeePunchGeolocation(): Promise<EmployeePunchGeolo
     }
   );
 }
+
+/**
+ * Borne le temps total de lecture GPS (évite un chargement infini si le navigateur
+ * ne rappelle jamais getCurrentPosition).
+ */
+export async function readEmployeePunchGeolocationWithDeadline(
+  deadlineMs: number
+): Promise<EmployeePunchGeolocationResult> {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+
+  const deadlineResult = new Promise<EmployeePunchGeolocationResult>((resolve) => {
+    timeoutId = setTimeout(() => {
+      resolve({
+        ok: false,
+        code: "timeout",
+        message: messageForPunchGeolocationFailure("timeout"),
+        attempts: MAX_ATTEMPTS,
+      });
+    }, deadlineMs);
+  });
+
+  try {
+    return await Promise.race([readEmployeePunchGeolocation(), deadlineResult]);
+  } finally {
+    if (timeoutId !== undefined) {
+      clearTimeout(timeoutId);
+    }
+  }
+}

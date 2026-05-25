@@ -45,7 +45,7 @@ export default function CorrectionRequestModal({
   const otherBlocked = correctionType === "other";
 
   return (
-    <CorrectionModalBackdrop saving={saving} onClose={onClose}>
+    <CorrectionModalBackdrop onClose={onClose}>
       <div
         className="tagora-panel"
         style={{
@@ -193,10 +193,9 @@ export default function CorrectionRequestModal({
             type="button"
             className="tagora-dark-outline-action"
             style={{ width: "100%", minHeight: 44 }}
-            disabled={saving}
             onClick={onClose}
           >
-            Annuler
+            {saving ? "Annuler l'envoi" : "Annuler"}
           </button>
         </div>
       </div>
@@ -205,11 +204,9 @@ export default function CorrectionRequestModal({
 }
 
 function CorrectionModalBackdrop({
-  saving,
   onClose,
   children,
 }: {
-  saving: boolean;
   onClose: () => void;
   children: React.ReactNode;
 }) {
@@ -228,8 +225,8 @@ function CorrectionModalBackdrop({
         padding: 16,
         background: "rgba(15, 23, 42, 0.45)",
       }}
-      onClick={() => {
-        if (!saving) {
+      onClick={(event) => {
+        if (event.target === event.currentTarget) {
           onClose();
         }
       }}
