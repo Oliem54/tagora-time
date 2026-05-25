@@ -24,6 +24,7 @@ import {
   HORODATEUR_PHASE1_WEEKLY_TARGET_HOURS,
   getEventOccurredAt,
   getWeekStartDate,
+  resolveEffectiveExceptionImpactMinutes,
   toCanonicalEventType,
 } from "./rules";
 import type {
@@ -323,7 +324,7 @@ export async function buildHorodateurRegistre(options: {
       exceptionType: x.exception_type,
       reasonLabel: x.reason_label,
       details: x.details ?? null,
-      impactMinutes: x.impact_minutes ?? 0,
+      impactMinutes: resolveEffectiveExceptionImpactMinutes(x),
       status: x.status,
       requestedAt: x.requested_at,
       reviewedAt: x.reviewed_at ?? null,
@@ -566,7 +567,7 @@ export async function buildHorodateurRegistreEmployeeDetail(options: {
       exceptionType: x.exception_type,
       reasonLabel: x.reason_label,
       details: x.details ?? null,
-      impactMinutes: x.impact_minutes ?? 0,
+      impactMinutes: resolveEffectiveExceptionImpactMinutes(x),
       status: x.status,
       requestedAt: x.requested_at,
       reviewedAt: x.reviewed_at ?? null,

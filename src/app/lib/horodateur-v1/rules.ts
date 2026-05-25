@@ -9,6 +9,7 @@ import {
   type HorodateurPhase1EmployeeProfile,
   type HorodateurPhase1EventRecord,
   type HorodateurPhase1EventType,
+  type HorodateurPhase1ExceptionRecord,
   type HorodateurPhase1ExceptionType,
   type HorodateurPhase1StateKind,
 } from "./types";
@@ -271,6 +272,61 @@ export function toCanonicalEventType(
   }
 
   return LEGACY_TO_CANONICAL_EVENT_TYPE[value as HorodateurPhase1EventType] ?? null;
+}
+
+/** Pour le recalcul de quart : une entrée rétroactive approuvée équivaut à un punch_in. */
+export function resolveShiftRecomputeCanonicalEventType(
+  event: Pick<HorodateurPhase1EventRecord, "event_type" | "status">
+): HorodateurCanonicalEventType | null {
+  const canonical = toCanonicalEventType(event.event_type);
+  if (!canonical) {
+    return null;
+  }
+  if (canonical === "retroactive_entry") {
+    return event.status === "approuve" || event.status === "normal"
+      ? "punch_in"
+      : null;
+  }
+  if (canonical === "manual_correction") {
+    return null;
+  }
+  return canonical;
+}
+
+export function resolveEffectiveExceptionImpactMinutes(
+  exception: Pick<
+    HorodateurPhase1ExceptionRecord,
+    "status" | "approved_minutes" | "impact_minutes"
+  >
+): number {
+  if (exception.status === "approuve" || exception.status === "modifie") {
+    return Math.max(0, exception.approved_minutes ?? exception.impact_minutes ?? 0);
+  }
+  return Math.max(0, exception.impact_minutes ?? 0);
+}
+
+/** Minutes d'exception à ajouter au payable (évite le double comptage avec retroactive_entry → punch_in). */
+export function resolvePayableApprovedExceptionMinutes(
+  exception: Pick<
+    HorodateurPhase1ExceptionRecord,
+    "exception_type" | "source_event_id" | "status" | "approved_minutes" | "impact_minutes"
+  >,
+  sourceEvent: Pick<HorodateurPhase1EventRecord, "event_type" | "status"> | null | undefined
+): number {
+  const minutes = resolveEffectiveExceptionImpactMinutes(exception);
+  if (exception.exception_type !== "missing_punch_adjustment" || !sourceEvent) {
+    return minutes;
+  }
+  if (toCanonicalEventType(sourceEvent.event_type) !== "retroactive_entry") {
+    return minutes;
+  }
+  if (
+    (sourceEvent.status === "approuve" || sourceEvent.status === "normal") &&
+    resolveShiftRecomputeCanonicalEventType(sourceEvent) === "punch_in"
+  ) {
+    return 0;
+  }
+  return minutes;
 }
 
 function mapCanonicalInvalidSequenceException(

@@ -66,6 +66,8 @@ import {
   isWithinScheduledWindowForEmployee,
   resolveCompanyContextForShift,
   resolveInitialCurrentState,
+  resolvePayableApprovedExceptionMinutes,
+  resolveShiftRecomputeCanonicalEventType,
   resolveShiftStatus,
   toCanonicalEventType,
 } from "./rules";
@@ -808,6 +810,53 @@ function resolveEventDates(occurredAt: string) {
     workDate: getLocalWorkDate(occurredAt),
     weekStartDate: getWeekStartDate(occurredAt),
   };
+}
+
+function computeMissingPunchAdjustmentImpactMinutes(options: {
+  employee: HorodateurPhase1EmployeeProfile;
+  entryOccurredAt: string;
+  sameDayEvents: HorodateurPhase1EventRecord[];
+}): number {
+  const entryAt = options.entryOccurredAt;
+  const entryTime = new Date(entryAt).getTime();
+  if (!Number.isFinite(entryTime)) {
+    return 0;
+  }
+
+  const punchOutAfter = options.sameDayEvents
+    .map((event) => ({
+      canonical: resolveShiftRecomputeCanonicalEventType(event),
+      occurredAt: getEventOccurredAt(event),
+    }))
+    .filter(
+      (item) =>
+        item.canonical === "punch_out" &&
+        item.occurredAt &&
+        new Date(item.occurredAt).getTime() > entryTime
+    )
+    .sort(
+      (left, right) =>
+        new Date(left.occurredAt as string).getTime() -
+        new Date(right.occurredAt as string).getTime()
+    )[0];
+
+  if (punchOutAfter?.occurredAt) {
+    return diffMinutes(entryAt, punchOutAfter.occurredAt);
+  }
+
+  const scheduleEndMinutes = options.employee.scheduleEnd
+    ? getScheduledStartMinutes(options.employee.scheduleEnd)
+    : null;
+  const entryMinutes = getMinutesSinceLocalMidnight(entryAt);
+  if (
+    scheduleEndMinutes != null &&
+    entryMinutes != null &&
+    scheduleEndMinutes > entryMinutes
+  ) {
+    return scheduleEndMinutes - entryMinutes;
+  }
+
+  return 0;
 }
 
 export async function insertHorodateurEvent(input: HorodateurPhase1InsertEventInput) {
@@ -1997,7 +2046,8 @@ export async function recomputeShiftForDate(
 
   for (const event of orderedEvents) {
     const eventOccurredAt = getEventOccurredAt(event);
-    const canonicalEventType = toCanonicalEventType(event.event_type);
+    const rawCanonicalEventType = toCanonicalEventType(event.event_type);
+    const canonicalEventType = resolveShiftRecomputeCanonicalEventType(event);
 
     if (!eventOccurredAt) {
       anomalies.push(`Evenement ${event.event_type} sans horodatage exploitable.`);
@@ -2005,7 +2055,21 @@ export async function recomputeShiftForDate(
     }
 
     if (!canonicalEventType) {
-      anomalies.push(`Evenement ${event.event_type} non reconnu.`);
+      if (rawCanonicalEventType === "retroactive_entry") {
+        anomalies.push("Entree retroactive en attente (non comptabilisee).");
+      } else if (rawCanonicalEventType === "manual_correction") {
+        if (process.env.NODE_ENV === "development") {
+          console.info("[horodateur-calc-skipped-event]", {
+            eventId: event.id,
+            eventType: event.event_type,
+            source: event.source_kind ?? null,
+            reason: "manual_correction_not_counted_in_shift_math",
+          });
+        }
+        anomalies.push("Correction manuelle detectee (review recommandee).");
+      } else {
+        anomalies.push(`Evenement ${event.event_type} non reconnu.`);
+      }
       continue;
     }
 
@@ -2122,24 +2186,6 @@ export async function recomputeShiftForDate(
       continue;
     }
 
-    if (canonicalEventType === "manual_correction") {
-      if (process.env.NODE_ENV === "development") {
-        console.info("[horodateur-calc-skipped-event]", {
-          eventId: event.id,
-          eventType: event.event_type,
-          source: event.source_kind ?? null,
-          reason: "manual_correction_not_counted_in_shift_math",
-        });
-      }
-      anomalies.push("Correction manuelle detectee (review recommandee).");
-      continue;
-    }
-
-    if (canonicalEventType === "retroactive_entry") {
-      anomalies.push("Entree retroactive detectee (review recommandee).");
-      continue;
-    }
-
     if (canonicalEventType === "punch_out") {
       if (!shiftStartAt) {
         anomalies.push("punch_out sans punch_in.");
@@ -2201,13 +2247,18 @@ export async function recomputeShiftForDate(
   const approvedExceptions = allExceptions.filter(
     (item) => item.status === "approuve" || item.status === "modifie"
   );
+  const eventsById = new Map(orderedEvents.map((event) => [event.id, event]));
   const pendingExceptionMinutes = pendingExceptions.reduce(
     (sum, item) => sum + Math.max(0, item.impact_minutes ?? 0),
     0
   );
   const approvedExceptionMinutes = approvedExceptions.reduce(
     (sum, item) =>
-      sum + Math.max(0, item.approved_minutes ?? item.impact_minutes ?? 0),
+      sum +
+      resolvePayableApprovedExceptionMinutes(
+        item,
+        eventsById.get(item.source_event_id)
+      ),
     0
   );
   const grossMinutes =
@@ -2420,23 +2471,30 @@ export async function createEmployeePunch(options: {
       exceptionType: classification.exceptionType,
     });
     let impactMinutes = 0;
-    if (
-      forceLateStartException &&
-      classification.exceptionType === "missing_punch_adjustment" &&
-      employee.scheduleStart
-    ) {
-      const scheduledStartMinutes = getScheduledStartMinutes(employee.scheduleStart);
-      if (scheduledStartMinutes != null) {
-        impactMinutes = Math.max(
-          0,
-          getMinutesSinceLocalMidnight(occurredAt) -
-            scheduledStartMinutes -
-            Math.max(
-              0,
-              employee.toleranceBeforeStartMinutes ??
-                HORODATEUR_DEFAULT_LATENESS_TOLERANCE_MINUTES
-            )
-        );
+    if (classification.exceptionType === "missing_punch_adjustment") {
+      if (canonicalType === "retroactive_entry") {
+        impactMinutes = computeMissingPunchAdjustmentImpactMinutes({
+          employee,
+          entryOccurredAt: occurredAt,
+          sameDayEvents: latestApprovedEvents,
+        });
+      } else if (
+        forceLateStartException &&
+        employee.scheduleStart
+      ) {
+        const scheduledStartMinutes = getScheduledStartMinutes(employee.scheduleStart);
+        if (scheduledStartMinutes != null) {
+          impactMinutes = Math.max(
+            0,
+            getMinutesSinceLocalMidnight(occurredAt) -
+              scheduledStartMinutes -
+              Math.max(
+                0,
+                employee.toleranceBeforeStartMinutes ??
+                  HORODATEUR_DEFAULT_LATENESS_TOLERANCE_MINUTES
+              )
+          );
+        }
       }
     }
 
@@ -2910,19 +2968,6 @@ export async function approveHorodateurException(options: {
     });
   }
 
-  const reviewedException = await updateExceptionReview({
-    exceptionId: exception.id,
-    status:
-      typeof options.approvedMinutes === "number" &&
-      options.approvedMinutes >= 0 &&
-      options.approvedMinutes !== exception.impact_minutes
-        ? "modifie"
-        : "approuve",
-    reviewedByUserId: options.actorUserId,
-    reviewNote: options.reviewNote ?? null,
-    approvedMinutes: options.approvedMinutes ?? null,
-  });
-
   let sourceEvent = await getEventById(exception.source_event_id);
   if (!sourceEvent) {
     throw new HorodateurPhase1Error("Evenement source introuvable.", {
@@ -2930,6 +2975,44 @@ export async function approveHorodateurException(options: {
       status: 404,
     });
   }
+
+  let resolvedApprovedMinutes =
+    typeof options.approvedMinutes === "number" && options.approvedMinutes >= 0
+      ? options.approvedMinutes
+      : null;
+
+  if (
+    resolvedApprovedMinutes == null &&
+    exception.exception_type === "missing_punch_adjustment"
+  ) {
+    const entryOccurredAt = getEventOccurredAt(sourceEvent);
+    if (entryOccurredAt) {
+      const employee = await resolveEmployeeById(exception.employee_id);
+      const sameDayEvents = await listEventsForEmployee({
+        employeeId: exception.employee_id,
+        workDate: getLocalWorkDate(entryOccurredAt),
+        statuses: ["normal", "approuve"],
+      });
+      resolvedApprovedMinutes = computeMissingPunchAdjustmentImpactMinutes({
+        employee,
+        entryOccurredAt,
+        sameDayEvents,
+      });
+    }
+  }
+
+  const reviewedException = await updateExceptionReview({
+    exceptionId: exception.id,
+    status:
+      typeof resolvedApprovedMinutes === "number" &&
+      resolvedApprovedMinutes >= 0 &&
+      resolvedApprovedMinutes !== exception.impact_minutes
+        ? "modifie"
+        : "approuve",
+    reviewedByUserId: options.actorUserId,
+    reviewNote: options.reviewNote ?? null,
+    approvedMinutes: resolvedApprovedMinutes,
+  });
 
   if (options.correctedOccurredAt) {
     sourceEvent = await updateEventOccurredAt({

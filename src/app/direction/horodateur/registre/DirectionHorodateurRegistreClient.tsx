@@ -1285,7 +1285,14 @@ export default function DirectionHorodateurRegistreClient() {
                           <AppCard key={exRecord.id} className="rounded-2xl">
                             <div className="font-bold text-slate-900">{exRecord.reasonLabel}</div>
                             <div className="mt-1 text-sm text-slate-600">
-                              {exRecord.exceptionType} · {exRecord.impactMinutes} min · {exRecord.status}
+                              {exRecord.exceptionType} ·{" "}
+                              {exRecord.impactMinutes > 0
+                                ? `${exRecord.impactMinutes} min`
+                                : exRecord.status === "approuve" ||
+                                    exRecord.status === "modifie"
+                                  ? "0 min (entree seule, sortie manquante)"
+                                  : "0 min"}{" "}
+                              · {exRecord.status}
                             </div>
                             {exRecord.reviewNote ? (
                               <div className="mt-2 text-sm">{exRecord.reviewNote}</div>
