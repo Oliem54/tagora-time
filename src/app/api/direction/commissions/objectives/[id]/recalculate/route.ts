@@ -12,7 +12,7 @@ import {
   mapObjectiveRow,
   mapRuleRow,
   mapEntryRow,
-  requireCommissionsAccess,
+  requireAdminFinanceCommissionsAccess,
 } from "@/app/api/direction/commissions/_lib";
 import { createAdminSupabaseClient } from "@/app/lib/supabase/admin";
 
@@ -58,7 +58,7 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const auth = await requireCommissionsAccess(req);
+    const auth = await requireAdminFinanceCommissionsAccess(req);
     if (!auth.ok) return auth.response;
     const { supabase } = auth;
     const { id } = await params;

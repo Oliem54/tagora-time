@@ -52,7 +52,7 @@ export default function DirectionPaieCompagniesOperationalPage() {
     setRowCapReached(false);
 
     let query = supabase
-      .from("temps_titan")
+      .from("direction_temps_titan_operational")
       .select("id, employe_nom, date_travail, duree_heures, type_travail")
       .order("date_travail", { ascending: false });
 
