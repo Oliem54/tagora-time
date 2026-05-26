@@ -15,6 +15,10 @@ import SecondaryButton from "@/app/components/ui/SecondaryButton";
 import SectionCard from "@/app/components/ui/SectionCard";
 import StatusBadge from "@/app/components/ui/StatusBadge";
 import { useCurrentAccess } from "@/app/hooks/useCurrentAccess";
+import {
+  getDashboardLabelForRole,
+  getDashboardPathForRole,
+} from "@/app/lib/auth/roles";
 import { supabase } from "@/app/lib/supabase/client";
 import { getCompanyLabel } from "@/app/lib/account-requests.shared";
 import { normalizePhoneNumber } from "@/app/lib/timeclock-api.client";
@@ -500,7 +504,9 @@ function normalizePendingException(raw: unknown): PendingException | null {
 }
 
 export default function DirectionHorodateurPage() {
-  const { loading: accessLoading, hasPermission } = useCurrentAccess();
+  const { loading: accessLoading, hasPermission, role } = useCurrentAccess();
+  const dashboardHref = role ? getDashboardPathForRole(role) : "/direction/dashboard";
+  const dashboardLabel = role ? getDashboardLabelForRole(role) : "Tableau de bord direction";
   const canUseTerrain = hasPermission("terrain");
 
   const [loading, setLoading] = useState(true);
@@ -1245,11 +1251,11 @@ export default function DirectionHorodateurPage() {
                 Zones punch QR
               </Link>
               <Link
-                href="/direction/dashboard"
+                href={dashboardHref}
                 className="tagora-dark-action"
                 style={{ textDecoration: "none" }}
               >
-                Tableau de bord direction
+                {dashboardLabel}
               </Link>
               <SecondaryButton
                 onClick={() => void loadData("refresh")}

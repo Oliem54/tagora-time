@@ -25,6 +25,10 @@ import TagoraStatCard from "@/app/components/TagoraStatCard";
 import type { TagoraStatTone } from "@/app/components/tagora-stat-tone";
 import AuthenticatedPageHeader from "@/app/components/ui/AuthenticatedPageHeader";
 import { useCurrentAccess } from "@/app/hooks/useCurrentAccess";
+import {
+  getDashboardLabelForRole,
+  getDashboardPathForRole,
+} from "@/app/lib/auth/roles";
 import { supabase } from "@/app/lib/supabase/client";
 import { getWeekStartDate } from "@/app/lib/horodateur-v1/rules";
 import type {
@@ -244,7 +248,9 @@ function lastExceptionTouch(ex: HorodateurRegistreExceptionDetail) {
 
 export default function DirectionHorodateurRegistreClient() {
   const searchParams = useSearchParams();
-  const { user, loading, hasPermission } = useCurrentAccess();
+  const { user, loading, hasPermission, role } = useCurrentAccess();
+  const dashboardHref = role ? getDashboardPathForRole(role) : "/direction/dashboard";
+  const dashboardLabel = role ? getDashboardLabelForRole(role) : "Tableau de bord direction";
   const [activeTab, setActiveTab] = useState<RegistrerTabId>("global");
 
   const [preset, setPreset] = useState<PeriodPreset>("week_current");
@@ -498,7 +504,7 @@ export default function DirectionHorodateurRegistreClient() {
             <p className="mt-3 text-sm text-slate-600">
               La permission terrain est requise pour consulter le registre des heures.
             </p>
-            <Link href="/direction/dashboard" className="mt-6 inline-block">
+            <Link href={dashboardHref} className="mt-6 inline-block">
               <SecondaryButton>Retour au tableau de bord</SecondaryButton>
             </Link>
           </div>
@@ -540,8 +546,8 @@ export default function DirectionHorodateurRegistreClient() {
               <Link href="/direction/horodateur" className="tagora-dark-outline-action">
                 Retour horodateur
               </Link>
-              <Link href="/direction/dashboard" className="tagora-dark-action">
-                Tableau de bord direction
+              <Link href={dashboardHref} className="tagora-dark-action">
+                {dashboardLabel}
               </Link>
             </div>
           }
