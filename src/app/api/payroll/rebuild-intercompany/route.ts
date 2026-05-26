@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
+import { requireAdminFinanceUser } from "@/app/lib/auth/admin-finance-api.server";
 import { createAdminSupabaseClient } from "@/app/lib/supabase/admin";
-import { requireDirectionUser } from "@/app/lib/timeclock-api.server";
 
 export async function POST(req: NextRequest) {
   try {
-    const auth = await requireDirectionUser(req, "terrain");
+    const auth = await requireAdminFinanceUser(req);
 
     if (!auth.ok) {
       const code =

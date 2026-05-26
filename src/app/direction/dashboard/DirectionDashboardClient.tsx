@@ -147,8 +147,8 @@ const MODULES: ModuleDefinition[] = [
   },
   {
     href: "/direction/temps-titan",
-    label: "Temps Titan",
-    description: "Heures et refacturation.",
+    label: "Suivi heures Titan",
+    description: "Heures et volumes operationnels. Couts et refacturation : Admin.",
     permission: "terrain",
     group: "operations",
     icon: TimerReset,
