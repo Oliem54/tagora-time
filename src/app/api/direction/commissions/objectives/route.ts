@@ -4,11 +4,18 @@ import {
 } from "@/app/lib/commissions/calculate.server";
 import { todayIsoLocal } from "@/app/lib/commissions/commissions.shared";
 import {
+  computeProgressPercent,
+  deriveObjectiveStatus,
+} from "@/app/lib/commissions/calculate.server";
+import {
   getUserDisplayName,
+  loadChauffeurLabels,
   mapDirectionObjectiveOperationalRow,
+  mapObjectiveRow,
   requireAdminFinanceCommissionsAccess,
   requireCommissionsAccess,
 } from "@/app/api/direction/commissions/_lib";
+import { hasAdminFinanceAccess } from "@/app/lib/auth/admin-finance";
 
 function asText(value: unknown) {
   if (typeof value !== "string") return null;
@@ -42,8 +49,42 @@ export async function GET(req: NextRequest) {
   try {
     const auth = await requireCommissionsAccess(req);
     if (!auth.ok) return auth.response;
-    const { supabase } = auth;
+    const { supabase, user } = auth;
     const todayIso = todayIsoLocal();
+
+    if (hasAdminFinanceAccess(user)) {
+      const { data, error } = await supabase
+        .from("sales_objectives")
+        .select("*")
+        .order("period_end", { ascending: false })
+        .order("created_at", { ascending: false });
+
+      if (error) {
+        return NextResponse.json({ error: error.message }, { status: 400 });
+      }
+
+      const chauffeurIds = (data ?? [])
+        .map((row) => Number((row as Record<string, unknown>).chauffeur_id))
+        .filter((id) => Number.isFinite(id) && id > 0);
+      const labelMap = await loadChauffeurLabels(supabase, chauffeurIds);
+
+      const objectives = (data ?? []).map((row) => {
+        const record = row as Record<string, unknown>;
+        const chauffeurId = Number(record.chauffeur_id);
+        const mapped = mapObjectiveRow(
+          record,
+          Number.isFinite(chauffeurId) ? labelMap.get(chauffeurId) ?? null : null
+        );
+        return {
+          ...mapped,
+          computed_status: deriveObjectiveStatus(mapped, todayIso),
+          progress_percent: computeProgressPercent(mapped),
+        };
+      });
+
+      return NextResponse.json({ objectives, todayIso });
+    }
+
     const { data, error } = await supabase
       .from("direction_objectives_operational_view")
       .select("*")

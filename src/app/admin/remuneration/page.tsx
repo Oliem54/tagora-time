@@ -26,7 +26,7 @@ const FINANCE_MODULE_LINKS = [
   {
     href: "/admin/commissions",
     label: "Commissions & objectifs",
-    description: "A venir sur cette branche (MVP commissions non inclus).",
+    description: "Objectifs de vente, regles et suivi des commissions.",
   },
 ] as const;
 

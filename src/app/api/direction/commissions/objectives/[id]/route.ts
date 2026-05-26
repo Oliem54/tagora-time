@@ -3,11 +3,19 @@ import {
   normalizeTargetType,
 } from "@/app/lib/commissions/calculate.server";
 import {
+  computeProgressPercent,
+  deriveObjectiveStatus,
+} from "@/app/lib/commissions/calculate.server";
+import { todayIsoLocal } from "@/app/lib/commissions/commissions.shared";
+import {
   getUserDisplayName,
+  loadChauffeurLabels,
   mapDirectionObjectiveOperationalRow,
+  mapObjectiveRow,
   requireAdminFinanceCommissionsAccess,
   requireCommissionsAccess,
 } from "@/app/api/direction/commissions/_lib";
+import { hasAdminFinanceAccess } from "@/app/lib/auth/admin-finance";
 
 function asText(value: unknown) {
   if (typeof value !== "string") return null;
@@ -59,8 +67,44 @@ export async function GET(
   try {
     const auth = await requireCommissionsAccess(req);
     if (!auth.ok) return auth.response;
-    const { supabase } = auth;
+    const { supabase, user } = auth;
     const { id } = await params;
+
+    if (hasAdminFinanceAccess(user)) {
+      const todayIso = todayIsoLocal();
+      const objectiveRes = await supabase
+        .from("sales_objectives")
+        .select("*")
+        .eq("id", id)
+        .maybeSingle();
+
+      if (objectiveRes.error || !objectiveRes.data) {
+        return NextResponse.json(
+          { error: objectiveRes.error?.message ?? "Objectif introuvable." },
+          { status: 404 }
+        );
+      }
+
+      const record = objectiveRes.data as Record<string, unknown>;
+      const chauffeurId = Number(record.chauffeur_id);
+      const labelMap = await loadChauffeurLabels(
+        supabase,
+        Number.isFinite(chauffeurId) && chauffeurId > 0 ? [chauffeurId] : []
+      );
+      const mapped = mapObjectiveRow(
+        record,
+        Number.isFinite(chauffeurId) ? labelMap.get(chauffeurId) ?? null : null
+      );
+
+      return NextResponse.json({
+        objective: {
+          ...mapped,
+          computed_status: deriveObjectiveStatus(mapped, todayIso),
+          progress_percent: computeProgressPercent(mapped),
+        },
+      });
+    }
+
     const bundle = await loadDirectionObjective(
       supabase as unknown as DirectionObjectiveSupabase,
       id

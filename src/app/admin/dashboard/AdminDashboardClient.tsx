@@ -225,7 +225,7 @@ const MODULES: ModuleDefinition[] = [
     id: "commissions",
     href: "/admin/commissions",
     label: "Commissions & objectifs",
-    description: "Placeholder — MVP commissions non inclus sur cette branche.",
+    description: "Objectifs de vente, regles, validation et paiement des commissions.",
     group: "finance",
     icon: Target,
     tone: "green",
