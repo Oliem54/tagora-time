@@ -1,19 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
-  computeProgressPercent,
-  deriveObjectiveStatus,
   normalizeTargetType,
 } from "@/app/lib/commissions/calculate.server";
-import { todayIsoLocal } from "@/app/lib/commissions/commissions.shared";
 import {
   getUserDisplayName,
-  loadChauffeurLabels,
-  mapEntryRow,
-  mapObjectiveRow,
-  mapRuleRow,
+  mapDirectionObjectiveOperationalRow,
+  requireAdminFinanceCommissionsAccess,
   requireCommissionsAccess,
 } from "@/app/api/direction/commissions/_lib";
-import { createAdminSupabaseClient } from "@/app/lib/supabase/admin";
 
 function asText(value: unknown) {
   if (typeof value !== "string") return null;
@@ -27,12 +21,22 @@ function asNumber(value: unknown) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-async function loadObjectiveBundle(
-  supabase: ReturnType<typeof createAdminSupabaseClient>,
+type DirectionObjectiveSupabase = {
+  from: (table: "direction_objectives_operational_view") => {
+    select: (columns: "*") => {
+      eq: (column: "id", value: string) => {
+        maybeSingle: () => Promise<{ data: unknown; error: { message?: string } | null }>;
+      };
+    };
+  };
+};
+
+async function loadDirectionObjective(
+  supabase: DirectionObjectiveSupabase,
   objectiveId: string
 ) {
   const objectiveRes = await supabase
-    .from("sales_objectives")
+    .from("direction_objectives_operational_view")
     .select("*")
     .eq("id", objectiveId)
     .maybeSingle();
@@ -41,26 +45,10 @@ async function loadObjectiveBundle(
     return { error: objectiveRes.error?.message ?? "Objectif introuvable." } as const;
   }
 
-  const chauffeurId = Number((objectiveRes.data as Record<string, unknown>).chauffeur_id);
-  const labelMap = await loadChauffeurLabels(
-    supabase,
-    Number.isFinite(chauffeurId) && chauffeurId > 0 ? [chauffeurId] : []
-  );
-
-  const objective = mapObjectiveRow(
-    objectiveRes.data as Record<string, unknown>,
-    Number.isFinite(chauffeurId) ? labelMap.get(chauffeurId) ?? null : null
-  );
-
-  const [rulesRes, entriesRes] = await Promise.all([
-    supabase.from("commission_rules").select("*").eq("objective_id", objectiveId),
-    supabase.from("commission_entries").select("*").eq("objective_id", objectiveId),
-  ]);
-
   return {
-    objective,
-    rules: (rulesRes.data ?? []).map((row) => mapRuleRow(row as Record<string, unknown>)),
-    entries: (entriesRes.data ?? []).map((row) => mapEntryRow(row as Record<string, unknown>)),
+    objective: mapDirectionObjectiveOperationalRow(
+      objectiveRes.data as Record<string, unknown>
+    ),
   } as const;
 }
 
@@ -73,23 +61,15 @@ export async function GET(
     if (!auth.ok) return auth.response;
     const { supabase } = auth;
     const { id } = await params;
-    const todayIso = todayIsoLocal();
-
-    const bundle = await loadObjectiveBundle(supabase, id);
+    const bundle = await loadDirectionObjective(
+      supabase as unknown as DirectionObjectiveSupabase,
+      id
+    );
     if ("error" in bundle) {
       return NextResponse.json({ error: bundle.error }, { status: 404 });
     }
 
-    const computed_status = deriveObjectiveStatus(bundle.objective, todayIso);
-    return NextResponse.json({
-      ...bundle,
-      objective: {
-        ...bundle.objective,
-        computed_status,
-        progress_percent: computeProgressPercent(bundle.objective),
-      },
-      todayIso,
-    });
+    return NextResponse.json(bundle);
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Erreur serveur objectif." },
@@ -103,7 +83,7 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const auth = await requireCommissionsAccess(req);
+    const auth = await requireAdminFinanceCommissionsAccess(req);
     if (!auth.ok) return auth.response;
     const { supabase, user } = auth;
     const { id } = await params;
@@ -129,11 +109,15 @@ export async function PATCH(
       const targetType = normalizeTargetType(body.target_type);
       if (targetType) patch.target_type = targetType;
     }
-    if (body.target_amount !== undefined) patch.target_amount = asNumber(body.target_amount);
+    if (body.target_amount !== undefined) {
+      patch.target_amount = asNumber(body.target_amount);
+    }
     if (body.target_sales_count !== undefined) {
       patch.target_sales_count = Math.trunc(asNumber(body.target_sales_count) ?? 0);
     }
-    if (body.achieved_amount !== undefined) patch.achieved_amount = asNumber(body.achieved_amount) ?? 0;
+    if (body.achieved_amount !== undefined) {
+      patch.achieved_amount = asNumber(body.achieved_amount) ?? 0;
+    }
     if (body.achieved_sales_count !== undefined) {
       patch.achieved_sales_count = Math.trunc(asNumber(body.achieved_sales_count) ?? 0);
     }
@@ -156,25 +140,23 @@ export async function PATCH(
       );
     }
 
-    const todayIso = todayIsoLocal();
-    const objective = mapObjectiveRow(updateRes.data as Record<string, unknown>);
-    const computed_status = deriveObjectiveStatus(objective, todayIso);
-    const syncedStatus =
-      objective.status === "draft" || objective.status === "cancelled"
-        ? objective.status
-        : computed_status;
+    const objectiveOperational = await supabase
+      .from("direction_objectives_operational_view")
+      .select("*")
+      .eq("id", id)
+      .maybeSingle();
 
-    if (syncedStatus !== objective.status) {
-      await supabase.from("sales_objectives").update({ status: syncedStatus }).eq("id", id);
-      objective.status = syncedStatus;
+    if (objectiveOperational.error || !objectiveOperational.data) {
+      return NextResponse.json(
+        { error: objectiveOperational.error?.message ?? "Objectif mis a jour mais vue operationnelle inaccessible." },
+        { status: 400 }
+      );
     }
 
     return NextResponse.json({
-      objective: {
-        ...objective,
-        computed_status: syncedStatus,
-        progress_percent: computeProgressPercent(objective),
-      },
+      objective: mapDirectionObjectiveOperationalRow(
+        objectiveOperational.data as Record<string, unknown>
+      ),
     });
   } catch (error) {
     return NextResponse.json(
@@ -189,7 +171,7 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const auth = await requireCommissionsAccess(req);
+    const auth = await requireAdminFinanceCommissionsAccess(req);
     if (!auth.ok) return auth.response;
     const { supabase, user } = auth;
     const { id } = await params;

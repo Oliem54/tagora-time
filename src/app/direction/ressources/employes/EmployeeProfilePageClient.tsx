@@ -195,7 +195,11 @@ export default function EmployeeProfilePageClient({
     setLoading(true);
 
     const { data, error } = await supabase
-      .from("chauffeurs")
+      .from(
+        canManageConfidentialFinance
+          ? "chauffeurs"
+          : "direction_employee_operational_profile"
+      )
       .select(
         canManageConfidentialFinance ? "*" : CHAUFFEUR_OPERATIONAL_PROFILE_SELECT
       )

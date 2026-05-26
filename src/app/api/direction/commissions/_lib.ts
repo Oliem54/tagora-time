@@ -3,6 +3,7 @@ import {
   getAuthenticatedRequestUser,
   getRequestAccessToken,
 } from "@/app/lib/account-requests.server";
+import { hasAdminFinanceAccess } from "@/app/lib/auth/admin-finance";
 import { hasUserPermission } from "@/app/lib/auth/permissions";
 import { isJwtExplicitlyAal1Only } from "@/app/lib/auth/jwt-access-token";
 import { createAdminSupabaseClient } from "@/app/lib/supabase/admin";
@@ -53,6 +54,21 @@ export async function requireCommissionsAccess(req: NextRequest) {
     };
   }
   return { ok: true as const, user, role, supabase: createAdminSupabaseClient() };
+}
+
+export async function requireAdminFinanceCommissionsAccess(req: NextRequest) {
+  const auth = await requireCommissionsAccess(req);
+  if (!auth.ok) return auth;
+  if (!hasAdminFinanceAccess(auth.user)) {
+    return {
+      ok: false as const,
+      response: NextResponse.json(
+        { error: "Acces reserve a l administration finance." },
+        { status: 403 }
+      ),
+    };
+  }
+  return auth;
 }
 
 export function getUserDisplayName(user: { email?: string | null; user_metadata?: Record<string, unknown> }) {
@@ -173,4 +189,79 @@ export function assigneeLabelFromObjective(
   if (objective.team_name?.trim()) return objective.team_name.trim();
   if (objective.chauffeur_id != null) return `Employe #${objective.chauffeur_id}`;
   return "Non assigne";
+}
+
+export type DirectionObjectiveOperationalRow = {
+  id: string;
+  title: string;
+  description: string | null;
+  chauffeur_id: number | null;
+  team_name: string | null;
+  period_start: string;
+  period_end: string;
+  target_type: string;
+  target_sales_count: number | null;
+  achieved_sales_count: number;
+  status: string;
+  entries_count: number;
+  entries_pending_validation: number;
+  entries_paid: number;
+  created_at: string;
+  updated_at: string;
+};
+
+function parseNumeric(value: unknown) {
+  const parsed = Number(value ?? 0);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+export function mapDirectionObjectiveOperationalRow(
+  row: Record<string, unknown>
+): DirectionObjectiveOperationalRow {
+  return {
+    id: String(row.id ?? ""),
+    title: String(row.title ?? ""),
+    description: typeof row.description === "string" ? row.description : null,
+    chauffeur_id: row.chauffeur_id == null ? null : Math.trunc(parseNumeric(row.chauffeur_id)),
+    team_name: typeof row.team_name === "string" ? row.team_name : null,
+    period_start: String(row.period_start ?? ""),
+    period_end: String(row.period_end ?? ""),
+    target_type: String(row.target_type ?? ""),
+    target_sales_count:
+      row.target_sales_count == null ? null : Math.trunc(parseNumeric(row.target_sales_count)),
+    achieved_sales_count: Math.trunc(parseNumeric(row.achieved_sales_count)),
+    status: String(row.status ?? "draft"),
+    entries_count: Math.trunc(parseNumeric(row.entries_count)),
+    entries_pending_validation: Math.trunc(parseNumeric(row.entries_pending_validation)),
+    entries_paid: Math.trunc(parseNumeric(row.entries_paid)),
+    created_at: String(row.created_at ?? ""),
+    updated_at: String(row.updated_at ?? ""),
+  };
+}
+
+const FINANCIAL_OBJECTIVE_FIELDS = new Set([
+  "target_amount",
+  "achieved_amount",
+]);
+
+const FINANCIAL_RULE_FIELDS = new Set([
+  "fixed_amount",
+  "percentage_rate",
+  "achievement_bonus_amount",
+]);
+
+export function bodyContainsCommissionFinancialFields(body: Record<string, unknown>) {
+  for (const key of FINANCIAL_OBJECTIVE_FIELDS) {
+    if (key in body) return true;
+  }
+  const rules = body.rules;
+  if (Array.isArray(rules)) {
+    for (const rawRule of rules) {
+      if (!rawRule || typeof rawRule !== "object") continue;
+      for (const key of FINANCIAL_RULE_FIELDS) {
+        if (key in (rawRule as Record<string, unknown>)) return true;
+      }
+    }
+  }
+  return false;
 }

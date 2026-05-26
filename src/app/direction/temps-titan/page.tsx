@@ -41,7 +41,7 @@ export default function DirectionTempsTitanOperationalPage() {
     setErrorMessage("");
 
     const { data, error, count } = await supabase
-      .from("temps_titan")
+      .from("direction_temps_titan_operational")
       .select("duree_heures", { count: "exact" })
       .gte("date_travail", dateFrom)
       .lte("date_travail", dateTo);

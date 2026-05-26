@@ -2,14 +2,26 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   assigneeLabelFromObjective,
   loadChauffeurLabels,
-  mapEntryRow,
   mapObjectiveRow,
-  requireCommissionsAccess,
+  requireAdminFinanceCommissionsAccess,
 } from "@/app/api/direction/commissions/_lib";
+
+type DirectionCommissionEntryOperational = {
+  id: string;
+  objective_id: string;
+  label: string;
+  period_start: string;
+  period_end: string;
+  status: string;
+  notes: string | null;
+  created_at: string;
+  objective_title: string | null;
+  assignee_label: string | null;
+};
 
 export async function GET(req: NextRequest) {
   try {
-    const auth = await requireCommissionsAccess(req);
+    const auth = await requireAdminFinanceCommissionsAccess(req);
     if (!auth.ok) return auth.response;
     const { supabase } = auth;
 
@@ -61,13 +73,21 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    const entries = (data ?? []).map((row) => {
+    const entries: DirectionCommissionEntryOperational[] = (data ?? []).map((row) => {
       const record = row as Record<string, unknown>;
       const objective = objectiveMap.get(String(record.objective_id));
-      return mapEntryRow(record, {
+      return {
+        id: String(record.id ?? ""),
+        objective_id: String(record.objective_id ?? ""),
+        label: String(record.label ?? ""),
+        period_start: String(record.period_start ?? ""),
+        period_end: String(record.period_end ?? ""),
+        status: String(record.status ?? "estimated"),
+        notes: typeof record.notes === "string" ? record.notes : null,
+        created_at: String(record.created_at ?? ""),
         objective_title: objective?.title ?? null,
         assignee_label: objective ? assigneeLabelFromObjective(objective) : null,
-      });
+      };
     });
 
     return NextResponse.json({ entries });

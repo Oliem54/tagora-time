@@ -59,7 +59,7 @@ export default function DirectionFacturationTitanOperationalPage() {
     setRowCapReached(false);
 
     const { data, error: queryError } = await supabase
-      .from("temps_titan")
+      .from("direction_intercompany_operational")
       .select("id, employe_nom, date_travail, duree_heures, type_travail, statut_paiement_titan")
       .gte("date_travail", dateDebut)
       .lte("date_travail", dateFin)
