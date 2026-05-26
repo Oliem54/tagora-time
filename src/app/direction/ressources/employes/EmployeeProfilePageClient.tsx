@@ -12,6 +12,7 @@ import {
   isValidEmail,
   normalizeEmail,
 } from "@/app/lib/account-requests.shared";
+import { hasAdminFinanceAccess } from "@/app/lib/auth/admin-finance";
 import type { AppRole } from "@/app/lib/auth/roles";
 import { supabase } from "@/app/lib/supabase/client";
 import AdminImprovementNotificationsAccountSection from "./AdminImprovementNotificationsAccountSection";
@@ -31,11 +32,12 @@ import {
 import {
   buildEmployeForm,
   buildEmployePayload,
+  CHAUFFEUR_OPERATIONAL_PROFILE_SELECT,
   computeBreakSummary,
   EFFECTIFS_DEPARTMENT_ENTRIES,
   EFFECTIFS_LOCATION_ENTRIES,
   employeeWorkDays,
-  formatMoney,
+  stripConfidentialFinanceFields,
   validateEffectifsFormForSave,
   type EmployeFormState,
   type EmployeProfile,
@@ -132,7 +134,9 @@ export default function EmployeeProfilePageClient({
   openEffectifsSection = false,
 }: EmployeeProfilePageClientProps) {
   const router = useRouter();
-  const { role: viewerRole, loading: accessLoading, hasPermission } = useCurrentAccess();
+  const { user, role: viewerRole, loading: accessLoading, hasPermission } =
+    useCurrentAccess();
+  const canManageConfidentialFinance = hasAdminFinanceAccess(user);
   const canEditEffectifs =
     viewerRole === "direction" || viewerRole === "admin";
   const canOpenRegistreFromProfile =
@@ -178,19 +182,6 @@ export default function EmployeeProfilePageClient({
       detailConfigured: isWeeklyScheduleDetailConfigured(w),
     };
   }, [form.weeklySchedule]);
-  const computedCost = useMemo(() => {
-    const rate = Number(form.taux_base_titan);
-    const benefits = Number(form.social_benefits_percent || "15");
-
-    if (!Number.isFinite(rate)) {
-      return null;
-    }
-
-    return Number(
-      (rate * (1 + (Number.isFinite(benefits) ? benefits : 15) / 100)).toFixed(2)
-    );
-  }, [form.social_benefits_percent, form.taux_base_titan]);
-
   const readOnlyFieldStyle = isEditing
     ? undefined
     : {
@@ -205,7 +196,9 @@ export default function EmployeeProfilePageClient({
 
     const { data, error } = await supabase
       .from("chauffeurs")
-      .select("*")
+      .select(
+        canManageConfidentialFinance ? "*" : CHAUFFEUR_OPERATIONAL_PROFILE_SELECT
+      )
       .eq("id", targetId)
       .maybeSingle();
 
@@ -225,13 +218,17 @@ export default function EmployeeProfilePageClient({
       return;
     }
 
-    const nextProfile = data as EmployeProfile;
+    const profileRow = canManageConfidentialFinance
+      ? data
+      : stripConfidentialFinanceFields(data as unknown as Record<string, unknown>);
+
+    const nextProfile = profileRow as EmployeProfile;
     setOriginalProfile(nextProfile);
     setForm(buildEmployeForm(nextProfile));
     setMessage("");
     setMessageType(null);
     setLoading(false);
-  }, []);
+  }, [canManageConfidentialFinance]);
 
   useEffect(() => {
     if (isCreating) {
@@ -526,6 +523,7 @@ export default function EmployeeProfilePageClient({
 
     const payload = buildEmployePayload(form, {
       includeEffectifsAssignment: canEditEffectifs,
+      includeConfidentialFinance: canManageConfidentialFinance,
     });
     if (canEditEffectifs && !isCreating) {
       delete (payload as Record<string, unknown>).actif;
@@ -1938,72 +1936,76 @@ export default function EmployeeProfilePageClient({
             </div>
 
             <aside className="tagora-stack">
+              {canManageConfidentialFinance ? (
+                <TagoraCollapsibleSection
+                  title="Remuneration et refacturation"
+                  subtitle="Taux, avantages sociaux et refacturation Titan (administration)."
+                  open={openSection === "facturation"}
+                  onOpenChange={(v) => setOpenSection(v ? "facturation" : null)}
+                >
+                  <div className="tagora-form-grid">
+                    <label className="tagora-field">
+                      <span className="tagora-label">Taux de base Titan</span>
+                      <input
+                        className="tagora-input"
+                        style={readOnlyFieldStyle}
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={form.taux_base_titan}
+                        onChange={(event) =>
+                          setForm((current) => ({
+                            ...current,
+                            taux_base_titan: event.target.value,
+                          }))
+                        }
+                        readOnly={!isEditing}
+                      />
+                    </label>
+
+                    <label className="tagora-field">
+                      <span className="tagora-label">Avantages sociaux %</span>
+                      <input
+                        className="tagora-input"
+                        style={readOnlyFieldStyle}
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={form.social_benefits_percent}
+                        onChange={(event) =>
+                          setForm((current) => ({
+                            ...current,
+                            social_benefits_percent: event.target.value,
+                          }))
+                        }
+                        readOnly={!isEditing}
+                      />
+                    </label>
+
+                    <label className="account-requests-permission-option">
+                      <input
+                        type="checkbox"
+                        checked={form.titan_billable}
+                        disabled={!isEditing}
+                        onChange={(event) =>
+                          setForm((current) => ({
+                            ...current,
+                            titan_billable: event.target.checked,
+                          }))
+                        }
+                      />
+                      <span>Refacturable a Titan</span>
+                    </label>
+                  </div>
+                </TagoraCollapsibleSection>
+              ) : null}
+
               <TagoraCollapsibleSection
-                title="Facturation"
-                subtitle="Donnees Titan, cout refacturable et resume pauses."
+                title="Pauses"
+                subtitle="Resume des pauses configurees pour cet employe."
                 open={openSection === "facturation"}
                 onOpenChange={(v) => setOpenSection(v ? "facturation" : null)}
               >
-                <div className="tagora-form-grid">
-                  <label className="tagora-field">
-                    <span className="tagora-label">Taux de base Titan</span>
-                    <input
-                      className="tagora-input"
-                      style={readOnlyFieldStyle}
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      value={form.taux_base_titan}
-                      onChange={(event) =>
-                        setForm((current) => ({
-                          ...current,
-                          taux_base_titan: event.target.value,
-                        }))
-                      }
-                      readOnly={!isEditing}
-                    />
-                  </label>
-
-                  <label className="tagora-field">
-                    <span className="tagora-label">Avantages sociaux %</span>
-                    <input
-                      className="tagora-input"
-                      style={readOnlyFieldStyle}
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      value={form.social_benefits_percent}
-                      onChange={(event) =>
-                        setForm((current) => ({
-                          ...current,
-                          social_benefits_percent: event.target.value,
-                        }))
-                      }
-                      readOnly={!isEditing}
-                    />
-                  </label>
-
-                  <label className="account-requests-permission-option">
-                    <input
-                      type="checkbox"
-                      checked={form.titan_billable}
-                      disabled={!isEditing}
-                      onChange={(event) =>
-                        setForm((current) => ({
-                          ...current,
-                          titan_billable: event.target.checked,
-                        }))
-                      }
-                    />
-                    <span>Refacturable a Titan</span>
-                  </label>
-
-                  <SummaryItem
-                    label="Cout refacturable"
-                    value={formatMoney(computedCost)}
-                  />
-                </div>
-
                 <div className="ui-grid-auto">
                   <SummaryItem
                     label="Elements actifs"

@@ -26,6 +26,102 @@ import {
 export { EFFECTIFS_DEPARTMENT_ENTRIES, EFFECTIFS_LOCATION_ENTRIES } from "@/app/lib/effectifs-departments.shared";
 export type { WeeklyScheduleConfig } from "@/app/lib/weekly-schedule";
 
+/** Champs paie / remuneration reserves a l administration (phase 2B-1). */
+export const CHAUFFEUR_CONFIDENTIAL_FINANCE_KEYS = [
+  "taux_base_titan",
+  "social_benefits_percent",
+  "titan_billable",
+] as const;
+
+export type ChauffeurConfidentialFinanceKey =
+  (typeof CHAUFFEUR_CONFIDENTIAL_FINANCE_KEYS)[number];
+
+/** Colonnes chargeables pour la Direction (sans donnees financieres confidentielles). */
+export const CHAUFFEUR_OPERATIONAL_PROFILE_SELECT = [
+  "id",
+  "auth_user_id",
+  "nom",
+  "telephone",
+  "courriel",
+  "numero_permis",
+  "classe_permis",
+  "expiration_permis",
+  "restrictions_permis",
+  "actif",
+  "notes",
+  "photo_permis_recto_url",
+  "photo_permis_verso_url",
+  "primary_company",
+  "can_work_for_oliem_solutions",
+  "can_work_for_titan_produits_industriels",
+  "schedule_start",
+  "schedule_end",
+  "scheduled_work_days",
+  "planned_daily_hours",
+  "planned_weekly_hours",
+  "pause_minutes",
+  "expected_breaks_count",
+  "break_1_label",
+  "break_1_minutes",
+  "break_1_paid",
+  "break_2_label",
+  "break_2_minutes",
+  "break_2_paid",
+  "break_3_label",
+  "break_3_minutes",
+  "break_3_paid",
+  "break_am_enabled",
+  "break_am_time",
+  "break_am_minutes",
+  "break_am_paid",
+  "lunch_enabled",
+  "lunch_time",
+  "lunch_minutes",
+  "lunch_paid",
+  "break_pm_enabled",
+  "break_pm_time",
+  "break_pm_minutes",
+  "break_pm_paid",
+  "sms_alert_depart_terrain",
+  "sms_alert_arrivee_terrain",
+  "sms_alert_sortie",
+  "sms_alert_retour",
+  "sms_alert_pause_debut",
+  "sms_alert_pause_fin",
+  "sms_alert_dinner_debut",
+  "sms_alert_dinner_fin",
+  "sms_alert_quart_debut",
+  "sms_alert_quart_fin",
+  "alert_email_enabled",
+  "alert_sms_enabled",
+  "is_direction_alert_recipient",
+  "effectifs_department_key",
+  "effectifs_secondary_department_keys",
+  "effectifs_primary_location",
+  "effectifs_secondary_locations",
+  "can_deliver",
+  "default_weekly_hours",
+  "schedule_active",
+  "weekly_schedule_config",
+  "fonctions",
+  "fonction_autre",
+  "account_invited_at",
+  "account_invited_by_user_id",
+  "account_invited_by_name",
+  "account_invitation_status",
+  "account_invitation_error",
+].join(", ");
+
+export function stripConfidentialFinanceFields<T extends Record<string, unknown>>(
+  record: T
+): T {
+  const next = { ...record };
+  for (const key of CHAUFFEUR_CONFIDENTIAL_FINANCE_KEYS) {
+    delete next[key];
+  }
+  return next;
+}
+
 export type EmployeProfile = {
   id: number;
   auth_user_id?: string | null;
@@ -364,9 +460,14 @@ export function computeBreakSummary(form: EmployeFormState) {
 
 export function buildEmployePayload(
   form: EmployeFormState,
-  options?: { includeEffectifsAssignment?: boolean }
+  options?: {
+    includeEffectifsAssignment?: boolean;
+    /** false pour Direction : n envoie pas les champs paie / remuneration confidentiels. */
+    includeConfidentialFinance?: boolean;
+  }
 ) {
   const includeEffectifs = options?.includeEffectifsAssignment !== false;
+  const includeConfidentialFinance = options?.includeConfidentialFinance !== false;
   const weekly = recalculateWeeklyScheduleConfig(form.weeklySchedule);
   const derived = deriveLegacyFieldsFromWeekly(weekly);
   const useWeeklyDetail = isWeeklyScheduleDetailConfigured(weekly);
@@ -416,14 +517,10 @@ export function buildEmployePayload(
     notes: normalizeString(form.notes),
     photo_permis_recto_url: normalizeString(form.photo_permis_recto_url),
     photo_permis_verso_url: normalizeString(form.photo_permis_verso_url),
-    taux_base_titan: normalizeNumber(form.taux_base_titan),
     primary_company: form.primary_company,
     can_work_for_oliem_solutions: form.can_work_for_oliem_solutions,
     can_work_for_titan_produits_industriels:
       form.can_work_for_titan_produits_industriels,
-    social_benefits_percent:
-      normalizeNumber(form.social_benefits_percent) ?? 15,
-    titan_billable: form.titan_billable,
     schedule_start: useWeeklyDetail
       ? derived.schedule_start
       : normalizeString(form.schedule_start),
@@ -505,6 +602,13 @@ export function buildEmployePayload(
     payload.can_deliver = form.fonctionSlugs.includes("livreur") || form.canDeliver;
     payload.default_weekly_hours = normalizeNumber(form.defaultWeeklyHours);
     payload.schedule_active = form.scheduleActive;
+  }
+
+  if (includeConfidentialFinance) {
+    payload.taux_base_titan = normalizeNumber(form.taux_base_titan);
+    payload.social_benefits_percent =
+      normalizeNumber(form.social_benefits_percent) ?? 15;
+    payload.titan_billable = form.titan_billable;
   }
 
   return payload;

@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthenticatedRequestUser } from "@/app/lib/account-requests.server";
+import { hasAdminFinanceAccess } from "@/app/lib/auth/admin-finance";
+import { stripConfidentialFinanceFields } from "@/app/direction/ressources/employes/employee-profile-shared";
 import { isValidEmail, normalizeEmail } from "@/app/lib/account-requests.shared";
 import { createAdminSupabaseClient } from "@/app/lib/supabase/admin";
 import {
@@ -256,6 +258,10 @@ export async function PATCH(
     }
 
     let updatePayload = stripReadOnlyKeys(body);
+    const canManageConfidentialFinance = hasAdminFinanceAccess(user);
+    if (!canManageConfidentialFinance) {
+      updatePayload = stripConfidentialFinanceFields(updatePayload);
+    }
     const supabase = createAdminSupabaseClient();
 
     const { data: beforeRow } = await supabase
@@ -411,7 +417,14 @@ export async function PATCH(
           }
         }
 
-        return NextResponse.json({ success: true, profile: data, scheduleNotification });
+        const profileResponse = canManageConfidentialFinance
+          ? data
+          : stripConfidentialFinanceFields(data as Record<string, unknown>);
+        return NextResponse.json({
+          success: true,
+          profile: profileResponse,
+          scheduleNotification,
+        });
       }
 
       if (isUnknownChauffeursColumnError(error)) {
