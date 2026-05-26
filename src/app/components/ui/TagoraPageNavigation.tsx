@@ -3,22 +3,12 @@
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { ArrowLeft, LayoutDashboard } from "lucide-react";
-import type { AppRole } from "@/app/lib/auth/roles";
-
-const AREA_CONFIG = {
-  direction: {
-    dashboardHref: "/direction/dashboard",
-    dashboardLabel: "Tableau de bord direction",
-  },
-  employe: {
-    dashboardHref: "/employe/dashboard",
-    dashboardLabel: "Tableau de bord employe",
-  },
-  admin: {
-    dashboardHref: "/admin/dashboard",
-    dashboardLabel: "Tableau de bord admin",
-  },
-} as const;
+import { useCurrentAccess } from "@/app/hooks/useCurrentAccess";
+import {
+  getDashboardLabelForRole,
+  getDashboardPathForRole,
+  type AppRole,
+} from "@/app/lib/auth/roles";
 
 function getAreaFromPath(pathname: string): AppRole | null {
   if (pathname.startsWith("/admin")) {
@@ -41,9 +31,10 @@ function getAreaFromPath(pathname: string): AppRole | null {
 function getBackHref(
   area: AppRole,
   pathname: string,
-  livraisonId: string | null
+  livraisonId: string | null,
+  roleDashboardHref: string
 ) {
-  const { dashboardHref } = AREA_CONFIG[area];
+  const dashboardHref = roleDashboardHref;
 
   if (area === "admin") {
     return pathname === dashboardHref ? "/admin" : dashboardHref;
@@ -115,6 +106,7 @@ function getBackHref(
 export default function TagoraPageNavigation() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const { role: userRole } = useCurrentAccess();
 
   if (!pathname) {
     return null;
@@ -126,12 +118,9 @@ export default function TagoraPageNavigation() {
     return null;
   }
 
-  const { dashboardHref, dashboardLabel } = AREA_CONFIG[area];
-  const backHref = getBackHref(
-    area,
-    pathname,
-    searchParams.get("livraison_id")
-  );
+  const dashboardHref = userRole ? getDashboardPathForRole(userRole) : getDashboardPathForRole(area);
+  const dashboardLabel = userRole ? getDashboardLabelForRole(userRole) : getDashboardLabelForRole(area);
+  const backHref = getBackHref(area, pathname, searchParams.get("livraison_id"), dashboardHref);
   const dashboardIsCurrent = pathname === dashboardHref;
 
   return (
