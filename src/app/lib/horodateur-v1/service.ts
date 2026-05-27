@@ -71,9 +71,11 @@ import {
 } from "./rules";
 import {
   HorodateurPhase1Error,
+  HORODATEUR_PAST_SHIFT_METADATA_SOURCE,
 } from "./types";
 import type {
   HorodateurDirectionAlertConfigRecord,
+  HorodateurPhase1CreatePastShiftResult,
   HorodateurPhase1CreatePunchResult,
   HorodateurPhase1CurrentStateRecord,
   HorodateurPhase1DirectionLiveRow,
@@ -2639,6 +2641,225 @@ export async function createDirectionPunch(options: {
     exception,
     currentState: refreshedState,
     shift,
+  };
+}
+
+function parsePastShiftTimeHHMM(value: string, fieldLabel: string) {
+  const normalized = String(value ?? "").trim();
+  const match = normalized.match(/^(\d{1,2}):(\d{2})$/);
+
+  if (!match) {
+    throw new HorodateurPhase1Error(
+      `${fieldLabel} invalide (format HH:MM attendu).`,
+      { code: "invalid_time", status: 400 }
+    );
+  }
+
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+
+  if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) {
+    throw new HorodateurPhase1Error(
+      `${fieldLabel} invalide.`,
+      { code: "invalid_time", status: 400 }
+    );
+  }
+
+  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+}
+
+async function assertPastShiftWorkDateAvailable(
+  employeeId: number,
+  workDate: string
+) {
+  const existingShift = await getShiftByEmployeeAndWorkDate(employeeId, workDate);
+
+  if (
+    existingShift?.shift_start_at ||
+    existingShift?.shift_end_at ||
+    (existingShift?.worked_minutes ?? 0) > 0
+  ) {
+    throw new HorodateurPhase1Error(
+      `Un quart existe deja pour cet employe le ${workDate}. Aucun quart passe n a ete ajoute pour eviter d ecraser des heures existantes.`,
+      { code: "past_shift_duplicate", status: 409 }
+    );
+  }
+
+  const events = await listEventsForEmployee({ employeeId, workDate });
+  const blockingEvents = events.filter((event) => event.status !== "refuse");
+
+  if (blockingEvents.length > 0) {
+    throw new HorodateurPhase1Error(
+      `Des evenements horodateur existent deja pour cet employe le ${workDate}. Aucun quart passe n a ete ajoute pour eviter d ecraser des heures existantes.`,
+      { code: "past_shift_duplicate", status: 409 }
+    );
+  }
+}
+
+export async function createPastShiftForEmployee(options: {
+  actorUserId: string;
+  employeeId: number;
+  workDate: string;
+  startTime: string;
+  endTime: string;
+  breakMinutes?: number | null;
+  note: string;
+  companyContext?: AccountRequestCompany | null;
+}): Promise<HorodateurPhase1CreatePastShiftResult> {
+  const normalizedNote = String(options.note ?? "").trim();
+
+  if (!normalizedNote) {
+    throw new HorodateurPhase1Error(
+      "Un commentaire est obligatoire pour ajouter un quart passe.",
+      { code: "past_shift_note_required", status: 400 }
+    );
+  }
+
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(options.workDate)) {
+    throw new HorodateurPhase1Error("Date de travail invalide (YYYY-MM-DD attendu).", {
+      code: "invalid_work_date",
+      status: 400,
+    });
+  }
+
+  const startTime = parsePastShiftTimeHHMM(options.startTime, "Heure de debut");
+  const endTime = parsePastShiftTimeHHMM(options.endTime, "Heure de fin");
+  const breakMinutes = Math.max(
+    0,
+    Math.floor(Number(options.breakMinutes ?? 0) || 0)
+  );
+
+  const employee = await resolveEmployeeById(options.employeeId);
+  await assertPastShiftWorkDateAvailable(employee.employeeId, options.workDate);
+
+  const shiftStartAt = buildTorontoTimestamp(options.workDate, startTime);
+  const shiftEndAt = buildTorontoTimestamp(options.workDate, endTime);
+  const startMs = new Date(shiftStartAt).getTime();
+  const endMs = new Date(shiftEndAt).getTime();
+
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) {
+    throw new HorodateurPhase1Error("Impossible de construire les horodatages du quart.", {
+      code: "invalid_occurred_at",
+      status: 400,
+    });
+  }
+
+  if (endMs <= startMs) {
+    throw new HorodateurPhase1Error(
+      "L heure de fin doit etre posterieure a l heure de debut.",
+      { code: "invalid_time_range", status: 400 }
+    );
+  }
+
+  const durationMinutes = diffMinutes(shiftStartAt, shiftEndAt);
+
+  if (breakMinutes >= durationMinutes) {
+    throw new HorodateurPhase1Error(
+      "La pause ne peut pas etre egale ou superieure a la duree du quart.",
+      { code: "invalid_break_minutes", status: 400 }
+    );
+  }
+
+  if (durationMinutes > employee.maxShiftMinutes) {
+    throw new HorodateurPhase1Error(
+      `La duree du quart depasse le maximum autorise (${employee.maxShiftMinutes} minutes).`,
+      { code: "shift_duration_exceeded", status: 400 }
+    );
+  }
+
+  if (breakMinutes > 0 && employee.pausePaid) {
+    throw new HorodateurPhase1Error(
+      "Pause payee : aucun pointage de pause n est requis pour cet employe. Indiquez 0 minute de pause.",
+      { code: "paid_break_no_punch_required", status: 400 }
+    );
+  }
+
+  const companyContext = requireCompanyContext(options.companyContext, employee);
+  const eventMetadata = {
+    source: HORODATEUR_PAST_SHIFT_METADATA_SOURCE,
+    workDate: options.workDate,
+    startTime,
+    endTime,
+    breakMinutes,
+  };
+
+  const sharedEventInput = {
+    userId: requireEmployeeAuthUserId(employee),
+    employeeId: employee.employeeId,
+    actorUserId: options.actorUserId,
+    actorRole: "direction" as const,
+    sourceKind: "direction" as const,
+    companyContext,
+    note: normalizedNote,
+    isManualCorrection: true,
+    status: "normal" as const,
+    requiresApproval: false,
+    exceptionCode: null,
+    approvalNote: null,
+    metadata: eventMetadata,
+  };
+
+  const punchInEvent = await insertHorodateurEvent({
+    ...sharedEventInput,
+    ...resolveEventDates(shiftStartAt),
+    occurredAt: shiftStartAt,
+    eventType: "punch_in",
+  });
+
+  const createdEvents: HorodateurPhase1EventRecord[] = [punchInEvent];
+
+  if (breakMinutes > 0) {
+    const workBeforeBreakMinutes = Math.floor((durationMinutes - breakMinutes) / 2);
+    const breakStartAt = new Date(
+      startMs + workBeforeBreakMinutes * 60_000
+    ).toISOString();
+    const breakEndAt = new Date(
+      startMs + (workBeforeBreakMinutes + breakMinutes) * 60_000
+    ).toISOString();
+
+    const breakStartEvent = await insertHorodateurEvent({
+      ...sharedEventInput,
+      ...resolveEventDates(breakStartAt),
+      occurredAt: breakStartAt,
+      eventType: "break_start",
+    });
+    const breakEndEvent = await insertHorodateurEvent({
+      ...sharedEventInput,
+      ...resolveEventDates(breakEndAt),
+      occurredAt: breakEndAt,
+      eventType: "break_end",
+    });
+
+    createdEvents.push(breakStartEvent, breakEndEvent);
+  }
+
+  const punchOutEvent = await insertHorodateurEvent({
+    ...sharedEventInput,
+    ...resolveEventDates(shiftEndAt),
+    occurredAt: shiftEndAt,
+    eventType: "punch_out",
+  });
+  createdEvents.push(punchOutEvent);
+
+  const shift = await recomputeShiftForDate(employee.employeeId, options.workDate);
+  const currentState = await recomputeCurrentState(employee.employeeId);
+
+  if (process.env.NODE_ENV === "development") {
+    console.info("[direction-horodateur-past-shift]", {
+      employeeId: employee.employeeId,
+      workDate: options.workDate,
+      eventIds: createdEvents.map((item) => item.id),
+      workedMinutes: shift.worked_minutes,
+      payableMinutes: shift.payable_minutes,
+    });
+  }
+
+  return {
+    events: createdEvents,
+    shift,
+    currentState,
+    workedMinutes: shift.worked_minutes,
+    payableMinutes: shift.payable_minutes,
   };
 }
 

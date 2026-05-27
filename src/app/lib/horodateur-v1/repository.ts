@@ -561,6 +561,9 @@ export async function insertEvent(input: HorodateurPhase1InsertEventInput) {
   if (input.employerCompanyKey !== undefined) {
     payload.employer_company_key = input.employerCompanyKey;
   }
+  if (input.metadata !== undefined && input.metadata !== null) {
+    payload.metadata = input.metadata;
+  }
 
   for (let attempt = 0; attempt < 7; attempt += 1) {
     const { data, error } = await supabase

@@ -387,6 +387,17 @@ export type HorodateurPhase1InsertEventInput = {
   gpsLongitude?: number | null;
   workCompanyKey?: string | null;
   employerCompanyKey?: string | null;
+  metadata?: Record<string, unknown> | null;
+};
+
+export const HORODATEUR_PAST_SHIFT_METADATA_SOURCE = "action_direction_past_shift";
+
+export type HorodateurPhase1CreatePastShiftResult = {
+  events: HorodateurPhase1EventRecord[];
+  shift: HorodateurPhase1ShiftRecord;
+  currentState: HorodateurPhase1CurrentStateRecord;
+  workedMinutes: number;
+  payableMinutes: number;
 };
 
 export type HorodateurPhase1CreatePunchResult = {

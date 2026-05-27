@@ -514,6 +514,13 @@ export default function DirectionHorodateurPage() {
   const [selectedEventType, setSelectedEventType] =
     useState<(typeof DIRECTION_EVENT_TYPES)[number]>("punch_in");
   const [note, setNote] = useState("");
+  const [pastShiftModalOpen, setPastShiftModalOpen] = useState(false);
+  const [pastShiftEmployeeId, setPastShiftEmployeeId] = useState("");
+  const [pastShiftWorkDate, setPastShiftWorkDate] = useState("");
+  const [pastShiftStartTime, setPastShiftStartTime] = useState("");
+  const [pastShiftEndTime, setPastShiftEndTime] = useState("");
+  const [pastShiftBreakMinutes, setPastShiftBreakMinutes] = useState("");
+  const [pastShiftNote, setPastShiftNote] = useState("");
   const [liveFilter, setLiveFilter] = useState<LiveFilter>("tous");
   const [refusingExceptionId, setRefusingExceptionId] = useState<string | null>(null);
   const [refuseNoteById, setRefuseNoteById] = useState<Record<string, string>>({});
@@ -937,6 +944,95 @@ export default function DirectionHorodateurPage() {
       setMessage("Configuration des alertes enregistree.");
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "Erreur de configuration.");
+    } finally {
+      setActiveActionKey(null);
+    }
+  }
+
+  function openPastShiftModal() {
+    setPastShiftEmployeeId(selectedEmployeeId);
+    setPastShiftWorkDate(liveTodayWorkDate ?? "");
+    setPastShiftStartTime("");
+    setPastShiftEndTime("");
+    setPastShiftBreakMinutes("");
+    setPastShiftNote("");
+    setPastShiftModalOpen(true);
+  }
+
+  async function handlePastShiftSubmit() {
+    const employeeId = Number(pastShiftEmployeeId);
+
+    if (!Number.isFinite(employeeId)) {
+      setError("Selectionnez un employe.");
+      return;
+    }
+
+    if (!pastShiftWorkDate.trim()) {
+      setError("La date est obligatoire.");
+      return;
+    }
+
+    if (!pastShiftStartTime.trim() || !pastShiftEndTime.trim()) {
+      setError("Les heures de debut et de fin sont obligatoires.");
+      return;
+    }
+
+    if (!pastShiftNote.trim()) {
+      setError("Le commentaire est obligatoire.");
+      return;
+    }
+
+    setActiveActionKey("past-shift");
+    setMessage("");
+    setError("");
+
+    try {
+      const payload = await withToken(async (token) => {
+        const response = await fetch("/api/direction/horodateur/past-shift", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            employeeId,
+            workDate: pastShiftWorkDate.trim(),
+            startTime: pastShiftStartTime.trim(),
+            endTime: pastShiftEndTime.trim(),
+            breakMinutes:
+              pastShiftBreakMinutes.trim() === ""
+                ? 0
+                : Number(pastShiftBreakMinutes),
+            note: pastShiftNote.trim(),
+          }),
+        });
+
+        const result = await response.json();
+
+        if (!response.ok) {
+          throw new Error(result.error ?? "Impossible d enregistrer le quart passe.");
+        }
+
+        return result as {
+          message?: string;
+          workedMinutes?: number;
+          payableMinutes?: number;
+          shift?: LiveRow["todayShift"];
+        };
+      });
+
+      setPastShiftModalOpen(false);
+      setMessage(
+        payload.message ??
+          `Quart passe enregistre (${formatMinutes(payload.workedMinutes ?? 0)} travaillees, ${formatMinutes(payload.payableMinutes ?? 0)} payables).`
+      );
+      await loadData("refresh", { preserveMessage: true });
+    } catch (submitError) {
+      setError(
+        submitError instanceof Error
+          ? submitError.message
+          : "Erreur lors de l enregistrement du quart passe."
+      );
     } finally {
       setActiveActionKey(null);
     }
@@ -1872,7 +1968,15 @@ export default function DirectionHorodateurPage() {
           )}
         </SectionCard>
 
-        <SectionCard title="Action direction" subtitle="Punch manuel trace.">
+        <SectionCard title="Action direction" subtitle="Punch manuel trace ou quart passe.">
+          <div style={{ marginBottom: "var(--ui-space-3)" }}>
+            <SecondaryButton
+              onClick={openPastShiftModal}
+              disabled={isBusy || !hasEmployees}
+            >
+              Ajouter un quart passe
+            </SecondaryButton>
+          </div>
           <div
             style={{
               display: "grid",
@@ -2177,6 +2281,156 @@ export default function DirectionHorodateurPage() {
           </div>
         </SectionCard>
       </div>
+
+      {pastShiftModalOpen ? (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 70,
+            background: "rgba(15,23,42,0.35)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 16,
+          }}
+        >
+          <button
+            type="button"
+            aria-label="Fermer"
+            onClick={() => setPastShiftModalOpen(false)}
+            disabled={activeActionKey === "past-shift"}
+            style={{
+              position: "absolute",
+              inset: 0,
+              border: "none",
+              background: "transparent",
+              cursor: activeActionKey === "past-shift" ? "default" : "pointer",
+            }}
+          />
+          <AppCard
+            tone="default"
+            style={{
+              position: "relative",
+              zIndex: 1,
+              width: "min(560px, 100%)",
+              maxHeight: "90vh",
+              overflow: "auto",
+            }}
+          >
+            <h2 className="section-title" style={{ marginTop: 0 }}>
+              Ajouter un quart passe
+            </h2>
+            <p className="ui-text-muted" style={{ marginTop: 0, lineHeight: 1.5 }}>
+              Enregistre un quart deja travaille (entree, pause optionnelle, sortie). Aucun
+              remplacement si des heures existent deja pour cette date.
+            </p>
+
+            <div className="ui-stack-sm" style={{ marginTop: "var(--ui-space-4)" }}>
+              <label className="ui-stack-xs">
+                <span className="ui-eyebrow">Employe</span>
+                <select
+                  className="tagora-input"
+                  value={pastShiftEmployeeId}
+                  onChange={(event) => setPastShiftEmployeeId(event.target.value)}
+                >
+                  <option value="">Selectionner</option>
+                  {board.map((row) => (
+                    <option key={row.employeeId} value={row.employeeId}>
+                      {row.fullName || row.email || `#${row.employeeId}`}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="ui-stack-xs">
+                <span className="ui-eyebrow">Date</span>
+                <input
+                  className="tagora-input"
+                  type="date"
+                  value={pastShiftWorkDate}
+                  onChange={(event) => setPastShiftWorkDate(event.target.value)}
+                />
+              </label>
+
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "1fr 1fr",
+                  gap: "var(--ui-space-3)",
+                }}
+              >
+                <label className="ui-stack-xs">
+                  <span className="ui-eyebrow">Heure debut</span>
+                  <input
+                    className="tagora-input"
+                    type="time"
+                    value={pastShiftStartTime}
+                    onChange={(event) => setPastShiftStartTime(event.target.value)}
+                  />
+                </label>
+                <label className="ui-stack-xs">
+                  <span className="ui-eyebrow">Heure fin</span>
+                  <input
+                    className="tagora-input"
+                    type="time"
+                    value={pastShiftEndTime}
+                    onChange={(event) => setPastShiftEndTime(event.target.value)}
+                  />
+                </label>
+              </div>
+
+              <label className="ui-stack-xs">
+                <span className="ui-eyebrow">Pause (minutes, optionnel)</span>
+                <input
+                  className="tagora-input"
+                  type="number"
+                  min={0}
+                  step={1}
+                  value={pastShiftBreakMinutes}
+                  onChange={(event) => setPastShiftBreakMinutes(event.target.value)}
+                  placeholder="0"
+                />
+              </label>
+
+              <label className="ui-stack-xs">
+                <span className="ui-eyebrow">Commentaire obligatoire</span>
+                <textarea
+                  className="tagora-textarea"
+                  value={pastShiftNote}
+                  onChange={(event) => setPastShiftNote(event.target.value)}
+                  placeholder="Motif de l ajout manuel (ex. oubli de punch, correction terrain)"
+                  style={{ minHeight: 90 }}
+                />
+              </label>
+            </div>
+
+            <div
+              style={{
+                display: "flex",
+                flexWrap: "wrap",
+                gap: "var(--ui-space-3)",
+                marginTop: "var(--ui-space-4)",
+              }}
+            >
+              <PrimaryButton
+                onClick={() => void handlePastShiftSubmit()}
+                disabled={isBusy}
+              >
+                {activeActionKey === "past-shift"
+                  ? "Enregistrement..."
+                  : "Enregistrer le quart"}
+              </PrimaryButton>
+              <SecondaryButton
+                onClick={() => setPastShiftModalOpen(false)}
+                disabled={activeActionKey === "past-shift"}
+              >
+                Annuler
+              </SecondaryButton>
+            </div>
+          </AppCard>
+        </div>
+      ) : null}
     </main>
   );
 }
