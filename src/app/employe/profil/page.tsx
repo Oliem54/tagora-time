@@ -61,7 +61,7 @@ export default function EmployeProfilPage() {
             </AppCard>
             <AppCard tone="muted">
               <InfoRow
-                label="Compagnie principale"
+                label="Compagnie d appartenance"
                 value={getCompanyLabel(companyAccess.primaryCompany ?? companyAccess.company)}
               />
             </AppCard>

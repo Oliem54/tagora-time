@@ -147,8 +147,8 @@ export default function FacturationTitanPage() {
   if (accessLoading || loading) {
     return (
       <div className="page-container">
-        <HeaderTagora title="Facturation Titan" subtitle="Synthese des elements a facturer a Titan" />
-        <AccessNotice description="Verification des acces terrain et chargement des donnees Titan en cours." />
+        <HeaderTagora title="Refacturation intercompagnies" subtitle="Synthese des montants a refacturer entre Oliem et Titan" />
+        <AccessNotice description="Verification des acces terrain et chargement de la refacturation intercompagnies en cours." />
       </div>
     );
   }
@@ -160,8 +160,8 @@ export default function FacturationTitanPage() {
   if (!canAccessFinance) {
     return (
       <div className="page-container">
-        <HeaderTagora title="Facturation Titan" subtitle="Synthese des elements a facturer a Titan" />
-        <AccessNotice description="Acces reserve au role admin ou a la permission terrain. La synthese Titan reste masquee." />
+        <HeaderTagora title="Refacturation intercompagnies" subtitle="Synthese des montants a refacturer entre Oliem et Titan" />
+        <AccessNotice description="Acces reserve au role admin ou a la permission terrain. La refacturation intercompagnies reste masquee." />
       </div>
     );
   }
@@ -169,10 +169,10 @@ export default function FacturationTitanPage() {
   return (
     <div className="page-container">
       <DirectionFinancePhase2Notice
-        moduleName="Facturation Titan"
+        moduleName="Refacturation intercompagnies"
         adminHref="/admin/facturation-titan"
       />
-      <HeaderTagora title="Facturation Titan" subtitle="Synthese des elements a facturer a Titan" />
+      <HeaderTagora title="Refacturation intercompagnies" subtitle="Synthese des montants a refacturer entre Oliem et Titan" />
 
       {error ? (
         <div style={{ marginTop: 24 }}>
@@ -183,7 +183,7 @@ export default function FacturationTitanPage() {
       <div className="tagora-panel" style={{ marginTop: 24 }}>
         <div style={{ display: "flex", justifyContent: "space-between", gap: 16, flexWrap: "wrap", alignItems: "center" }}>
           <div>
-            <h2 className="section-title" style={{ marginBottom: 8 }}>Synthese facturation Titan</h2>
+            <h2 className="section-title" style={{ marginBottom: 8 }}>Synthese refacturation intercompagnies</h2>
             <p className="tagora-note">Vue consolidee des elements a facturer sur la periode.</p>
           </div>
           <div className="actions-row">
@@ -197,14 +197,14 @@ export default function FacturationTitanPage() {
           <StatCard label="Total payable" value={formatHours(totals.totalHeuresTitan)} />
           <StatCard label="Total salaire" value={formatMoney(totals.totalSalaire)} />
           <StatCard label="Total benefice" value={formatMoney(totals.totalBenefice)} />
-          <StatCard label="Total Titan a facturer" value={formatMoney(totals.totalTitan)} />
+          <StatCard label="Total a refacturer" value={formatMoney(totals.totalTitan)} />
           <StatCard label="Total paye" value={formatMoney(totals.totalPaye)} />
           <StatCard label="Total non paye" value={formatMoney(totals.totalNonPaye)} />
         </div>
       </div>
 
       <div className="tagora-panel" style={{ marginTop: 24 }}>
-        <h2 className="section-title" style={{ marginBottom: 18 }}>Detail des entrees Titan</h2>
+        <h2 className="section-title" style={{ marginBottom: 18 }}>Detail des entrees intercompagnies</h2>
         <div style={{ overflowX: "auto" }}>
           <table style={tableStyle}>
             <thead>
@@ -220,7 +220,7 @@ export default function FacturationTitanPage() {
                 <th style={thStyle}>Marge</th>
                 <th style={thStyle}>Total salaire</th>
                 <th style={thStyle}>Total benefice</th>
-                <th style={thStyle}>Total Titan</th>
+                <th style={thStyle}>Total a refacturer</th>
                 <th style={thStyle}>Statut</th>
               </tr>
             </thead>

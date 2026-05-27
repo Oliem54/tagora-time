@@ -147,8 +147,8 @@ const MODULES: ModuleDefinition[] = [
   },
   {
     href: "/direction/temps-titan",
-    label: "Suivi heures Titan",
-    description: "Heures et volumes operationnels. Couts et refacturation : Admin.",
+    label: "Suivi des heures",
+    description: "Heures par compagnie et volumes operationnels. Refacturation intercompagnies et couts : donnees financieres reservees a l administration.",
     permission: "terrain",
     group: "operations",
     icon: TimerReset,
@@ -183,8 +183,8 @@ const MODULES: ModuleDefinition[] = [
   },
   {
     href: "/direction/commissions",
-    label: "Commissions & objectifs",
-    description: "Objectifs de vente, performance et suivi des commissions.",
+    label: "Objectifs & performance",
+    description: "Objectifs de vente et suivi operationnel sans montants de commission.",
     permission: "commissions",
     group: "gestion",
     icon: Target,

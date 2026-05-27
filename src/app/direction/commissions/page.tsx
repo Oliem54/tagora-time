@@ -142,8 +142,8 @@ export default function DirectionCommissionsPage() {
   return (
     <main className="page-container">
       <AuthenticatedPageHeader
-        title="Commissions & objectifs"
-        subtitle="Vue Direction operationnelle sans montants de commission."
+        title="Objectifs & performance"
+        subtitle="Vue Direction operationnelle : objectifs et performance sans montants de commission."
       />
 
       {errorMessage ? (
