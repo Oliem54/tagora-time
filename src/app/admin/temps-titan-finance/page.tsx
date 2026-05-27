@@ -5,7 +5,7 @@ import TempsTitanPage from "@/app/direction/temps-titan/DirectionTempsTitanFinan
 
 export default function AdminTempsTitanFinancePage() {
   return (
-    <AdminFinanceGate moduleLabel="Temps Titan (finance)">
+    <AdminFinanceGate moduleLabel="Journal des heures et couts">
       <TempsTitanPage />
     </AdminFinanceGate>
   );

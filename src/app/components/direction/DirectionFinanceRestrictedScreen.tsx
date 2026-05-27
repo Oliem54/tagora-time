@@ -67,7 +67,7 @@ export default function DirectionFinanceRestrictedScreen({
             </h1>
             <p style={{ margin: 0, lineHeight: 1.6, color: "#334155", maxWidth: 720 }}>
               {subtitle ??
-                "Cette section financiere est maintenant reservee a Admin. La Direction conserve seulement les donnees operationnelles. Les donnees de paie, remuneration, commissions et couts sont accessibles dans Admin."}
+                "Cette section financiere est reservee a l administration. La Direction conserve les donnees operationnelles (heures par compagnie, statuts, objectifs). Les donnees financieres reservees a l administration (paie, remuneration, commissions en dollars, refacturation intercompagnies) sont accessibles dans Admin."}
             </p>
           </div>
         </div>
@@ -115,9 +115,9 @@ export default function DirectionFinanceRestrictedScreen({
             fontSize: "0.92rem",
           }}
         >
-          <li>Salaires, taux horaires, commissions en dollars, bonus, marges et coûts de paie : Admin seulement.</li>
-          <li>Ventilation financiere Oliem / Titan et exports CSV financiers : Admin seulement.</li>
-          <li>La Direction garde heures, presences, statuts et objectifs operationnels sans montants.</li>
+          <li>Salaires, taux horaires, commissions en dollars, bonus, marges et couts de paie : donnees financieres reservees a l administration.</li>
+          <li>Repartition Oliem / Titan, refacturation intercompagnies et exports CSV financiers : administration seulement.</li>
+          <li>La Direction garde heures par compagnie, presences, statuts et objectifs operationnels sans montants.</li>
         </ul>
       </section>
 

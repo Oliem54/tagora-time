@@ -99,7 +99,7 @@ export default function DirectionPaieCompagniesOperationalPage() {
   if (accessLoading || (!blocked && loading)) {
     return (
       <DirectionFinanceRestrictedScreen
-        title="Paie par compagnie — vue Direction"
+        title="Repartition Oliem / Titan — vue Direction"
         adminHref="/admin/paie-compagnies"
       >
         <AccessNotice description="Chargement des heures..." />
@@ -110,7 +110,7 @@ export default function DirectionPaieCompagniesOperationalPage() {
   if (blocked) {
     return (
       <DirectionFinanceRestrictedScreen
-        title="Paie par compagnie — vue Direction"
+        title="Repartition Oliem / Titan — vue Direction"
         adminHref="/admin/paie-compagnies"
       >
         <AccessNotice description="La permission terrain est requise." />
@@ -120,9 +120,9 @@ export default function DirectionPaieCompagniesOperationalPage() {
 
   return (
     <DirectionFinanceRestrictedScreen
-      title="Paie par compagnie — vue Direction"
+      title="Repartition Oliem / Titan — vue Direction"
       adminHref="/admin/paie-compagnies"
-      operationalTitle="Journal des heures (sans montants ni ventilation Oliem / Titan)"
+      operationalTitle="Heures par compagnie (repartition Oliem / Titan, sans montants)"
     >
       {errorMessage ? (
         <AccessNotice title="Chargement limite" description={errorMessage} />

@@ -69,7 +69,7 @@ const MODULE_GROUPS: { id: ModuleGroupId; title: string; subtitle: string }[] = 
   {
     id: "finance",
     title: "Finance & remuneration",
-    subtitle: "Paie, commissions et donnees confidentielles (admin uniquement).",
+    subtitle: "Paie, refacturation intercompagnies et donnees financieres reservees a l administration.",
   },
 ];
 
@@ -179,8 +179,8 @@ const MODULES: ModuleDefinition[] = [
   {
     id: "remuneration",
     href: "/admin/remuneration",
-    label: "Remuneration",
-    description: "Hub paie, taux et donnees confidentielles.",
+    label: "Finance & remuneration",
+    description: "Hub paie, taux et donnees financieres reservees a l administration.",
     group: "finance",
     icon: Wallet,
     tone: "purple",
@@ -197,8 +197,8 @@ const MODULES: ModuleDefinition[] = [
   {
     id: "paie-compagnies",
     href: "/admin/paie-compagnies",
-    label: "Paie par compagnie",
-    description: "Detail lignes et ventilation Oliem / Titan.",
+    label: "Repartition Oliem / Titan",
+    description: "Detail des heures par compagnie et ventilation Oliem / Titan.",
     group: "finance",
     icon: ReceiptText,
     tone: "purple",
@@ -206,8 +206,8 @@ const MODULES: ModuleDefinition[] = [
   {
     id: "temps-titan-finance",
     href: "/admin/temps-titan-finance",
-    label: "Temps Titan (finance)",
-    description: "Couts salariaux et refacturation.",
+    label: "Journal des heures et couts",
+    description: "Heures, couts salariaux et refacturation intercompagnies.",
     group: "finance",
     icon: TimerReset,
     tone: "orange",
@@ -215,8 +215,8 @@ const MODULES: ModuleDefinition[] = [
   {
     id: "facturation",
     href: "/admin/facturation-titan",
-    label: "Facturation Titan",
-    description: "Montants facturables et salaires.",
+    label: "Refacturation intercompagnies",
+    description: "Montants a refacturer entre Oliem et Titan.",
     group: "finance",
     icon: FileStack,
     tone: "orange",

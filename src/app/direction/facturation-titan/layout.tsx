@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import type { ReactNode } from "react";
 
 export const metadata: Metadata = {
-  title: "Facturation Titan",
-  description: "Facturation Titan Tagora.",
+  title: "Refacturation intercompagnies",
+  description: "Refacturation intercompagnies Oliem / Titan Tagora.",
 };
 
 export default function DirectionFacturationTitanLayout({

@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import type { ReactNode } from "react";
 
 export const metadata: Metadata = {
-  title: "Remuneration",
-  description: "Remuneration, taux et donnees confidentielles employes (admin).",
+  title: "Finance & remuneration",
+  description: "Finance, remuneration, taux et donnees financieres reservees a l administration.",
 };
 
 export default function AdminRemunerationLayout({ children }: { children: ReactNode }) {

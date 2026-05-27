@@ -494,7 +494,7 @@ export default function DirectionTerrainPage() {
             <AppCard tone="muted"><Link href="/direction/sorties-terrain"><div className="ui-stack-xs"><strong>Sorties terrain</strong><span className="ui-text-muted">Voir</span></div></Link></AppCard>
             <AppCard tone="muted"><Link href="/direction/livraisons"><div className="ui-stack-xs"><strong>Livraison & ramassage</strong><span className="ui-text-muted">Voir</span></div></Link></AppCard>
             <AppCard tone="muted"><Link href="/direction/horodateur"><div className="ui-stack-xs"><strong>Horodateur</strong><span className="ui-text-muted">Voir</span></div></Link></AppCard>
-            <AppCard tone="muted"><Link href="/direction/temps-titan"><div className="ui-stack-xs"><strong>Suivi heures Titan</strong><span className="ui-text-muted">Vue operationnelle</span></div></Link></AppCard>
+            <AppCard tone="muted"><Link href="/direction/temps-titan"><div className="ui-stack-xs"><strong>Suivi des heures</strong><span className="ui-text-muted">Heures par compagnie — vue operationnelle</span></div></Link></AppCard>
           </div>
         </SectionCard>
       </div>

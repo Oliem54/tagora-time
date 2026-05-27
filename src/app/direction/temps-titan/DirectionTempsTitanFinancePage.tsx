@@ -291,7 +291,7 @@ export default function TempsTitanPage() {
     }
 
     if (!sortiesRes || sortiesRes.error) {
-      notices.push("sorties terrain Titan");
+      notices.push("sorties terrain intercompagnies");
       setSortiesTitan([]);
     } else {
       setSortiesTitan((sortiesRes.data ?? []) as SortieTitanRow[]);
@@ -441,12 +441,12 @@ export default function TempsTitanPage() {
     setSuccessMessage("");
 
     if (!form.employe_id || !form.date_travail || !form.heure_debut || !form.heure_fin) {
-      setErrorMessage("Completer employe, date, heure debut et heure fin avant d ajouter l entree Titan.");
+      setErrorMessage("Completer employe, date, heure debut et heure fin avant d ajouter l entree de temps.");
       return;
     }
 
     if (!employeSelection || employeSelection.taux_base_titan == null) {
-      setErrorMessage("Le taux de base Titan manque sur la fiche chauffeur selectionnee.");
+      setErrorMessage("Le taux horaire de base manque sur la fiche chauffeur selectionnee.");
       return;
     }
 
@@ -461,7 +461,7 @@ export default function TempsTitanPage() {
     }
 
     if (!resolvedCompanyContext) {
-      setErrorMessage("Choisir une compagnie avant d ajouter l entree Titan.");
+      setErrorMessage("Choisir une compagnie du travail avant d ajouter l entree de temps.");
       return;
     }
 
@@ -510,7 +510,7 @@ export default function TempsTitanPage() {
       return;
     }
 
-    setSuccessMessage("Entree Titan ajoutee.");
+    setSuccessMessage("Entree de temps ajoutee.");
     setForm(initialForm());
     await loadAll();
   }
@@ -518,8 +518,8 @@ export default function TempsTitanPage() {
   if (accessLoading || (!blocked && loading)) {
     return (
       <div className="page-container">
-        <HeaderTagora title="Temps Titan" subtitle="Suivi du temps, des couts et de la refacturation Titan" />
-        <AccessNotice description="Verification des acces terrain et chargement des donnees Titan en cours." />
+        <HeaderTagora title="Journal des heures et couts" subtitle="Suivi des heures, couts et refacturation intercompagnies Oliem / Titan" />
+        <AccessNotice description="Verification des acces terrain et chargement des heures en cours." />
       </div>
     );
   }
@@ -531,8 +531,8 @@ export default function TempsTitanPage() {
   if (blocked) {
     return (
       <div className="page-container">
-        <HeaderTagora title="Temps Titan" subtitle="Suivi du temps, des couts et de la refacturation Titan" />
-        <AccessNotice description="La permission terrain n est pas active sur ce compte direction. Le module Temps Titan reste masque." />
+        <HeaderTagora title="Journal des heures et couts" subtitle="Suivi des heures, couts et refacturation intercompagnies Oliem / Titan" />
+        <AccessNotice description="La permission terrain n est pas active sur ce compte. Le module Suivi des heures reste masque." />
       </div>
     );
   }
@@ -540,10 +540,10 @@ export default function TempsTitanPage() {
   return (
     <div className="page-container">
       <DirectionFinancePhase2Notice
-        moduleName="Temps Titan"
+        moduleName="Journal des heures et couts"
         adminHref="/admin/temps-titan-finance"
       />
-      <HeaderTagora title="Temps Titan" subtitle="Suivi du temps, des couts et de la refacturation Titan" />
+      <HeaderTagora title="Journal des heures et couts" subtitle="Suivi des heures, couts et refacturation intercompagnies Oliem / Titan" />
 
       {errorMessage ? <AccessNotice title="Chargement limite" description={errorMessage} /> : null}
       {successMessage ? <div style={{ marginTop: errorMessage ? 18 : 0 }}><AccessNotice title="Operation validee" description={successMessage} /></div> : null}
@@ -551,16 +551,16 @@ export default function TempsTitanPage() {
 
       <div className="tagora-panel" style={{ marginTop: 24 }}>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 16 }}>
-          <StatCard label="Total heures Titan" value={formatHours(totals.totalHeuresTitan)} />
+          <StatCard label="Total heures periode" value={formatHours(totals.totalHeuresTitan)} />
           <StatCard label="Total salaire" value={formatMoney(totals.totalSalaire)} />
           <StatCard label="Total benefice" value={formatMoney(totals.totalBenefice)} />
-          <StatCard label="Total Titan" value={formatMoney(totals.totalTitan)} />
+          <StatCard label="Total a refacturer" value={formatMoney(totals.totalTitan)} />
         </div>
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "minmax(340px, 1fr) minmax(0, 1.7fr)", gap: 24, alignItems: "start", marginTop: 24 }}>
         <section className="tagora-panel">
-          <h2 className="section-title" style={{ marginBottom: 18 }}>Ajouter une entree Titan</h2>
+          <h2 className="section-title" style={{ marginBottom: 18 }}>Ajouter une entree de temps</h2>
           <form onSubmit={handleSubmit} className="tagora-form-grid">
             <label className="tagora-field"><span className="tagora-label">Employe</span><select value={form.employe_id} onChange={(e) => setForm((prev) => ({ ...prev, employe_id: e.target.value }))} className="tagora-input"><option value="">Choisir un employe</option>{employes.map((item) => <option key={String(item.id)} value={String(item.id)}>{item.nom}</option>)}</select></label>
             <label className="tagora-field"><span className="tagora-label">Date</span><input type="date" value={form.date_travail} onChange={(e) => setForm((prev) => ({ ...prev, date_travail: e.target.value }))} className="tagora-input" /></label>
@@ -583,7 +583,7 @@ export default function TempsTitanPage() {
             <div className="tagora-panel" style={{ margin: 0 }}><div className="tagora-label">Pauses payees</div><div style={{ marginTop: 8, fontWeight: 700 }}>{titanSummary.paidBreakText}</div></div>
             <div className="tagora-panel" style={{ margin: 0 }}><div className="tagora-label">Pauses non payees</div><div style={{ marginTop: 8, fontWeight: 700 }}>{titanSummary.unpaidBreakText}</div></div>
             <div className="tagora-panel" style={{ margin: 0 }}><div className="tagora-label">Temps payable</div><div style={{ marginTop: 8, fontWeight: 700 }}>{titanSummary.payableText}</div></div>
-            <div className="tagora-panel" style={{ margin: 0 }}><div className="tagora-label">Total Titan calcule</div><div style={{ marginTop: 8, fontWeight: 700 }}>{formatMoney(totalTitanCalcule)}</div></div>
+            <div className="tagora-panel" style={{ margin: 0 }}><div className="tagora-label">Total a refacturer calcule</div><div style={{ marginTop: 8, fontWeight: 700 }}>{formatMoney(totalTitanCalcule)}</div></div>
             <label className="tagora-field" style={{ gridColumn: "1 / -1" }}><span className="tagora-label">Notes</span><textarea value={form.notes} onChange={(e) => setForm((prev) => ({ ...prev, notes: e.target.value }))} className="tagora-textarea" /></label>
             <div className="actions-row" style={{ gridColumn: "1 / -1" }}>
               <button type="submit" disabled={saving} className="tagora-dark-action">{saving ? "Creation..." : "Creer"}</button>
@@ -595,8 +595,8 @@ export default function TempsTitanPage() {
         <section className="tagora-panel">
           <div style={{ display: "flex", justifyContent: "space-between", gap: 16, flexWrap: "wrap", alignItems: "center", marginBottom: 18 }}>
             <div>
-              <h2 className="section-title" style={{ marginBottom: 8 }}>Liste du temps Titan</h2>
-              <p className="tagora-note">Entrees manuelles et lignes issues des sorties terrain refacturables.</p>
+              <h2 className="section-title" style={{ marginBottom: 8 }}>Journal des heures</h2>
+              <p className="tagora-note">Entrees manuelles et lignes issues des sorties terrain refacturables intercompagnies.</p>
             </div>
             <div className="actions-row">
               <select value={companyFilter} onChange={(e) => setCompanyFilter(e.target.value as AccountRequestCompany | "")} className="tagora-input">
@@ -624,7 +624,7 @@ export default function TempsTitanPage() {
                   <th style={thStyle}>Livraison</th>
                   <th style={thStyle}>Salaire</th>
                   <th style={thStyle}>Benefice</th>
-                  <th style={thStyle}>Total Titan</th>
+                  <th style={thStyle}>Total a refacturer</th>
                 </tr>
               </thead>
               <tbody>

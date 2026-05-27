@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import type { ReactNode } from "react";
 
 export const metadata: Metadata = {
-  title: "Paie par compagnie",
-  description: "Paie par compagnie Tagora.",
+  title: "Repartition Oliem / Titan",
+  description: "Repartition des heures Oliem / Titan Tagora.",
 };
 
 export default function DirectionPaieCompagniesLayout({

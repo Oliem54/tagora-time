@@ -784,9 +784,9 @@ export default function DirectionHorodateurRegistreClient() {
                         tone: "red",
                       },
                       {
-                        label: "Titan refacturable",
+                        label: "Heures refacturables intercompagnies",
                         value: fmtHoursMinutes(summary.titanRefundablePayableMinutes),
-                        sub: "Contexte Titan",
+                        sub: "Compagnie du travail",
                         Icon: Wallet,
                         tone: "purple",
                       },
