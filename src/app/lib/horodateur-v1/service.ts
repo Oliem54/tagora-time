@@ -1227,7 +1227,7 @@ export function buildEmployeeLatenessContext(options: {
     showLateStartCard: false,
   };
 
-  const horsQuartEarly = resolveInitialCurrentState(options.currentState) === "hors_quart";
+  const resolvedStateEarly = resolveInitialCurrentState(options.currentState);
   const shiftStartedEarly = hasStartedShiftToday(
     options.eventsToday,
     options.currentState
@@ -1237,7 +1237,10 @@ export function buildEmployeeLatenessContext(options: {
     options.eventsToday
   );
   const canStartWithoutSchedule =
-    horsQuartEarly && !shiftStartedEarly && !pendingStartEarly;
+    (resolvedStateEarly === "hors_quart" &&
+      !shiftStartedEarly &&
+      !pendingStartEarly) ||
+    (resolvedStateEarly === "termine" && !pendingStartEarly);
 
   if (!options.employee.scheduleStart?.trim()) {
     return {
@@ -1287,14 +1290,19 @@ export function buildEmployeeLatenessContext(options: {
     options.eventsToday,
     options.currentState
   );
-  const horsQuart = resolveInitialCurrentState(options.currentState) === "hors_quart";
+  const resolvedState = resolveInitialCurrentState(options.currentState);
+  const horsQuart = resolvedState === "hors_quart";
+  const shiftCompletedToday = resolvedState === "termine";
   const pendingStartException = hasPendingShiftStartException(
     options.pendingExceptions,
     options.eventsToday
   );
 
-  const canStartShiftActions =
+  const canStartAfterCompletedShift =
+    shiftCompletedToday && !pendingStartException;
+  const canStartFreshShift =
     horsQuart && !shiftAlreadyStarted && !pendingStartException;
+  const canStartShiftActions = canStartAfterCompletedShift || canStartFreshShift;
 
   return {
     workDate,
@@ -1307,7 +1315,7 @@ export function buildEmployeeLatenessContext(options: {
     isWithinScheduleWindow,
     canPunchNow: canStartShiftActions,
     canRequestRetroactiveCorrection: canStartShiftActions,
-    showLateStartCard: isLate && canStartShiftActions,
+    showLateStartCard: isLate && canStartFreshShift,
   };
 }
 
