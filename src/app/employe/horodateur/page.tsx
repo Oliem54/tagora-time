@@ -307,6 +307,11 @@ const CORRECTION_OPERATION_MAX_MS = 90_000;
 const CORRECTION_MIN_PHASE_TIMEOUT_MS = 5_000;
 const CORRECTION_FETCH_RESERVE_MS = 3_000;
 const SESSION_READ_TIMEOUT_MS = 15_000;
+const SESSION_LOAD_FAILED_MESSAGE =
+  "Impossible de charger votre session. Rechargez la page ou reconnectez-vous.";
+const ACCESS_LOADING_STALL_MS = 22_000;
+const PAGE_LOADING_STALL_MS = 35_000;
+const HORODATEUR_POLL_INTERVAL_MS = 60_000;
 const HORODATEUR_DATA_FETCH_TIMEOUT_MS = 30_000;
 const CORRECTION_FETCH_TIMEOUT_MESSAGE =
   "La demande prend trop de temps. Vérifiez votre connexion et réessayez.";
@@ -393,6 +398,47 @@ function isStaleCorrectionSubmit(
 const LOAD_DATA_AFTER_PUNCH_FAILED_MESSAGE =
   "Action enregistrée, mais l'actualisation des données a échoué. Rafraîchissez la page ou réessayez dans un instant.";
 
+function formatHorodateurApiError(
+  payload: Record<string, unknown>,
+  fallback: string
+): string {
+  const error =
+    typeof payload.error === "string" && payload.error.trim()
+      ? payload.error.trim()
+      : fallback;
+  const details =
+    typeof payload.details === "string" && payload.details.trim()
+      ? payload.details.trim()
+      : null;
+  return details ? `${error} (${details})` : error;
+}
+
+function HorodateurLoadingScreen({
+  description,
+  showRetry,
+  onRetry,
+  retryLabel = "Réessayer",
+}: {
+  description: string;
+  showRetry?: boolean;
+  onRetry?: () => void;
+  retryLabel?: string;
+}) {
+  return (
+    <main className="page-container">
+      <HeaderTagora title="Horodateur" subtitle="" />
+      <AccessNotice description={description} />
+      {showRetry && onRetry ? (
+        <div style={{ marginTop: 16 }}>
+          <button type="button" className="tagora-dark-action" onClick={onRetry}>
+            {retryLabel}
+          </button>
+        </div>
+      ) : null}
+    </main>
+  );
+}
+
 async function readAccessTokenWithTimeout(timeoutMs: number): Promise<string | null> {
   let timeoutId: ReturnType<typeof setTimeout> | undefined;
 
@@ -453,14 +499,6 @@ async function fetchWithTimeout(
       externalSignal.removeEventListener("abort", onExternalAbort);
     }
   }
-}
-
-function isGpsTimeoutMessage(message: string | null | undefined): boolean {
-  if (!message) {
-    return false;
-  }
-  const lower = message.toLowerCase();
-  return lower.includes("timeout") || lower.includes("delai") || lower.includes("délai");
 }
 
 function normalizeSnapshotPayload(payload: unknown): EmployeeSnapshot | null {
@@ -660,11 +698,16 @@ export default function EmployeHorodateurPage() {
   const [correctionModalError, setCorrectionModalError] = useState("");
   const [punchGpsUi, setPunchGpsUi] = useState<PunchGpsUi>(PUNCH_GPS_UI_IDLE);
   const [punchGpsRetrying, setPunchGpsRetrying] = useState(false);
+  const [loadBlockingError, setLoadBlockingError] = useState<string | null>(null);
+  const [accessStalled, setAccessStalled] = useState(false);
+  const [loadingStalled, setLoadingStalled] = useState(false);
+  const lastDataLoadAtRef = useRef(0);
 
   const gpsReport = useEmployeeGpsReporting({
     enabled: Boolean(user && canUseTerrain && !accessLoading),
     companyContext: snapshot?.employee.primaryCompany ?? null,
     pageSource: "employe_horodateur",
+    continuousTracking: false,
   });
 
   const currentStateLabel = useMemo(() => {
@@ -684,24 +727,26 @@ export default function EmployeHorodateurPage() {
     preserveMessage?: boolean;
     background?: boolean;
   }): Promise<boolean> => {
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
-
-    if (!session?.access_token) {
-      if (!options?.background) {
-        setLoading(false);
-      }
-      return false;
-    }
-
     const background = options?.background === true;
     if (!background) {
       setLoading(true);
+      setLoadBlockingError(null);
+      setLoadingStalled(false);
     }
 
     try {
-      const authHeaders = { Authorization: `Bearer ${session.access_token}` };
+      let accessToken: string | null;
+      try {
+        accessToken = await readAccessTokenWithTimeout(SESSION_READ_TIMEOUT_MS);
+      } catch {
+        throw new Error(SESSION_LOAD_FAILED_MESSAGE);
+      }
+
+      if (!accessToken) {
+        throw new Error(SESSION_LOAD_FAILED_MESSAGE);
+      }
+
+      const authHeaders = { Authorization: `Bearer ${accessToken}` };
       const [snapshotResponse, historyResponse] = await Promise.all([
         fetchWithTimeout(
           "/api/horodateur/me",
@@ -721,11 +766,21 @@ export default function EmployeHorodateurPage() {
       const historyPayload = await historyResponse.json();
 
       if (!snapshotResponse.ok) {
-        throw new Error(snapshotPayload.error ?? "Impossible de charger l horodateur.");
+        throw new Error(
+          formatHorodateurApiError(
+            snapshotPayload as Record<string, unknown>,
+            "Impossible de charger l horodateur."
+          )
+        );
       }
 
       if (!historyResponse.ok) {
-        throw new Error(historyPayload.error ?? "Impossible de charger l historique.");
+        throw new Error(
+          formatHorodateurApiError(
+            historyPayload as Record<string, unknown>,
+            "Impossible de charger l historique."
+          )
+        );
       }
 
       const ll = (snapshotPayload as { longLeave?: unknown }).longLeave;
@@ -775,12 +830,15 @@ export default function EmployeHorodateurPage() {
       if (!options?.preserveMessage) {
         setMessage("");
       }
+      setLoadBlockingError(null);
+      lastDataLoadAtRef.current = Date.now();
       return true;
     } catch (error) {
       const msg = error instanceof Error ? error.message : "Erreur de chargement.";
       if (background && options?.preserveMessage) {
         setMessage((current) => current || msg);
       } else {
+        setLoadBlockingError(msg);
         setMessage(msg);
       }
       return false;
@@ -790,6 +848,35 @@ export default function EmployeHorodateurPage() {
       }
     }
   }, [setRetroactiveTime]);
+
+  const refreshDataIfStale = useCallback(() => {
+    if (Date.now() - lastDataLoadAtRef.current < HORODATEUR_POLL_INTERVAL_MS) {
+      return;
+    }
+    void loadData({ preserveMessage: true, background: true });
+  }, [loadData]);
+
+  useEffect(() => {
+    if (!accessLoading) {
+      setAccessStalled(false);
+      return;
+    }
+    const timerId = window.setTimeout(() => {
+      setAccessStalled(true);
+    }, ACCESS_LOADING_STALL_MS);
+    return () => window.clearTimeout(timerId);
+  }, [accessLoading]);
+
+  useEffect(() => {
+    if (!loading) {
+      setLoadingStalled(false);
+      return;
+    }
+    const timerId = window.setTimeout(() => {
+      setLoadingStalled(true);
+    }, PAGE_LOADING_STALL_MS);
+    return () => window.clearTimeout(timerId);
+  }, [loading]);
 
   useEffect(() => {
     if (accessLoading) {
@@ -816,24 +903,28 @@ export default function EmployeHorodateurPage() {
     }
 
     const intervalId = window.setInterval(() => {
-      void loadData({ preserveMessage: true });
-    }, 15000);
+      refreshDataIfStale();
+    }, HORODATEUR_POLL_INTERVAL_MS);
 
     const handleVisibilityChange = () => {
       if (document.visibilityState === "visible") {
-        void loadData({ preserveMessage: true });
+        refreshDataIfStale();
       }
     };
 
-    window.addEventListener("focus", handleVisibilityChange);
+    const handleWindowFocus = () => {
+      refreshDataIfStale();
+    };
+
+    window.addEventListener("focus", handleWindowFocus);
     document.addEventListener("visibilitychange", handleVisibilityChange);
 
     return () => {
       window.clearInterval(intervalId);
-      window.removeEventListener("focus", handleVisibilityChange);
+      window.removeEventListener("focus", handleWindowFocus);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [canUseTerrain, loadData, user]);
+  }, [canUseTerrain, refreshDataIfStale, user]);
 
   const latenessContext = snapshot?.latenessContext ?? null;
 
@@ -869,14 +960,17 @@ export default function EmployeHorodateurPage() {
     isHorsQuart ||
     isShiftCompleted ||
     canStartShiftPunch ||
-    punchGpsUi.phase !== "idle" ||
-    isGpsTimeoutMessage(gpsReport.lastError);
+    punchGpsUi.phase !== "idle";
 
   async function handleRetryPunchLocation() {
     setPunchGpsRetrying(true);
     setPunchGpsUi({ phase: "loading", message: "Obtention de la position en cours..." });
     try {
-      const gpsResult = await readEmployeePunchGeolocationWithDeadline(PUNCH_GPS_DEADLINE_MS);
+      const gpsResult = await readEmployeePunchGeolocationWithDeadline(
+        PUNCH_GPS_DEADLINE_MS,
+        undefined,
+        { skipCache: true }
+      );
       if (gpsResult.ok) {
         setPunchGpsUi({
           phase: "ready",
@@ -1337,12 +1431,39 @@ export default function EmployeHorodateurPage() {
     }
   }
 
-  if (accessLoading || loading) {
+  if (accessLoading && !accessStalled) {
+    return <HorodateurLoadingScreen description="Chargement en cours." />;
+  }
+
+  if (accessStalled) {
     return (
-      <main className="page-container">
-        <HeaderTagora title="Horodateur" subtitle="" />
-        <AccessNotice description="Chargement en cours." />
-      </main>
+      <HorodateurLoadingScreen
+        description={SESSION_LOAD_FAILED_MESSAGE}
+        showRetry
+        retryLabel="Recharger la page"
+        onRetry={() => window.location.reload()}
+      />
+    );
+  }
+
+  if (loading && !loadBlockingError && !loadingStalled) {
+    return <HorodateurLoadingScreen description="Chargement en cours." />;
+  }
+
+  if (loadBlockingError || (loading && loadingStalled)) {
+    return (
+      <HorodateurLoadingScreen
+        description={
+          loadBlockingError ??
+          "Le chargement de l'horodateur prend trop de temps. Réessayez."
+        }
+        showRetry
+        onRetry={() => {
+          setLoadBlockingError(null);
+          setLoadingStalled(false);
+          void loadData();
+        }}
+      />
     );
   }
 
@@ -1384,19 +1505,17 @@ export default function EmployeHorodateurPage() {
         <AccessNotice
           title="Localisation"
           description={
-            gpsReport.status === "active"
-              ? "GPS actif : la position est envoyee au tableau direction tant que cette page reste ouverte."
-              : gpsReport.status === "denied"
-                ? "GPS bloque : autorisez la localisation pour ce site dans les reglages du navigateur."
+            punchGpsUi.phase === "loading"
+              ? "Localisation en cours..."
+              : punchGpsUi.phase === "timeout" ||
+                  punchGpsUi.phase === "denied" ||
+                  punchGpsUi.phase === "unavailable" ||
+                  punchGpsUi.phase === "unknown"
+                ? punchGpsUi.message ||
+                  "Impossible d'obtenir la localisation, réessayez."
                 : gpsReport.status === "unsupported"
                   ? "La geolocalisation n est pas disponible sur cet appareil."
-                  : gpsReport.status === "error"
-                    ? isGpsTimeoutMessage(gpsReport.lastError)
-                      ? "La localisation est autorisée, mais la position n a pas ete obtenue a temps. Utilisez « Réessayer la localisation » dans la section Pointage."
-                      : `GPS : ${gpsReport.lastError ?? "erreur d envoi ou de position."}`
-                    : gpsReport.status === "requesting"
-                      ? "Demande d acces a la localisation en cours..."
-                      : "En attente de la localisation..."
+                  : "La localisation est demandee uniquement lors d un pointage ou d une demande de correction."
           }
         />
       ) : null}
@@ -1489,7 +1608,7 @@ export default function EmployeHorodateurPage() {
                     ? "1px solid rgba(34,197,94,0.45)"
                     : punchGpsUi.phase === "out_of_zone"
                       ? "1px solid rgba(239,68,68,0.45)"
-                      : punchGpsUi.phase === "timeout" || isGpsTimeoutMessage(gpsReport.lastError)
+                      : punchGpsUi.phase === "timeout"
                         ? "1px solid rgba(245,158,11,0.5)"
                         : "1px solid #dbeafe",
                 background:
@@ -1505,11 +1624,7 @@ export default function EmployeHorodateurPage() {
               <div className="tagora-label">Géolocalisation pour le punch</div>
               <p style={{ margin: 0, lineHeight: 1.55, color: "#0f172a" }}>
                 {punchGpsUi.phase === "idle"
-                  ? canStartShiftPunch
-                    ? "La géolocalisation est requise pour valider votre présence sur site."
-                    : isGpsTimeoutMessage(gpsReport.lastError)
-                      ? "La localisation est autorisée, mais votre appareil n’a pas retourné la position à temps. Cliquez sur Réessayer la localisation."
-                      : "La géolocalisation est requise pour valider votre présence sur site."
+                  ? "La géolocalisation est requise pour valider votre présence sur site."
                   : punchGpsUi.message}
               </p>
               <button
