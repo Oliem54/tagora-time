@@ -31,6 +31,47 @@ export const EMPLOYEE_PUNCH_GEOLOCATION_MAX_DURATION_MS =
   (MAX_ATTEMPTS - 1) * (RETRY_ATTEMPT_TIMEOUT_MS + RETRY_DELAY_MS) +
   4_000;
 
+/** Réutiliser une position récente pour éviter de relancer getCurrentPosition à chaque action. */
+export const EMPLOYEE_PUNCH_GEOLOCATION_CACHE_TTL_MS = 60_000;
+
+type CachedPunchPosition = {
+  latitude: number;
+  longitude: number;
+  readAtMs: number;
+};
+
+let lastPunchPositionCache: CachedPunchPosition | null = null;
+
+export function clearEmployeePunchGeolocationCache() {
+  lastPunchPositionCache = null;
+}
+
+function readCachedPunchPosition(
+  maxAgeMs: number = EMPLOYEE_PUNCH_GEOLOCATION_CACHE_TTL_MS
+): Extract<EmployeePunchGeolocationResult, { ok: true }> | null {
+  if (!lastPunchPositionCache) {
+    return null;
+  }
+  if (Date.now() - lastPunchPositionCache.readAtMs > maxAgeMs) {
+    lastPunchPositionCache = null;
+    return null;
+  }
+  return {
+    ok: true,
+    latitude: lastPunchPositionCache.latitude,
+    longitude: lastPunchPositionCache.longitude,
+    attempts: 0,
+  };
+}
+
+function storePunchPositionCache(latitude: number, longitude: number) {
+  lastPunchPositionCache = {
+    latitude,
+    longitude,
+    readAtMs: Date.now(),
+  };
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => {
     window.setTimeout(resolve, ms);
@@ -130,7 +171,9 @@ function readGeolocationOnce(options: {
 /**
  * Lit la position pour un punch web avec nouvelles tentatives en cas de timeout.
  */
-export async function readEmployeePunchGeolocation(): Promise<EmployeePunchGeolocationResult> {
+export async function readEmployeePunchGeolocation(options?: {
+  skipCache?: boolean;
+}): Promise<EmployeePunchGeolocationResult> {
   if (typeof navigator === "undefined" || !navigator.geolocation) {
     return {
       ok: false,
@@ -138,6 +181,13 @@ export async function readEmployeePunchGeolocation(): Promise<EmployeePunchGeolo
       message: messageForPunchGeolocationFailure("unsupported"),
       attempts: 0,
     };
+  }
+
+  if (!options?.skipCache) {
+    const cached = readCachedPunchPosition();
+    if (cached) {
+      return cached;
+    }
   }
 
   let lastFailure: Extract<EmployeePunchGeolocationResult, { ok: false }> | null = null;
@@ -153,6 +203,7 @@ export async function readEmployeePunchGeolocation(): Promise<EmployeePunchGeolo
     });
 
     if (result.ok) {
+      storePunchPositionCache(result.latitude, result.longitude);
       return { ...result, attempts: attempt };
     }
 
@@ -185,7 +236,8 @@ export async function readEmployeePunchGeolocation(): Promise<EmployeePunchGeolo
  */
 export async function readEmployeePunchGeolocationWithDeadline(
   deadlineMs: number,
-  abortSignal?: AbortSignal
+  abortSignal?: AbortSignal,
+  options?: { skipCache?: boolean }
 ): Promise<EmployeePunchGeolocationResult> {
   if (abortSignal?.aborted) {
     return {
@@ -194,6 +246,13 @@ export async function readEmployeePunchGeolocationWithDeadline(
       message: messageForPunchGeolocationFailure("timeout"),
       attempts: 0,
     };
+  }
+
+  if (!options?.skipCache) {
+    const cached = readCachedPunchPosition();
+    if (cached) {
+      return cached;
+    }
   }
 
   let timeoutId: ReturnType<typeof setTimeout> | undefined;

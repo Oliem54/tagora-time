@@ -18,13 +18,24 @@ type Options = {
   /** Page id for server metadata only */
   pageSource: string;
   minIntervalMs?: number;
+  /**
+   * false sur l’horodateur : pas de watchPosition en continu (évite les demandes GPS répétées).
+   * La position pour le punch est lue à la demande via readEmployeePunchGeolocation.
+   */
+  continuousTracking?: boolean;
 };
 
 /**
  * Envoie la position au tableau direction via POST /api/gps/positions pendant que la page est ouverte.
  */
 export function useEmployeeGpsReporting(options: Options) {
-  const { enabled, companyContext, pageSource, minIntervalMs = 25000 } = options;
+  const {
+    enabled,
+    companyContext,
+    pageSource,
+    minIntervalMs = 60_000,
+    continuousTracking = true,
+  } = options;
   const [status, setStatus] = useState<EmployeeGpsTrackingStatus>("idle");
   const [lastError, setLastError] = useState<string | null>(null);
   const lastSentRef = useRef(0);
@@ -33,6 +44,12 @@ export function useEmployeeGpsReporting(options: Options) {
   useEffect(() => {
     if (!enabled) {
       setStatus("idle");
+      return;
+    }
+
+    if (!continuousTracking) {
+      setStatus("idle");
+      setLastError(null);
       return;
     }
 
@@ -127,7 +144,7 @@ export function useEmployeeGpsReporting(options: Options) {
         watchIdRef.current = null;
       }
     };
-  }, [enabled, companyContext, minIntervalMs, pageSource]);
+  }, [companyContext, continuousTracking, enabled, minIntervalMs, pageSource]);
 
   return { status, lastError };
 }
