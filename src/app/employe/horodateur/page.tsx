@@ -789,27 +789,36 @@ export default function EmployeHorodateurPage() {
   const latenessContext = snapshot?.latenessContext ?? null;
 
   const canStartShiftPunch = latenessContext?.canPunchNow === true;
-  const isHorsQuart =
-    (snapshot?.currentState.current_state ??
-      snapshot?.currentState.status ??
-      "hors_quart") === "hors_quart";
+  const currentStateValue =
+    snapshot?.currentState.current_state ??
+    snapshot?.currentState.status ??
+    "hors_quart";
+  const isHorsQuart = currentStateValue === "hors_quart";
+  const isShiftCompleted = currentStateValue === "termine";
   const punchInBlockedReason = useMemo(() => {
-    if (!isHorsQuart) {
-      return "Vous etes deja en quart. Utilisez Sortie ou les actions de pause.";
+    if (isHorsQuart || isShiftCompleted) {
+      if (canStartShiftPunch) {
+        return null;
+      }
+      if ((snapshot?.pendingExceptions.length ?? 0) > 0) {
+        return "Une demande de correction est deja en attente pour aujourd hui. Attendez la decision de la direction ou contactez-la.";
+      }
+      if (isHorsQuart && latenessContext && !latenessContext.isWithinScheduleWindow) {
+        return "Vous etes hors fenetre horaire prevue. Utilisez « Demander une correction » si vous devez enregistrer une entree.";
+      }
+      return "Entree indisponible pour le moment. Utilisez « Demander une correction » ou contactez la direction.";
     }
-    if (canStartShiftPunch) {
-      return null;
-    }
-    if ((snapshot?.pendingExceptions.length ?? 0) > 0) {
-      return "Une demande de correction est deja en attente pour aujourd hui. Attendez la decision de la direction ou contactez-la.";
-    }
-    if (latenessContext && !latenessContext.isWithinScheduleWindow) {
-      return "Vous etes hors fenetre horaire prevue. Utilisez « Demander une correction » si vous devez enregistrer une entree.";
-    }
-    return "Entree indisponible pour le moment. Utilisez « Demander une correction » ou contactez la direction.";
-  }, [canStartShiftPunch, isHorsQuart, latenessContext, snapshot?.pendingExceptions.length]);
+    return "Vous etes deja en quart. Utilisez Sortie ou les actions de pause.";
+  }, [
+    canStartShiftPunch,
+    isHorsQuart,
+    isShiftCompleted,
+    latenessContext,
+    snapshot?.pendingExceptions.length,
+  ]);
   const showPunchGpsPanel =
     isHorsQuart ||
+    isShiftCompleted ||
     canStartShiftPunch ||
     punchGpsUi.phase !== "idle" ||
     isGpsTimeoutMessage(gpsReport.lastError);
