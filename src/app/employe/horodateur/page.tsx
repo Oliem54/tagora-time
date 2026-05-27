@@ -303,18 +303,67 @@ const PUNCH_GPS_PUNCH_NOT_COMPLETED_MESSAGE =
 const PUNCH_FETCH_TIMEOUT_MS = 60_000;
 const PUNCH_GPS_DEADLINE_MS = EMPLOYEE_PUNCH_GEOLOCATION_MAX_DURATION_MS;
 const CORRECTION_FETCH_TIMEOUT_MS = 30_000;
-const CORRECTION_GPS_DEADLINE_MS = EMPLOYEE_PUNCH_GEOLOCATION_MAX_DURATION_MS;
+const CORRECTION_OPERATION_MAX_MS = 90_000;
+const CORRECTION_MIN_PHASE_TIMEOUT_MS = 5_000;
+const CORRECTION_FETCH_RESERVE_MS = 3_000;
 const SESSION_READ_TIMEOUT_MS = 15_000;
 const HORODATEUR_DATA_FETCH_TIMEOUT_MS = 30_000;
 const CORRECTION_FETCH_TIMEOUT_MESSAGE =
   "La demande prend trop de temps. Vérifiez votre connexion et réessayez.";
+const CORRECTION_OPERATION_TIMEOUT_MESSAGE =
+  "L'envoi de la demande a pris trop de temps (90 secondes maximum). Vérifiez votre connexion et réessayez.";
 const CORRECTION_CANCELLED_MESSAGE =
   "Envoi annulé. Vous pouvez corriger et réessayer.";
 
 type CorrectionSubmitContext = {
   submitId: number;
   abortSignal: AbortSignal;
+  deadlineAt: number;
 };
+
+function remainingCorrectionBudgetMs(ctx: CorrectionSubmitContext | undefined): number {
+  if (!ctx) {
+    return CORRECTION_OPERATION_MAX_MS;
+  }
+  return Math.max(0, ctx.deadlineAt - Date.now());
+}
+
+function assertCorrectionBudgetRemaining(ctx: CorrectionSubmitContext | undefined): void {
+  if (!ctx) {
+    return;
+  }
+  if (ctx.abortSignal.aborted) {
+    throw new Error(CORRECTION_CANCELLED_MESSAGE);
+  }
+  if (remainingCorrectionBudgetMs(ctx) <= 0) {
+    throw new Error(CORRECTION_OPERATION_TIMEOUT_MESSAGE);
+  }
+}
+
+function resolveCorrectionGpsDeadlineMs(ctx: CorrectionSubmitContext | undefined): number {
+  if (!ctx) {
+    return Math.min(PUNCH_GPS_DEADLINE_MS, 55_000);
+  }
+  assertCorrectionBudgetRemaining(ctx);
+  return Math.max(
+    CORRECTION_MIN_PHASE_TIMEOUT_MS,
+    Math.min(
+      PUNCH_GPS_DEADLINE_MS,
+      remainingCorrectionBudgetMs(ctx) - CORRECTION_FETCH_RESERVE_MS
+    )
+  );
+}
+
+function resolveCorrectionFetchTimeoutMs(ctx: CorrectionSubmitContext | undefined): number {
+  if (!ctx) {
+    return CORRECTION_FETCH_TIMEOUT_MS;
+  }
+  assertCorrectionBudgetRemaining(ctx);
+  return Math.max(
+    CORRECTION_MIN_PHASE_TIMEOUT_MS,
+    Math.min(CORRECTION_FETCH_TIMEOUT_MS, remainingCorrectionBudgetMs(ctx))
+  );
+}
 
 function isCorrectionCancelledMessage(message: string): boolean {
   return message === CORRECTION_CANCELLED_MESSAGE;
@@ -910,11 +959,21 @@ export default function EmployeHorodateurPage() {
 
     let accessToken: string | null;
     try {
-      accessToken = await readAccessTokenWithTimeout(SESSION_READ_TIMEOUT_MS);
+      const sessionTimeoutMs = correctionCtx
+        ? Math.max(
+            CORRECTION_MIN_PHASE_TIMEOUT_MS,
+            Math.min(
+              SESSION_READ_TIMEOUT_MS,
+              remainingCorrectionBudgetMs(correctionCtx)
+            )
+          )
+        : SESSION_READ_TIMEOUT_MS;
+      accessToken = await readAccessTokenWithTimeout(sessionTimeoutMs);
       assertActiveCorrectionSubmit(
         correctionCtx,
         activeCorrectionSubmitIdRef.current
       );
+      assertCorrectionBudgetRemaining(correctionCtx);
     } catch (error) {
       const msg =
         error instanceof Error
@@ -928,8 +987,6 @@ export default function EmployeHorodateurPage() {
       reportPunchFailure("Session expirée. Reconnectez-vous et réessayez.", options);
       return;
     }
-
-    assertActiveCorrectionSubmit(correctionCtx, activeCorrectionSubmitIdRef.current);
 
     if (options?.retroactive && !correctionCtx) {
       setCorrectionSubmitting(true);
@@ -945,6 +1002,7 @@ export default function EmployeHorodateurPage() {
 
     try {
       assertActiveCorrectionSubmit(correctionCtx, activeCorrectionSubmitIdRef.current);
+      assertCorrectionBudgetRemaining(correctionCtx);
 
       let latitude: number | undefined;
       let longitude: number | undefined;
@@ -956,10 +1014,15 @@ export default function EmployeHorodateurPage() {
             ? "Obtention de la position pour la demande de correction..."
             : "Obtention de la position en cours (peut prendre jusqu’à une minute)...",
         });
-        const gpsResult = options.retroactive
-          ? await readEmployeePunchGeolocationWithDeadline(CORRECTION_GPS_DEADLINE_MS)
-          : await readEmployeePunchGeolocationWithDeadline(PUNCH_GPS_DEADLINE_MS);
+        const gpsDeadlineMs = options.retroactive
+          ? resolveCorrectionGpsDeadlineMs(correctionCtx)
+          : PUNCH_GPS_DEADLINE_MS;
+        const gpsResult = await readEmployeePunchGeolocationWithDeadline(
+          gpsDeadlineMs,
+          correctionCtx?.abortSignal
+        );
         assertActiveCorrectionSubmit(correctionCtx, activeCorrectionSubmitIdRef.current);
+        assertCorrectionBudgetRemaining(correctionCtx);
         if (!gpsResult.ok) {
           setPunchGpsUi({
             phase:
@@ -984,6 +1047,20 @@ export default function EmployeHorodateurPage() {
         longitude = gpsResult.longitude;
       }
 
+      assertActiveCorrectionSubmit(correctionCtx, activeCorrectionSubmitIdRef.current);
+      assertCorrectionBudgetRemaining(correctionCtx);
+
+      const fetchTimeoutMs = options?.retroactive
+        ? resolveCorrectionFetchTimeoutMs(correctionCtx)
+        : PUNCH_FETCH_TIMEOUT_MS;
+      const fetchTimeoutMessage = options?.retroactive
+        ? remainingCorrectionBudgetMs(correctionCtx) <= CORRECTION_MIN_PHASE_TIMEOUT_MS
+          ? CORRECTION_OPERATION_TIMEOUT_MESSAGE
+          : CORRECTION_FETCH_TIMEOUT_MESSAGE
+        : options?.requireGps
+          ? "Le pointage a pris trop de temps (localisation ou serveur). Verifiez votre connexion et reessayez."
+          : "La requête de pointage a pris trop de temps. Vérifiez votre connexion et réessayez.";
+
       const response = await fetchWithTimeout(
         "/api/horodateur/punch",
         {
@@ -1003,12 +1080,8 @@ export default function EmployeHorodateurPage() {
             longitude,
           }),
         },
-        options?.retroactive ? CORRECTION_FETCH_TIMEOUT_MS : PUNCH_FETCH_TIMEOUT_MS,
-        options?.retroactive
-          ? CORRECTION_FETCH_TIMEOUT_MESSAGE
-          : options?.requireGps
-            ? "Le pointage a pris trop de temps (localisation ou serveur). Verifiez votre connexion et reessayez."
-            : "La requête de pointage a pris trop de temps. Vérifiez votre connexion et réessayez.",
+        fetchTimeoutMs,
+        fetchTimeoutMessage,
         correctionCtx?.abortSignal
       );
       assertActiveCorrectionSubmit(correctionCtx, activeCorrectionSubmitIdRef.current);
@@ -1148,6 +1221,7 @@ export default function EmployeHorodateurPage() {
     correctionAbortRef.current?.abort();
     correctionAbortRef.current = null;
     correctionSubmittingRef.current = false;
+    correctionInFlightRef.current = false;
     setCorrectionSubmitting(false);
     reportCorrectionCancellation();
   }
@@ -1216,6 +1290,7 @@ export default function EmployeHorodateurPage() {
     const correctionSubmit: CorrectionSubmitContext = {
       submitId,
       abortSignal: abortController.signal,
+      deadlineAt: Date.now() + CORRECTION_OPERATION_MAX_MS,
     };
 
     try {
