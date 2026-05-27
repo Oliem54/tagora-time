@@ -184,9 +184,20 @@ export async function readEmployeePunchGeolocation(): Promise<EmployeePunchGeolo
  * ne rappelle jamais getCurrentPosition).
  */
 export async function readEmployeePunchGeolocationWithDeadline(
-  deadlineMs: number
+  deadlineMs: number,
+  abortSignal?: AbortSignal
 ): Promise<EmployeePunchGeolocationResult> {
+  if (abortSignal?.aborted) {
+    return {
+      ok: false,
+      code: "unknown",
+      message: messageForPunchGeolocationFailure("timeout"),
+      attempts: 0,
+    };
+  }
+
   let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  let onAbort: (() => void) | undefined;
 
   const deadlineResult = new Promise<EmployeePunchGeolocationResult>((resolve) => {
     timeoutId = setTimeout(() => {
@@ -199,11 +210,36 @@ export async function readEmployeePunchGeolocationWithDeadline(
     }, deadlineMs);
   });
 
+  const abortResult = new Promise<EmployeePunchGeolocationResult>((resolve) => {
+    if (!abortSignal) {
+      return;
+    }
+    onAbort = () => {
+      resolve({
+        ok: false,
+        code: "unknown",
+        message: messageForPunchGeolocationFailure("timeout"),
+        attempts: 0,
+      });
+    };
+    abortSignal.addEventListener("abort", onAbort, { once: true });
+  });
+
   try {
-    return await Promise.race([readEmployeePunchGeolocation(), deadlineResult]);
+    const racers: Promise<EmployeePunchGeolocationResult>[] = [
+      readEmployeePunchGeolocation(),
+      deadlineResult,
+    ];
+    if (abortSignal) {
+      racers.push(abortResult);
+    }
+    return await Promise.race(racers);
   } finally {
     if (timeoutId !== undefined) {
       clearTimeout(timeoutId);
+    }
+    if (abortSignal && onAbort) {
+      abortSignal.removeEventListener("abort", onAbort);
     }
   }
 }
