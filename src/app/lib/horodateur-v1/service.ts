@@ -1190,13 +1190,16 @@ function formatLocalTimeLabel(isoOrDate: string | Date) {
 }
 
 function hasPendingShiftStartException(
-  pendingExceptions: HorodateurPhase1ExceptionRecord[]
+  pendingExceptions: HorodateurPhase1ExceptionRecord[],
+  eventsToday: HorodateurPhase1EventRecord[]
 ) {
+  const todayEventIds = new Set(eventsToday.map((event) => event.id));
   return pendingExceptions.some(
     (item) =>
       item.status === "en_attente" &&
       (item.exception_type === "missing_punch_adjustment" ||
-        item.exception_type === "outside_schedule")
+        item.exception_type === "outside_schedule") &&
+      todayEventIds.has(item.source_event_id)
   );
 }
 
@@ -1229,7 +1232,10 @@ export function buildEmployeeLatenessContext(options: {
     options.eventsToday,
     options.currentState
   );
-  const pendingStartEarly = hasPendingShiftStartException(options.pendingExceptions);
+  const pendingStartEarly = hasPendingShiftStartException(
+    options.pendingExceptions,
+    options.eventsToday
+  );
   const canStartWithoutSchedule =
     horsQuartEarly && !shiftStartedEarly && !pendingStartEarly;
 
@@ -1282,7 +1288,10 @@ export function buildEmployeeLatenessContext(options: {
     options.currentState
   );
   const horsQuart = resolveInitialCurrentState(options.currentState) === "hors_quart";
-  const pendingStartException = hasPendingShiftStartException(options.pendingExceptions);
+  const pendingStartException = hasPendingShiftStartException(
+    options.pendingExceptions,
+    options.eventsToday
+  );
 
   const canStartShiftActions =
     horsQuart && !shiftAlreadyStarted && !pendingStartException;

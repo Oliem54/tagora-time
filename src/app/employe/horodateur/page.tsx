@@ -14,7 +14,6 @@ import { getCompanyLabel } from "@/app/lib/account-requests.shared";
 import {
   EMPLOYEE_PUNCH_GEOLOCATION_MAX_DURATION_MS,
   messageForHorodateurPunchGpsServerCode,
-  readEmployeePunchGeolocation,
   readEmployeePunchGeolocationWithDeadline,
 } from "@/app/lib/employee-punch-geolocation.client";
 
@@ -302,6 +301,7 @@ const PUNCH_GPS_PUNCH_NOT_COMPLETED_MESSAGE =
   "Position obtenue, mais le pointage n'a pas pu être complété. Vérifiez le message ci-dessus et réessayez.";
 
 const PUNCH_FETCH_TIMEOUT_MS = 60_000;
+const PUNCH_GPS_DEADLINE_MS = EMPLOYEE_PUNCH_GEOLOCATION_MAX_DURATION_MS;
 const CORRECTION_FETCH_TIMEOUT_MS = 30_000;
 const CORRECTION_GPS_DEADLINE_MS = EMPLOYEE_PUNCH_GEOLOCATION_MAX_DURATION_MS;
 const SESSION_READ_TIMEOUT_MS = 15_000;
@@ -789,14 +789,36 @@ export default function EmployeHorodateurPage() {
   const latenessContext = snapshot?.latenessContext ?? null;
 
   const canStartShiftPunch = latenessContext?.canPunchNow === true;
+  const isHorsQuart =
+    (snapshot?.currentState.current_state ??
+      snapshot?.currentState.status ??
+      "hors_quart") === "hors_quart";
+  const punchInBlockedReason = useMemo(() => {
+    if (!isHorsQuart) {
+      return "Vous etes deja en quart. Utilisez Sortie ou les actions de pause.";
+    }
+    if (canStartShiftPunch) {
+      return null;
+    }
+    if ((snapshot?.pendingExceptions.length ?? 0) > 0) {
+      return "Une demande de correction est deja en attente pour aujourd hui. Attendez la decision de la direction ou contactez-la.";
+    }
+    if (latenessContext && !latenessContext.isWithinScheduleWindow) {
+      return "Vous etes hors fenetre horaire prevue. Utilisez « Demander une correction » si vous devez enregistrer une entree.";
+    }
+    return "Entree indisponible pour le moment. Utilisez « Demander une correction » ou contactez la direction.";
+  }, [canStartShiftPunch, isHorsQuart, latenessContext, snapshot?.pendingExceptions.length]);
   const showPunchGpsPanel =
-    canStartShiftPunch || punchGpsUi.phase !== "idle" || isGpsTimeoutMessage(gpsReport.lastError);
+    isHorsQuart ||
+    canStartShiftPunch ||
+    punchGpsUi.phase !== "idle" ||
+    isGpsTimeoutMessage(gpsReport.lastError);
 
   async function handleRetryPunchLocation() {
     setPunchGpsRetrying(true);
     setPunchGpsUi({ phase: "loading", message: "Obtention de la position en cours..." });
     try {
-      const gpsResult = await readEmployeePunchGeolocation();
+      const gpsResult = await readEmployeePunchGeolocationWithDeadline(PUNCH_GPS_DEADLINE_MS);
       if (gpsResult.ok) {
         setPunchGpsUi({
           phase: "ready",
@@ -927,7 +949,7 @@ export default function EmployeHorodateurPage() {
         });
         const gpsResult = options.retroactive
           ? await readEmployeePunchGeolocationWithDeadline(CORRECTION_GPS_DEADLINE_MS)
-          : await readEmployeePunchGeolocation();
+          : await readEmployeePunchGeolocationWithDeadline(PUNCH_GPS_DEADLINE_MS);
         assertActiveCorrectionSubmit(correctionCtx, activeCorrectionSubmitIdRef.current);
         if (!gpsResult.ok) {
           setPunchGpsUi({
@@ -975,7 +997,9 @@ export default function EmployeHorodateurPage() {
         options?.retroactive ? CORRECTION_FETCH_TIMEOUT_MS : PUNCH_FETCH_TIMEOUT_MS,
         options?.retroactive
           ? CORRECTION_FETCH_TIMEOUT_MESSAGE
-          : "La requête de pointage a pris trop de temps. Vérifiez votre connexion et réessayez.",
+          : options?.requireGps
+            ? "Le pointage a pris trop de temps (localisation ou serveur). Verifiez votre connexion et reessayez."
+            : "La requête de pointage a pris trop de temps. Vérifiez votre connexion et réessayez.",
         correctionCtx?.abortSignal
       );
       assertActiveCorrectionSubmit(correctionCtx, activeCorrectionSubmitIdRef.current);
@@ -1084,6 +1108,18 @@ export default function EmployeHorodateurPage() {
 
   async function handleLatePunchNow() {
     await handlePunch("punch_in", { requireGps: true });
+  }
+
+  async function handlePrimaryPunch(eventType: string) {
+    if (eventType === "punch_in") {
+      if (punchInBlockedReason) {
+        setMessage(punchInBlockedReason);
+        return;
+      }
+      await handleLatePunchNow();
+      return;
+    }
+    await handlePunch(eventType);
   }
 
   function openCorrectionModal(options?: { type?: CorrectionRequestType }) {
@@ -1340,24 +1376,23 @@ export default function EmployeHorodateurPage() {
 
         <div style={{ display: "grid", gap: 18 }}>
           <div style={punchPrimaryGridStyle}>
-            {PRIMARY_PUNCH_ACTIONS.map((action) => (
+            {PRIMARY_PUNCH_ACTIONS.map((action) => {
+              const isPunchInBlocked =
+                action.eventType === "punch_in" && Boolean(punchInBlockedReason);
+              return (
               <button
                 key={action.eventType}
                 type="button"
                 className="tagora-dark-action"
                 style={punchPrimaryButtonStyle}
-                disabled={saving}
-                onClick={() => {
-                  if (action.eventType === "punch_in" && canStartShiftPunch) {
-                    void handleLatePunchNow();
-                    return;
-                  }
-                  void handlePunch(action.eventType);
-                }}
+                disabled={saving || isPunchInBlocked}
+                title={isPunchInBlocked ? punchInBlockedReason ?? undefined : undefined}
+                onClick={() => void handlePrimaryPunch(action.eventType)}
               >
                 {action.label}
               </button>
-            ))}
+            );
+            })}
           </div>
 
           {showPunchGpsPanel ? (
