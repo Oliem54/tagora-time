@@ -6,6 +6,7 @@ type CorrectionRequestModalProps = {
   open: boolean;
   saving: boolean;
   submitError?: string | null;
+  gpsWarning?: string | null;
   correctionType: CorrectionRequestType;
   time: string;
   reason: string;
@@ -23,6 +24,7 @@ export default function CorrectionRequestModal({
   open,
   saving,
   submitError,
+  gpsWarning,
   correctionType,
   time,
   reason,
@@ -61,9 +63,24 @@ export default function CorrectionRequestModal({
           Demande de correction
         </h2>
         <p className="tagora-note" style={{ marginTop: 0, marginBottom: 16 }}>
-          Votre position actuelle sera enregistree avec la demande, meme si elle est hors zone GPS.
-          La direction devra approuver avant comptabilisation.
+          Nous tentons d&apos;enregistrer votre position avec la demande, meme si elle est hors zone
+          GPS. Si la localisation est indisponible, la demande peut quand meme etre envoyee sans
+          position. La direction devra approuver avant comptabilisation.
         </p>
+
+        {gpsWarning ? (
+          <div
+            className="tagora-panel-muted"
+            style={{
+              marginBottom: 16,
+              padding: 14,
+              borderColor: "rgba(245, 158, 11, 0.55)",
+            }}
+            role="status"
+          >
+            <p style={{ margin: 0, lineHeight: 1.55, color: "#0f172a" }}>{gpsWarning}</p>
+          </div>
+        ) : null}
 
         {submitError ? (
           <div

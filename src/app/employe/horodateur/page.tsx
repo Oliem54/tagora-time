@@ -319,6 +319,10 @@ const CORRECTION_OPERATION_TIMEOUT_MESSAGE =
   "L'envoi de la demande a pris trop de temps (90 secondes maximum). Vérifiez votre connexion et réessayez.";
 const CORRECTION_CANCELLED_MESSAGE =
   "Envoi annulé. Vous pouvez corriger et réessayer.";
+const CORRECTION_GPS_UNAVAILABLE_WARNING =
+  "GPS non disponible. Votre demande sera envoyée sans position et devra être approuvée par la direction.";
+const CORRECTION_GPS_UNAVAILABLE_NOTE_SUFFIX =
+  "GPS non disponible lors de la demande.";
 
 type CorrectionSubmitContext = {
   submitId: number;
@@ -696,6 +700,7 @@ export default function EmployeHorodateurPage() {
   const [retroactiveTime, setRetroactiveTime] = useState("");
   const [retroactiveReason, setRetroactiveReason] = useState("");
   const [correctionModalError, setCorrectionModalError] = useState("");
+  const [correctionGpsWarning, setCorrectionGpsWarning] = useState("");
   const [punchGpsUi, setPunchGpsUi] = useState<PunchGpsUi>(PUNCH_GPS_UI_IDLE);
   const [punchGpsRetrying, setPunchGpsRetrying] = useState(false);
   const [loadBlockingError, setLoadBlockingError] = useState<string | null>(null);
@@ -1009,6 +1014,7 @@ export default function EmployeHorodateurPage() {
     options?: {
       retroactive?: boolean;
       requireGps?: boolean;
+      tryGps?: boolean;
       correctionSubmit?: CorrectionSubmitContext;
     }
   ) {
@@ -1046,6 +1052,7 @@ export default function EmployeHorodateurPage() {
       occurredAt?: string;
       noteOverride?: string;
       requireGps?: boolean;
+      tryGps?: boolean;
       correctionSubmit?: CorrectionSubmitContext;
     }
   ) {
@@ -1100,8 +1107,9 @@ export default function EmployeHorodateurPage() {
 
       let latitude: number | undefined;
       let longitude: number | undefined;
+      let retroGpsUnavailable = false;
 
-      if (options?.requireGps) {
+      if (options?.requireGps || options?.tryGps) {
         setPunchGpsUi({
           phase: "loading",
           message: options.retroactive
@@ -1118,27 +1126,36 @@ export default function EmployeHorodateurPage() {
         assertActiveCorrectionSubmit(correctionCtx, activeCorrectionSubmitIdRef.current);
         assertCorrectionBudgetRemaining(correctionCtx);
         if (!gpsResult.ok) {
+          if (options?.requireGps) {
+            setPunchGpsUi({
+              phase:
+                gpsResult.code === "permission_denied"
+                  ? "denied"
+                  : gpsResult.code === "timeout"
+                    ? "timeout"
+                    : gpsResult.code === "position_unavailable"
+                      ? "unavailable"
+                      : gpsResult.code === "unsupported"
+                        ? "unsupported"
+                        : "unknown",
+              message: gpsResult.message,
+            });
+            throw new Error(gpsResult.message);
+          }
+          retroGpsUnavailable = true;
+          setCorrectionGpsWarning(CORRECTION_GPS_UNAVAILABLE_WARNING);
           setPunchGpsUi({
-            phase:
-              gpsResult.code === "permission_denied"
-                ? "denied"
-                : gpsResult.code === "timeout"
-                  ? "timeout"
-                  : gpsResult.code === "position_unavailable"
-                    ? "unavailable"
-                    : gpsResult.code === "unsupported"
-                      ? "unsupported"
-                      : "unknown",
-            message: gpsResult.message,
+            phase: "unknown",
+            message: CORRECTION_GPS_UNAVAILABLE_WARNING,
           });
-          throw new Error(gpsResult.message);
+        } else {
+          setPunchGpsUi({
+            phase: "ready",
+            message: "Position obtenue. Validation de la zone en cours...",
+          });
+          latitude = gpsResult.latitude;
+          longitude = gpsResult.longitude;
         }
-        setPunchGpsUi({
-          phase: "ready",
-          message: "Position obtenue. Validation de la zone en cours...",
-        });
-        latitude = gpsResult.latitude;
-        longitude = gpsResult.longitude;
       }
 
       assertActiveCorrectionSubmit(correctionCtx, activeCorrectionSubmitIdRef.current);
@@ -1155,6 +1172,13 @@ export default function EmployeHorodateurPage() {
           ? "Le pointage a pris trop de temps (localisation ou serveur). Verifiez votre connexion et reessayez."
           : "La requête de pointage a pris trop de temps. Vérifiez votre connexion et réessayez.";
 
+      let punchNote = (options?.noteOverride ?? note).trim();
+      if (retroGpsUnavailable) {
+        punchNote = punchNote
+          ? `${punchNote}\n${CORRECTION_GPS_UNAVAILABLE_NOTE_SUFFIX}`
+          : CORRECTION_GPS_UNAVAILABLE_NOTE_SUFFIX;
+      }
+
       const response = await fetchWithTimeout(
         "/api/horodateur/punch",
         {
@@ -1167,7 +1191,7 @@ export default function EmployeHorodateurPage() {
             eventType: options?.retroactive ? undefined : eventType,
             retroactive: options?.retroactive === true ? true : undefined,
             occurredAt: options?.occurredAt ?? undefined,
-            note: (options?.noteOverride ?? note).trim() || null,
+            note: punchNote || null,
             companyContext: snapshot?.employee.primaryCompany ?? null,
             acknowledgeLongLeavePunch: options?.acknowledgeLongLeave === true,
             latitude,
@@ -1255,6 +1279,7 @@ export default function EmployeHorodateurPage() {
         assertActiveCorrectionSubmit(correctionCtx, activeCorrectionSubmitIdRef.current);
         setRetroactiveModalOpen(false);
         setRetroactiveReason("");
+        setCorrectionGpsWarning("");
         setCorrectionType("entry");
       }
     } catch (error) {
@@ -1307,6 +1332,7 @@ export default function EmployeHorodateurPage() {
     }
     setCorrectionType(options?.type ?? "entry");
     setCorrectionModalError("");
+    setCorrectionGpsWarning("");
     setRetroactiveModalOpen(true);
   }
 
@@ -1328,6 +1354,7 @@ export default function EmployeHorodateurPage() {
     setRetroactiveModalOpen(false);
     setCorrectionType("entry");
     setCorrectionModalError("");
+    setCorrectionGpsWarning("");
   }
 
   async function handleCorrectionSubmit() {
@@ -1336,6 +1363,7 @@ export default function EmployeHorodateurPage() {
     }
 
     setCorrectionModalError("");
+    setCorrectionGpsWarning("");
 
     if (correctionType === "other") {
       const msg =
@@ -1392,7 +1420,7 @@ export default function EmployeHorodateurPage() {
         retroactive: true,
         occurredAt,
         noteOverride: reason,
-        requireGps: true,
+        tryGps: true,
         correctionSubmit,
       });
     } finally {
@@ -1742,6 +1770,7 @@ export default function EmployeHorodateurPage() {
         open={retroactiveModalOpen}
         saving={correctionSubmitting}
         submitError={correctionModalError || null}
+        gpsWarning={correctionGpsWarning || null}
         correctionType={correctionType}
         time={retroactiveTime}
         reason={retroactiveReason}
