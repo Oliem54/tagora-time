@@ -53,6 +53,14 @@ import {
   insertHorodateurSmsAlertLog,
 } from "./repository";
 import {
+  composePastShiftNote,
+  formatPastShiftEmployeeDetails,
+  parsePastShiftWindow,
+  PAST_SHIFT_DIRECTION_NOTE_PREFIX,
+  PAST_SHIFT_EMPLOYEE_NOTE_PREFIX,
+} from "@/app/lib/horodateur-past-shift.shared";
+import { HORODATEUR_RETRO_CORRECTION_GPS_UNAVAILABLE_NOTE } from "@/app/lib/horodateur-gps-punch.server";
+import {
   classifyEventPhase1,
   diffMinutes,
   getEventOccurredAt,
@@ -2642,6 +2650,352 @@ export async function createDirectionPunch(options: {
   };
 }
 
+export type HorodateurPastShiftBatchResult = {
+  workDate: string;
+  shift: HorodateurPhase1ShiftRecord;
+  createdEvents: HorodateurPhase1EventRecord[];
+  exception: HorodateurPhase1ExceptionRecord | null;
+  currentState: HorodateurPhase1CurrentStateRecord;
+};
+
+async function insertPastShiftEvent(options: {
+  employee: HorodateurPhase1EmployeeProfile;
+  actorUserId: string;
+  actorRole: "direction" | "employe";
+  eventType: HorodateurPhase1InsertEventInput["eventType"];
+  occurredAt: string;
+  note: string;
+  companyContext: AccountRequestCompany;
+  relatedEventId?: string | null;
+  forcedExceptionType?: HorodateurPhase1ExceptionType | null;
+  webGps?: {
+    latitude: number;
+    longitude: number;
+    zoneValidated: boolean;
+    matchedBaseName: string | null;
+  };
+}) {
+  const currentState = await getCurrentStateByEmployeeId(options.employee.employeeId);
+  const workDate = getLocalWorkDate(options.occurredAt);
+  const latestApprovedEvents = await listEventsForEmployee({
+    employeeId: options.employee.employeeId,
+    workDate,
+    statuses: ["normal", "approuve"],
+  });
+  const classification = classifyEventPhase1({
+    employee: options.employee,
+    currentState,
+    latestApprovedEvents,
+    eventType: options.eventType,
+    occurredAt: options.occurredAt,
+    actorRole: options.actorRole,
+    note: options.note,
+    forcedExceptionType: options.forcedExceptionType ?? null,
+  });
+  const wg = options.webGps;
+
+  return insertHorodateurEvent({
+    userId: requireEmployeeAuthUserId(options.employee),
+    employeeId: options.employee.employeeId,
+    occurredAt: options.occurredAt,
+    ...resolveEventDates(options.occurredAt),
+    eventType: options.eventType,
+    actorUserId: options.actorUserId,
+    actorRole: options.actorRole,
+    sourceKind: options.actorRole === "direction" ? "direction" : "employe",
+    companyContext: options.companyContext,
+    note: options.note,
+    relatedEventId: options.relatedEventId ?? null,
+    isManualCorrection: false,
+    status: classification.status,
+    requiresApproval: classification.requiresApproval,
+    exceptionCode: classification.exceptionType,
+    approvalNote: classification.details,
+    ...(wg
+      ? {
+          punchSource: "employe_web",
+          punchZoneKey: wg.matchedBaseName,
+          zoneValidated: wg.zoneValidated,
+          gpsLatitude: wg.latitude,
+          gpsLongitude: wg.longitude,
+          workCompanyKey: options.companyContext,
+          employerCompanyKey: options.employee.primaryCompany,
+        }
+      : {}),
+  });
+}
+
+async function createPastShiftEventSequence(options: {
+  employee: HorodateurPhase1EmployeeProfile;
+  actorUserId: string;
+  actorRole: "direction" | "employe";
+  window: {
+    workDate: string;
+    startIso: string;
+    endIso: string;
+    breakStartIso: string | null;
+    breakEndIso: string | null;
+    shiftMinutes: number;
+  };
+  noteBody: string;
+  notePrefix: string;
+  startTimeLabel: string;
+  endTimeLabel: string;
+  breakMinutes: number;
+  webGps?: {
+    latitude: number;
+    longitude: number;
+    zoneValidated: boolean;
+    matchedBaseName: string | null;
+  };
+  gpsUnavailable?: boolean;
+}): Promise<HorodateurPastShiftBatchResult> {
+  const companyContext = requireCompanyContext(null, options.employee);
+  let note = composePastShiftNote(options.notePrefix, options.noteBody);
+
+  if (options.gpsUnavailable) {
+    note = note.includes(HORODATEUR_RETRO_CORRECTION_GPS_UNAVAILABLE_NOTE)
+      ? note
+      : `${note}\n${HORODATEUR_RETRO_CORRECTION_GPS_UNAVAILABLE_NOTE}`;
+  }
+
+  const forcedExceptionType: HorodateurPhase1ExceptionType | null =
+    options.actorRole === "employe" ? "missing_punch_adjustment" : null;
+
+  if (options.breakMinutes > 0 && options.employee.pausePaid) {
+    throw new HorodateurPhase1Error(
+      "Pause payée : ne saisissez pas de pause (elle est incluse dans le quart).",
+      { code: "paid_break_no_punch_required", status: 400 }
+    );
+  }
+
+  const createdEvents: HorodateurPhase1EventRecord[] = [];
+
+  const punchIn = await insertPastShiftEvent({
+    employee: options.employee,
+    actorUserId: options.actorUserId,
+    actorRole: options.actorRole,
+    eventType: "punch_in",
+    occurredAt: options.window.startIso,
+    note,
+    companyContext,
+    forcedExceptionType,
+    webGps: options.webGps,
+  });
+  createdEvents.push(punchIn);
+
+  if (
+    options.breakMinutes > 0 &&
+    options.window.breakStartIso &&
+    options.window.breakEndIso
+  ) {
+    createdEvents.push(
+      await insertPastShiftEvent({
+        employee: options.employee,
+        actorUserId: options.actorUserId,
+        actorRole: options.actorRole,
+        eventType: "break_start",
+        occurredAt: options.window.breakStartIso,
+        note,
+        companyContext,
+        relatedEventId: punchIn.id,
+        forcedExceptionType,
+      })
+    );
+    createdEvents.push(
+      await insertPastShiftEvent({
+        employee: options.employee,
+        actorUserId: options.actorUserId,
+        actorRole: options.actorRole,
+        eventType: "break_end",
+        occurredAt: options.window.breakEndIso,
+        note,
+        companyContext,
+        relatedEventId: punchIn.id,
+        forcedExceptionType,
+      })
+    );
+  }
+
+  const punchOut = await insertPastShiftEvent({
+    employee: options.employee,
+    actorUserId: options.actorUserId,
+    actorRole: options.actorRole,
+    eventType: "punch_out",
+    occurredAt: options.window.endIso,
+    note,
+    companyContext,
+    relatedEventId: punchIn.id,
+    forcedExceptionType,
+  });
+  createdEvents.push(punchOut);
+
+  let exception: HorodateurPhase1ExceptionRecord | null = null;
+
+  if (options.actorRole === "employe" && punchIn.exception_code) {
+    const details = [
+      formatPastShiftEmployeeDetails({
+        workDate: options.window.workDate,
+        startTime: options.startTimeLabel,
+        endTime: options.endTimeLabel,
+        breakMinutes: options.breakMinutes,
+        shiftMinutes: options.window.shiftMinutes,
+      }),
+      options.noteBody.trim(),
+    ]
+      .filter(Boolean)
+      .join("\n\n");
+
+    exception = await createPendingExceptionForEvent({
+      employeeId: options.employee.employeeId,
+      event: punchIn,
+      requestedByUserId: options.actorUserId,
+      reasonLabel: "Quart oublié — heures passées en attente",
+      employeeNote: details,
+      impactMinutes: 0,
+    });
+
+    if (exception) {
+      exception = await notifyDirectionOfPendingException({
+        employee: options.employee,
+        exception,
+        event: punchIn,
+      });
+    }
+  }
+
+  const shift = await recomputeShiftForDate(
+    options.employee.employeeId,
+    options.window.workDate
+  );
+  const currentState = await recomputeCurrentState(options.employee.employeeId);
+
+  return {
+    workDate: options.window.workDate,
+    shift,
+    createdEvents,
+    exception,
+    currentState,
+  };
+}
+
+export async function createDirectionPastShift(options: {
+  actorUserId: string;
+  employeeId: number;
+  date: string;
+  startTime: string;
+  endTime: string;
+  breakMinutes?: number;
+  note: string;
+  companyContext?: AccountRequestCompany | null;
+}) {
+  const normalizedNote = String(options.note ?? "").trim();
+  if (!normalizedNote) {
+    throw new HorodateurPhase1Error(
+      "Un commentaire est obligatoire pour ajouter des heures passées.",
+      { code: "past_shift_note_required", status: 400 }
+    );
+  }
+
+  const parsed = parsePastShiftWindow({
+    date: options.date,
+    startTime: options.startTime,
+    endTime: options.endTime,
+    breakMinutes: options.breakMinutes,
+  });
+
+  if (!parsed.ok) {
+    throw new HorodateurPhase1Error(parsed.error, {
+      code: parsed.code,
+      status: 400,
+    });
+  }
+
+  const employee = await resolveEmployeeById(options.employeeId);
+  if (options.companyContext) {
+    requireCompanyContext(options.companyContext, employee);
+  }
+
+  return createPastShiftEventSequence({
+    employee,
+    actorUserId: options.actorUserId,
+    actorRole: "direction",
+    window: parsed.value,
+    noteBody: normalizedNote,
+    notePrefix: PAST_SHIFT_DIRECTION_NOTE_PREFIX,
+    startTimeLabel: options.startTime,
+    endTimeLabel: options.endTime,
+    breakMinutes: Math.max(0, Math.floor(Number(options.breakMinutes ?? 0))),
+  });
+}
+
+export async function createEmployeePastShiftRequest(options: {
+  actorUserId: string;
+  date: string;
+  startTime: string;
+  endTime: string;
+  breakMinutes?: number;
+  note: string;
+  companyContext?: AccountRequestCompany | null;
+  webGps?: {
+    latitude: number;
+    longitude: number;
+    zoneValidated: boolean;
+    matchedBaseName: string | null;
+  };
+  gpsUnavailable?: boolean;
+}) {
+  const normalizedNote = String(options.note ?? "").trim();
+  if (!normalizedNote) {
+    throw new HorodateurPhase1Error(
+      "Une raison est obligatoire pour une demande d heures passées.",
+      { code: "past_shift_note_required", status: 400 }
+    );
+  }
+
+  const parsed = parsePastShiftWindow({
+    date: options.date,
+    startTime: options.startTime,
+    endTime: options.endTime,
+    breakMinutes: options.breakMinutes,
+  });
+
+  if (!parsed.ok) {
+    throw new HorodateurPhase1Error(parsed.error, {
+      code: parsed.code,
+      status: 400,
+    });
+  }
+
+  const employee = await resolveEmployeeByAuthUserId(options.actorUserId);
+  requireCompanyContext(options.companyContext, employee);
+
+  const result = await createPastShiftEventSequence({
+    employee,
+    actorUserId: options.actorUserId,
+    actorRole: "employe",
+    window: parsed.value,
+    noteBody: normalizedNote,
+    notePrefix: PAST_SHIFT_EMPLOYEE_NOTE_PREFIX,
+    startTimeLabel: options.startTime,
+    endTimeLabel: options.endTime,
+    breakMinutes: Math.max(0, Math.floor(Number(options.breakMinutes ?? 0))),
+    webGps: options.webGps,
+    gpsUnavailable: options.gpsUnavailable === true,
+  });
+
+  if (result.exception) {
+    await maybeNotifyDirectionOfHorodateurPunch({
+      employee,
+      event: result.createdEvents[0],
+      exception: result.exception,
+      actorUserId: options.actorUserId,
+    });
+  }
+
+  return result;
+}
+
 export async function getWeeklyProjection(employeeId: number, weekStartDate?: string) {
   const employee = await resolveEmployeeById(employeeId);
   const resolvedWeekStartDate =
@@ -2971,6 +3325,27 @@ export async function approveHorodateurException(options: {
     reviewNote: options.reviewNote ?? null,
   });
 
+  const adminApprove = tryCreateAdminClient();
+  if (adminApprove) {
+    const { data: linkedPending } = await adminApprove
+      .from("horodateur_events")
+      .select("id")
+      .eq("related_event_id", sourceEvent.id)
+      .eq("status", "en_attente");
+
+    for (const row of linkedPending ?? []) {
+      if (!row || typeof (row as { id?: unknown }).id !== "string") {
+        continue;
+      }
+      await updateEventReviewStatus({
+        eventId: (row as { id: string }).id,
+        status: "approuve",
+        reviewedByUserId: options.actorUserId,
+        reviewNote: options.reviewNote ?? null,
+      });
+    }
+  }
+
   const shift = await recomputeShiftForDate(
     exception.employee_id,
     event.work_date ??
@@ -3069,6 +3444,27 @@ export async function refuseHorodateurException(options: {
     reviewNote: normalizedReviewNote,
   });
 
+  const adminRefuseClient = tryCreateAdminClient();
+  if (adminRefuseClient) {
+    const { data: linkedPending } = await adminRefuseClient
+      .from("horodateur_events")
+      .select("id")
+      .eq("related_event_id", exception.source_event_id)
+      .eq("status", "en_attente");
+
+    for (const row of linkedPending ?? []) {
+      if (!row || typeof (row as { id?: unknown }).id !== "string") {
+        continue;
+      }
+      await updateEventReviewStatus({
+        eventId: (row as { id: string }).id,
+        status: "refuse",
+        reviewedByUserId: options.actorUserId,
+        reviewNote: normalizedReviewNote,
+      });
+    }
+  }
+
   const shift = await recomputeShiftForDate(
     exception.employee_id,
     event.work_date ??
@@ -3102,10 +3498,9 @@ export async function refuseHorodateurException(options: {
     });
   }
 
-  const adminRefuse = tryCreateAdminClient();
-  if (adminRefuse) {
+  if (adminRefuseClient) {
     await markHorodateurExceptionAppAlertHandled(
-      adminRefuse,
+      adminRefuseClient,
       exception.id,
       options.actorUserId,
       "rejected"

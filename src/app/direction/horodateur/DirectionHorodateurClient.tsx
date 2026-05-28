@@ -18,6 +18,16 @@ import { useCurrentAccess } from "@/app/hooks/useCurrentAccess";
 import { supabase } from "@/app/lib/supabase/client";
 import { getCompanyLabel } from "@/app/lib/account-requests.shared";
 import { normalizePhoneNumber } from "@/app/lib/timeclock-api.client";
+import PastShiftDirectionModal from "@/app/components/horodateur/PastShiftDirectionModal";
+
+function defaultTorontoWorkDate() {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Toronto",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+}
 
 type LiveRow = {
   employeeId: number;
@@ -514,6 +524,14 @@ export default function DirectionHorodateurPage() {
   const [selectedEventType, setSelectedEventType] =
     useState<(typeof DIRECTION_EVENT_TYPES)[number]>("punch_in");
   const [note, setNote] = useState("");
+  const [pastShiftModalOpen, setPastShiftModalOpen] = useState(false);
+  const [pastShiftEmployeeId, setPastShiftEmployeeId] = useState("");
+  const [pastShiftWorkDate, setPastShiftWorkDate] = useState(defaultTorontoWorkDate);
+  const [pastShiftStartTime, setPastShiftStartTime] = useState("08:00");
+  const [pastShiftEndTime, setPastShiftEndTime] = useState("16:00");
+  const [pastShiftBreakMinutes, setPastShiftBreakMinutes] = useState("0");
+  const [pastShiftNote, setPastShiftNote] = useState("");
+  const [pastShiftError, setPastShiftError] = useState("");
   const [liveFilter, setLiveFilter] = useState<LiveFilter>("tous");
   const [refusingExceptionId, setRefusingExceptionId] = useState<string | null>(null);
   const [refuseNoteById, setRefuseNoteById] = useState<Record<string, string>>({});
@@ -937,6 +955,84 @@ export default function DirectionHorodateurPage() {
       setMessage("Configuration des alertes enregistree.");
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "Erreur de configuration.");
+    } finally {
+      setActiveActionKey(null);
+    }
+  }
+
+  const pastShiftEmployees = useMemo(
+    () =>
+      board.map((row) => ({
+        id: row.employeeId,
+        label: row.fullName || row.email || `#${row.employeeId}`,
+      })),
+    [board]
+  );
+
+  async function handlePastShiftSubmit() {
+    const employeeId = Number(pastShiftEmployeeId);
+    if (!Number.isFinite(employeeId)) {
+      setPastShiftError("Sélectionnez un employé.");
+      return;
+    }
+    if (!pastShiftWorkDate.trim()) {
+      setPastShiftError("La date de travail est obligatoire.");
+      return;
+    }
+    if (!pastShiftStartTime.trim() || !pastShiftEndTime.trim()) {
+      setPastShiftError("Les heures de début et de fin sont obligatoires.");
+      return;
+    }
+    if (!pastShiftNote.trim()) {
+      setPastShiftError("Un commentaire est obligatoire.");
+      return;
+    }
+
+    setActiveActionKey("past-shift");
+    setPastShiftError("");
+    setMessage("");
+    setError("");
+
+    try {
+      await withToken(async (token) => {
+        const response = await fetch("/api/direction/horodateur/past-shift", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            employeeId,
+            date: pastShiftWorkDate,
+            startTime: pastShiftStartTime,
+            endTime: pastShiftEndTime,
+            breakMinutes: Number(pastShiftBreakMinutes),
+            note: pastShiftNote.trim(),
+          }),
+        });
+        const result = await response.json();
+        if (!response.ok) {
+          throw new Error(
+            typeof result.error === "string"
+              ? result.error
+              : "Impossible d enregistrer les heures passées."
+          );
+        }
+        return result;
+      });
+
+      setPastShiftModalOpen(false);
+      setPastShiftNote("");
+      setMessage(
+        "Heures passées enregistrées. Le quart a été recalculé pour la date sélectionnée."
+      );
+      await loadData("refresh", { preserveMessage: true });
+    } catch (submitError) {
+      setPastShiftError(
+        submitError instanceof Error
+          ? submitError.message
+          : "Erreur lors de l enregistrement des heures passées."
+      );
     } finally {
       setActiveActionKey(null);
     }
@@ -1872,7 +1968,32 @@ export default function DirectionHorodateurPage() {
           )}
         </SectionCard>
 
-        <SectionCard title="Action direction" subtitle="Punch manuel trace.">
+        <SectionCard
+          title="Action direction"
+          subtitle="Punch manuel trace ou ajout d un quart passé complet."
+        >
+          <div
+            style={{
+              display: "flex",
+              flexWrap: "wrap",
+              gap: 10,
+              marginBottom: "var(--ui-space-3)",
+            }}
+          >
+            <SecondaryButton
+              onClick={() => {
+                setPastShiftError("");
+                setPastShiftEmployeeId(selectedEmployeeId);
+                if (!pastShiftWorkDate) {
+                  setPastShiftWorkDate(defaultTorontoWorkDate());
+                }
+                setPastShiftModalOpen(true);
+              }}
+              disabled={isBusy || !hasEmployees}
+            >
+              Ajouter des heures passées
+            </SecondaryButton>
+          </div>
           <div
             style={{
               display: "grid",
@@ -2177,6 +2298,33 @@ export default function DirectionHorodateurPage() {
           </div>
         </SectionCard>
       </div>
+
+      <PastShiftDirectionModal
+        open={pastShiftModalOpen}
+        saving={activeActionKey === "past-shift"}
+        submitError={pastShiftError || null}
+        employeeId={pastShiftEmployeeId}
+        workDate={pastShiftWorkDate}
+        startTime={pastShiftStartTime}
+        endTime={pastShiftEndTime}
+        breakMinutes={pastShiftBreakMinutes}
+        note={pastShiftNote}
+        employees={pastShiftEmployees}
+        onClose={() => {
+          if (activeActionKey === "past-shift") {
+            return;
+          }
+          setPastShiftModalOpen(false);
+          setPastShiftError("");
+        }}
+        onEmployeeIdChange={setPastShiftEmployeeId}
+        onWorkDateChange={setPastShiftWorkDate}
+        onStartTimeChange={setPastShiftStartTime}
+        onEndTimeChange={setPastShiftEndTime}
+        onBreakMinutesChange={setPastShiftBreakMinutes}
+        onNoteChange={setPastShiftNote}
+        onSubmit={() => void handlePastShiftSubmit()}
+      />
     </main>
   );
 }

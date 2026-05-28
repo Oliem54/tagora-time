@@ -324,6 +324,26 @@ const CORRECTION_GPS_UNAVAILABLE_WARNING =
 const CORRECTION_GPS_UNAVAILABLE_NOTE_SUFFIX =
   "GPS non disponible lors de la demande.";
 
+function defaultTorontoWorkDate() {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Toronto",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+}
+
+function newCorrectionSubmitContext(
+  submitId: number,
+  abortSignal: AbortSignal
+): CorrectionSubmitContext {
+  return {
+    submitId,
+    abortSignal,
+    deadlineAt: Date.now() + CORRECTION_OPERATION_MAX_MS,
+  };
+}
+
 type CorrectionSubmitContext = {
   submitId: number;
   abortSignal: AbortSignal;
@@ -696,8 +716,12 @@ export default function EmployeHorodateurPage() {
     returnSummary: string;
   } | null>(null);
   const [retroactiveModalOpen, setRetroactiveModalOpen] = useState(false);
-  const [correctionType, setCorrectionType] = useState<CorrectionRequestType>("entry");
+  const [correctionType, setCorrectionType] = useState<CorrectionRequestType>("past_shift");
   const [retroactiveTime, setRetroactiveTime] = useState("");
+  const [pastShiftWorkDate, setPastShiftWorkDate] = useState(defaultTorontoWorkDate);
+  const [pastShiftStartTime, setPastShiftStartTime] = useState("08:00");
+  const [pastShiftEndTime, setPastShiftEndTime] = useState("16:00");
+  const [pastShiftBreakMinutes, setPastShiftBreakMinutes] = useState("0");
   const [retroactiveReason, setRetroactiveReason] = useState("");
   const [correctionModalError, setCorrectionModalError] = useState("");
   const [correctionGpsWarning, setCorrectionGpsWarning] = useState("");
@@ -1330,9 +1354,10 @@ export default function EmployeHorodateurPage() {
     ) {
       setRetroactiveTime(latenessContext.scheduledStartLabel.slice(0, 5));
     }
-    setCorrectionType(options?.type ?? "entry");
+    setCorrectionType(options?.type ?? "past_shift");
     setCorrectionModalError("");
     setCorrectionGpsWarning("");
+    setPastShiftWorkDate(snapshot?.todayShift?.work_date ?? defaultTorontoWorkDate());
     setRetroactiveModalOpen(true);
   }
 
@@ -1357,6 +1382,158 @@ export default function EmployeHorodateurPage() {
     setCorrectionGpsWarning("");
   }
 
+  async function handlePastShiftRequestSubmit() {
+    if (correctionInFlightRef.current || correctionSubmittingRef.current) {
+      return;
+    }
+
+    const reason = retroactiveReason.trim();
+    if (!reason) {
+      const msg = "La raison est obligatoire pour une demande d heures passées.";
+      setCorrectionModalError(msg);
+      setMessage(msg);
+      return;
+    }
+
+    if (!pastShiftWorkDate.trim() || !pastShiftStartTime.trim() || !pastShiftEndTime.trim()) {
+      const msg = "La date, l heure de début et l heure de fin sont obligatoires.";
+      setCorrectionModalError(msg);
+      setMessage(msg);
+      return;
+    }
+
+    const submitId = correctionSubmitIdSeqRef.current + 1;
+    correctionSubmitIdSeqRef.current = submitId;
+    activeCorrectionSubmitIdRef.current = submitId;
+    correctionSubmittingRef.current = true;
+    correctionInFlightRef.current = true;
+    setCorrectionSubmitting(true);
+
+    const abortController = new AbortController();
+    correctionAbortRef.current = abortController;
+    const correctionSubmit = newCorrectionSubmitContext(
+      submitId,
+      abortController.signal
+    );
+
+    try {
+      let accessToken: string | null;
+      try {
+        accessToken = await readAccessTokenWithTimeout(
+          Math.min(SESSION_READ_TIMEOUT_MS, remainingCorrectionBudgetMs(correctionSubmit))
+        );
+        assertActiveCorrectionSubmit(correctionSubmit, activeCorrectionSubmitIdRef.current);
+      } catch (error) {
+        const msg =
+          error instanceof Error
+            ? error.message
+            : "Session expirée. Reconnectez-vous et réessayez.";
+        setCorrectionModalError(msg);
+        setMessage(msg);
+        return;
+      }
+
+      if (!accessToken) {
+        const msg = "Session expirée. Reconnectez-vous et réessayez.";
+        setCorrectionModalError(msg);
+        setMessage(msg);
+        return;
+      }
+
+      let latitude: number | undefined;
+      let longitude: number | undefined;
+      let gpsUnavailable = false;
+
+      setPunchGpsUi({
+        phase: "loading",
+        message: "Obtention de la position pour la demande d heures passées...",
+      });
+
+      const gpsResult = await readEmployeePunchGeolocationWithDeadline(
+        resolveCorrectionGpsDeadlineMs(correctionSubmit),
+        correctionSubmit.abortSignal
+      );
+
+      assertActiveCorrectionSubmit(correctionSubmit, activeCorrectionSubmitIdRef.current);
+
+      if (!gpsResult.ok) {
+        gpsUnavailable = true;
+        setCorrectionGpsWarning(CORRECTION_GPS_UNAVAILABLE_WARNING);
+        setPunchGpsUi({
+          phase: "unknown",
+          message: CORRECTION_GPS_UNAVAILABLE_WARNING,
+        });
+      } else {
+        latitude = gpsResult.latitude;
+        longitude = gpsResult.longitude;
+        setPunchGpsUi({ phase: "ready", message: "Position obtenue. Envoi de la demande..." });
+      }
+
+      const response = await fetchWithTimeout(
+        "/api/horodateur/past-shift-request",
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            date: pastShiftWorkDate,
+            startTime: pastShiftStartTime,
+            endTime: pastShiftEndTime,
+            breakMinutes: Number(pastShiftBreakMinutes),
+            note: reason,
+            companyContext: snapshot?.employee.primaryCompany ?? null,
+            latitude,
+            longitude,
+          }),
+        },
+        resolveCorrectionFetchTimeoutMs(correctionSubmit),
+        CORRECTION_FETCH_TIMEOUT_MESSAGE,
+        correctionSubmit.abortSignal
+      );
+
+      const payload = (await response.json()) as Record<string, unknown>;
+      assertActiveCorrectionSubmit(correctionSubmit, activeCorrectionSubmitIdRef.current);
+
+      if (!response.ok) {
+        const serverMessage =
+          typeof payload.error === "string"
+            ? payload.error
+            : "Impossible d envoyer la demande d heures passées.";
+        throw new Error(serverMessage);
+      }
+
+      setRetroactiveModalOpen(false);
+      setRetroactiveReason("");
+      setCorrectionGpsWarning("");
+      setCorrectionType("past_shift");
+      setMessage(
+        gpsUnavailable || payload.gpsUnavailable === true
+          ? "Demande envoyée sans position GPS. La direction doit l approuver avant comptabilisation."
+          : "Demande de quart oublié envoyée à la direction pour approbation."
+      );
+      void loadData({ preserveMessage: true, background: true });
+    } catch (error) {
+      const msg =
+        error instanceof Error ? error.message : "Erreur lors de l envoi de la demande.";
+      if (!isCorrectionCancelledMessage(msg)) {
+        setCorrectionModalError(msg);
+        setMessage(msg);
+      }
+    } finally {
+      correctionInFlightRef.current = false;
+      if (activeCorrectionSubmitIdRef.current === submitId) {
+        activeCorrectionSubmitIdRef.current = 0;
+        if (correctionAbortRef.current === abortController) {
+          correctionAbortRef.current = null;
+        }
+      }
+      correctionSubmittingRef.current = false;
+      setCorrectionSubmitting(false);
+    }
+  }
+
   async function handleCorrectionSubmit() {
     if (correctionInFlightRef.current || correctionSubmittingRef.current) {
       return;
@@ -1370,6 +1547,11 @@ export default function EmployeHorodateurPage() {
         "Cette option n'est pas encore disponible. Contactez la direction directement pour signaler une autre correction.";
       setCorrectionModalError(msg);
       setMessage(msg);
+      return;
+    }
+
+    if (correctionType === "past_shift") {
+      await handlePastShiftRequestSubmit();
       return;
     }
 
@@ -1409,11 +1591,10 @@ export default function EmployeHorodateurPage() {
 
     const abortController = new AbortController();
     correctionAbortRef.current = abortController;
-    const correctionSubmit: CorrectionSubmitContext = {
+    const correctionSubmit = newCorrectionSubmitContext(
       submitId,
-      abortSignal: abortController.signal,
-      deadlineAt: Date.now() + CORRECTION_OPERATION_MAX_MS,
-    };
+      abortController.signal
+    );
 
     try {
       await handlePunch("punch_in", {
@@ -1773,11 +1954,19 @@ export default function EmployeHorodateurPage() {
         gpsWarning={correctionGpsWarning || null}
         correctionType={correctionType}
         time={retroactiveTime}
+        workDate={pastShiftWorkDate}
+        startTime={pastShiftStartTime}
+        endTime={pastShiftEndTime}
+        breakMinutes={pastShiftBreakMinutes}
         reason={retroactiveReason}
         scheduledStartLabel={latenessContext?.scheduledStartLabel ?? null}
         onClose={closeCorrectionModal}
         onCorrectionTypeChange={setCorrectionType}
         onTimeChange={setRetroactiveTime}
+        onWorkDateChange={setPastShiftWorkDate}
+        onStartTimeChange={setPastShiftStartTime}
+        onEndTimeChange={setPastShiftEndTime}
+        onBreakMinutesChange={setPastShiftBreakMinutes}
         onReasonChange={setRetroactiveReason}
         onApplyShortcut={applyRetroactiveShortcut}
         onApplyScheduledStart={applyScheduledStartShortcut}
