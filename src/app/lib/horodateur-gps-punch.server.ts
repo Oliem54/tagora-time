@@ -38,6 +38,9 @@ type GpsBaseRow = {
 
 export type HorodateurWebPunchGpsMode = "strict_punch" | "retroactive_request";
 
+export const HORODATEUR_RETRO_CORRECTION_GPS_UNAVAILABLE_NOTE =
+  "GPS non disponible lors de la demande.";
+
 export function formatHorodateurGpsJournalSuffix(options: {
   latitude: number;
   longitude: number;
@@ -116,8 +119,8 @@ export async function evaluateEmployeeWebPunchGps(options: {
   longitude: unknown;
   companyContext: AccountRequestCompany;
   /**
-   * strict_punch : punch réel — blocage hors zone / sans bases.
-   * retroactive_request : demande rétroactive — position obligatoire, hors zone journalisée pour la direction.
+   * strict_punch : punch réel — blocage hors zone / sans bases ; GPS obligatoire.
+   * retroactive_request : demande rétroactive — hors zone journalisée ; sans coordonnées, géré par la route punch.
    */
   punchGpsMode?: HorodateurWebPunchGpsMode;
 }): Promise<HorodateurWebPunchGpsEvaluation> {
