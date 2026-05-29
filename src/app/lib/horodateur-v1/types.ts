@@ -302,6 +302,7 @@ export type HorodateurPhase1DirectionLiveRow = {
   lastEventAt: string | null;
   lastEventType: HorodateurPhase1EventType | null;
   todayShift: HorodateurPhase1ShiftRecord | null;
+  todayTimeDisplay: HorodateurPhase1TodayTimeDisplay;
   weekWorkedMinutes: number;
   weekTargetMinutes: number;
   weekRemainingMinutes: number;
@@ -323,10 +324,24 @@ export type HorodateurPhase1LatenessContext = {
   showLateStartCard: boolean;
 };
 
+/** Temps affich├® ├á la vol├®e ÔÇö jamais persist├® en DB. */
+export type HorodateurPhase1TodayTimeDisplay = {
+  officialPayableMinutes: number;
+  livePayableMinutes: number;
+  liveWorkedMinutes: number;
+  hasOpenShiftAccrual: boolean;
+  hasPendingOperationalPunchToday: boolean;
+  pendingPunchBlocksAccrual: boolean;
+  openShiftWorkDateMismatch: boolean;
+  openShiftWorkDate: string | null;
+  computedAt: string;
+};
+
 export type HorodateurPhase1EmployeeDashboardSnapshot = {
   employee: HorodateurPhase1EmployeeProfile;
   currentState: HorodateurPhase1CurrentStateRecord;
   todayShift: HorodateurPhase1ShiftRecord;
+  todayTimeDisplay: HorodateurPhase1TodayTimeDisplay;
   weeklyProjection: {
     employeeId: number;
     weekStartDate: string;

@@ -53,6 +53,14 @@ type LiveRow = {
   weekRemainingMinutes: number;
   projectedOverflowMinutes: number;
   hasOpenException: boolean;
+  todayTimeDisplay?: {
+    officialPayableMinutes: number;
+    livePayableMinutes: number;
+    hasOpenShiftAccrual: boolean;
+    pendingPunchBlocksAccrual: boolean;
+    openShiftWorkDateMismatch: boolean;
+    openShiftWorkDate: string | null;
+  } | null;
 };
 
 type PendingException = {
@@ -329,6 +337,16 @@ function getRowState(row: LiveRow) {
   return row.currentState || row.status || "hors_quart";
 }
 
+function resolveDisplayedPayableMinutes(row: LiveRow) {
+  if (row.todayTimeDisplay?.hasOpenShiftAccrual) {
+    return Math.max(0, row.todayTimeDisplay.livePayableMinutes);
+  }
+  return Math.max(
+    0,
+    row.todayTimeDisplay?.officialPayableMinutes ?? row.todayShift?.payable_minutes ?? 0
+  );
+}
+
 function normalizeLiveRow(raw: unknown): LiveRow {
   const row = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
   const employeeIdValue = Number(row.employeeId ?? row.employee_id);
@@ -355,6 +373,29 @@ function normalizeLiveRow(raw: unknown): LiveRow {
     row.alertFlags && typeof row.alertFlags === "object"
       ? (row.alertFlags as LiveRow["alertFlags"])
       : null;
+  const timeDisplayRaw =
+    row.todayTimeDisplay && typeof row.todayTimeDisplay === "object"
+      ? (row.todayTimeDisplay as Record<string, unknown>)
+      : null;
+  const todayTimeDisplay = timeDisplayRaw
+    ? {
+        officialPayableMinutes:
+          typeof timeDisplayRaw.officialPayableMinutes === "number"
+            ? timeDisplayRaw.officialPayableMinutes
+            : 0,
+        livePayableMinutes:
+          typeof timeDisplayRaw.livePayableMinutes === "number"
+            ? timeDisplayRaw.livePayableMinutes
+            : 0,
+        hasOpenShiftAccrual: Boolean(timeDisplayRaw.hasOpenShiftAccrual),
+        pendingPunchBlocksAccrual: Boolean(timeDisplayRaw.pendingPunchBlocksAccrual),
+        openShiftWorkDateMismatch: Boolean(timeDisplayRaw.openShiftWorkDateMismatch),
+        openShiftWorkDate:
+          typeof timeDisplayRaw.openShiftWorkDate === "string"
+            ? timeDisplayRaw.openShiftWorkDate
+            : null,
+      }
+    : null;
 
   return {
     employeeId,
@@ -421,6 +462,7 @@ function normalizeLiveRow(raw: unknown): LiveRow {
       Boolean(row.hasOpenException) ||
       Boolean(alertFlags?.hasOpenException) ||
       activeExceptionCount > 0,
+    todayTimeDisplay,
   };
 }
 
@@ -556,7 +598,7 @@ export default function DirectionHorodateurPage() {
   const globalMetrics = useMemo(() => {
     const employeesInShift = board.filter((row) => getRowState(row) === "en_quart").length;
     const totalTodayMinutes = board.reduce(
-      (sum, row) => sum + Math.max(0, row.todayShift?.payable_minutes ?? 0),
+      (sum, row) => sum + resolveDisplayedPayableMinutes(row),
       0
     );
     const totalWeekWorkedMinutes = board.reduce(
@@ -1784,7 +1826,21 @@ export default function DirectionHorodateurPage() {
                         </td>
                         <td style={tdStyle}>
                           <div className="ui-stack-xs">
-                            <span>{formatMinutes(row.todayShift?.payable_minutes ?? 0)}</span>
+                            <span>{formatMinutes(resolveDisplayedPayableMinutes(row))}</span>
+                            {row.todayTimeDisplay?.hasOpenShiftAccrual ? (
+                              <span className="ui-text-muted">
+                                En cours (officiel :{" "}
+                                {formatMinutes(row.todayTimeDisplay.officialPayableMinutes)})
+                              </span>
+                            ) : null}
+                            {row.todayTimeDisplay?.pendingPunchBlocksAccrual ? (
+                              <span className="ui-text-muted">Punch en attente</span>
+                            ) : null}
+                            {row.todayTimeDisplay?.openShiftWorkDateMismatch ? (
+                              <span className="ui-text-muted">
+                                Quart ouvert depuis {row.todayTimeDisplay.openShiftWorkDate ?? "?"}
+                              </span>
+                            ) : null}
                             <span className="ui-text-muted">
                               Debut: {formatDateTime(row.startedAt ?? row.todayShift?.shift_start_at ?? null)}
                             </span>

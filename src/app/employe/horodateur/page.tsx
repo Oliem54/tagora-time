@@ -64,6 +64,19 @@ type EmployeeSnapshot = {
     status: string;
   }>;
   latenessContext?: LatenessContext | null;
+  todayTimeDisplay?: TodayTimeDisplay | null;
+};
+
+type TodayTimeDisplay = {
+  officialPayableMinutes: number;
+  livePayableMinutes: number;
+  liveWorkedMinutes: number;
+  hasOpenShiftAccrual: boolean;
+  hasPendingOperationalPunchToday: boolean;
+  pendingPunchBlocksAccrual: boolean;
+  openShiftWorkDateMismatch: boolean;
+  openShiftWorkDate: string | null;
+  computedAt: string;
 };
 
 type LatenessContext = {
@@ -149,6 +162,29 @@ function formatMinutes(totalMinutes: number) {
   const hours = Math.floor(totalMinutes / 60);
   const minutes = totalMinutes % 60;
   return `${hours}h ${String(minutes).padStart(2, "0")}m`;
+}
+
+function normalizeTodayTimeDisplay(raw: unknown): TodayTimeDisplay | null {
+  const source = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : null;
+  if (!source) {
+    return null;
+  }
+
+  return {
+    officialPayableMinutes:
+      typeof source.officialPayableMinutes === "number" ? source.officialPayableMinutes : 0,
+    livePayableMinutes:
+      typeof source.livePayableMinutes === "number" ? source.livePayableMinutes : 0,
+    liveWorkedMinutes:
+      typeof source.liveWorkedMinutes === "number" ? source.liveWorkedMinutes : 0,
+    hasOpenShiftAccrual: Boolean(source.hasOpenShiftAccrual),
+    hasPendingOperationalPunchToday: Boolean(source.hasPendingOperationalPunchToday),
+    pendingPunchBlocksAccrual: Boolean(source.pendingPunchBlocksAccrual),
+    openShiftWorkDateMismatch: Boolean(source.openShiftWorkDateMismatch),
+    openShiftWorkDate:
+      typeof source.openShiftWorkDate === "string" ? source.openShiftWorkDate : null,
+    computedAt: typeof source.computedAt === "string" ? source.computedAt : new Date().toISOString(),
+  };
 }
 
 function exceptionStatusLabelFr(status: string) {
@@ -676,6 +712,11 @@ function normalizeSnapshotPayload(payload: unknown): EmployeeSnapshot | null {
       normalizeLatenessContext(
         raw && typeof raw === "object" ? (raw as Record<string, unknown>).latenessContext : null
       ),
+    todayTimeDisplay:
+      normalizeTodayTimeDisplay(source.todayTimeDisplay) ??
+      normalizeTodayTimeDisplay(
+        raw && typeof raw === "object" ? (raw as Record<string, unknown>).todayTimeDisplay : null
+      ),
   };
 }
 
@@ -733,6 +774,18 @@ export default function EmployeHorodateurPage() {
     if (value === "termine") return "Quart termine";
     return "Hors quart";
   }, [snapshot?.currentState.current_state, snapshot?.currentState.status]);
+
+  const todayTimeDisplay = snapshot?.todayTimeDisplay ?? null;
+  const officialPayableMinutesToday =
+    todayTimeDisplay?.officialPayableMinutes ??
+    snapshot?.todayShift?.payable_minutes ??
+    0;
+  const displayedPayableMinutesToday = todayTimeDisplay?.hasOpenShiftAccrual
+    ? todayTimeDisplay.livePayableMinutes
+    : officialPayableMinutesToday;
+  const todayTimeLabel = todayTimeDisplay?.hasOpenShiftAccrual
+    ? "Temps en cours aujourd hui"
+    : "Temps paye aujourd hui";
 
   const loadData = useCallback(async (options?: {
     preserveMessage?: boolean;
@@ -1576,10 +1629,34 @@ export default function EmployeHorodateurPage() {
             </div>
           </div>
           <div className="tagora-panel-muted">
-            <div className="tagora-label">Temps paye aujourd hui</div>
+            <div className="tagora-label">{todayTimeLabel}</div>
             <div style={{ marginTop: 8, fontSize: 24, fontWeight: 800 }}>
-              {formatMinutes(snapshot?.todayShift?.payable_minutes ?? 0)}
+              {formatMinutes(displayedPayableMinutesToday)}
             </div>
+            {todayTimeDisplay?.hasOpenShiftAccrual ? (
+              <p className="tagora-note" style={{ marginTop: 8, marginBottom: 0, lineHeight: 1.45 }}>
+                Temps officiel (quart ouvert) : {formatMinutes(officialPayableMinutesToday)} — finalise
+                a la sortie.
+              </p>
+            ) : null}
+            {todayTimeDisplay?.pendingPunchBlocksAccrual ? (
+              <p className="tagora-note" style={{ marginTop: 8, marginBottom: 0, lineHeight: 1.45 }}>
+                Punch en attente d approbation — le temps affiche ne progresse plus jusqu a validation.
+              </p>
+            ) : null}
+            {todayTimeDisplay?.openShiftWorkDateMismatch ? (
+              <p className="tagora-note" style={{ marginTop: 8, marginBottom: 0, lineHeight: 1.45 }}>
+                Quart ouvert depuis{" "}
+                {todayTimeDisplay.openShiftWorkDate ?? "un jour precedent"}. Pointez votre sortie ou
+                contactez la direction.
+              </p>
+            ) : null}
+            {todayTimeDisplay?.hasPendingOperationalPunchToday &&
+            !todayTimeDisplay.pendingPunchBlocksAccrual ? (
+              <p className="tagora-note" style={{ marginTop: 8, marginBottom: 0, lineHeight: 1.45 }}>
+                Un pointage est en attente d approbation direction.
+              </p>
+            ) : null}
           </div>
           <div className="tagora-panel-muted">
             <div className="tagora-label">Progression semaine</div>
