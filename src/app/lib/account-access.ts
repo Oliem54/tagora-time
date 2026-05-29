@@ -1,6 +1,7 @@
 import type { AppPermission } from "@/app/lib/auth/permissions";
 import type { AppRole } from "@/app/lib/auth/roles";
 import type {
+  AccountRequestAuditEntry,
   AccountRequestCompany,
   ExistingAccountSnapshot,
 } from "@/app/lib/account-requests.shared";
@@ -20,6 +21,7 @@ export type AccountAccessAction =
   | "reset_pending"
   | "resend_invitation"
   | "disable_access"
+  | "reactivate_access"
   | "retry";
 
 export type EmployeeLinkStatus = "created" | "existing" | "missing";
@@ -59,7 +61,7 @@ export type AccountAccessRequestRecord = {
   /** auth.users.id après invitation / activation */
   invited_user_id?: string | null;
   created_at: string;
-  audit_log?: Array<{ action?: string; details?: Record<string, unknown> }> | null;
+  audit_log?: AccountRequestAuditEntry[] | null;
 };
 
 export type AccountAccessListFilter =
@@ -71,10 +73,16 @@ export type AccountAccessListFilter =
   | "refused"
   | "error";
 
+function isAuditAccessDisabledEntry(entry: AccountRequestAuditEntry) {
+  return entry.event === "access_disabled";
+}
+
 export function isAccessDisabledRequest(request: AccountAccessRequestRecord) {
-  const auditDisabled = (request.audit_log ?? []).some(
-    (entry) => entry.action === "access_disabled"
-  );
+  if (request.existing_account?.accessDisabled) {
+    return true;
+  }
+
+  const auditDisabled = (request.audit_log ?? []).some(isAuditAccessDisabledEntry);
   if (auditDisabled) {
     return true;
   }
@@ -82,7 +90,9 @@ export function isAccessDisabledRequest(request: AccountAccessRequestRecord) {
   return Boolean(
     request.existing_account?.exists &&
       !request.existing_account.role &&
-      request.status === "refused"
+      (request.status === "active" ||
+        request.status === "invited" ||
+        request.status === "refused")
   );
 }
 
@@ -103,6 +113,8 @@ export function matchesAccountAccessFilter(
   if (filter === "refused") {
     return isRefusedRequest(request);
   }
+  if (filter === "active" || filter === "invited") {
+    return request.status === filter && !isAccessDisabledRequest(request);
+  }
   return request.status === filter;
 }
-

@@ -55,7 +55,7 @@ export default function AccountRequestRowActions({
           Gérer
         </button>
       ) : null}
-      {canManageRoles && request.status === "active" && onDisableAccess ? (
+      {canManageRoles && request.status === "active" && !accessDisabled && onDisableAccess ? (
         <button
           type="button"
           className="account-requests-action-button account-requests-action-button-danger"

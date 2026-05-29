@@ -126,6 +126,7 @@ function getSuccessMessage(action: AccountAccessAction) {
   if (action === "reset_pending") return "Demande remise en attente.";
   if (action === "resend_invitation") return "Invitation renvoyee avec succes.";
   if (action === "disable_access") return "Acces desactive avec succes.";
+  if (action === "reactivate_access") return "Acces reactive avec succes.";
   return "Traitement relance avec succes.";
 }
 
@@ -195,8 +196,12 @@ export default function DirectionEmployeeAccountsClient() {
   const counts = useMemo(
     () => ({
       pending: sortedRequests.filter((item) => item.status === "pending").length,
-      invited: sortedRequests.filter((item) => item.status === "invited").length,
-      active: sortedRequests.filter((item) => item.status === "active").length,
+      invited: sortedRequests.filter(
+        (item) => item.status === "invited" && !isAccessDisabledRequest(item)
+      ).length,
+      active: sortedRequests.filter(
+        (item) => item.status === "active" && !isAccessDisabledRequest(item)
+      ).length,
       disabled: sortedRequests.filter((item) => isAccessDisabledRequest(item)).length,
       refused: sortedRequests.filter(
         (item) => item.status === "refused" && !isAccessDisabledRequest(item)
@@ -614,28 +619,30 @@ export default function DirectionEmployeeAccountsClient() {
       return;
     }
 
-    const employeeId = request.employee_link?.id;
-    if (!employeeId) {
-      setMessage(
-        "Réactivation impossible : aucune fiche employé liée. Ouvrez « Gérer » ou associez la fiche depuis la page employés."
-      );
-      setMessageType("error");
-      return;
-    }
-
     setReactivatingRequestId(request.id);
     setMessage("");
     setMessageType(null);
 
     try {
-      const response = await fetch(`/api/employees/${employeeId}/account-security`, {
-        method: "POST",
+      const response = await window.fetch(`/api/account-requests/${request.id}`, {
+        method: "PATCH",
+        cache: "no-store",
         headers: {
           Authorization: `Bearer ${accessToken}`,
           "Content-Type": "application/json",
           "x-account-requests-client": "browser-authenticated",
+          "x-account-requests-page": "direction-demandes-comptes",
         },
-        body: JSON.stringify({ action: "reactivate_account" }),
+        body: JSON.stringify({
+          action: "reactivate_access",
+          assignedRole:
+            request.assigned_role ?? request.requested_role ?? assignedRole,
+          assignedPermissions:
+            request.assigned_permissions ??
+            request.requested_permissions ??
+            assignedPermissions,
+          reviewNote: request.review_note ?? reviewNote,
+        }),
       });
       const payload = await response.json();
 
@@ -645,11 +652,7 @@ export default function DirectionEmployeeAccountsClient() {
         return;
       }
 
-      setMessage(
-        typeof payload.message === "string"
-          ? payload.message
-          : "Accès réactivé avec succès."
-      );
+      setMessage(getSuccessMessage("reactivate_access"));
       setMessageType("success");
       await fetchRequests();
     } catch {

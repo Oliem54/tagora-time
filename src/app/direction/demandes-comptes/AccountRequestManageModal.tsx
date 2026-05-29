@@ -78,14 +78,19 @@ function getPrimaryActionForStatus(status: AccountAccessStatus): ActionConfig | 
   return null;
 }
 
-function getSecondaryActionsForStatus(status: AccountAccessStatus): ActionConfig[] {
+function getSecondaryActionsForStatus(
+  status: AccountAccessStatus,
+  request?: AccountAccessRequestRecord
+): ActionConfig[] {
+  const accessDisabled = request ? isAccessDisabledRequest(request) : false;
+
   if (status === "invited") {
     return [
       { action: "resend_invitation", label: "Renvoyer l invitation", tone: "secondary" },
       { action: "reset_pending", label: "Remettre en attente", tone: "secondary" },
     ];
   }
-  if (status === "active") {
+  if (status === "active" && !accessDisabled) {
     return [{ action: "disable_access", label: "Desactiver l acces", tone: "danger" }];
   }
   if (status === "refused") {
@@ -209,7 +214,7 @@ export default function AccountRequestManageModal({
   }
 
   const primaryAction = getPrimaryActionForStatus(request.status);
-  const secondaryActions = getSecondaryActionsForStatus(request.status);
+  const secondaryActions = getSecondaryActionsForStatus(request.status, request);
   const accessDisabled = isAccessDisabledRequest(request);
   const hasAuthAccount = Boolean(request.existing_account?.exists || request.invited_user_id);
   const canUsePasswordActions = canManageRoles && hasAuthAccount;

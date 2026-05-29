@@ -46,7 +46,8 @@ export type AccountRequestAuditEntry = {
     | "request_reopened"
     | "request_deleted"
     | "invitation_resent"
-    | "access_disabled";
+    | "access_disabled"
+    | "access_reactivated";
   actorUserId?: string | null;
   ip?: string | null;
   details?: Record<string, unknown>;
@@ -65,6 +66,7 @@ export type ExistingAccountSnapshot = {
   emailConfirmed: boolean;
   hasSignedIn: boolean;
   lastSignInAt: string | null;
+  accessDisabled: boolean;
 };
 
 export type AccountRequestRow = {
@@ -326,6 +328,88 @@ export function hasUserActivatedAccess(user: User | null | undefined) {
   );
 }
 
+function isAuthMetadataRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function readDisabledRoleFromAuthMetadata(metadata: unknown): AppRole | null {
+  if (!isAuthMetadataRecord(metadata)) {
+    return null;
+  }
+
+  const role = metadata.disabled_role;
+  if (role === "employe" || role === "direction" || role === "admin") {
+    return role;
+  }
+
+  return null;
+}
+
+function readDisabledPermissionsFromAuthMetadata(metadata: unknown): AppPermission[] {
+  if (!isAuthMetadataRecord(metadata)) {
+    return [];
+  }
+
+  return normalizePermissionList(metadata.disabled_permissions);
+}
+
+export function readAccessDisabledFromAuthUser(user: User | null | undefined) {
+  if (!user) {
+    return false;
+  }
+
+  return Boolean(
+    user.app_metadata?.access_disabled === true ||
+      user.user_metadata?.access_disabled === true
+  );
+}
+
+export function getRestorableRoleForAuthUser(user: User | null | undefined): AppRole {
+  return (
+    getUserRole(user) ??
+    readDisabledRoleFromAuthMetadata(user?.app_metadata) ??
+    readDisabledRoleFromAuthMetadata(user?.user_metadata) ??
+    "employe"
+  );
+}
+
+export function getRestorablePermissionsForAuthUser(
+  user: User | null | undefined
+): AppPermission[] {
+  const currentPermissions = getUserPermissions(user);
+
+  if (currentPermissions.length > 0) {
+    return currentPermissions;
+  }
+
+  const disabledPermissions = [
+    ...readDisabledPermissionsFromAuthMetadata(user?.app_metadata),
+    ...readDisabledPermissionsFromAuthMetadata(user?.user_metadata),
+  ];
+
+  return Array.from(new Set(disabledPermissions));
+}
+
+export function buildReactivatedAuthMetadataForUser(
+  metadata: unknown,
+  user: User,
+  actorUserId: string,
+  at: string
+) {
+  const source = isAuthMetadataRecord(metadata) ? metadata : {};
+
+  return {
+    ...source,
+    role: getRestorableRoleForAuthUser(user),
+    permissions: getRestorablePermissionsForAuthUser(user),
+    access_disabled: false,
+    access_disabled_at: null,
+    access_disabled_by: null,
+    access_reactivated_at: at,
+    access_reactivated_by: actorUserId,
+  };
+}
+
 export function buildExistingAccountSnapshot(
   user: User | null | undefined
 ): ExistingAccountSnapshot {
@@ -346,5 +430,6 @@ export function buildExistingAccountSnapshot(
     emailConfirmed: Boolean(user?.email_confirmed_at || user?.confirmed_at),
     hasSignedIn: Boolean(user?.last_sign_in_at),
     lastSignInAt: user?.last_sign_in_at ?? null,
+    accessDisabled: readAccessDisabledFromAuthUser(user),
   };
 }
