@@ -1641,7 +1641,7 @@ export default function EmployeHorodateurPage() {
             ) : null}
             {todayTimeDisplay?.pendingPunchBlocksAccrual ? (
               <p className="tagora-note" style={{ marginTop: 8, marginBottom: 0, lineHeight: 1.45 }}>
-                Punch en attente d approbation ÔÇö temps non comptabilise pour le moment.
+                Punch en attente d approbation — le temps affiche ne progresse plus jusqu a validation.
               </p>
             ) : null}
             {todayTimeDisplay?.openShiftWorkDateMismatch ? (

@@ -2893,9 +2893,42 @@ function resolveActiveOpenShiftWorkDate(
   );
 }
 
+/** Fin/pause/repas en attente : le live ne doit pas depasser l'horodatage soumis. */
+const PENDING_LIVE_ACCRUAL_CAP_EVENT_TYPES = new Set([
+  "punch_out",
+  "break_start",
+  "meal_start",
+]);
+
+function getLatestPendingLiveAccrualCapAt(
+  pendingOperationalEvents: HorodateurPhase1EventRecord[]
+): string | null {
+  let latestAt: string | null = null;
+  let latestMs = -1;
+
+  for (const event of pendingOperationalEvents) {
+    const canonical = toCanonicalEventType(event.event_type);
+    if (!canonical || !PENDING_LIVE_ACCRUAL_CAP_EVENT_TYPES.has(canonical)) {
+      continue;
+    }
+    const occurredAt = getEventOccurredAt(event);
+    if (!occurredAt) {
+      continue;
+    }
+    const ms = new Date(occurredAt).getTime();
+    if (!Number.isFinite(ms) || ms < latestMs) {
+      continue;
+    }
+    latestMs = ms;
+    latestAt = occurredAt;
+  }
+
+  return latestAt;
+}
+
 /**
- * Calcule le temps affich├® pour la journ├®e sans persister en DB.
- * Reprend la logique de recomputeShiftForDate et ajoute le segment ouvert jusqu'├á `now`.
+ * Calcule le temps affiché pour la journée sans persister en DB.
+ * Reprend la logique de recomputeShiftForDate et ajoute le segment ouvert jusqu'à `now`.
  */
 export function computeTodayLiveShiftDisplayMinutes(options: {
   employee: HorodateurPhase1EmployeeProfile;
@@ -2925,10 +2958,13 @@ export function computeTodayLiveShiftDisplayMinutes(options: {
   const hasPendingPunchInToday = pendingOperationalToday.some(
     (event) => toCanonicalEventType(event.event_type) === "punch_in"
   );
-  const pendingPunchBlocksAccrual =
+  const pendingLiveAccrualCapAt = getLatestPendingLiveAccrualCapAt(pendingOperationalToday);
+  const blocksAccrualFromPendingPunchIn =
     hasPendingPunchInToday &&
     !hasApprovedPunchInToday &&
     !isQuarterActiveState(resolvedState);
+  const pendingPunchBlocksAccrual =
+    blocksAccrualFromPendingPunchIn || Boolean(pendingLiveAccrualCapAt);
 
   const openShiftWorkDate = resolveActiveOpenShiftWorkDate(options.allApprovedEvents);
   const openShiftWorkDateMismatch =
@@ -3053,7 +3089,7 @@ export function computeTodayLiveShiftDisplayMinutes(options: {
   }
 
   const canAccrueOpenSegment =
-    !pendingPunchBlocksAccrual &&
+    !blocksAccrualFromPendingPunchIn &&
     !openShiftWorkDateMismatch &&
     shiftStartAt &&
     !shiftEndAt &&
@@ -3061,7 +3097,8 @@ export function computeTodayLiveShiftDisplayMinutes(options: {
     workSegmentStartAt;
 
   if (canAccrueOpenSegment && workSegmentStartAt) {
-    workedMinutes += diffMinutes(workSegmentStartAt, nowIso);
+    const accrualEndIso = pendingLiveAccrualCapAt ?? nowIso;
+    workedMinutes += diffMinutes(workSegmentStartAt, accrualEndIso);
   }
 
   const liveWorkedMinutes = workedMinutes;
