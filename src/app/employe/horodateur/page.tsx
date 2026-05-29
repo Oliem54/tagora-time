@@ -1635,7 +1635,7 @@ export default function EmployeHorodateurPage() {
             </div>
             {todayTimeDisplay?.hasOpenShiftAccrual ? (
               <p className="tagora-note" style={{ marginTop: 8, marginBottom: 0, lineHeight: 1.45 }}>
-                Temps officiel (quart ouvert) : {formatMinutes(officialPayableMinutesToday)} ÔÇö finalise
+                Temps officiel (quart ouvert) : {formatMinutes(officialPayableMinutesToday)} — finalise
                 a la sortie.
               </p>
             ) : null}
