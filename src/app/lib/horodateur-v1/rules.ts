@@ -300,7 +300,7 @@ function isAllowedTransition(
   }
 
   if (canonicalEventType === "punch_out") {
-    return state === "en_quart";
+    return state === "en_quart" || state === "en_pause" || state === "en_diner";
   }
 
   if (canonicalEventType === "break_start") {

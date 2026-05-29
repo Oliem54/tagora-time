@@ -300,6 +300,12 @@ const PUNCH_GPS_UI_IDLE: PunchGpsUi = { phase: "idle", message: "" };
 const PUNCH_GPS_PUNCH_NOT_COMPLETED_MESSAGE =
   "Position obtenue, mais le pointage n'a pas pu être complété. Vérifiez le message ci-dessus et réessayez.";
 
+const PUNCH_OUT_PENDING_APPROVAL_MESSAGE =
+  "Sortie enregistrée, en attente d'approbation. Votre quart restera ouvert jusqu'à validation.";
+
+const PUNCH_OUT_SUCCESS_MESSAGE =
+  "Sortie enregistrée. Votre temps a été recalculé.";
+
 const PUNCH_FETCH_TIMEOUT_MS = 60_000;
 const PUNCH_GPS_DEADLINE_MS = EMPLOYEE_PUNCH_GEOLOCATION_MAX_DURATION_MS;
 const CORRECTION_FETCH_TIMEOUT_MS = 30_000;
@@ -1268,12 +1274,18 @@ export default function EmployeHorodateurPage() {
       punchSucceeded = true;
       setNote("");
       setCorrectionModalError("");
+      const isPunchOut =
+        !options?.retroactive && eventType === "punch_out";
       setMessage(
         options?.retroactive
           ? "Demande envoyée à la direction pour approbation."
-          : payload.exception
-            ? "Pointage enregistre avec exception en attente d approbation."
-            : "Pointage enregistre."
+          : isPunchOut && payload.exception
+            ? PUNCH_OUT_PENDING_APPROVAL_MESSAGE
+            : isPunchOut
+              ? PUNCH_OUT_SUCCESS_MESSAGE
+              : payload.exception
+                ? "Pointage enregistre avec exception en attente d approbation."
+                : "Pointage enregistre."
       );
       if (options?.retroactive) {
         assertActiveCorrectionSubmit(correctionCtx, activeCorrectionSubmitIdRef.current);
@@ -1299,6 +1311,9 @@ export default function EmployeHorodateurPage() {
       !isStaleCorrectionSubmit(correctionCtx, activeCorrectionSubmitIdRef.current)
     ) {
       void (async () => {
+        if (!options?.retroactive && eventType === "punch_out") {
+          lastDataLoadAtRef.current = 0;
+        }
         const refreshed = await loadData({ preserveMessage: true, background: true });
         if (!refreshed) {
           setMessage((current) => current || LOAD_DATA_AFTER_PUNCH_FAILED_MESSAGE);
