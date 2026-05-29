@@ -2,6 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ArrowLeft,
@@ -20,8 +21,11 @@ import { useCurrentAccess } from "@/app/hooks/useCurrentAccess";
 import { accountRequestPermissionOptions } from "@/app/lib/account-request-options";
 import {
   type AccountAccessAction,
+  type AccountAccessListFilter,
   type AccountAccessRequestRecord,
   type AccountAccessStatus,
+  isAccessDisabledRequest,
+  matchesAccountAccessFilter,
 } from "@/app/lib/account-access";
 import {
   getCompanyLabel,
@@ -97,15 +101,17 @@ function buildApiErrorMessage(payload: unknown, fallback: string) {
   return parts.length > 0 ? parts.join(" | ") : fallback;
 }
 
-function getStatusLabel(status: AccountAccessStatus) {
+function getStatusLabel(status: AccountAccessStatus, request?: AccountAccessRequestRecord) {
+  if (request && isAccessDisabledRequest(request)) return "Accès désactivé";
   if (status === "active") return "Actif";
-  if (status === "invited") return "Invite";
-  if (status === "refused") return "Refuse";
+  if (status === "invited") return "Invité";
+  if (status === "refused") return "Refusé";
   if (status === "error") return "Erreur";
   return "En attente";
 }
 
-function getStatusTone(status: AccountAccessStatus) {
+function getStatusTone(status: AccountAccessStatus, request?: AccountAccessRequestRecord) {
+  if (request && isAccessDisabledRequest(request)) return "default" as const;
   if (status === "active") return "success" as const;
   if (status === "invited") return "info" as const;
   if (status === "refused") return "danger" as const;
@@ -135,6 +141,7 @@ function accountStatTone(
 
 
 export default function DirectionEmployeeAccountsClient() {
+  const searchParams = useSearchParams();
   const { user, role } = useCurrentAccess();
   const canManageRoles = role === "admin";
   const canEditRequestDetails = role === "direction" || role === "admin";
@@ -157,6 +164,9 @@ export default function DirectionEmployeeAccountsClient() {
   const [savingAction, setSavingAction] = useState<AccountAccessAction | null>(null);
   const [securityAction, setSecurityAction] = useState<AccountSecurityAction | null>(null);
   const [deletingRequestId, setDeletingRequestId] = useState<string | null>(null);
+  const [disablingRequestId, setDisablingRequestId] = useState<string | null>(null);
+  const [reactivatingRequestId, setReactivatingRequestId] = useState<string | null>(null);
+  const [statusFilter, setStatusFilter] = useState<AccountAccessListFilter>("all");
   const [permissionOptions, setPermissionOptions] = useState<
     Array<{ value: string; label: string }>
   >(fallbackPermissions);
@@ -168,6 +178,11 @@ export default function DirectionEmployeeAccountsClient() {
           new Date(right.created_at).getTime() - new Date(left.created_at).getTime()
       ),
     [requests]
+  );
+
+  const filteredRequests = useMemo(
+    () => sortedRequests.filter((item) => matchesAccountAccessFilter(item, statusFilter)),
+    [sortedRequests, statusFilter]
   );
 
   const managingRequest = useMemo(
@@ -182,7 +197,10 @@ export default function DirectionEmployeeAccountsClient() {
       pending: sortedRequests.filter((item) => item.status === "pending").length,
       invited: sortedRequests.filter((item) => item.status === "invited").length,
       active: sortedRequests.filter((item) => item.status === "active").length,
-      refused: sortedRequests.filter((item) => item.status === "refused").length,
+      disabled: sortedRequests.filter((item) => isAccessDisabledRequest(item)).length,
+      refused: sortedRequests.filter(
+        (item) => item.status === "refused" && !isAccessDisabledRequest(item)
+      ).length,
       error: sortedRequests.filter((item) => item.status === "error").length,
     }),
     [sortedRequests]
@@ -246,6 +264,12 @@ export default function DirectionEmployeeAccountsClient() {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void fetchRequests();
   }, [accessToken, fetchRequests, isReady]);
+
+  useEffect(() => {
+    if (searchParams.get("create") === "1" && canEditRequestDetails) {
+      setCreateOpen(true);
+    }
+  }, [canEditRequestDetails, searchParams]);
 
   useEffect(() => {
     async function loadPermissions() {
@@ -368,6 +392,10 @@ export default function DirectionEmployeeAccountsClient() {
     setMessage("");
     setMessageType(null);
 
+    if (action === "disable_access") {
+      setDisablingRequestId(request.id);
+    }
+
     try {
       const response = await window.fetch(`/api/account-requests/${request.id}`, {
         method: "PATCH",
@@ -403,6 +431,9 @@ export default function DirectionEmployeeAccountsClient() {
       setMessageType("error");
     } finally {
       setSavingAction(null);
+      if (action === "disable_access") {
+        setDisablingRequestId(null);
+      }
     }
   }
 
@@ -519,6 +550,116 @@ export default function DirectionEmployeeAccountsClient() {
     }
   }
 
+  async function disableRequestAccess(request: AccountAccessRequestRecord) {
+    if (!accessToken || !canManageRoles) {
+      setMessage("Action réservée aux administrateurs.");
+      setMessageType("error");
+      return;
+    }
+
+    const ok = window.confirm(
+      "Désactiver l'accès portail pour cette demande ? L'utilisateur ne pourra plus se connecter, mais la fiche employé et l'historique seront conservés."
+    );
+    if (!ok) return;
+
+    setDisablingRequestId(request.id);
+    setMessage("");
+    setMessageType(null);
+
+    try {
+      const response = await window.fetch(`/api/account-requests/${request.id}`, {
+        method: "PATCH",
+        cache: "no-store",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+          "x-account-requests-client": "browser-authenticated",
+          "x-account-requests-page": "direction-demandes-comptes",
+        },
+        body: JSON.stringify({
+          action: "disable_access",
+          assignedRole:
+            request.assigned_role ?? request.requested_role ?? assignedRole,
+          assignedPermissions:
+            request.assigned_permissions ??
+            request.requested_permissions ??
+            assignedPermissions,
+          reviewNote: request.review_note ?? reviewNote,
+        }),
+      });
+
+      const payload = await response.json();
+
+      if (!response.ok) {
+        setMessage(buildApiErrorMessage(payload, "La désactivation de l'accès a échoué."));
+        setMessageType("error");
+        return;
+      }
+
+      setMessage(getSuccessMessage("disable_access"));
+      setMessageType("success");
+      await fetchRequests();
+    } catch {
+      setMessage("La désactivation de l'accès a échoué.");
+      setMessageType("error");
+    } finally {
+      setDisablingRequestId(null);
+    }
+  }
+
+  async function reactivateRequestAccess(request: AccountAccessRequestRecord) {
+    if (!accessToken || !canManageRoles) {
+      setMessage("Action réservée aux administrateurs.");
+      setMessageType("error");
+      return;
+    }
+
+    const employeeId = request.employee_link?.id;
+    if (!employeeId) {
+      setMessage(
+        "Réactivation impossible : aucune fiche employé liée. Ouvrez « Gérer » ou associez la fiche depuis la page employés."
+      );
+      setMessageType("error");
+      return;
+    }
+
+    setReactivatingRequestId(request.id);
+    setMessage("");
+    setMessageType(null);
+
+    try {
+      const response = await fetch(`/api/employees/${employeeId}/account-security`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+          "x-account-requests-client": "browser-authenticated",
+        },
+        body: JSON.stringify({ action: "reactivate_account" }),
+      });
+      const payload = await response.json();
+
+      if (!response.ok) {
+        setMessage(buildApiErrorMessage(payload, "La réactivation de l'accès a échoué."));
+        setMessageType("error");
+        return;
+      }
+
+      setMessage(
+        typeof payload.message === "string"
+          ? payload.message
+          : "Accès réactivé avec succès."
+      );
+      setMessageType("success");
+      await fetchRequests();
+    } catch {
+      setMessage("La réactivation de l'accès a échoué.");
+      setMessageType("error");
+    } finally {
+      setReactivatingRequestId(null);
+    }
+  }
+
   async function deleteRequest(request: AccountAccessRequestRecord) {
     if (!accessToken) {
       return;
@@ -526,7 +667,7 @@ export default function DirectionEmployeeAccountsClient() {
 
     if (
       !window.confirm(
-        "Voulez-vous vraiment supprimer cette demande de compte ? Cette action est irreversible."
+        "Supprimer définitivement cette demande de compte ? Cette action est irréversible et ne désactive pas l'accès portail existant."
       )
     ) {
       return;
@@ -596,11 +737,23 @@ export default function DirectionEmployeeAccountsClient() {
           </div>
 
           <div className="account-requests-premium-hero-copy">
-            <h1 className="account-requests-premium-title">Demandes de comptes</h1>
+            <h1 className="account-requests-premium-title">
+              Demandes de comptes · Gestion des accès
+            </h1>
+            <p className="account-requests-premium-description">
+              Gérez les demandes de comptes, les accès portail et les liaisons avec les fiches
+              employés.
+            </p>
           </div>
 
           <div className="account-requests-premium-hero-actions">
             {user?.email ? <UserIdentityBadge value={user.email} roleLabel={viewerRoleLabel} /> : null}
+            <Link
+              href="/direction/ressources/employes"
+              className="account-requests-hero-button account-requests-hero-button-secondary"
+            >
+              Fiches employés
+            </Link>
             <Link href="/direction" className="account-requests-hero-button account-requests-hero-button-secondary">
               <LayoutDashboard size={14} />
               Tableau
@@ -649,6 +802,22 @@ export default function DirectionEmployeeAccountsClient() {
 
         <section className="account-requests-premium-shell">
           <div className="account-requests-premium-toolbar">
+            <label className="tagora-field account-requests-status-filter" style={{ marginBottom: 0 }}>
+              <span className="tagora-label">Filtrer par statut</span>
+              <select
+                className="tagora-input"
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value as AccountAccessListFilter)}
+              >
+                <option value="all">Tous ({sortedRequests.length})</option>
+                <option value="pending">En attente ({counts.pending})</option>
+                <option value="invited">Invités ({counts.invited})</option>
+                <option value="active">Actifs ({counts.active})</option>
+                <option value="disabled">Désactivés ({counts.disabled})</option>
+                <option value="refused">Refusés ({counts.refused})</option>
+                <option value="error">Erreurs ({counts.error})</option>
+              </select>
+            </label>
             {canEditRequestDetails ? (
               <button
                 type="button"
@@ -656,7 +825,7 @@ export default function DirectionEmployeeAccountsClient() {
                 onClick={() => setCreateOpen(true)}
               >
                 <UserPlus size={14} />
-                Ajouter un profil
+                Ajouter un accès manuellement
               </button>
             ) : null}
             <button
@@ -675,10 +844,10 @@ export default function DirectionEmployeeAccountsClient() {
                 Chargement...
               </p>
             </div>
-          ) : sortedRequests.length === 0 ? (
+          ) : filteredRequests.length === 0 ? (
             <div className="tagora-panel-muted">
               <p className="tagora-note" style={{ margin: 0 }}>
-                Aucune demande.
+                Aucune demande ne correspond à ce filtre.
               </p>
             </div>
           ) : (
@@ -708,7 +877,7 @@ export default function DirectionEmployeeAccountsClient() {
                   </tr>
                 </thead>
                 <tbody>
-                  {sortedRequests.map((request) => (
+                  {filteredRequests.map((request) => (
                     <tr key={request.id}>
                       <td>
                         <div className="account-requests-requester">
@@ -742,8 +911,8 @@ export default function DirectionEmployeeAccountsClient() {
                       <td>
                         <div className="account-requests-cell-stack">
                           <StatusBadge
-                            label={getStatusLabel(request.status)}
-                            tone={getStatusTone(request.status)}
+                            label={getStatusLabel(request.status, request)}
+                            tone={getStatusTone(request.status, request)}
                           />
                           <span className="account-requests-cell-sub">
                             {request.existing_account?.exists ? "Compte detecte" : "Compte a creer"}
@@ -770,9 +939,14 @@ export default function DirectionEmployeeAccountsClient() {
                             request={request}
                             onManage={() => setManagingRequestId(request.id)}
                             onDelete={() => void deleteRequest(request)}
+                            onDisableAccess={() => void disableRequestAccess(request)}
+                            onReactivateAccess={() => void reactivateRequestAccess(request)}
                             deleting={deletingRequestId === request.id}
+                            disabling={disablingRequestId === request.id}
+                            reactivating={reactivatingRequestId === request.id}
                             canDelete={canManageRoles}
                             canManage={canOpenManage}
+                            canManageRoles={canManageRoles}
                           />
                         </div>
                       </td>
@@ -783,15 +957,20 @@ export default function DirectionEmployeeAccountsClient() {
             </div>
 
             <div className="account-requests-mobile-list" aria-label="Liste des demandes de comptes">
-              {sortedRequests.map((request) => (
+              {filteredRequests.map((request) => (
                 <AccountRequestMobileCard
                   key={request.id}
                   request={request}
                   onManage={() => setManagingRequestId(request.id)}
                   onDelete={() => void deleteRequest(request)}
+                  onDisableAccess={() => void disableRequestAccess(request)}
+                  onReactivateAccess={() => void reactivateRequestAccess(request)}
                   deleting={deletingRequestId === request.id}
+                  disabling={disablingRequestId === request.id}
+                  reactivating={reactivatingRequestId === request.id}
                   canDelete={canManageRoles}
                   canManage={canOpenManage}
+                  canManageRoles={canManageRoles}
                 />
               ))}
             </div>
@@ -830,7 +1009,11 @@ export default function DirectionEmployeeAccountsClient() {
         onDelete={() => {
           if (managingRequest) void deleteRequest(managingRequest);
         }}
+        onReactivateAccess={() => {
+          if (managingRequest) void reactivateRequestAccess(managingRequest);
+        }}
         deleting={Boolean(managingRequest && deletingRequestId === managingRequest.id)}
+        reactivating={Boolean(managingRequest && reactivatingRequestId === managingRequest.id)}
       />
 
       <AccountRequestCreateModal

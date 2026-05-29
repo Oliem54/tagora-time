@@ -59,5 +59,50 @@ export type AccountAccessRequestRecord = {
   /** auth.users.id après invitation / activation */
   invited_user_id?: string | null;
   created_at: string;
+  audit_log?: Array<{ action?: string; details?: Record<string, unknown> }> | null;
 };
+
+export type AccountAccessListFilter =
+  | "all"
+  | "pending"
+  | "invited"
+  | "active"
+  | "disabled"
+  | "refused"
+  | "error";
+
+export function isAccessDisabledRequest(request: AccountAccessRequestRecord) {
+  const auditDisabled = (request.audit_log ?? []).some(
+    (entry) => entry.action === "access_disabled"
+  );
+  if (auditDisabled) {
+    return true;
+  }
+
+  return Boolean(
+    request.existing_account?.exists &&
+      !request.existing_account.role &&
+      request.status === "refused"
+  );
+}
+
+export function isRefusedRequest(request: AccountAccessRequestRecord) {
+  return request.status === "refused" && !isAccessDisabledRequest(request);
+}
+
+export function matchesAccountAccessFilter(
+  request: AccountAccessRequestRecord,
+  filter: AccountAccessListFilter
+) {
+  if (filter === "all") {
+    return true;
+  }
+  if (filter === "disabled") {
+    return isAccessDisabledRequest(request);
+  }
+  if (filter === "refused") {
+    return isRefusedRequest(request);
+  }
+  return request.status === filter;
+}
 

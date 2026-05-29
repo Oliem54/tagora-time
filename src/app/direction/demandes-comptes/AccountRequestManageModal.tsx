@@ -8,6 +8,7 @@ import {
   type AccountAccessAction,
   type AccountAccessRequestRecord,
   type AccountAccessStatus,
+  isAccessDisabledRequest,
 } from "@/app/lib/account-access";
 import {
   ACCOUNT_REQUEST_COMPANIES,
@@ -22,7 +23,8 @@ type RequestRole = "employe" | "direction" | "admin";
 export type AccountSecurityAction =
   | "reset_password"
   | "send_reset_link"
-  | "set_temporary_password";
+  | "set_temporary_password"
+  | "reactivate_account";
 
 type ActionConfig = {
   action: AccountAccessAction;
@@ -148,7 +150,9 @@ export default function AccountRequestManageModal({
   onRunAction,
   onRunSecurityAction,
   onDelete,
+  onReactivateAccess,
   deleting,
+  reactivating,
 }: {
   request: AccountAccessRequestRecord | null;
   open: boolean;
@@ -171,7 +175,9 @@ export default function AccountRequestManageModal({
   onRunAction: (action: AccountAccessAction) => void;
   onRunSecurityAction: (action: AccountSecurityAction, temporaryPassword?: string) => void;
   onDelete: () => void;
+  onReactivateAccess?: () => void;
   deleting?: boolean;
+  reactivating?: boolean;
 }) {
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
@@ -204,6 +210,7 @@ export default function AccountRequestManageModal({
 
   const primaryAction = getPrimaryActionForStatus(request.status);
   const secondaryActions = getSecondaryActionsForStatus(request.status);
+  const accessDisabled = isAccessDisabledRequest(request);
   const hasAuthAccount = Boolean(request.existing_account?.exists || request.invited_user_id);
   const canUsePasswordActions = canManageRoles && hasAuthAccount;
   const permissionChoices =
@@ -490,11 +497,13 @@ export default function AccountRequestManageModal({
               }}
             >
               <ExternalLink size={14} />
-              Ouvrir la fiche employe
+              {request.employee_link.status === "existing"
+                ? "Voir / associer fiche employé"
+                : "Ouvrir la fiche employé"}
             </Link>
           ) : (
             <p className="tagora-note" style={{ margin: 0 }}>
-              Aucune fiche liee. L approbation cree ou relie la fiche automatiquement.
+              Aucune fiche liée. L&apos;approbation crée ou relie la fiche automatiquement.
             </p>
           )}
         </ManageSection>
@@ -583,6 +592,17 @@ export default function AccountRequestManageModal({
               Traitement verrouille jusqu au {formatDate(request.review_lock.expiresAt)}.
             </div>
           ) : null}
+          {canManageRoles && accessDisabled && onReactivateAccess ? (
+            <button
+              type="button"
+              className="tagora-dark-action"
+              onClick={onReactivateAccess}
+              disabled={Boolean(deleting || savingAction || reactivating)}
+              style={{ marginBottom: 8 }}
+            >
+              {reactivating ? "Réactivation…" : "Réactiver l'accès"}
+            </button>
+          ) : null}
           {canManageRoles ? (
             <button
               type="button"
@@ -590,7 +610,7 @@ export default function AccountRequestManageModal({
               onClick={onDelete}
               disabled={Boolean(deleting || savingAction)}
             >
-              {deleting ? "Suppression..." : "Supprimer la demande"}
+              {deleting ? "Suppression…" : "Supprimer la demande"}
             </button>
           ) : null}
         </ManageSection>

@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import StatusBadge from "@/app/components/ui/StatusBadge";
 import { accountRequestPermissionOptions } from "@/app/lib/account-request-options";
 import type { AccountAccessRequestRecord, AccountAccessStatus } from "@/app/lib/account-access";
+import { isAccessDisabledRequest } from "@/app/lib/account-access";
 import {
   getCompanyLabel,
   type AccountRequestCompany,
@@ -43,15 +44,17 @@ function formatPermissions(values: string[] | null | undefined) {
     : "Aucune";
 }
 
-function getStatusLabel(status: AccountAccessStatus) {
+function getStatusLabel(status: AccountAccessStatus, request: AccountAccessRequestRecord) {
+  if (isAccessDisabledRequest(request)) return "Accès désactivé";
   if (status === "active") return "Actif";
-  if (status === "invited") return "Invite";
-  if (status === "refused") return "Refuse";
+  if (status === "invited") return "Invité";
+  if (status === "refused") return "Refusé";
   if (status === "error") return "Erreur";
   return "En attente";
 }
 
-function getStatusTone(status: AccountAccessStatus) {
+function getStatusTone(status: AccountAccessStatus, request: AccountAccessRequestRecord) {
+  if (isAccessDisabledRequest(request)) return "default" as const;
   if (status === "active") return "success" as const;
   if (status === "invited") return "info" as const;
   if (status === "refused") return "danger" as const;
@@ -78,16 +81,26 @@ export default function AccountRequestMobileCard({
   request,
   onManage,
   onDelete,
+  onDisableAccess,
+  onReactivateAccess,
   deleting,
+  disabling,
+  reactivating,
   canDelete,
   canManage,
+  canManageRoles,
 }: {
   request: AccountAccessRequestRecord;
   onManage: () => void;
   onDelete: () => void;
+  onDisableAccess?: () => void;
+  onReactivateAccess?: () => void;
   deleting?: boolean;
+  disabling?: boolean;
+  reactivating?: boolean;
   canDelete?: boolean;
   canManage?: boolean;
+  canManageRoles?: boolean;
 }) {
   const role = (request.assigned_role ?? request.requested_role) as RequestRole;
 
@@ -95,7 +108,7 @@ export default function AccountRequestMobileCard({
     <article className="account-requests-mobile-card">
       <header className="account-requests-mobile-card__head">
         <h3 className="account-requests-mobile-card__name">{request.full_name}</h3>
-        <StatusBadge label={getStatusLabel(request.status)} tone={getStatusTone(request.status)} />
+        <StatusBadge label={getStatusLabel(request.status, request)} tone={getStatusTone(request.status, request)} />
       </header>
 
       <div className="account-requests-mobile-card__fields">
@@ -136,9 +149,14 @@ export default function AccountRequestMobileCard({
           request={request}
           onManage={onManage}
           onDelete={onDelete}
+          onDisableAccess={onDisableAccess}
+          onReactivateAccess={onReactivateAccess}
           deleting={deleting}
+          disabling={disabling}
+          reactivating={reactivating}
           canDelete={canDelete}
           canManage={canManage}
+          canManageRoles={canManageRoles}
         />
       </footer>
     </article>
