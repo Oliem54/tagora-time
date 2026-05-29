@@ -390,6 +390,30 @@ export function getRestorablePermissionsForAuthUser(
   return Array.from(new Set(disabledPermissions));
 }
 
+export function buildDisabledAuthMetadataForUser(
+  metadata: unknown,
+  user: User,
+  actorUserId: string,
+  at: string
+) {
+  const source = isAuthMetadataRecord(metadata) ? metadata : {};
+  const role = getUserRole(user) ?? readDisabledRoleFromAuthMetadata(source) ?? "employe";
+  const permissions = normalizePermissionList(source.permissions);
+  const nextPermissions =
+    permissions.length > 0 ? permissions : getUserPermissions(user);
+
+  return {
+    ...source,
+    disabled_role: role,
+    disabled_permissions: nextPermissions,
+    role: null,
+    permissions: [],
+    access_disabled: true,
+    access_disabled_at: at,
+    access_disabled_by: actorUserId,
+  };
+}
+
 export function buildReactivatedAuthMetadataForUser(
   metadata: unknown,
   user: User,

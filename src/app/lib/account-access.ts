@@ -73,18 +73,41 @@ export type AccountAccessListFilter =
   | "refused"
   | "error";
 
-function isAuditAccessDisabledEntry(entry: AccountRequestAuditEntry) {
-  return entry.event === "access_disabled";
+const ACCESS_AUDIT_EVENTS = new Set(["access_disabled", "access_reactivated"]);
+
+export function resolveAccessDisabledFromAuditLog(
+  auditLog: AccountRequestAuditEntry[] | null | undefined
+): boolean | null {
+  if (!auditLog?.length) {
+    return null;
+  }
+
+  let latestAt = "";
+  let latestDisabled: boolean | null = null;
+
+  for (const entry of auditLog) {
+    if (!ACCESS_AUDIT_EVENTS.has(entry.event)) {
+      continue;
+    }
+
+    const entryAt = entry.at ?? "";
+    if (entryAt >= latestAt) {
+      latestAt = entryAt;
+      latestDisabled = entry.event === "access_disabled";
+    }
+  }
+
+  return latestDisabled;
 }
 
 export function isAccessDisabledRequest(request: AccountAccessRequestRecord) {
-  if (request.existing_account?.accessDisabled) {
-    return true;
+  if (request.existing_account?.exists === true) {
+    return request.existing_account.accessDisabled;
   }
 
-  const auditDisabled = (request.audit_log ?? []).some(isAuditAccessDisabledEntry);
-  if (auditDisabled) {
-    return true;
+  const auditState = resolveAccessDisabledFromAuditLog(request.audit_log);
+  if (auditState !== null) {
+    return auditState;
   }
 
   return Boolean(

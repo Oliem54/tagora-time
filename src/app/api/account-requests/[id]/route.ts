@@ -5,6 +5,7 @@ import {
   appendAuditEntry,
   buildCompanyAccessFlags,
   buildExistingAccountSnapshot,
+  buildDisabledAuthMetadataForUser,
   buildReactivatedAuthMetadataForUser,
   createAuditEntry,
   getCompanyDirectoryContext,
@@ -22,6 +23,7 @@ import {
   getAccountRequestsRequestDebug,
   getStrictDirectionRequestUser,
 } from "@/app/lib/account-requests.server";
+import { resolveAccessDisabledFromAuditLog } from "@/app/lib/account-access";
 import {
   buildRequiredPasswordMetadata,
   hasPasswordChangeRequired,
@@ -2101,22 +2103,18 @@ export async function PATCH(
       const { error } = await createAdminSupabaseClient().auth.admin.updateUserById(
         existingUser.id,
         {
-          app_metadata: {
-            ...existingUser.app_metadata,
-            role: null,
-            permissions: [],
-            access_disabled: true,
-            access_disabled_at: reviewedAt,
-            access_disabled_by: user.id,
-          },
-          user_metadata: {
-            ...existingUser.user_metadata,
-            role: null,
-            permissions: [],
-            access_disabled: true,
-            access_disabled_at: reviewedAt,
-            access_disabled_by: user.id,
-          },
+          app_metadata: buildDisabledAuthMetadataForUser(
+            existingUser.app_metadata,
+            existingUser,
+            user.id,
+            reviewedAt
+          ),
+          user_metadata: buildDisabledAuthMetadataForUser(
+            existingUser.user_metadata,
+            existingUser,
+            user.id,
+            reviewedAt
+          ),
         }
       );
 
@@ -2163,12 +2161,11 @@ export async function PATCH(
         );
       }
 
-      const accessDisabled = readAccessDisabledFromAuthUser(existingUser);
-      const auditDisabled = (requestRow.audit_log ?? []).some(
-        (entry) => entry.event === "access_disabled"
-      );
+      const accessDisabled =
+        readAccessDisabledFromAuthUser(existingUser) ||
+        resolveAccessDisabledFromAuditLog(requestRow.audit_log) === true;
 
-      if (!accessDisabled && !auditDisabled) {
+      if (!accessDisabled) {
         return NextResponse.json(
           { error: "Cet acces n est pas desactive ou est deja actif." },
           { status: 409 }
