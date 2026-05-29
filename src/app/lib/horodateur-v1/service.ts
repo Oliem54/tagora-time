@@ -2301,6 +2301,158 @@ export async function recomputeShiftForDate(
   return shift;
 }
 
+type EmployeeOperationalPunchInsertContext = {
+  employee: HorodateurPhase1EmployeeProfile;
+  actorUserId: string;
+  occurredAt: string;
+  note?: string | null;
+  companyContext: AccountRequestCompany;
+  sourceKind: HorodateurPhase1InsertEventInput["sourceKind"];
+  punchTrace?: {
+    punchSource: string;
+    punchZoneKey: string | null;
+    punchZoneId: string | null;
+    zoneValidated: boolean;
+    gpsLatitude: number | null;
+    gpsLongitude: number | null;
+    workCompanyKey: string | null;
+    employerCompanyKey: string | null;
+  };
+  webGps?: {
+    latitude: number;
+    longitude: number;
+    zoneValidated: boolean;
+    matchedBaseName: string | null;
+  };
+};
+
+function buildApprovedOperationalClassification(details: string) {
+  return {
+    status: "normal" as const,
+    requiresApproval: false,
+    exceptionType: null,
+    reasonLabel: null,
+    details,
+  };
+}
+
+async function insertEmployeeOperationalPunchEvent(
+  options: EmployeeOperationalPunchInsertContext & {
+    eventType: HorodateurPhase1InsertEventInput["eventType"];
+    currentState: HorodateurPhase1CurrentStateRecord | null;
+    latestApprovedEvents: HorodateurPhase1EventRecord[];
+    forceApprovedClose?: boolean;
+  }
+): Promise<HorodateurPhase1EventRecord> {
+  const classification = options.forceApprovedClose
+    ? buildApprovedOperationalClassification(
+        options.eventType === "break_end"
+          ? "Fermeture automatique de la pause avant la sortie."
+          : "Fermeture automatique du repas avant la sortie."
+      )
+    : classifyEventPhase1({
+        employee: options.employee,
+        currentState: options.currentState,
+        latestApprovedEvents: options.latestApprovedEvents,
+        eventType: options.eventType,
+        occurredAt: options.occurredAt,
+        actorRole: "employe",
+        note: options.note,
+      });
+
+  const pt = options.punchTrace;
+  const wg = options.webGps;
+
+  return insertHorodateurEvent({
+    userId: requireEmployeeAuthUserId(options.employee),
+    employeeId: options.employee.employeeId,
+    occurredAt: options.occurredAt,
+    ...resolveEventDates(options.occurredAt),
+    eventType: options.eventType,
+    actorUserId: options.actorUserId,
+    actorRole: "employe",
+    sourceKind: options.sourceKind,
+    companyContext: options.companyContext,
+    note: options.note,
+    isManualCorrection: false,
+    status: classification.status,
+    requiresApproval: classification.requiresApproval,
+    exceptionCode: classification.exceptionType,
+    approvalNote: classification.details,
+    ...(pt
+      ? {
+          punchSource: pt.punchSource,
+          punchZoneKey: pt.punchZoneKey,
+          punchZoneId: pt.punchZoneId,
+          zoneValidated: pt.zoneValidated,
+          gpsLatitude: pt.gpsLatitude,
+          gpsLongitude: pt.gpsLongitude,
+          workCompanyKey: pt.workCompanyKey,
+          employerCompanyKey: pt.employerCompanyKey,
+        }
+      : wg
+        ? {
+            punchSource: "employe_web",
+            punchZoneKey: wg.matchedBaseName,
+            zoneValidated: wg.zoneValidated,
+            gpsLatitude: wg.latitude,
+            gpsLongitude: wg.longitude,
+            workCompanyKey: options.companyContext,
+            employerCompanyKey: options.employee.primaryCompany,
+          }
+        : {}),
+  });
+}
+
+/**
+ * Ferme pause ou repas ouvert avant une sortie pour que punch_out soit en en_quart
+ * et que le recalcul du quart compte la fin de segment.
+ */
+async function closeOpenPauseOrMealBeforePunchOut(
+  options: EmployeeOperationalPunchInsertContext & {
+    currentState: HorodateurPhase1CurrentStateRecord | null;
+    latestApprovedEvents: HorodateurPhase1EventRecord[];
+  }
+): Promise<HorodateurPhase1EventRecord[]> {
+  const resolvedState = resolveInitialCurrentState(options.currentState);
+  const created: HorodateurPhase1EventRecord[] = [];
+
+  if (options.employee.pausePaid) {
+    return created;
+  }
+
+  if (resolvedState === "en_pause") {
+    const breakEnd = await insertEmployeeOperationalPunchEvent({
+      ...options,
+      eventType: "break_end",
+      forceApprovedClose: true,
+    });
+    created.push(breakEnd);
+    console.info("[horodateur-punch-out]", "auto_break_end_before_punch_out", {
+      employeeId: options.employee.employeeId,
+      eventId: breakEnd.id,
+      occurredAt: options.occurredAt,
+    });
+    return created;
+  }
+
+  if (resolvedState === "en_diner") {
+    const mealEnd = await insertEmployeeOperationalPunchEvent({
+      ...options,
+      eventType: "meal_end",
+      forceApprovedClose: true,
+    });
+    created.push(mealEnd);
+    console.info("[horodateur-punch-out]", "auto_meal_end_before_punch_out", {
+      employeeId: options.employee.employeeId,
+      eventId: mealEnd.id,
+      occurredAt: options.occurredAt,
+    });
+  }
+
+  return created;
+}
+
 export async function createEmployeePunch(options: {
   actorUserId: string;
   eventType: HorodateurPhase1InsertEventInput["eventType"];
@@ -2340,12 +2492,46 @@ export async function createEmployeePunch(options: {
   });
   const employee = await resolveEmployeeByAuthUserId(options.actorUserId);
   assertNoPaidBreakOperationalPunch(employee, options.eventType);
-  const currentState = await getCurrentStateByEmployeeId(employee.employeeId);
-  const latestApprovedEvents = await listEventsForEmployee({
+
+  const companyContext = requireCompanyContext(
+    options.companyContext,
+    employee
+  );
+  const sourceKind = options.sourceKind ?? "employe";
+  const pt = options.punchTrace;
+  const wg = options.webGps;
+
+  let currentState = await getCurrentStateByEmployeeId(employee.employeeId);
+  let latestApprovedEvents = await listEventsForEmployee({
     employeeId: employee.employeeId,
     workDate: getLocalWorkDate(occurredAt),
     statuses: ["normal", "approuve"],
   });
+
+  if (canonicalType === "punch_out") {
+    const autoClosed = await closeOpenPauseOrMealBeforePunchOut({
+      employee,
+      actorUserId: options.actorUserId,
+      occurredAt,
+      note: options.note,
+      companyContext,
+      sourceKind,
+      punchTrace: pt,
+      webGps: wg,
+      currentState,
+      latestApprovedEvents,
+    });
+
+    if (autoClosed.length > 0) {
+      currentState = await recomputeCurrentState(employee.employeeId);
+      latestApprovedEvents = await listEventsForEmployee({
+        employeeId: employee.employeeId,
+        workDate: getLocalWorkDate(occurredAt),
+        statuses: ["normal", "approuve"],
+      });
+    }
+  }
+
   let classification = classifyEventPhase1({
     employee,
     currentState,
@@ -2376,15 +2562,6 @@ export async function createEmployeePunch(options: {
       scheduleStart: employee.scheduleStart,
     });
   }
-
-  const companyContext = requireCompanyContext(
-    options.companyContext,
-    employee
-  );
-
-  const sourceKind = options.sourceKind ?? "employe";
-  const pt = options.punchTrace;
-  const wg = options.webGps;
 
   const event = await insertHorodateurEvent({
     userId: requireEmployeeAuthUserId(employee),
