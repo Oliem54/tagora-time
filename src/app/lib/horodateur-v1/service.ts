@@ -89,6 +89,7 @@ import type {
   HorodateurPhase1StateKind,
   HorodateurPhase1EventType,
   HorodateurPhase1Classification,
+  HorodateurPhase1TodayTimeDisplay,
 } from "./types";
 
 const HORODATEUR_DEFAULT_LATENESS_TOLERANCE_MINUTES = 5;
@@ -2845,6 +2846,243 @@ export async function getWeeklyProjection(employeeId: number, weekStartDate?: st
   };
 }
 
+function sortEventsByOccurredAt(events: HorodateurPhase1EventRecord[]) {
+  return [...events].sort((left, right) => {
+    const leftAt = getEventOccurredAt(left);
+    const rightAt = getEventOccurredAt(right);
+    if (!leftAt && !rightAt) {
+      return String(left.id).localeCompare(String(right.id));
+    }
+    if (!leftAt) {
+      return -1;
+    }
+    if (!rightAt) {
+      return 1;
+    }
+    const delta = new Date(leftAt).getTime() - new Date(rightAt).getTime();
+    if (delta !== 0) {
+      return delta;
+    }
+    return String(left.id).localeCompare(String(right.id));
+  });
+}
+
+function resolveActiveOpenShiftWorkDate(
+  approvedEvents: HorodateurPhase1EventRecord[]
+): string | null {
+  let activeStart: HorodateurPhase1EventRecord | null = null;
+
+  for (const event of sortEventsByOccurredAt(approvedEvents)) {
+    const canonicalEventType = toCanonicalEventType(event.event_type);
+    if (canonicalEventType === "punch_in") {
+      activeStart = event;
+      continue;
+    }
+    if (canonicalEventType === "punch_out") {
+      activeStart = null;
+    }
+  }
+
+  if (!activeStart) {
+    return null;
+  }
+
+  return (
+    activeStart.work_date ??
+    getLocalWorkDate(getEventOccurredAt(activeStart) ?? new Date().toISOString())
+  );
+}
+
+/**
+ * Calcule le temps affich├® pour la journ├®e sans persister en DB.
+ * Reprend la logique de recomputeShiftForDate et ajoute le segment ouvert jusqu'├á `now`.
+ */
+export function computeTodayLiveShiftDisplayMinutes(options: {
+  employee: HorodateurPhase1EmployeeProfile;
+  workDate: string;
+  currentState: HorodateurPhase1CurrentStateRecord;
+  todayShift: HorodateurPhase1ShiftRecord;
+  approvedEventsToday: HorodateurPhase1EventRecord[];
+  eventsToday: HorodateurPhase1EventRecord[];
+  allApprovedEvents: HorodateurPhase1EventRecord[];
+  now?: string;
+}): HorodateurPhase1TodayTimeDisplay {
+  const nowIso = options.now ?? new Date().toISOString();
+  const resolvedState = resolveInitialCurrentState(options.currentState);
+  const officialPayableMinutes = Math.max(0, options.todayShift.payable_minutes ?? 0);
+  const approvedExceptionMinutes = Math.max(
+    0,
+    options.todayShift.approved_exception_minutes ?? 0
+  );
+
+  const hasApprovedPunchInToday = options.approvedEventsToday.some(
+    (event) => toCanonicalEventType(event.event_type) === "punch_in"
+  );
+  const pendingOperationalToday = options.eventsToday.filter((event) =>
+    isOperationalPendingEvent(event)
+  );
+  const hasPendingOperationalPunchToday = pendingOperationalToday.length > 0;
+  const hasPendingPunchInToday = pendingOperationalToday.some(
+    (event) => toCanonicalEventType(event.event_type) === "punch_in"
+  );
+  const pendingPunchBlocksAccrual =
+    hasPendingPunchInToday &&
+    !hasApprovedPunchInToday &&
+    !isQuarterActiveState(resolvedState);
+
+  const openShiftWorkDate = resolveActiveOpenShiftWorkDate(options.allApprovedEvents);
+  const openShiftWorkDateMismatch =
+    isQuarterActiveState(resolvedState) &&
+    Boolean(openShiftWorkDate && openShiftWorkDate !== options.workDate);
+
+  const orderedEvents = sortEventsByOccurredAt(options.approvedEventsToday);
+
+  let shiftStartAt: string | null = null;
+  let shiftEndAt: string | null = null;
+  let workSegmentStartAt: string | null = null;
+  let pauseStartAt: string | null = null;
+  let dinnerStartAt: string | null = null;
+  let unpaidBreakMinutes = 0;
+  let unpaidLunchMinutes = 0;
+  let workedMinutes = 0;
+  let state: HorodateurPhase1StateKind = "hors_quart";
+
+  for (const event of orderedEvents) {
+    const eventOccurredAt = getEventOccurredAt(event);
+    const canonicalEventType = toCanonicalEventType(event.event_type);
+
+    if (!eventOccurredAt || !canonicalEventType) {
+      continue;
+    }
+
+    if (
+      options.employee.pausePaid &&
+      (canonicalEventType === "break_start" || canonicalEventType === "break_end")
+    ) {
+      continue;
+    }
+
+    if (canonicalEventType === "punch_in") {
+      if (shiftStartAt && shiftEndAt && state === "termine") {
+        shiftEndAt = null;
+        workSegmentStartAt = eventOccurredAt;
+        state = "en_quart";
+        continue;
+      }
+
+      if (!shiftStartAt) {
+        shiftStartAt = eventOccurredAt;
+        workSegmentStartAt = eventOccurredAt;
+        state = "en_quart";
+      }
+      continue;
+    }
+
+    if (canonicalEventType === "break_start") {
+      if (state === "en_quart" && workSegmentStartAt) {
+        workedMinutes += diffMinutes(workSegmentStartAt, eventOccurredAt);
+        workSegmentStartAt = null;
+        pauseStartAt = eventOccurredAt;
+        state = "en_pause";
+      }
+      continue;
+    }
+
+    if (canonicalEventType === "break_end") {
+      if (state === "en_pause" && pauseStartAt) {
+        const duration = diffMinutes(pauseStartAt, eventOccurredAt);
+        if (!options.employee.pausePaid) {
+          unpaidBreakMinutes += duration;
+        }
+        workSegmentStartAt = eventOccurredAt;
+        pauseStartAt = null;
+        state = "en_quart";
+      }
+      continue;
+    }
+
+    if (canonicalEventType === "meal_start") {
+      if (state === "en_quart" && workSegmentStartAt) {
+        workedMinutes += diffMinutes(workSegmentStartAt, eventOccurredAt);
+        workSegmentStartAt = null;
+        dinnerStartAt = eventOccurredAt;
+        state = "en_diner";
+      }
+      continue;
+    }
+
+    if (canonicalEventType === "meal_end") {
+      if (state === "en_diner" && dinnerStartAt) {
+        const duration = diffMinutes(dinnerStartAt, eventOccurredAt);
+        if (!options.employee.lunchPaid) {
+          unpaidLunchMinutes += duration;
+        }
+        workSegmentStartAt = eventOccurredAt;
+        dinnerStartAt = null;
+        state = "en_quart";
+      }
+      continue;
+    }
+
+    if (canonicalEventType === "punch_out") {
+      if (!shiftStartAt) {
+        state = "termine";
+        continue;
+      }
+      shiftEndAt = eventOccurredAt;
+
+      if (state === "en_quart" && workSegmentStartAt) {
+        workedMinutes += diffMinutes(workSegmentStartAt, eventOccurredAt);
+      } else if (state === "en_pause" && pauseStartAt) {
+        const duration = diffMinutes(pauseStartAt, eventOccurredAt);
+        if (!options.employee.pausePaid) {
+          unpaidBreakMinutes += duration;
+        }
+      } else if (state === "en_diner" && dinnerStartAt) {
+        const duration = diffMinutes(dinnerStartAt, eventOccurredAt);
+        if (!options.employee.lunchPaid) {
+          unpaidLunchMinutes += duration;
+        }
+      }
+
+      workSegmentStartAt = null;
+      pauseStartAt = null;
+      dinnerStartAt = null;
+      state = "termine";
+    }
+  }
+
+  const canAccrueOpenSegment =
+    !pendingPunchBlocksAccrual &&
+    !openShiftWorkDateMismatch &&
+    shiftStartAt &&
+    !shiftEndAt &&
+    state === "en_quart" &&
+    workSegmentStartAt;
+
+  if (canAccrueOpenSegment && workSegmentStartAt) {
+    workedMinutes += diffMinutes(workSegmentStartAt, nowIso);
+  }
+
+  const liveWorkedMinutes = workedMinutes;
+  const livePayableMinutes = Math.max(
+    0,
+    liveWorkedMinutes - unpaidBreakMinutes - unpaidLunchMinutes + approvedExceptionMinutes
+  );
+
+  return {
+    officialPayableMinutes,
+    livePayableMinutes,
+    liveWorkedMinutes,
+    hasOpenShiftAccrual: Boolean(canAccrueOpenSegment),
+    hasPendingOperationalPunchToday,
+    pendingPunchBlocksAccrual,
+    openShiftWorkDateMismatch,
+    openShiftWorkDate,
+    computedAt: nowIso,
+  };
+}
+
 function buildEmptyCurrentState(employee: HorodateurPhase1EmployeeProfile): HorodateurPhase1CurrentStateRecord {
   return {
     employee_id: employee.employeeId,
@@ -2866,14 +3104,24 @@ export async function getEmployeeDashboardSnapshotByAuthUserId(
 ): Promise<HorodateurPhase1EmployeeDashboardSnapshot> {
   const employee = await resolveEmployeeByAuthUserId(authUserId);
   const today = getLocalWorkDate(new Date().toISOString());
-  const [currentState, todayShift, weeklyProjection, pendingExceptions, eventsToday] =
-    await Promise.all([
-      getCurrentStateByEmployeeId(employee.employeeId),
-      getShiftByEmployeeAndWorkDate(employee.employeeId, today),
-      getWeeklyProjection(employee.employeeId),
-      listPendingExceptions({ employeeId: employee.employeeId }),
-      listEventsForEmployee({ employeeId: employee.employeeId, workDate: today }),
-    ]);
+  const [
+    currentState,
+    todayShift,
+    weeklyProjection,
+    pendingExceptions,
+    eventsToday,
+    allApprovedEvents,
+  ] = await Promise.all([
+    getCurrentStateByEmployeeId(employee.employeeId),
+    getShiftByEmployeeAndWorkDate(employee.employeeId, today),
+    getWeeklyProjection(employee.employeeId),
+    listPendingExceptions({ employeeId: employee.employeeId }),
+    listEventsForEmployee({ employeeId: employee.employeeId, workDate: today }),
+    listEventsForEmployee({
+      employeeId: employee.employeeId,
+      statuses: ["normal", "approuve"],
+    }),
+  ]);
 
   const resolvedCurrentState = currentState ?? buildEmptyCurrentState(employee);
   const latenessContext = buildEmployeeLatenessContext({
@@ -2882,32 +3130,46 @@ export async function getEmployeeDashboardSnapshotByAuthUserId(
     pendingExceptions,
     eventsToday,
   });
+  const resolvedTodayShift =
+    todayShift ??
+    ({
+      id: "",
+      employee_id: employee.employeeId,
+      work_date: today,
+      week_start_date: getWeekStartDate(today),
+      company_context: employee.primaryCompany,
+      shift_start_at: null,
+      shift_end_at: null,
+      gross_minutes: 0,
+      paid_break_minutes: 0,
+      unpaid_break_minutes: 0,
+      unpaid_lunch_minutes: 0,
+      worked_minutes: 0,
+      payable_minutes: 0,
+      approved_exception_minutes: 0,
+      pending_exception_minutes: 0,
+      anomalies_count: 0,
+      status: "ouvert",
+      last_recomputed_at: new Date().toISOString(),
+    } satisfies HorodateurPhase1ShiftRecord);
+  const approvedEventsToday = eventsToday.filter(
+    (event) => event.status === "normal" || event.status === "approuve"
+  );
+  const todayTimeDisplay = computeTodayLiveShiftDisplayMinutes({
+    employee,
+    workDate: today,
+    currentState: resolvedCurrentState,
+    todayShift: resolvedTodayShift,
+    approvedEventsToday,
+    eventsToday,
+    allApprovedEvents,
+  });
 
   return {
     employee,
     currentState: resolvedCurrentState,
-    todayShift:
-      todayShift ??
-      ({
-        id: "",
-        employee_id: employee.employeeId,
-        work_date: today,
-        week_start_date: getWeekStartDate(today),
-        company_context: employee.primaryCompany,
-        shift_start_at: null,
-        shift_end_at: null,
-        gross_minutes: 0,
-        paid_break_minutes: 0,
-        unpaid_break_minutes: 0,
-        unpaid_lunch_minutes: 0,
-        worked_minutes: 0,
-        payable_minutes: 0,
-        approved_exception_minutes: 0,
-        pending_exception_minutes: 0,
-        anomalies_count: 0,
-        status: "ouvert",
-        last_recomputed_at: new Date().toISOString(),
-      } satisfies HorodateurPhase1ShiftRecord),
+    todayShift: resolvedTodayShift,
+    todayTimeDisplay,
     weeklyProjection,
     pendingExceptions,
     latenessContext,
@@ -2986,29 +3248,77 @@ export async function getEmployeeHistoryByAuthUserId(options: {
 
 export async function listDirectionLiveBoard(): Promise<HorodateurPhase1DirectionLiveRow[]> {
   const employees = await listActiveEmployees();
+  const today = getLocalWorkDate(new Date().toISOString());
 
   const rows = await Promise.all(
     employees.map(async (employee) => {
-      const [currentState, weeklyProjection, todayShift] = await Promise.all([
+      const [
+        currentState,
+        weeklyProjection,
+        todayShift,
+        eventsToday,
+        allApprovedEvents,
+      ] = await Promise.all([
         getCurrentStateByEmployeeId(employee.employeeId),
         getWeeklyProjection(employee.employeeId),
-        getShiftByEmployeeAndWorkDate(employee.employeeId, getLocalWorkDate(new Date().toISOString())),
+        getShiftByEmployeeAndWorkDate(employee.employeeId, today),
+        listEventsForEmployee({ employeeId: employee.employeeId, workDate: today }),
+        listEventsForEmployee({
+          employeeId: employee.employeeId,
+          statuses: ["normal", "approuve"],
+        }),
       ]);
+      const resolvedCurrentState = currentState ?? buildEmptyCurrentState(employee);
+      const resolvedTodayShift =
+        todayShift ??
+        ({
+          id: "",
+          employee_id: employee.employeeId,
+          work_date: today,
+          week_start_date: getWeekStartDate(today),
+          company_context: employee.primaryCompany,
+          shift_start_at: null,
+          shift_end_at: null,
+          gross_minutes: 0,
+          paid_break_minutes: 0,
+          unpaid_break_minutes: 0,
+          unpaid_lunch_minutes: 0,
+          worked_minutes: 0,
+          payable_minutes: 0,
+          approved_exception_minutes: 0,
+          pending_exception_minutes: 0,
+          anomalies_count: 0,
+          status: "ouvert",
+          last_recomputed_at: new Date().toISOString(),
+        } satisfies HorodateurPhase1ShiftRecord);
+      const approvedEventsToday = eventsToday.filter(
+        (event) => event.status === "normal" || event.status === "approuve"
+      );
+      const todayTimeDisplay = computeTodayLiveShiftDisplayMinutes({
+        employee,
+        workDate: today,
+        currentState: resolvedCurrentState,
+        todayShift: resolvedTodayShift,
+        approvedEventsToday,
+        eventsToday,
+        allApprovedEvents,
+      });
 
       return {
         employeeId: employee.employeeId,
         fullName: employee.fullName,
         email: employee.email,
         primaryCompany: employee.primaryCompany,
-        currentState: currentState?.current_state ?? "hors_quart",
-        lastEventAt: currentState?.last_event_at ?? null,
-        lastEventType: currentState?.last_event_type ?? null,
-        todayShift,
+        currentState: resolvedCurrentState.current_state ?? "hors_quart",
+        lastEventAt: resolvedCurrentState.last_event_at ?? null,
+        lastEventType: resolvedCurrentState.last_event_type ?? null,
+        todayShift: resolvedTodayShift,
+        todayTimeDisplay,
         weekWorkedMinutes: weeklyProjection.workedMinutes,
         weekTargetMinutes: weeklyProjection.targetMinutes,
         weekRemainingMinutes: weeklyProjection.remainingMinutes,
         projectedOverflowMinutes: weeklyProjection.projectedOverflowMinutes,
-        hasOpenException: currentState?.has_open_exception ?? false,
+        hasOpenException: resolvedCurrentState.has_open_exception ?? false,
       };
     })
   );
