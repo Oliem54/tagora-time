@@ -110,13 +110,7 @@ export function isAccessDisabledRequest(request: AccountAccessRequestRecord) {
     return auditState;
   }
 
-  return Boolean(
-    request.existing_account?.exists &&
-      !request.existing_account.role &&
-      (request.status === "active" ||
-        request.status === "invited" ||
-        request.status === "refused")
-  );
+  return false;
 }
 
 export function isRefusedRequest(request: AccountAccessRequestRecord) {
