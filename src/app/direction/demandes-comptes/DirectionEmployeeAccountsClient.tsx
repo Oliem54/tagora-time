@@ -195,7 +195,9 @@ export default function DirectionEmployeeAccountsClient() {
 
   const counts = useMemo(
     () => ({
-      pending: sortedRequests.filter((item) => item.status === "pending").length,
+      pending: sortedRequests.filter(
+        (item) => item.status === "pending" && !isAccessDisabledRequest(item)
+      ).length,
       invited: sortedRequests.filter(
         (item) => item.status === "invited" && !isAccessDisabledRequest(item)
       ).length,
@@ -206,7 +208,9 @@ export default function DirectionEmployeeAccountsClient() {
       refused: sortedRequests.filter(
         (item) => item.status === "refused" && !isAccessDisabledRequest(item)
       ).length,
-      error: sortedRequests.filter((item) => item.status === "error").length,
+      error: sortedRequests.filter(
+        (item) => item.status === "error" && !isAccessDisabledRequest(item)
+      ).length,
     }),
     [sortedRequests]
   );
