@@ -364,17 +364,27 @@ export function readAccessDisabledFromAuthUser(user: User | null | undefined) {
   );
 }
 
-export function getRestorableRoleForAuthUser(user: User | null | undefined): AppRole {
+export type AccountRequestReactivationFallback = {
+  role?: AppRole | null;
+  permissions?: string[] | null;
+};
+
+export function getRestorableRoleForAuthUser(
+  user: User | null | undefined,
+  requestFallback?: AccountRequestReactivationFallback | null
+): AppRole {
   return (
     getUserRole(user) ??
     readDisabledRoleFromAuthMetadata(user?.app_metadata) ??
     readDisabledRoleFromAuthMetadata(user?.user_metadata) ??
+    requestFallback?.role ??
     "employe"
   );
 }
 
 export function getRestorablePermissionsForAuthUser(
-  user: User | null | undefined
+  user: User | null | undefined,
+  requestFallback?: AccountRequestReactivationFallback | null
 ): AppPermission[] {
   const currentPermissions = getUserPermissions(user);
 
@@ -386,8 +396,18 @@ export function getRestorablePermissionsForAuthUser(
     ...readDisabledPermissionsFromAuthMetadata(user?.app_metadata),
     ...readDisabledPermissionsFromAuthMetadata(user?.user_metadata),
   ];
+  const fromDisabled = Array.from(new Set(disabledPermissions));
 
-  return Array.from(new Set(disabledPermissions));
+  if (fromDisabled.length > 0) {
+    return fromDisabled;
+  }
+
+  const fromRequest = normalizePermissionList(requestFallback?.permissions);
+  if (fromRequest.length > 0) {
+    return fromRequest;
+  }
+
+  return [];
 }
 
 export function buildDisabledAuthMetadataForUser(
@@ -418,14 +438,15 @@ export function buildReactivatedAuthMetadataForUser(
   metadata: unknown,
   user: User,
   actorUserId: string,
-  at: string
+  at: string,
+  requestFallback?: AccountRequestReactivationFallback | null
 ) {
   const source = isAuthMetadataRecord(metadata) ? metadata : {};
 
   return {
     ...source,
-    role: getRestorableRoleForAuthUser(user),
-    permissions: getRestorablePermissionsForAuthUser(user),
+    role: getRestorableRoleForAuthUser(user, requestFallback),
+    permissions: getRestorablePermissionsForAuthUser(user, requestFallback),
     access_disabled: false,
     access_disabled_at: null,
     access_disabled_by: null,

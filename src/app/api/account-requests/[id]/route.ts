@@ -2172,6 +2172,11 @@ export async function PATCH(
         );
       }
 
+      const reactivationFallback = {
+        role: assignedRole,
+        permissions: assignedPermissions,
+      };
+
       const { error } = await createAdminSupabaseClient().auth.admin.updateUserById(
         existingUser.id,
         {
@@ -2179,13 +2184,15 @@ export async function PATCH(
             existingUser.app_metadata,
             existingUser,
             user.id,
-            reviewedAt
+            reviewedAt,
+            reactivationFallback
           ),
           user_metadata: buildReactivatedAuthMetadataForUser(
             existingUser.user_metadata,
             existingUser,
             user.id,
-            reviewedAt
+            reviewedAt,
+            reactivationFallback
           ),
         }
       );
