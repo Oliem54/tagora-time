@@ -90,6 +90,9 @@ function getSecondaryActionsForStatus(
       { action: "reset_pending", label: "Remettre en attente", tone: "secondary" },
     ];
   }
+  if (status === "active" && accessDisabled) {
+    return [];
+  }
   if (status === "active" && !accessDisabled) {
     return [{ action: "disable_access", label: "Desactiver l acces", tone: "danger" }];
   }
@@ -451,7 +454,7 @@ export default function AccountRequestManageModal({
                   <span>Autoriser le remplacement des acces existants</span>
                 </label>
               ) : null}
-              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
                 {primaryAction ? (
                   <button
                     type="button"
@@ -473,6 +476,23 @@ export default function AccountRequestManageModal({
                     {savingAction === item.action ? "Traitement..." : item.label}
                   </button>
                 ))}
+                {request.status === "active" && accessDisabled ? (
+                  onReactivateAccess ? (
+                    <button
+                      type="button"
+                      className="tagora-dark-action"
+                      onClick={onReactivateAccess}
+                      disabled={Boolean(savingAction || reactivating)}
+                    >
+                      {reactivating ? "Réactivation…" : "Réactiver l'accès"}
+                    </button>
+                  ) : (
+                    <span className="tagora-note" style={{ margin: 0 }}>
+                      Accès désactivé. Associez une fiche employé pour réactiver l&apos;accès depuis
+                      cette demande.
+                    </span>
+                  )
+                ) : null}
               </div>
             </>
           ) : (
@@ -597,7 +617,10 @@ export default function AccountRequestManageModal({
               Traitement verrouille jusqu au {formatDate(request.review_lock.expiresAt)}.
             </div>
           ) : null}
-          {canManageRoles && accessDisabled && onReactivateAccess ? (
+          {canManageRoles &&
+          accessDisabled &&
+          onReactivateAccess &&
+          request.status !== "active" ? (
             <button
               type="button"
               className="tagora-dark-action"
