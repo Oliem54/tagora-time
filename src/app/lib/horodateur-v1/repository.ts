@@ -3,6 +3,10 @@ import "server-only";
 import { createAdminSupabaseClient } from "@/app/lib/supabase/admin";
 import type { AccountRequestCompany } from "@/app/lib/account-requests.shared";
 import {
+  mapScheduleRequestRow,
+  type EffectifsScheduleRequest,
+} from "@/app/lib/effectifs-schedule-request.shared";
+import {
   sanitizeWeeklyScheduleConfig,
   type WeeklyScheduleConfig,
 } from "@/app/lib/weekly-schedule";
@@ -770,6 +774,26 @@ export async function listPendingExceptions(options?: { employeeId?: number }) {
   }
 
   return data ?? [];
+}
+
+export async function listApprovedScheduleRequestsForEmployee(
+  employeeId: number
+): Promise<EffectifsScheduleRequest[]> {
+  const supabase = createAdminSupabaseClient();
+  const { data, error } = await supabase
+    .from("effectifs_employee_schedule_requests")
+    .select("*")
+    .eq("employee_id", employeeId)
+    .eq("status", "approved")
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    throw error;
+  }
+
+  return (data ?? [])
+    .map((row) => mapScheduleRequestRow(row as Record<string, unknown>, null))
+    .filter((row): row is EffectifsScheduleRequest => row != null);
 }
 
 export async function listExceptionsForEmployeeWorkDate(options: {

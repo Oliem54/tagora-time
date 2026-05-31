@@ -587,6 +587,98 @@ export function classifyEventPhase1(
   return buildApprovedClassification();
 }
 
+export function isApprovedHorodateurEventStatus(
+  status: HorodateurPhase1EventRecord["status"] | string | null | undefined
+): boolean {
+  return status === "normal" || status === "approuve";
+}
+
+export function isExplicitApprovedPunchInEvent(
+  event: Pick<HorodateurPhase1EventRecord, "event_type" | "status">
+): boolean {
+  return (
+    isApprovedHorodateurEventStatus(event.status) &&
+    toCanonicalEventType(event.event_type) === "punch_in"
+  );
+}
+
+/** Entree retroactive approuvee (correction employe) — pas une sortie ni manual_correction. */
+export function isApprovedRetroactiveShiftStartEvent(
+  event: Pick<
+    HorodateurPhase1EventRecord,
+    "event_type" | "status" | "exception_code"
+  >
+): boolean {
+  if (!isApprovedHorodateurEventStatus(event.status)) {
+    return false;
+  }
+  if (toCanonicalEventType(event.event_type) !== "retroactive_entry") {
+    return false;
+  }
+  if (
+    event.exception_code &&
+    event.exception_code !== "missing_punch_adjustment"
+  ) {
+    return false;
+  }
+  return true;
+}
+
+function resolveEventWorkDate(event: HorodateurPhase1EventRecord): string | null {
+  const workDate = event.work_date?.trim();
+  if (workDate) {
+    return workDate;
+  }
+  const occurredAt = getEventOccurredAt(event);
+  return occurredAt ? getLocalWorkDate(occurredAt) : null;
+}
+
+/** punch_in explicite approuve le meme jour de travail, avant l'evenement cible. */
+export function hasExplicitApprovedPunchInBeforeEvent(
+  orderedApprovedEvents: HorodateurPhase1EventRecord[],
+  targetEventId: string
+): boolean {
+  let targetWorkDate: string | null = null;
+
+  for (const event of orderedApprovedEvents) {
+    if (event.id === targetEventId) {
+      targetWorkDate = resolveEventWorkDate(event);
+      break;
+    }
+  }
+
+  if (!targetWorkDate) {
+    return false;
+  }
+
+  for (const event of orderedApprovedEvents) {
+    if (event.id === targetEventId) {
+      return false;
+    }
+    if (resolveEventWorkDate(event) !== targetWorkDate) {
+      continue;
+    }
+    if (isExplicitApprovedPunchInEvent(event)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/** punch_in explicite ou entree retroactive approuvee sans punch_in anterieur. */
+export function shouldTreatApprovedEventAsShiftStart(
+  event: HorodateurPhase1EventRecord,
+  orderedApprovedEvents: HorodateurPhase1EventRecord[]
+): boolean {
+  if (isExplicitApprovedPunchInEvent(event)) {
+    return true;
+  }
+  if (!isApprovedRetroactiveShiftStartEvent(event)) {
+    return false;
+  }
+  return !hasExplicitApprovedPunchInBeforeEvent(orderedApprovedEvents, event.id);
+}
+
 export function resolveShiftStatus(options: {
   hasPendingExceptions: boolean;
   isOpen: boolean;
