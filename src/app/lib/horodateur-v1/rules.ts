@@ -15,6 +15,8 @@ import {
 
 export const HORODATEUR_PHASE1_TIMEZONE = "America/Toronto";
 export const HORODATEUR_PHASE1_WEEKLY_TARGET_HOURS = 40;
+/** Duree maximale d un quart ouvert (horloge murale depuis le debut) avant plafond live et sortie a approuver. */
+export const HORODATEUR_OPEN_SHIFT_SAFETY_MAX_ELAPSED_MINUTES = 840;
 const PHASE1_DEFAULT_MAX_BREAK_MINUTES = 120;
 const PHASE1_DEFAULT_MAX_MEAL_MINUTES = 180;
 
@@ -350,25 +352,94 @@ function buildApprovedClassification(): HorodateurPhase1Classification {
   };
 }
 
-function getActiveShiftStartEvent(
-  events: HorodateurPhase1EventRecord[]
+function sortApprovedEventsByOccurredAt(events: HorodateurPhase1EventRecord[]) {
+  return [...events].sort((left, right) => {
+    const leftAt = getEventOccurredAt(left);
+    const rightAt = getEventOccurredAt(right);
+    if (!leftAt && !rightAt) {
+      return String(left.id).localeCompare(String(right.id));
+    }
+    if (!leftAt) {
+      return -1;
+    }
+    if (!rightAt) {
+      return 1;
+    }
+    const delta = new Date(leftAt).getTime() - new Date(rightAt).getTime();
+    if (delta !== 0) {
+      return delta;
+    }
+    return String(left.id).localeCompare(String(right.id));
+  });
+}
+
+/** Debut de quart ouvert approuve (punch_in explicite ou entree retroactive approuvee). */
+export function resolveOpenShiftStartEvent(
+  approvedEvents: HorodateurPhase1EventRecord[]
 ): HorodateurPhase1EventRecord | null {
+  const sorted = sortApprovedEventsByOccurredAt(approvedEvents);
   let activeStart: HorodateurPhase1EventRecord | null = null;
 
-  for (const event of events) {
-    const canonicalEventType = toCanonicalEventType(event.event_type);
-
-    if (canonicalEventType === "punch_in") {
+  for (const event of sorted) {
+    if (shouldTreatApprovedEventAsShiftStart(event, sorted)) {
       activeStart = event;
       continue;
     }
-
-    if (canonicalEventType === "punch_out") {
+    if (toCanonicalEventType(event.event_type) === "punch_out") {
       activeStart = null;
     }
   }
 
   return activeStart;
+}
+
+export function resolveOpenShiftStartAt(
+  approvedEvents: HorodateurPhase1EventRecord[]
+): string | null {
+  const activeStart = resolveOpenShiftStartEvent(approvedEvents);
+  return activeStart ? getEventOccurredAt(activeStart) : null;
+}
+
+export function computeOpenShiftSafetyCapAt(openShiftStartAt: string): string {
+  const capMs =
+    new Date(openShiftStartAt).getTime() +
+    HORODATEUR_OPEN_SHIFT_SAFETY_MAX_ELAPSED_MINUTES * 60_000;
+  return new Date(capMs).toISOString();
+}
+
+export function computeOpenShiftElapsedMinutes(
+  openShiftStartAt: string,
+  atIso: string
+): number {
+  return diffMinutes(openShiftStartAt, atIso);
+}
+
+export function isOpenShiftBeyondSafetyLimit(
+  openShiftStartAt: string,
+  atIso: string
+): boolean {
+  return (
+    computeOpenShiftElapsedMinutes(openShiftStartAt, atIso) >=
+    HORODATEUR_OPEN_SHIFT_SAFETY_MAX_ELAPSED_MINUTES
+  );
+}
+
+export function resolveLiveAccrualEndIso(options: {
+  nowIso: string;
+  openShiftStartAt: string | null;
+  pendingCapAt?: string | null;
+}): string {
+  let endMs = new Date(options.nowIso).getTime();
+  if (options.pendingCapAt) {
+    endMs = Math.min(endMs, new Date(options.pendingCapAt).getTime());
+  }
+  if (options.openShiftStartAt) {
+    endMs = Math.min(
+      endMs,
+      new Date(computeOpenShiftSafetyCapAt(options.openShiftStartAt)).getTime()
+    );
+  }
+  return new Date(endMs).toISOString();
 }
 
 function hasRequiredExceptionType(
@@ -424,6 +495,7 @@ export function classifyEventPhase1(
     employee,
     currentState,
     latestApprovedEvents,
+    allApprovedEvents,
     eventType,
     occurredAt,
     actorRole,
@@ -522,7 +594,8 @@ export function classifyEventPhase1(
     );
   }
 
-  const activeShiftStart = getActiveShiftStartEvent(latestApprovedEvents);
+  const openShiftApprovedEvents = allApprovedEvents ?? latestApprovedEvents;
+  const activeShiftStart = resolveOpenShiftStartEvent(openShiftApprovedEvents);
 
   if (activeShiftStart) {
     const activeShiftStartAt = getEventOccurredAt(activeShiftStart);
@@ -536,6 +609,18 @@ export function classifyEventPhase1(
     }
 
     const elapsedMinutes = diffMinutes(activeShiftStartAt, occurredAt);
+
+    if (
+      canonicalEventType === "punch_out" &&
+      elapsedMinutes >= HORODATEUR_OPEN_SHIFT_SAFETY_MAX_ELAPSED_MINUTES
+    ) {
+      return buildPendingClassification(
+        "shift_too_long",
+        "Quart ouvert plus de 14 h — fermeture a approuver",
+        note ??
+          "Le quart depasse 14 heures depuis le debut. La sortie requiert une approbation direction."
+      );
+    }
 
     if (elapsedMinutes > employee.maxShiftMinutes) {
       return buildPendingClassification(

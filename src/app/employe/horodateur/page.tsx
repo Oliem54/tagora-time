@@ -76,6 +76,9 @@ type TodayTimeDisplay = {
   pendingPunchBlocksAccrual: boolean;
   openShiftWorkDateMismatch: boolean;
   openShiftWorkDate: string | null;
+  openShiftSafetyCapReached: boolean;
+  openShiftSafetyCapAt: string | null;
+  openShiftElapsedMinutes: number;
   computedAt: string;
 };
 
@@ -183,6 +186,11 @@ function normalizeTodayTimeDisplay(raw: unknown): TodayTimeDisplay | null {
     openShiftWorkDateMismatch: Boolean(source.openShiftWorkDateMismatch),
     openShiftWorkDate:
       typeof source.openShiftWorkDate === "string" ? source.openShiftWorkDate : null,
+    openShiftSafetyCapReached: Boolean(source.openShiftSafetyCapReached),
+    openShiftSafetyCapAt:
+      typeof source.openShiftSafetyCapAt === "string" ? source.openShiftSafetyCapAt : null,
+    openShiftElapsedMinutes:
+      typeof source.openShiftElapsedMinutes === "number" ? source.openShiftElapsedMinutes : 0,
     computedAt: typeof source.computedAt === "string" ? source.computedAt : new Date().toISOString(),
   };
 }
@@ -338,6 +346,9 @@ const PUNCH_GPS_PUNCH_NOT_COMPLETED_MESSAGE =
 
 const PUNCH_OUT_PENDING_APPROVAL_MESSAGE =
   "Sortie enregistrée, en attente d'approbation. Votre quart restera ouvert jusqu'à validation.";
+
+const OPEN_SHIFT_SAFETY_CAP_MESSAGE =
+  "Quart ouvert depuis plus de 14 h — veuillez poinçonner votre sortie. La fermeture nécessitera une approbation.";
 
 const PUNCH_OUT_SUCCESS_MESSAGE =
   "Sortie enregistrée. Votre temps a été recalculé.";
@@ -1388,6 +1399,10 @@ export default function EmployeHorodateurPage() {
       await handleLatePunchNow();
       return;
     }
+    if (eventType === "punch_out") {
+      await handlePunch("punch_out", { requireGps: true });
+      return;
+    }
     await handlePunch(eventType);
   }
 
@@ -1649,6 +1664,20 @@ export default function EmployeHorodateurPage() {
                 Quart ouvert depuis{" "}
                 {todayTimeDisplay.openShiftWorkDate ?? "un jour precedent"}. Pointez votre sortie ou
                 contactez la direction.
+              </p>
+            ) : null}
+            {todayTimeDisplay?.openShiftSafetyCapReached ? (
+              <p
+                className="tagora-note"
+                style={{
+                  marginTop: 8,
+                  marginBottom: 0,
+                  lineHeight: 1.45,
+                  color: "#b45309",
+                  fontWeight: 600,
+                }}
+              >
+                {OPEN_SHIFT_SAFETY_CAP_MESSAGE}
               </p>
             ) : null}
             {todayTimeDisplay?.hasPendingOperationalPunchToday &&

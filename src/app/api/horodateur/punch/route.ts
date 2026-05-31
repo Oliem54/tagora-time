@@ -398,7 +398,9 @@ export async function POST(req: NextRequest) {
     const canonicalPunchType = toCanonicalEventType(normalizedEventType);
     const isRetroactivePunch = canonicalPunchType === "retroactive_entry";
     const requiresWebGps =
-      canonicalPunchType === "punch_in" || isRetroactivePunch;
+      canonicalPunchType === "punch_in" ||
+      canonicalPunchType === "punch_out" ||
+      isRetroactivePunch;
 
     let webGps:
       | {

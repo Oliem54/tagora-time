@@ -334,6 +334,9 @@ export type HorodateurPhase1TodayTimeDisplay = {
   pendingPunchBlocksAccrual: boolean;
   openShiftWorkDateMismatch: boolean;
   openShiftWorkDate: string | null;
+  openShiftSafetyCapReached: boolean;
+  openShiftSafetyCapAt: string | null;
+  openShiftElapsedMinutes: number;
   computedAt: string;
 };
 
@@ -368,6 +371,8 @@ export type HorodateurPhase1ClassifyInput = {
   employee: HorodateurPhase1EmployeeProfile;
   currentState: HorodateurPhase1CurrentStateRecord | null;
   latestApprovedEvents: HorodateurPhase1EventRecord[];
+  /** Timeline approuvee complete — necessaire pour quart ouvert cross-jour et regle 14 h. */
+  allApprovedEvents?: HorodateurPhase1EventRecord[];
   eventType: HorodateurPhase1EventType | HorodateurCanonicalEventType;
   occurredAt: string;
   actorRole: HorodateurPhase1ActorRole;
