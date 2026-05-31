@@ -261,10 +261,7 @@ export default function Page() {
             </p>
             <div className="employes-account-crosslinks-actions">
               <Link href="/direction/demandes-comptes" className="tagora-dark-outline-action employes-action-btn">
-                Voir demandes de comptes
-              </Link>
-              <Link href="/direction/demandes-comptes" className="tagora-dark-outline-action employes-action-btn">
-                Gérer les accès
+                Demandes de comptes · Gestion des accès
               </Link>
               <Link
                 href="/direction/demandes-comptes?create=1"

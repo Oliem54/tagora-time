@@ -60,7 +60,8 @@ function formatDate(value: string | null | undefined) {
   }).format(new Date(value));
 }
 
-function getStatusLabel(status: AccountAccessStatus) {
+function getStatusLabel(status: AccountAccessStatus, request?: AccountAccessRequestRecord) {
+  if (request && isAccessDisabledRequest(request)) return "Accès désactivé";
   if (status === "active") return "Actif";
   if (status === "invited") return "Invite";
   if (status === "refused") return "Refuse";
@@ -291,7 +292,7 @@ export default function AccountRequestManageModal({
         </div>
 
         <p className="tagora-note" style={{ margin: 0 }}>
-          {request.email} · Statut : {getStatusLabel(request.status)} · Portail :{" "}
+          {request.email} · Statut : {getStatusLabel(request.status, request)} · Portail :{" "}
           {formatRole(request.portal_source as RequestRole)} · {getCompanyLabel(request.company)}
         </p>
 
