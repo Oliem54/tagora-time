@@ -447,6 +447,8 @@ export function buildReactivatedAuthMetadataForUser(
     ...source,
     role: getRestorableRoleForAuthUser(user, requestFallback),
     permissions: getRestorablePermissionsForAuthUser(user, requestFallback),
+    disabled_role: null,
+    disabled_permissions: null,
     access_disabled: false,
     access_disabled_at: null,
     access_disabled_by: null,
