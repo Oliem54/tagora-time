@@ -130,7 +130,12 @@ export function matchesAccountAccessFilter(
   if (filter === "refused") {
     return isRefusedRequest(request);
   }
-  if (filter === "active" || filter === "invited") {
+  if (
+    filter === "active" ||
+    filter === "invited" ||
+    filter === "pending" ||
+    filter === "error"
+  ) {
     return request.status === filter && !isAccessDisabledRequest(request);
   }
   return request.status === filter;
