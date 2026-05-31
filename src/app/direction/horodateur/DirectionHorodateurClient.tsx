@@ -60,6 +60,7 @@ type LiveRow = {
     pendingPunchBlocksAccrual: boolean;
     openShiftWorkDateMismatch: boolean;
     openShiftWorkDate: string | null;
+    openShiftSafetyCapReached?: boolean;
   } | null;
 };
 
@@ -333,6 +334,13 @@ function exceptionSummaryRow(label: string, value: string) {
   );
 }
 
+function formatHorodateurExceptionTypeLabel(item: Pick<PendingException, "exception_type" | "reason_label">) {
+  if (item.exception_type === "shift_too_long") {
+    return item.reason_label?.trim() || "Quart > 14 h — fermeture à approuver";
+  }
+  return item.reason_label || item.exception_type;
+}
+
 function getRowState(row: LiveRow) {
   return row.currentState || row.status || "hors_quart";
 }
@@ -394,6 +402,7 @@ function normalizeLiveRow(raw: unknown): LiveRow {
           typeof timeDisplayRaw.openShiftWorkDate === "string"
             ? timeDisplayRaw.openShiftWorkDate
             : null,
+        openShiftSafetyCapReached: Boolean(timeDisplayRaw.openShiftSafetyCapReached),
       }
     : null;
 
@@ -1484,7 +1493,7 @@ export default function DirectionHorodateurPage() {
 
                   <div className="ui-stack-xs" style={{ gap: 10 }}>
                     {exceptionSummaryRow("Employé", employeeName)}
-                    {exceptionSummaryRow("Type", item.reason_label || item.exception_type)}
+                    {exceptionSummaryRow("Type", formatHorodateurExceptionTypeLabel(item))}
                     {exceptionSummaryRow(
                       "Heure",
                       occurredAt ? formatDateTime(occurredAt) : "—"
@@ -1835,6 +1844,11 @@ export default function DirectionHorodateurPage() {
                             ) : null}
                             {row.todayTimeDisplay?.pendingPunchBlocksAccrual ? (
                               <span className="ui-text-muted">Punch en attente</span>
+                            ) : null}
+                            {row.todayTimeDisplay?.openShiftSafetyCapReached ? (
+                              <span className="ui-text-muted" style={{ color: "#b45309", fontWeight: 600 }}>
+                                Quart ouvert &gt; 14 h — fermeture à approuver
+                              </span>
                             ) : null}
                             {row.todayTimeDisplay?.openShiftWorkDateMismatch ? (
                               <span className="ui-text-muted">

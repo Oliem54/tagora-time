@@ -59,6 +59,8 @@ import {
 } from "./effective-schedule.server";
 import {
   classifyEventPhase1,
+  computeOpenShiftElapsedMinutes,
+  computeOpenShiftSafetyCapAt,
   diffMinutes,
   getEventOccurredAt,
   getLastApprovedEvent,
@@ -67,10 +69,13 @@ import {
   getWeekStartDate,
   HORODATEUR_PHASE1_WEEKLY_TARGET_HOURS,
   isEmployeeLateForScheduledShiftStart,
+  isOpenShiftBeyondSafetyLimit,
   isValidScheduledWorkDayForEmployee,
   isWithinScheduledWindowForEmployee,
   resolveCompanyContextForShift,
   resolveInitialCurrentState,
+  resolveLiveAccrualEndIso,
+  resolveOpenShiftStartAt,
   resolveShiftStatus,
   shouldTreatApprovedEventAsShiftStart,
   toCanonicalEventType,
@@ -870,6 +875,31 @@ export async function createPendingExceptionForEvent(options: {
     impactMinutes: options.impactMinutes ?? 0,
     requestedByUserId: options.requestedByUserId,
   });
+}
+
+async function assertNoPendingShiftTooLongPunchOut(employeeId: number) {
+  const pendingExceptions = await listPendingExceptions({ employeeId });
+
+  for (const pendingException of pendingExceptions) {
+    if (pendingException.exception_type !== "shift_too_long") {
+      continue;
+    }
+
+    const sourceEvent = await getEventById(pendingException.source_event_id);
+    if (
+      sourceEvent &&
+      sourceEvent.status === "en_attente" &&
+      toCanonicalEventType(sourceEvent.event_type) === "punch_out"
+    ) {
+      throw new HorodateurPhase1Error(
+        "Une sortie apres 14 h est deja en attente d approbation direction.",
+        {
+          code: "pending_shift_close_already_exists",
+          status: 409,
+        }
+      );
+    }
+  }
 }
 
 function tryCreateAdminClient(): SupabaseClient | null {
@@ -1765,7 +1795,10 @@ export async function processExpectedPunchSmsNotifications(options?: {
   };
 }
 
-export async function recomputeCurrentState(employeeId: number) {
+export async function recomputeCurrentState(
+  employeeId: number,
+  options?: { persist?: boolean }
+) {
   const approvedEvents = await listEventsForEmployee({
     employeeId,
     statuses: ["normal", "approuve"],
@@ -1934,7 +1967,7 @@ export async function recomputeCurrentState(employeeId: number) {
     });
   }
 
-  return upsertCurrentState({
+  const nextState: HorodateurPhase1CurrentStateRecord = {
     employee_id: employeeId,
     current_state: currentState,
     active_shift_id:
@@ -1951,7 +1984,13 @@ export async function recomputeCurrentState(employeeId: number) {
     last_event_at: getEventOccurredAt(lastEvent),
     company_context: activeShift?.company_context ?? null,
     has_open_exception: pendingExceptionsCount > 0 || hasSequenceAnomaly,
-  });
+  };
+
+  if (options?.persist === false) {
+    return nextState;
+  }
+
+  return upsertCurrentState(nextState);
 }
 
 function isQuarterActiveState(state: HorodateurPhase1StateKind) {
@@ -1991,7 +2030,8 @@ function resolveMealLimitMinutes(employee: HorodateurPhase1EmployeeProfile) {
 
 export async function recomputeShiftForDate(
   employeeId: number,
-  workDate: string
+  workDate: string,
+  options?: { persist?: boolean }
 ) {
   const employee = await resolveEmployeeById(employeeId);
   const approvedEvents = await listEventsForEmployee({
@@ -2273,7 +2313,7 @@ export async function recomputeShiftForDate(
     );
   }
 
-  const shift = await upsertShift({
+  const computedShift: HorodateurPhase1ShiftRecord = {
     id: existingShift?.id ?? crypto.randomUUID(),
     employee_id: employeeId,
     work_date: workDate,
@@ -2296,7 +2336,13 @@ export async function recomputeShiftForDate(
       anomaliesCount: anomalies.length,
     }),
     last_recomputed_at: new Date().toISOString(),
-  });
+  };
+
+  if (options?.persist === false) {
+    return computedShift;
+  }
+
+  const shift = await upsertShift(computedShift);
 
   await Promise.all(
     pendingExceptions.map((item) => attachShiftToException(item.id, shift.id))
@@ -2541,10 +2587,18 @@ export async function createEmployeePunch(options: {
 
   const scheduleEmployee = profileForScheduleValidation(employee, effectiveSchedule);
 
+  if (canonicalType === "punch_out") {
+    await assertNoPendingShiftTooLongPunchOut(employee.employeeId);
+  }
+
   let currentState = await getCurrentStateByEmployeeId(employee.employeeId);
   let latestApprovedEvents = await listEventsForEmployee({
     employeeId: employee.employeeId,
     workDate: getLocalWorkDate(occurredAt),
+    statuses: ["normal", "approuve"],
+  });
+  const allApprovedEvents = await listEventsForEmployee({
+    employeeId: employee.employeeId,
     statuses: ["normal", "approuve"],
   });
 
@@ -2576,6 +2630,7 @@ export async function createEmployeePunch(options: {
     employee: scheduleEmployee,
     currentState,
     latestApprovedEvents,
+    allApprovedEvents,
     eventType: options.eventType,
     occurredAt,
     actorRole: "employe",
@@ -3009,6 +3064,16 @@ export function computeTodayLiveShiftDisplayMinutes(options: {
     blocksAccrualFromPendingPunchIn || Boolean(pendingLiveAccrualCapAt);
 
   const openShiftWorkDate = resolveActiveOpenShiftWorkDate(options.allApprovedEvents);
+  const openShiftStartAt = resolveOpenShiftStartAt(options.allApprovedEvents);
+  const openShiftSafetyCapAt = openShiftStartAt
+    ? computeOpenShiftSafetyCapAt(openShiftStartAt)
+    : null;
+  const openShiftElapsedMinutes = openShiftStartAt
+    ? computeOpenShiftElapsedMinutes(openShiftStartAt, nowIso)
+    : 0;
+  const openShiftSafetyCapReached = openShiftStartAt
+    ? isOpenShiftBeyondSafetyLimit(openShiftStartAt, nowIso)
+    : false;
   const openShiftWorkDateMismatch =
     isQuarterActiveState(resolvedState) &&
     Boolean(openShiftWorkDate && openShiftWorkDate !== options.workDate);
@@ -3137,8 +3202,14 @@ export function computeTodayLiveShiftDisplayMinutes(options: {
     workSegmentStartAt;
 
   if (canAccrueOpenSegment && workSegmentStartAt) {
-    const accrualEndIso = pendingLiveAccrualCapAt ?? nowIso;
-    workedMinutes += diffMinutes(workSegmentStartAt, accrualEndIso);
+    const accrualEndIso = resolveLiveAccrualEndIso({
+      nowIso,
+      openShiftStartAt,
+      pendingCapAt: pendingLiveAccrualCapAt,
+    });
+    if (new Date(accrualEndIso).getTime() > new Date(workSegmentStartAt).getTime()) {
+      workedMinutes += diffMinutes(workSegmentStartAt, accrualEndIso);
+    }
   }
 
   const liveWorkedMinutes = workedMinutes;
@@ -3156,6 +3227,9 @@ export function computeTodayLiveShiftDisplayMinutes(options: {
     pendingPunchBlocksAccrual,
     openShiftWorkDateMismatch,
     openShiftWorkDate,
+    openShiftSafetyCapReached,
+    openShiftSafetyCapAt,
+    openShiftElapsedMinutes,
     computedAt: nowIso,
   };
 }
@@ -3344,10 +3418,13 @@ export async function listDirectionLiveBoard(): Promise<HorodateurPhase1Directio
           statuses: ["normal", "approuve"],
         }),
       ]);
-      const recomputedState = await recomputeCurrentState(employee.employeeId);
+      const recomputedState = await recomputeCurrentState(employee.employeeId, {
+        persist: false,
+      });
       const recomputedTodayShift = await recomputeShiftForDate(
         employee.employeeId,
-        today
+        today,
+        { persist: false }
       );
       const resolvedCurrentState = recomputedState ?? buildEmptyCurrentState(employee);
       const resolvedTodayShift =
