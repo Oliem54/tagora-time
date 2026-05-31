@@ -1,6 +1,7 @@
 import type { AppPermission } from "@/app/lib/auth/permissions";
 import type { AppRole } from "@/app/lib/auth/roles";
 import type {
+  AccountRequestAuditEntry,
   AccountRequestCompany,
   ExistingAccountSnapshot,
 } from "@/app/lib/account-requests.shared";
@@ -20,6 +21,7 @@ export type AccountAccessAction =
   | "reset_pending"
   | "resend_invitation"
   | "disable_access"
+  | "reactivate_access"
   | "retry";
 
 export type EmployeeLinkStatus = "created" | "existing" | "missing";
@@ -59,5 +61,82 @@ export type AccountAccessRequestRecord = {
   /** auth.users.id après invitation / activation */
   invited_user_id?: string | null;
   created_at: string;
+  audit_log?: AccountRequestAuditEntry[] | null;
 };
 
+export type AccountAccessListFilter =
+  | "all"
+  | "pending"
+  | "invited"
+  | "active"
+  | "disabled"
+  | "refused"
+  | "error";
+
+const ACCESS_AUDIT_EVENTS = new Set(["access_disabled", "access_reactivated"]);
+
+export function resolveAccessDisabledFromAuditLog(
+  auditLog: AccountRequestAuditEntry[] | null | undefined
+): boolean | null {
+  if (!auditLog?.length) {
+    return null;
+  }
+
+  let latestAt = "";
+  let latestDisabled: boolean | null = null;
+
+  for (const entry of auditLog) {
+    if (!ACCESS_AUDIT_EVENTS.has(entry.event)) {
+      continue;
+    }
+
+    const entryAt = entry.at ?? "";
+    if (entryAt >= latestAt) {
+      latestAt = entryAt;
+      latestDisabled = entry.event === "access_disabled";
+    }
+  }
+
+  return latestDisabled;
+}
+
+export function isAccessDisabledRequest(request: AccountAccessRequestRecord) {
+  if (request.existing_account?.exists === true) {
+    return request.existing_account.accessDisabled;
+  }
+
+  const auditState = resolveAccessDisabledFromAuditLog(request.audit_log);
+  if (auditState !== null) {
+    return auditState;
+  }
+
+  return false;
+}
+
+export function isRefusedRequest(request: AccountAccessRequestRecord) {
+  return request.status === "refused" && !isAccessDisabledRequest(request);
+}
+
+export function matchesAccountAccessFilter(
+  request: AccountAccessRequestRecord,
+  filter: AccountAccessListFilter
+) {
+  if (filter === "all") {
+    return true;
+  }
+  if (filter === "disabled") {
+    return isAccessDisabledRequest(request);
+  }
+  if (filter === "refused") {
+    return isRefusedRequest(request);
+  }
+  if (
+    filter === "active" ||
+    filter === "invited" ||
+    filter === "pending" ||
+    filter === "error"
+  ) {
+    return request.status === filter && !isAccessDisabledRequest(request);
+  }
+  return request.status === filter;
+}

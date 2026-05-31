@@ -3027,6 +3027,22 @@ select {
   color: #ffffff;
 }
 
+.account-requests-premium-description {
+  margin: 10px 0 0;
+  max-width: 52ch;
+  font-size: 14px;
+  line-height: 1.45;
+  color: rgba(255, 255, 255, 0.88);
+}
+
+.account-requests-status-filter {
+  min-width: 220px;
+}
+
+.account-requests-status-filter .tagora-input {
+  min-width: 220px;
+}
+
 .account-requests-premium-hero-actions {
   display: flex;
   align-items: center;
@@ -3872,6 +3888,36 @@ select {
   flex-wrap: wrap;
   gap: 12px;
   align-items: flex-end;
+}
+
+.employes-account-crosslinks {
+  padding: 14px 16px;
+  border-radius: 14px;
+}
+
+.employes-account-crosslinks-inner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.employes-account-crosslinks-label {
+  font-weight: 700;
+  color: #334155;
+}
+
+.employes-account-crosslinks-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.employes-account-crosslinks-actions .employes-action-btn {
+  width: auto;
+  min-width: 0;
+  white-space: nowrap;
 }
 
 .ui-module-tile {

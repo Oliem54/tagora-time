@@ -8,6 +8,7 @@ import {
   type AccountAccessAction,
   type AccountAccessRequestRecord,
   type AccountAccessStatus,
+  isAccessDisabledRequest,
 } from "@/app/lib/account-access";
 import {
   ACCOUNT_REQUEST_COMPANIES,
@@ -22,7 +23,8 @@ type RequestRole = "employe" | "direction" | "admin";
 export type AccountSecurityAction =
   | "reset_password"
   | "send_reset_link"
-  | "set_temporary_password";
+  | "set_temporary_password"
+  | "reactivate_account";
 
 type ActionConfig = {
   action: AccountAccessAction;
@@ -58,17 +60,26 @@ function formatDate(value: string | null | undefined) {
   }).format(new Date(value));
 }
 
-function getStatusLabel(status: AccountAccessStatus) {
+function getStatusLabel(status: AccountAccessStatus, request?: AccountAccessRequestRecord) {
+  if (request && isAccessDisabledRequest(request)) return "Accès désactivé";
   if (status === "active") return "Actif";
-  if (status === "invited") return "Invite";
-  if (status === "refused") return "Refuse";
+  if (status === "invited") return "Invité";
+  if (status === "refused") return "Refusé";
   if (status === "error") return "Erreur";
   return "En attente";
 }
 
-function getPrimaryActionForStatus(status: AccountAccessStatus): ActionConfig | null {
+function getPrimaryActionForStatus(
+  status: AccountAccessStatus,
+  request?: AccountAccessRequestRecord
+): ActionConfig | null {
+  const accessDisabled = request ? isAccessDisabledRequest(request) : false;
+
   if (status === "pending") {
     return { action: "approve", label: "Approuver", tone: "primary" };
+  }
+  if (accessDisabled && (status === "invited" || status === "active")) {
+    return null;
   }
   if (status === "invited" || status === "active") {
     return { action: "update_access", label: "Enregistrer les acces", tone: "primary" };
@@ -76,14 +87,22 @@ function getPrimaryActionForStatus(status: AccountAccessStatus): ActionConfig | 
   return null;
 }
 
-function getSecondaryActionsForStatus(status: AccountAccessStatus): ActionConfig[] {
+function getSecondaryActionsForStatus(
+  status: AccountAccessStatus,
+  request?: AccountAccessRequestRecord
+): ActionConfig[] {
+  const accessDisabled = request ? isAccessDisabledRequest(request) : false;
+
+  if (accessDisabled && (status === "invited" || status === "active")) {
+    return [];
+  }
   if (status === "invited") {
     return [
       { action: "resend_invitation", label: "Renvoyer l invitation", tone: "secondary" },
       { action: "reset_pending", label: "Remettre en attente", tone: "secondary" },
     ];
   }
-  if (status === "active") {
+  if (status === "active" && !accessDisabled) {
     return [{ action: "disable_access", label: "Desactiver l acces", tone: "danger" }];
   }
   if (status === "refused") {
@@ -148,7 +167,9 @@ export default function AccountRequestManageModal({
   onRunAction,
   onRunSecurityAction,
   onDelete,
+  onReactivateAccess,
   deleting,
+  reactivating,
 }: {
   request: AccountAccessRequestRecord | null;
   open: boolean;
@@ -171,7 +192,9 @@ export default function AccountRequestManageModal({
   onRunAction: (action: AccountAccessAction) => void;
   onRunSecurityAction: (action: AccountSecurityAction, temporaryPassword?: string) => void;
   onDelete: () => void;
+  onReactivateAccess?: () => void;
   deleting?: boolean;
+  reactivating?: boolean;
 }) {
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
@@ -202,8 +225,9 @@ export default function AccountRequestManageModal({
     return null;
   }
 
-  const primaryAction = getPrimaryActionForStatus(request.status);
-  const secondaryActions = getSecondaryActionsForStatus(request.status);
+  const primaryAction = getPrimaryActionForStatus(request.status, request);
+  const secondaryActions = getSecondaryActionsForStatus(request.status, request);
+  const accessDisabled = isAccessDisabledRequest(request);
   const hasAuthAccount = Boolean(request.existing_account?.exists || request.invited_user_id);
   const canUsePasswordActions = canManageRoles && hasAuthAccount;
   const permissionChoices =
@@ -276,7 +300,7 @@ export default function AccountRequestManageModal({
         </div>
 
         <p className="tagora-note" style={{ margin: 0 }}>
-          {request.email} · Statut : {getStatusLabel(request.status)} · Portail :{" "}
+          {request.email} · Statut : {getStatusLabel(request.status, request)} · Portail :{" "}
           {formatRole(request.portal_source as RequestRole)} · {getCompanyLabel(request.company)}
         </p>
 
@@ -439,7 +463,7 @@ export default function AccountRequestManageModal({
                   <span>Autoriser le remplacement des acces existants</span>
                 </label>
               ) : null}
-              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
                 {primaryAction ? (
                   <button
                     type="button"
@@ -461,6 +485,23 @@ export default function AccountRequestManageModal({
                     {savingAction === item.action ? "Traitement..." : item.label}
                   </button>
                 ))}
+                {accessDisabled ? (
+                  onReactivateAccess && hasAuthAccount ? (
+                    <button
+                      type="button"
+                      className="tagora-dark-action"
+                      onClick={onReactivateAccess}
+                      disabled={Boolean(savingAction || reactivating)}
+                    >
+                      {reactivating ? "Réactivation…" : "Réactiver l'accès"}
+                    </button>
+                  ) : (
+                    <span className="tagora-note" style={{ margin: 0 }}>
+                      Accès désactivé. Associez une fiche employé pour réactiver l&apos;accès depuis
+                      cette demande.
+                    </span>
+                  )
+                ) : null}
               </div>
             </>
           ) : (
@@ -490,11 +531,13 @@ export default function AccountRequestManageModal({
               }}
             >
               <ExternalLink size={14} />
-              Ouvrir la fiche employe
+              {request.employee_link.status === "existing"
+                ? "Voir / associer fiche employé"
+                : "Ouvrir la fiche employé"}
             </Link>
           ) : (
             <p className="tagora-note" style={{ margin: 0 }}>
-              Aucune fiche liee. L approbation cree ou relie la fiche automatiquement.
+              Aucune fiche liée. L&apos;approbation crée ou relie la fiche automatiquement.
             </p>
           )}
         </ManageSection>
@@ -590,7 +633,7 @@ export default function AccountRequestManageModal({
               onClick={onDelete}
               disabled={Boolean(deleting || savingAction)}
             >
-              {deleting ? "Suppression..." : "Supprimer la demande"}
+              {deleting ? "Suppression…" : "Supprimer la demande"}
             </button>
           ) : null}
         </ManageSection>

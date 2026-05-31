@@ -5,10 +5,13 @@ import {
   appendAuditEntry,
   buildCompanyAccessFlags,
   buildExistingAccountSnapshot,
+  buildDisabledAuthMetadataForUser,
+  buildReactivatedAuthMetadataForUser,
   createAuditEntry,
   getCompanyDirectoryContext,
   getReviewLockMetadata,
   hasUserActivatedAccess,
+  readAccessDisabledFromAuthUser,
   normalizeCompany,
   normalizeEmail,
   normalizePermissions,
@@ -20,6 +23,7 @@ import {
   getAccountRequestsRequestDebug,
   getStrictDirectionRequestUser,
 } from "@/app/lib/account-requests.server";
+import { resolveAccessDisabledFromAuditLog } from "@/app/lib/account-access";
 import {
   buildRequiredPasswordMetadata,
   hasPasswordChangeRequired,
@@ -36,6 +40,7 @@ type AccountRequestAction =
   | "reset_pending"
   | "resend_invitation"
   | "disable_access"
+  | "reactivate_access"
   | "retry";
 
 function parseAction(value: unknown): AccountRequestAction | null {
@@ -47,6 +52,7 @@ function parseAction(value: unknown): AccountRequestAction | null {
     value === "reset_pending" ||
     value === "resend_invitation" ||
     value === "disable_access" ||
+    value === "reactivate_access" ||
     value === "retry"
   ) {
     return value;
@@ -2097,22 +2103,18 @@ export async function PATCH(
       const { error } = await createAdminSupabaseClient().auth.admin.updateUserById(
         existingUser.id,
         {
-          app_metadata: {
-            ...existingUser.app_metadata,
-            role: null,
-            permissions: [],
-            access_disabled: true,
-            access_disabled_at: reviewedAt,
-            access_disabled_by: user.id,
-          },
-          user_metadata: {
-            ...existingUser.user_metadata,
-            role: null,
-            permissions: [],
-            access_disabled: true,
-            access_disabled_at: reviewedAt,
-            access_disabled_by: user.id,
-          },
+          app_metadata: buildDisabledAuthMetadataForUser(
+            existingUser.app_metadata,
+            existingUser,
+            user.id,
+            reviewedAt
+          ),
+          user_metadata: buildDisabledAuthMetadataForUser(
+            existingUser.user_metadata,
+            existingUser,
+            user.id,
+            reviewedAt
+          ),
         }
       );
 
@@ -2129,6 +2131,89 @@ export async function PATCH(
         audit_log: createDirectionAudit(requestRow, user, "access_disabled", {
           previousStatus: requestRow.status,
           disabledUserId: existingUser.id,
+          reason: reviewNote,
+          company: requestRow.company,
+          companyDirectoryContext: getCompanyDirectoryContext(requestRow.company),
+        }),
+      });
+
+      return NextResponse.json({ success: true, status: updated.status });
+    }
+
+    if (action === "reactivate_access") {
+      let existingUser =
+        requestRow.invited_user_id != null
+          ? (
+              await createAdminSupabaseClient().auth.admin.getUserById(
+                requestRow.invited_user_id
+              )
+            ).data.user
+          : null;
+
+      if (!existingUser) {
+        existingUser = await findAuthUserByEmail(normalizeEmail(requestRow.email));
+      }
+
+      if (!existingUser) {
+        return NextResponse.json(
+          { error: "Aucun compte associe n a ete trouve pour cette demande." },
+          { status: 404 }
+        );
+      }
+
+      const accessDisabled =
+        readAccessDisabledFromAuthUser(existingUser) ||
+        resolveAccessDisabledFromAuditLog(requestRow.audit_log) === true;
+
+      if (!accessDisabled) {
+        return NextResponse.json(
+          { error: "Cet acces n est pas desactive ou est deja actif." },
+          { status: 409 }
+        );
+      }
+
+      const reactivationFallback = {
+        role: assignedRole,
+        permissions: assignedPermissions,
+      };
+
+      const { error } = await createAdminSupabaseClient().auth.admin.updateUserById(
+        existingUser.id,
+        {
+          app_metadata: buildReactivatedAuthMetadataForUser(
+            existingUser.app_metadata,
+            existingUser,
+            user.id,
+            reviewedAt,
+            reactivationFallback
+          ),
+          user_metadata: buildReactivatedAuthMetadataForUser(
+            existingUser.user_metadata,
+            existingUser,
+            user.id,
+            reviewedAt,
+            reactivationFallback
+          ),
+        }
+      );
+
+      if (error) {
+        return NextResponse.json({ error: error.message }, { status: 500 });
+      }
+
+      const nextStatus = hasUserActivatedAccess(existingUser) ? "active" : "invited";
+
+      const updated = await updateRequestRow(id, {
+        status: nextStatus,
+        review_note: reviewNote,
+        reviewed_by: user.id,
+        reviewed_at: reviewedAt,
+        invited_user_id: requestRow.invited_user_id ?? existingUser.id,
+        last_error: null,
+        audit_log: createDirectionAudit(requestRow, user, "access_reactivated", {
+          previousStatus: requestRow.status,
+          reactivatedUserId: existingUser.id,
+          nextStatus,
           reason: reviewNote,
           company: requestRow.company,
           companyDirectoryContext: getCompanyDirectoryContext(requestRow.company),

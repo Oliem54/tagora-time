@@ -165,7 +165,7 @@ export default function Page() {
 
   async function handleArchiveDelete(id: number) {
     const ok = window.confirm(
-      "Supprimer ou archiver cet employé ? S'il existe des données liées (horodateur, livraisons, etc.), le compte sera désactivé plutôt que supprimé."
+      "Supprimer cette fiche employé ?\n\n• Si des données sont liées (horodateur, livraisons, etc.), la fiche sera désactivée et l'historique conservé.\n• Sinon, la fiche sera supprimée définitivement.\n\nCette action ne supprime pas le compte portail Auth associé."
     );
     if (!ok) return;
 
@@ -243,7 +243,8 @@ export default function Page() {
     <main className="tagora-app-shell employes-ressources-page">
       <div className="tagora-app-content ui-stack-lg" style={{ maxWidth: 1280 }}>
         <HeaderTagora
-          title="Employés et chauffeurs"
+          title="Gestion des comptes employés"
+          subtitle="Gérez les fiches employés, les accès portail, les statuts actifs ou archivés et les liaisons avec les demandes de comptes."
           actions={
             <div className="tagora-actions">
               <Link href="/direction/ressources/employes/nouveau" className="tagora-dark-action">
@@ -252,6 +253,25 @@ export default function Page() {
             </div>
           }
         />
+
+        <section className="tagora-panel-muted employes-account-crosslinks" aria-label="Liens gestion des accès">
+          <div className="employes-account-crosslinks-inner">
+            <p className="tagora-note employes-account-crosslinks-label" style={{ margin: 0 }}>
+              Accès portail et demandes de comptes
+            </p>
+            <div className="employes-account-crosslinks-actions">
+              <Link href="/direction/demandes-comptes" className="tagora-dark-outline-action employes-action-btn">
+                Demandes de comptes · Gestion des accès
+              </Link>
+              <Link
+                href="/direction/demandes-comptes?create=1"
+                className="tagora-dark-action employes-action-btn"
+              >
+                Créer un accès
+              </Link>
+            </div>
+          </div>
+        </section>
 
         <FeedbackMessage message={message} type={messageType} />
 
@@ -277,7 +297,7 @@ export default function Page() {
                 onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
               >
                 <option value="active">Actifs</option>
-                <option value="inactive">Inactifs</option>
+                <option value="inactive">Désactivés / archivés</option>
                 <option value="all">Tous</option>
               </select>
             </label>
@@ -332,7 +352,7 @@ export default function Page() {
                   <DataTableCell>
                     <div className="employes-statut-stack">
                       <StatusBadge
-                        label={isActiveRow(item) ? "Actif" : "Inactif"}
+                        label={isActiveRow(item) ? "Actif" : "Désactivé / archivé"}
                         tone={isActiveRow(item) ? "success" : "default"}
                       />
                       {workStatusBadge(item)}
@@ -371,7 +391,7 @@ export default function Page() {
                             onClick={() => void handleArchiveDelete(item.id)}
                             disabled={actionId === item.id}
                           >
-                            {actionId === item.id ? "…" : "Supprimer / Archiver"}
+                            {actionId === item.id ? "…" : "Supprimer la fiche"}
                           </button>
                         </>
                       )}

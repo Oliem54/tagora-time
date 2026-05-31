@@ -205,6 +205,63 @@ export default function EmployeePortalAccessSection({
     }
   }
 
+  async function postSecurityAction(action: "reactivate_account") {
+    if (!accessToken) {
+      setLocalMessage({ type: "err", text: "Session expiree. Reconnectez-vous." });
+      return;
+    }
+    if (viewerRole !== "admin") {
+      setLocalMessage({
+        type: "err",
+        text: "La reactivation de l acces est reservee aux administrateurs.",
+      });
+      return;
+    }
+
+    setBusy(true);
+    setLocalMessage(null);
+    try {
+      const res = await fetch(`/api/employees/${employeeId}/account-security`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ action }),
+      });
+      const json = (await res.json().catch(() => ({}))) as {
+        success?: boolean;
+        error?: string;
+        message?: string;
+      };
+
+      if (!res.ok || json.success === false) {
+        setLocalMessage({
+          type: "err",
+          text:
+            typeof json.error === "string"
+              ? json.error
+              : "La reactivation de l acces a echoue.",
+        });
+        return;
+      }
+
+      setLocalMessage({
+        type: "ok",
+        text:
+          typeof json.message === "string"
+            ? json.message
+            : "Acces reactive avec succes.",
+      });
+      await onRefresh();
+      await loadSecurity();
+    } catch {
+      setLocalMessage({ type: "err", text: "Erreur reseau." });
+    } finally {
+      setBusy(false);
+    }
+  }
+
   function togglePermission(slug: string) {
     setPortalPermissions((prev) =>
       prev.includes(slug) ? prev.filter((p) => p !== slug) : [...prev, slug]
@@ -220,6 +277,7 @@ export default function EmployeePortalAccessSection({
   const canLink = Boolean(!linked && security?.accountExists);
   const canResend = Boolean(security?.availableActions?.resendInvitation);
   const canDisable = Boolean(security?.availableActions?.disableAccount);
+  const canReactivate = Boolean(security?.availableActions?.reactivateAccount);
 
   return (
     <section
@@ -394,6 +452,14 @@ export default function EmployeePortalAccessSection({
               onClick={() => void postInvite("disable_access")}
             >
               Desactiver l acces
+            </button>
+            <button
+              type="button"
+              className="tagora-dark-action"
+              disabled={busy || !accessToken || !canReactivate}
+              onClick={() => void postSecurityAction("reactivate_account")}
+            >
+              Reactiver l acces
             </button>
           </div>
         </div>
