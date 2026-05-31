@@ -488,6 +488,39 @@ function resolveMealLimitMinutes(employee: HorodateurPhase1EmployeeProfile) {
   );
 }
 
+function classifyPunchOutAfterOpenShiftSafetyLimit(options: {
+  canonicalEventType: HorodateurCanonicalEventType;
+  occurredAt: string;
+  note?: string | null;
+  allApprovedEvents: HorodateurPhase1EventRecord[];
+}): HorodateurPhase1Classification | null {
+  if (options.canonicalEventType !== "punch_out") {
+    return null;
+  }
+
+  const activeShiftStart = resolveOpenShiftStartEvent(options.allApprovedEvents);
+  if (!activeShiftStart) {
+    return null;
+  }
+
+  const activeShiftStartAt = getEventOccurredAt(activeShiftStart);
+  if (!activeShiftStartAt) {
+    return null;
+  }
+
+  const elapsedMinutes = diffMinutes(activeShiftStartAt, options.occurredAt);
+  if (elapsedMinutes < HORODATEUR_OPEN_SHIFT_SAFETY_MAX_ELAPSED_MINUTES) {
+    return null;
+  }
+
+  return buildPendingClassification(
+    "shift_too_long",
+    "Quart ouvert plus de 14 h — fermeture a approuver",
+    options.note ??
+      "Le quart depasse 14 heures depuis le debut. La sortie requiert une approbation direction."
+  );
+}
+
 export function classifyEventPhase1(
   input: HorodateurPhase1ClassifyInput
 ): HorodateurPhase1Classification {
@@ -583,6 +616,17 @@ export function classifyEventPhase1(
     );
   }
 
+  const openShiftApprovedEvents = allApprovedEvents ?? latestApprovedEvents;
+  const punchOutSafetyClassification = classifyPunchOutAfterOpenShiftSafetyLimit({
+    canonicalEventType,
+    occurredAt,
+    note,
+    allApprovedEvents: openShiftApprovedEvents,
+  });
+  if (punchOutSafetyClassification) {
+    return punchOutSafetyClassification;
+  }
+
   if (
     !isValidScheduledWorkDay(employee, occurredAt) ||
     !isWithinScheduledWindow(employee, occurredAt)
@@ -594,7 +638,6 @@ export function classifyEventPhase1(
     );
   }
 
-  const openShiftApprovedEvents = allApprovedEvents ?? latestApprovedEvents;
   const activeShiftStart = resolveOpenShiftStartEvent(openShiftApprovedEvents);
 
   if (activeShiftStart) {
@@ -609,18 +652,6 @@ export function classifyEventPhase1(
     }
 
     const elapsedMinutes = diffMinutes(activeShiftStartAt, occurredAt);
-
-    if (
-      canonicalEventType === "punch_out" &&
-      elapsedMinutes >= HORODATEUR_OPEN_SHIFT_SAFETY_MAX_ELAPSED_MINUTES
-    ) {
-      return buildPendingClassification(
-        "shift_too_long",
-        "Quart ouvert plus de 14 h — fermeture a approuver",
-        note ??
-          "Le quart depasse 14 heures depuis le debut. La sortie requiert une approbation direction."
-      );
-    }
 
     if (elapsedMinutes > employee.maxShiftMinutes) {
       return buildPendingClassification(
