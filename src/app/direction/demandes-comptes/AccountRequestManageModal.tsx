@@ -63,8 +63,8 @@ function formatDate(value: string | null | undefined) {
 function getStatusLabel(status: AccountAccessStatus, request?: AccountAccessRequestRecord) {
   if (request && isAccessDisabledRequest(request)) return "Accès désactivé";
   if (status === "active") return "Actif";
-  if (status === "invited") return "Invite";
-  if (status === "refused") return "Refuse";
+  if (status === "invited") return "Invité";
+  if (status === "refused") return "Refusé";
   if (status === "error") return "Erreur";
   return "En attente";
 }
