@@ -53,6 +53,11 @@ import {
   insertHorodateurSmsAlertLog,
 } from "./repository";
 import {
+  profileForScheduleValidation,
+  resolveEffectiveHorodateurScheduleForDate,
+  type HorodateurEffectiveScheduleForDate,
+} from "./effective-schedule.server";
+import {
   classifyEventPhase1,
   diffMinutes,
   getEventOccurredAt,
@@ -67,6 +72,7 @@ import {
   resolveCompanyContextForShift,
   resolveInitialCurrentState,
   resolveShiftStatus,
+  shouldTreatApprovedEventAsShiftStart,
   toCanonicalEventType,
 } from "./rules";
 import {
@@ -1209,11 +1215,13 @@ export function buildEmployeeLatenessContext(options: {
   currentState: HorodateurPhase1CurrentStateRecord;
   pendingExceptions: HorodateurPhase1ExceptionRecord[];
   eventsToday: HorodateurPhase1EventRecord[];
+  effectiveSchedule?: HorodateurEffectiveScheduleForDate;
   now?: Date;
 }): HorodateurPhase1LatenessContext {
   const now = options.now ?? new Date();
   const nowIso = now.toISOString();
   const { workDate } = getTodayWorkDateAndDay(now);
+  const effectiveSchedule = options.effectiveSchedule ?? { kind: "habitual" as const };
   const empty: HorodateurPhase1LatenessContext = {
     workDate,
     isLate: false,
@@ -1243,7 +1251,20 @@ export function buildEmployeeLatenessContext(options: {
       !pendingStartEarly) ||
     (resolvedStateEarly === "termine" && !pendingStartEarly);
 
-  if (!options.employee.scheduleStart?.trim()) {
+  if (effectiveSchedule.kind === "off") {
+    return {
+      ...empty,
+      canPunchNow: false,
+      canRequestRetroactiveCorrection: false,
+    };
+  }
+
+  const scheduleEmployee = profileForScheduleValidation(
+    options.employee,
+    effectiveSchedule
+  );
+
+  if (!scheduleEmployee.scheduleStart?.trim()) {
     return {
       ...empty,
       canPunchNow: canStartWithoutSchedule,
@@ -1251,37 +1272,37 @@ export function buildEmployeeLatenessContext(options: {
     };
   }
 
-  if (!isValidScheduledWorkDayForEmployee(options.employee, nowIso)) {
+  if (!isValidScheduledWorkDayForEmployee(scheduleEmployee, nowIso)) {
     return empty;
   }
 
   const scheduledStartAt = buildTorontoTimestamp(
     workDate,
-    options.employee.scheduleStart,
+    scheduleEmployee.scheduleStart,
     now
   );
   const scheduledStartLabel =
-    options.employee.scheduleStart?.trim().slice(0, 5) ??
+    scheduleEmployee.scheduleStart?.trim().slice(0, 5) ??
     formatLocalTimeLabel(scheduledStartAt);
   const isWithinScheduleWindow = isWithinScheduledWindowForEmployee(
-    options.employee,
+    scheduleEmployee,
     nowIso
   );
   const isLate = isEmployeeLateForScheduledShiftStart(
-    options.employee,
+    scheduleEmployee,
     nowIso,
     HORODATEUR_DEFAULT_LATENESS_TOLERANCE_MINUTES
   );
-  const scheduledStartMinutes = getScheduledStartMinutes(options.employee.scheduleStart);
+  const scheduledStartMinutes = getScheduledStartMinutes(scheduleEmployee.scheduleStart);
   const lateMinutes =
     isLate && scheduledStartMinutes != null
       ? Math.max(
           0,
-          getMinutesSinceLocalMidnight(nowIso) -
+            getMinutesSinceLocalMidnight(nowIso) -
             scheduledStartMinutes -
             Math.max(
               0,
-              options.employee.toleranceBeforeStartMinutes ??
+              scheduleEmployee.toleranceBeforeStartMinutes ??
                 HORODATEUR_DEFAULT_LATENESS_TOLERANCE_MINUTES
             )
         )
@@ -1824,7 +1845,11 @@ export async function recomputeCurrentState(employeeId: number) {
       continue;
     }
 
-    if (canonicalEventType === "punch_in") {
+    if (
+      canonicalEventType === "punch_in" ||
+      (canonicalEventType === "retroactive_entry" &&
+        shouldTreatApprovedEventAsShiftStart(event, approvedEffectiveEvents))
+    ) {
       currentState = "en_quart";
       activeShiftStartEventId = event.id;
       activePauseStartEventId = null;
@@ -2034,10 +2059,7 @@ export async function recomputeShiftForDate(
       continue;
     }
 
-    if (canonicalEventType === "punch_in") {
-      // Plusieurs entrées/sorties le même jour (employé ou direction) : après un quart
-      // terminé (punch_out), un nouveau punch_in ouvre un segment suivant — sans quoi le
-      // 2e bloc était ignoré (« double punch_in » alors que shiftStartAt restait celui du matin).
+    if (shouldTreatApprovedEventAsShiftStart(event, orderedEvents)) {
       if (shiftStartAt && shiftEndAt && state === "termine") {
         shiftEndAt = null;
         workSegmentStartAt = eventOccurredAt;
@@ -2054,6 +2076,11 @@ export async function recomputeShiftForDate(
       } else {
         anomalies.push("Double punch_in detecte (sequence inattendue).");
       }
+      continue;
+    }
+
+    if (canonicalEventType === "retroactive_entry") {
+      anomalies.push("Entree retroactive detectee (review recommandee).");
       continue;
     }
 
@@ -2150,11 +2177,6 @@ export async function recomputeShiftForDate(
         });
       }
       anomalies.push("Correction manuelle detectee (review recommandee).");
-      continue;
-    }
-
-    if (canonicalEventType === "retroactive_entry") {
-      anomalies.push("Entree retroactive detectee (review recommandee).");
       continue;
     }
 
@@ -2501,6 +2523,23 @@ export async function createEmployeePunch(options: {
   const sourceKind = options.sourceKind ?? "employe";
   const pt = options.punchTrace;
   const wg = options.webGps;
+  const workDate = getLocalWorkDate(occurredAt);
+  const effectiveSchedule = await resolveEffectiveHorodateurScheduleForDate(
+    employee,
+    workDate
+  );
+
+  if (effectiveSchedule.kind === "off" && toCanonicalEventType(options.eventType) === "punch_in") {
+    throw new HorodateurPhase1Error(
+      "Entree indisponible : une exception d horaire approuvee indique que vous ne travaillez pas aujourd hui.",
+      {
+        code: "approved_schedule_day_off",
+        status: 409,
+      }
+    );
+  }
+
+  const scheduleEmployee = profileForScheduleValidation(employee, effectiveSchedule);
 
   let currentState = await getCurrentStateByEmployeeId(employee.employeeId);
   let latestApprovedEvents = await listEventsForEmployee({
@@ -2534,7 +2573,7 @@ export async function createEmployeePunch(options: {
   }
 
   let classification = classifyEventPhase1({
-    employee,
+    employee: scheduleEmployee,
     currentState,
     latestApprovedEvents,
     eventType: options.eventType,
@@ -2544,7 +2583,7 @@ export async function createEmployeePunch(options: {
   });
 
   const forceLateStartException = shouldForceLateStartShiftException({
-    employee,
+    employee: scheduleEmployee,
     eventType: options.eventType,
     occurredAt,
     classification,
@@ -2553,7 +2592,7 @@ export async function createEmployeePunch(options: {
 
   if (forceLateStartException) {
     classification = buildLateStartExceptionClassification({
-      employee,
+      employee: scheduleEmployee,
       occurredAt,
       note: options.note,
     });
@@ -2870,11 +2909,12 @@ function sortEventsByOccurredAt(events: HorodateurPhase1EventRecord[]) {
 function resolveActiveOpenShiftWorkDate(
   approvedEvents: HorodateurPhase1EventRecord[]
 ): string | null {
+  const sorted = sortEventsByOccurredAt(approvedEvents);
   let activeStart: HorodateurPhase1EventRecord | null = null;
 
-  for (const event of sortEventsByOccurredAt(approvedEvents)) {
+  for (const event of sorted) {
     const canonicalEventType = toCanonicalEventType(event.event_type);
-    if (canonicalEventType === "punch_in") {
+    if (shouldTreatApprovedEventAsShiftStart(event, sorted)) {
       activeStart = event;
       continue;
     }
@@ -2948,8 +2988,10 @@ export function computeTodayLiveShiftDisplayMinutes(options: {
     options.todayShift.approved_exception_minutes ?? 0
   );
 
-  const hasApprovedPunchInToday = options.approvedEventsToday.some(
-    (event) => toCanonicalEventType(event.event_type) === "punch_in"
+  const orderedEvents = sortEventsByOccurredAt(options.approvedEventsToday);
+
+  const hasApprovedShiftStartToday = orderedEvents.some((event) =>
+    shouldTreatApprovedEventAsShiftStart(event, orderedEvents)
   );
   const pendingOperationalToday = options.eventsToday.filter((event) =>
     isOperationalPendingEvent(event)
@@ -2961,7 +3003,7 @@ export function computeTodayLiveShiftDisplayMinutes(options: {
   const pendingLiveAccrualCapAt = getLatestPendingLiveAccrualCapAt(pendingOperationalToday);
   const blocksAccrualFromPendingPunchIn =
     hasPendingPunchInToday &&
-    !hasApprovedPunchInToday &&
+    !hasApprovedShiftStartToday &&
     !isQuarterActiveState(resolvedState);
   const pendingPunchBlocksAccrual =
     blocksAccrualFromPendingPunchIn || Boolean(pendingLiveAccrualCapAt);
@@ -2970,8 +3012,6 @@ export function computeTodayLiveShiftDisplayMinutes(options: {
   const openShiftWorkDateMismatch =
     isQuarterActiveState(resolvedState) &&
     Boolean(openShiftWorkDate && openShiftWorkDate !== options.workDate);
-
-  const orderedEvents = sortEventsByOccurredAt(options.approvedEventsToday);
 
   let shiftStartAt: string | null = null;
   let shiftEndAt: string | null = null;
@@ -2998,7 +3038,7 @@ export function computeTodayLiveShiftDisplayMinutes(options: {
       continue;
     }
 
-    if (canonicalEventType === "punch_in") {
+    if (shouldTreatApprovedEventAsShiftStart(event, orderedEvents)) {
       if (shiftStartAt && shiftEndAt && state === "termine") {
         shiftEndAt = null;
         workSegmentStartAt = eventOccurredAt;
@@ -3142,15 +3182,11 @@ export async function getEmployeeDashboardSnapshotByAuthUserId(
   const employee = await resolveEmployeeByAuthUserId(authUserId);
   const today = getLocalWorkDate(new Date().toISOString());
   const [
-    currentState,
-    todayShift,
     weeklyProjection,
     pendingExceptions,
     eventsToday,
     allApprovedEvents,
   ] = await Promise.all([
-    getCurrentStateByEmployeeId(employee.employeeId),
-    getShiftByEmployeeAndWorkDate(employee.employeeId, today),
     getWeeklyProjection(employee.employeeId),
     listPendingExceptions({ employeeId: employee.employeeId }),
     listEventsForEmployee({ employeeId: employee.employeeId, workDate: today }),
@@ -3160,15 +3196,26 @@ export async function getEmployeeDashboardSnapshotByAuthUserId(
     }),
   ]);
 
-  const resolvedCurrentState = currentState ?? buildEmptyCurrentState(employee);
+  const recomputedState = await recomputeCurrentState(employee.employeeId);
+  const recomputedTodayShift = await recomputeShiftForDate(
+    employee.employeeId,
+    today
+  );
+
+  const resolvedCurrentState = recomputedState ?? buildEmptyCurrentState(employee);
+  const effectiveSchedule = await resolveEffectiveHorodateurScheduleForDate(
+    employee,
+    today
+  );
   const latenessContext = buildEmployeeLatenessContext({
     employee,
     currentState: resolvedCurrentState,
     pendingExceptions,
     eventsToday,
+    effectiveSchedule,
   });
   const resolvedTodayShift =
-    todayShift ??
+    recomputedTodayShift ??
     ({
       id: "",
       employee_id: employee.employeeId,
@@ -3289,25 +3336,22 @@ export async function listDirectionLiveBoard(): Promise<HorodateurPhase1Directio
 
   const rows = await Promise.all(
     employees.map(async (employee) => {
-      const [
-        currentState,
-        weeklyProjection,
-        todayShift,
-        eventsToday,
-        allApprovedEvents,
-      ] = await Promise.all([
-        getCurrentStateByEmployeeId(employee.employeeId),
+      const [weeklyProjection, eventsToday, allApprovedEvents] = await Promise.all([
         getWeeklyProjection(employee.employeeId),
-        getShiftByEmployeeAndWorkDate(employee.employeeId, today),
         listEventsForEmployee({ employeeId: employee.employeeId, workDate: today }),
         listEventsForEmployee({
           employeeId: employee.employeeId,
           statuses: ["normal", "approuve"],
         }),
       ]);
-      const resolvedCurrentState = currentState ?? buildEmptyCurrentState(employee);
+      const recomputedState = await recomputeCurrentState(employee.employeeId);
+      const recomputedTodayShift = await recomputeShiftForDate(
+        employee.employeeId,
+        today
+      );
+      const resolvedCurrentState = recomputedState ?? buildEmptyCurrentState(employee);
       const resolvedTodayShift =
-        todayShift ??
+        recomputedTodayShift ??
         ({
           id: "",
           employee_id: employee.employeeId,
