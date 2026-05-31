@@ -69,9 +69,17 @@ function getStatusLabel(status: AccountAccessStatus, request?: AccountAccessRequ
   return "En attente";
 }
 
-function getPrimaryActionForStatus(status: AccountAccessStatus): ActionConfig | null {
+function getPrimaryActionForStatus(
+  status: AccountAccessStatus,
+  request?: AccountAccessRequestRecord
+): ActionConfig | null {
+  const accessDisabled = request ? isAccessDisabledRequest(request) : false;
+
   if (status === "pending") {
     return { action: "approve", label: "Approuver", tone: "primary" };
+  }
+  if (status === "active" && accessDisabled) {
+    return null;
   }
   if (status === "invited" || status === "active") {
     return { action: "update_access", label: "Enregistrer les acces", tone: "primary" };
@@ -217,7 +225,7 @@ export default function AccountRequestManageModal({
     return null;
   }
 
-  const primaryAction = getPrimaryActionForStatus(request.status);
+  const primaryAction = getPrimaryActionForStatus(request.status, request);
   const secondaryActions = getSecondaryActionsForStatus(request.status, request);
   const accessDisabled = isAccessDisabledRequest(request);
   const hasAuthAccount = Boolean(request.existing_account?.exists || request.invited_user_id);
