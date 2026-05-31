@@ -624,13 +624,39 @@ export function isApprovedRetroactiveShiftStartEvent(
   return true;
 }
 
+function resolveEventWorkDate(event: HorodateurPhase1EventRecord): string | null {
+  const workDate = event.work_date?.trim();
+  if (workDate) {
+    return workDate;
+  }
+  const occurredAt = getEventOccurredAt(event);
+  return occurredAt ? getLocalWorkDate(occurredAt) : null;
+}
+
+/** punch_in explicite approuve le meme jour de travail, avant l'evenement cible. */
 export function hasExplicitApprovedPunchInBeforeEvent(
   orderedApprovedEvents: HorodateurPhase1EventRecord[],
   targetEventId: string
 ): boolean {
+  let targetWorkDate: string | null = null;
+
+  for (const event of orderedApprovedEvents) {
+    if (event.id === targetEventId) {
+      targetWorkDate = resolveEventWorkDate(event);
+      break;
+    }
+  }
+
+  if (!targetWorkDate) {
+    return false;
+  }
+
   for (const event of orderedApprovedEvents) {
     if (event.id === targetEventId) {
       return false;
+    }
+    if (resolveEventWorkDate(event) !== targetWorkDate) {
+      continue;
     }
     if (isExplicitApprovedPunchInEvent(event)) {
       return true;
