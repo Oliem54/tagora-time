@@ -1289,6 +1289,13 @@ export default function DirectionHorodateurPage() {
                 Registre des heures
               </Link>
               <Link
+                href="/direction/horodateur/quarts"
+                className="tagora-dark-outline-action"
+                style={{ textDecoration: "none" }}
+              >
+                Quarts passés
+              </Link>
+              <Link
                 href="/direction/horodateur/qr-zones"
                 className="tagora-dark-outline-action"
                 style={{ textDecoration: "none" }}

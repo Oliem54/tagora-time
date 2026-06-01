@@ -540,6 +540,9 @@ export default function DirectionHorodateurRegistreClient() {
               <Link href="/direction/horodateur" className="tagora-dark-outline-action">
                 Retour horodateur
               </Link>
+              <Link href="/direction/horodateur/quarts" className="tagora-dark-outline-action">
+                Quarts passés
+              </Link>
               <Link href="/direction/dashboard" className="tagora-dark-action">
                 Tableau de bord direction
               </Link>
