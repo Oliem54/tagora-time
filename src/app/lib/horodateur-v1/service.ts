@@ -68,6 +68,7 @@ import {
   getMinutesSinceLocalMidnight,
   getWeekStartDate,
   HORODATEUR_PHASE1_WEEKLY_TARGET_HOURS,
+  isApprovedHorodateurEventStatus,
   isEmployeeLateForScheduledShiftStart,
   isOpenShiftBeyondSafetyLimit,
   isValidScheduledWorkDayForEmployee,
@@ -1199,6 +1200,58 @@ export async function processPendingExceptionReminders() {
   };
 }
 
+function sortHorodateurEventsByOccurredAt(events: HorodateurPhase1EventRecord[]) {
+  return [...events].sort((left, right) => {
+    const leftAt = getEventOccurredAt(left);
+    const rightAt = getEventOccurredAt(right);
+    if (!leftAt && !rightAt) {
+      return String(left.id).localeCompare(String(right.id));
+    }
+    if (!leftAt) {
+      return -1;
+    }
+    if (!rightAt) {
+      return 1;
+    }
+    const delta = new Date(leftAt).getTime() - new Date(rightAt).getTime();
+    if (delta !== 0) {
+      return delta;
+    }
+    return String(left.id).localeCompare(String(right.id));
+  });
+}
+
+function hasApprovedRetroactiveShiftStartInEvents(events: HorodateurPhase1EventRecord[]) {
+  const approvedEvents = events.filter((event) =>
+    isApprovedHorodateurEventStatus(event.status)
+  );
+  const orderedApproved = sortHorodateurEventsByOccurredAt(approvedEvents);
+  return orderedApproved.some((event) =>
+    shouldTreatApprovedEventAsShiftStart(event, orderedApproved)
+  );
+}
+
+/** Quart déjà ouvert : état courant actif ou début de quart dans la timeline du jour. */
+function hasOpenOrStartedShiftForExpectedPunchSms(options: {
+  currentState: HorodateurPhase1CurrentStateRecord | null;
+  events: HorodateurPhase1EventRecord[];
+}) {
+  const state = options.currentState?.current_state;
+  if (state === "en_quart" || state === "en_pause" || state === "en_diner") {
+    return true;
+  }
+
+  const hasExplicitShiftStart = options.events.some((event) => {
+    const canonical = toCanonicalEventType(event.event_type);
+    return canonical === "punch_in" || event.event_type === "quart_debut";
+  });
+  if (hasExplicitShiftStart) {
+    return true;
+  }
+
+  return hasApprovedRetroactiveShiftStartInEvents(options.events);
+}
+
 function hasStartedShiftToday(
   events: HorodateurPhase1EventRecord[],
   currentState: HorodateurPhase1CurrentStateRecord | null
@@ -1213,7 +1266,11 @@ function hasStartedShiftToday(
     currentState?.current_state === "en_diner" ||
     currentState?.current_state === "termine";
 
-  return hasQuarterStart || stateIndicatesStarted;
+  return (
+    hasQuarterStart ||
+    stateIndicatesStarted ||
+    hasApprovedRetroactiveShiftStartInEvents(events)
+  );
 }
 
 function formatLocalTimeLabel(isoOrDate: string | Date) {
@@ -1643,11 +1700,14 @@ export async function processExpectedPunchSmsNotifications(options?: {
     });
     if (expectedItems.length === 0) continue;
 
-    const existingEvents = await listEventsForEmployee({
-      employeeId: employee.employeeId,
-      workDate,
-      statuses: ["normal", "approuve", "en_attente"],
-    });
+    const [existingEvents, currentState] = await Promise.all([
+      listEventsForEmployee({
+        employeeId: employee.employeeId,
+        workDate,
+        statuses: ["normal", "approuve", "en_attente"],
+      }),
+      getCurrentStateByEmployeeId(employee.employeeId),
+    ]);
 
     for (const expected of expectedItems) {
       if (currentMinutes < expected.scheduledMinutes + toleranceMinutes) {
@@ -1703,7 +1763,25 @@ export async function processExpectedPunchSmsNotifications(options?: {
         continue;
       }
 
-      if (existingEvents.some((item) => item.event_type === expected.eventType)) {
+      if (expected.eventType === "quart_debut") {
+        if (
+          hasOpenOrStartedShiftForExpectedPunchSms({
+            currentState,
+            events: existingEvents,
+          })
+        ) {
+          console.info("[horodateur-expected-punch-sms] skip", {
+            ...logBase,
+            reason: "shift_already_started",
+          });
+          processed.push({
+            employeeId: employee.employeeId,
+            eventType: expected.eventType,
+            status: "already_punched",
+          });
+          continue;
+        }
+      } else if (existingEvents.some((item) => item.event_type === expected.eventType)) {
         console.info("[horodateur-expected-punch-sms] skip", {
           ...logBase,
           reason: "already_punched",
