@@ -158,6 +158,15 @@ const MODULES: ModuleDefinition[] = [
     tone: "cyan",
   },
   {
+    id: "horodateur-quarts",
+    href: "/direction/horodateur/quarts",
+    label: "Quarts passés",
+    description: "Consultation des quarts antérieurs (lecture seule).",
+    group: "administration",
+    icon: TimerReset,
+    tone: "cyan",
+  },
+  {
     id: "effectifs",
     href: "/direction/effectifs",
     label: "Calendrier des effectifs",
