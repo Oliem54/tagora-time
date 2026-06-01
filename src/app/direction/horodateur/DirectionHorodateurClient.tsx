@@ -9,6 +9,7 @@ import {
   TimerReset,
 } from "lucide-react";
 import AuthenticatedPageHeader from "@/app/components/ui/AuthenticatedPageHeader";
+import HorodateurDirectionModuleNav from "@/app/direction/horodateur/HorodateurDirectionModuleNav";
 import AppCard from "@/app/components/ui/AppCard";
 import PrimaryButton from "@/app/components/ui/PrimaryButton";
 import SecondaryButton from "@/app/components/ui/SecondaryButton";
@@ -1272,6 +1273,7 @@ export default function DirectionHorodateurPage() {
           title="Horodateur direction"
           subtitle=""
           showNavigation={false}
+          navigation={<HorodateurDirectionModuleNav active="live" />}
           actions={
             <div
               style={{
@@ -1282,32 +1284,11 @@ export default function DirectionHorodateurPage() {
               }}
             >
               <Link
-                href="/direction/horodateur/registre"
-                className="tagora-dark-outline-action"
-                style={{ textDecoration: "none" }}
-              >
-                Registre des heures
-              </Link>
-              <Link
-                href="/direction/horodateur/quarts"
-                className="tagora-dark-outline-action"
-                style={{ textDecoration: "none" }}
-              >
-                Quarts passés
-              </Link>
-              <Link
                 href="/direction/horodateur/qr-zones"
                 className="tagora-dark-outline-action"
                 style={{ textDecoration: "none" }}
               >
                 Zones punch QR
-              </Link>
-              <Link
-                href="/direction/dashboard"
-                className="tagora-dark-action"
-                style={{ textDecoration: "none" }}
-              >
-                Tableau de bord direction
               </Link>
               <SecondaryButton
                 onClick={() => void loadData("refresh")}

@@ -12,6 +12,7 @@ import {
   UserRound,
 } from "lucide-react";
 import AuthenticatedPageHeader from "@/app/components/ui/AuthenticatedPageHeader";
+import HorodateurDirectionModuleNav from "@/app/direction/horodateur/HorodateurDirectionModuleNav";
 import AppCard from "@/app/components/ui/AppCard";
 import PrimaryButton from "@/app/components/ui/PrimaryButton";
 import SecondaryButton from "@/app/components/ui/SecondaryButton";
@@ -264,19 +265,7 @@ export default function DirectionHorodateurPastShiftsClient() {
           title="Quarts passés"
           subtitle="Consultation des quarts antérieurs — lecture seule (phase 1)."
           showNavigation={false}
-          actions={
-            <div className="flex flex-shrink-0 flex-wrap items-center gap-3 lg:justify-end">
-              <Link href="/direction/horodateur" className="tagora-dark-outline-action">
-                Horodateur live
-              </Link>
-              <Link href="/direction/horodateur/registre" className="tagora-dark-outline-action">
-                Registre
-              </Link>
-              <Link href="/direction/dashboard" className="tagora-dark-action">
-                Tableau de bord
-              </Link>
-            </div>
-          }
+          navigation={<HorodateurDirectionModuleNav active="quarts" />}
         />
 
         <AppCard tone="muted" className="mb-6 border border-sky-200/60 bg-sky-50/40">

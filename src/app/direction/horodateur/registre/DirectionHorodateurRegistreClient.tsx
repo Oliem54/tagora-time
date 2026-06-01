@@ -24,6 +24,7 @@ import TagoraLoadingScreen from "@/app/components/ui/TagoraLoadingScreen";
 import TagoraStatCard from "@/app/components/TagoraStatCard";
 import type { TagoraStatTone } from "@/app/components/tagora-stat-tone";
 import AuthenticatedPageHeader from "@/app/components/ui/AuthenticatedPageHeader";
+import HorodateurDirectionModuleNav from "@/app/direction/horodateur/HorodateurDirectionModuleNav";
 import { useCurrentAccess } from "@/app/hooks/useCurrentAccess";
 import { supabase } from "@/app/lib/supabase/client";
 import { getWeekStartDate } from "@/app/lib/horodateur-v1/rules";
@@ -535,19 +536,7 @@ export default function DirectionHorodateurRegistreClient() {
           title="Registre des heures"
           subtitle=""
           showNavigation={false}
-          actions={
-            <div className="flex flex-shrink-0 flex-wrap items-center gap-3 lg:justify-end">
-              <Link href="/direction/horodateur" className="tagora-dark-outline-action">
-                Retour horodateur
-              </Link>
-              <Link href="/direction/horodateur/quarts" className="tagora-dark-outline-action">
-                Quarts passés
-              </Link>
-              <Link href="/direction/dashboard" className="tagora-dark-action">
-                Tableau de bord direction
-              </Link>
-            </div>
-          }
+          navigation={<HorodateurDirectionModuleNav active="registre" />}
         />
 
         {/* Onglets */}
