@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   CalendarRange,
+  ClipboardPen,
   Clock3,
   Lock,
   Plus,
@@ -12,6 +13,7 @@ import {
   UserRound,
 } from "lucide-react";
 import AuthenticatedPageHeader from "@/app/components/ui/AuthenticatedPageHeader";
+import HorodateurRetroCorrectionModal from "@/app/components/horodateur/HorodateurRetroCorrectionModal";
 import HorodateurDirectionModuleNav from "@/app/direction/horodateur/HorodateurDirectionModuleNav";
 import AppCard from "@/app/components/ui/AppCard";
 import PrimaryButton from "@/app/components/ui/PrimaryButton";
@@ -20,6 +22,10 @@ import StatusBadge from "@/app/components/ui/StatusBadge";
 import TagoraLoadingScreen from "@/app/components/ui/TagoraLoadingScreen";
 import TagoraStatCard from "@/app/components/TagoraStatCard";
 import { useCurrentAccess } from "@/app/hooks/useCurrentAccess";
+import {
+  parsePastShiftRetroSuggestionFromEvents,
+  type StaffRetroForgottenEventType,
+} from "@/app/lib/horodateur-retro-correction.shared";
 import { getWeekStartDate } from "@/app/lib/horodateur-v1/rules";
 import type {
   HorodateurPastShiftDetail,
@@ -131,6 +137,32 @@ function eventStatusTone(
   return "info";
 }
 
+function toTorontoTimeHHMM(iso: string | null | undefined) {
+  if (!iso) return "";
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Toronto",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(new Date(iso));
+  const hour = parts.find((part) => part.type === "hour")?.value ?? "00";
+  const minute = parts.find((part) => part.type === "minute")?.value ?? "00";
+  return `${hour}:${minute}`;
+}
+
+function suggestRetroTime(
+  eventType: StaffRetroForgottenEventType,
+  row: HorodateurPastShiftRow
+) {
+  if (eventType === "punch_in") {
+    return toTorontoTimeHHMM(row.shiftStartAt);
+  }
+  if (eventType === "punch_out") {
+    return toTorontoTimeHHMM(row.shiftEndAt);
+  }
+  return "";
+}
+
 export default function DirectionHorodateurPastShiftsClient() {
   const { user, hasPermission, loading: accessLoading } = useCurrentAccess();
   const [periodPreset, setPeriodPreset] = useState<PeriodPreset>("week_current");
@@ -143,6 +175,16 @@ export default function DirectionHorodateurPastShiftsClient() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedShiftId, setSelectedShiftId] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const [retroModalOpen, setRetroModalOpen] = useState(false);
+  const [retroSaving, setRetroSaving] = useState(false);
+  const [retroError, setRetroError] = useState<string | null>(null);
+  const [retroEmployeeId, setRetroEmployeeId] = useState("");
+  const [retroWorkDate, setRetroWorkDate] = useState("");
+  const [retroEventType, setRetroEventType] =
+    useState<StaffRetroForgottenEventType>("punch_in");
+  const [retroTime, setRetroTime] = useState("");
+  const [retroReason, setRetroReason] = useState("");
 
   const applyPreset = useCallback((preset: PeriodPreset) => {
     setPeriodPreset(preset);
@@ -227,6 +269,96 @@ export default function DirectionHorodateurPastShiftsClient() {
     return data.detailsByShiftId[selectedShiftId] ?? null;
   }, [data, selectedShiftId]);
 
+  const retroEmployeeOptions = useMemo(
+    () =>
+      (data?.employeeOptions ?? []).map((item) => ({
+        id: item.id,
+        label: item.name ?? `Employé #${item.id}`,
+      })),
+    [data?.employeeOptions]
+  );
+
+  const openRetroCorrectionForSelectedShift = useCallback(() => {
+    if (!selectedRow) {
+      return;
+    }
+
+    const suggestedType =
+      selectedDetail != null
+        ? parsePastShiftRetroSuggestionFromEvents(
+            selectedDetail.events.map((event) => ({
+              canonicalType: event.canonicalType,
+              eventType: event.eventType,
+              status: event.status,
+            }))
+          )
+        : null;
+    const eventType = suggestedType ?? "punch_in";
+
+    setRetroError(null);
+    setRetroEmployeeId(String(selectedRow.employeeId));
+    setRetroWorkDate(selectedRow.workDate);
+    setRetroEventType(eventType);
+    setRetroTime(suggestRetroTime(eventType, selectedRow));
+    setRetroReason("");
+    setRetroModalOpen(true);
+  }, [selectedDetail, selectedRow]);
+
+  async function handleRetroCorrectionSubmit() {
+    setRetroSaving(true);
+    setRetroError(null);
+    setMessage(null);
+
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      if (!token) {
+        throw new Error("Session expirée. Reconnectez-vous.");
+      }
+
+      const response = await fetch("/api/direction/horodateur/retro-correction", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          employeeId: Number(retroEmployeeId),
+          date: retroWorkDate,
+          eventType: retroEventType,
+          time: retroTime,
+          reason: retroReason,
+        }),
+      });
+
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(
+          typeof result.error === "string"
+            ? result.error
+            : "Impossible d envoyer la demande de correction."
+        );
+      }
+
+      setRetroModalOpen(false);
+      setRetroReason("");
+      setMessage(
+        "Demande de correction envoyée. En attente d approbation admin avant comptabilisation."
+      );
+      await loadData();
+    } catch (submitError) {
+      setRetroError(
+        submitError instanceof Error
+          ? submitError.message
+          : "Erreur lors de l envoi de la demande."
+      );
+    } finally {
+      setRetroSaving(false);
+    }
+  }
+
   const inputClass =
     "w-full rounded-xl border border-slate-200/90 bg-white px-3.5 py-3 text-[15px] text-slate-900 shadow-inner shadow-slate-900/5 outline-none ring-slate-300/80 transition focus:border-sky-400 focus:ring-2 focus:ring-sky-200/70";
 
@@ -263,16 +395,24 @@ export default function DirectionHorodateurPastShiftsClient() {
       <div className="mx-auto max-w-[1600px] px-4 pb-14 pt-8 sm:px-6 lg:px-10">
         <AuthenticatedPageHeader
           title="Quarts passés"
-          subtitle="Consultation des quarts antérieurs — lecture seule (phase 1)."
+          subtitle="Consultation des quarts antérieurs et demandes de correction rétroactive."
           showNavigation={false}
           navigation={<HorodateurDirectionModuleNav active="quarts" />}
         />
 
+        {message ? (
+          <AppCard tone="muted" className="mb-6 border border-emerald-200/60 bg-emerald-50/40">
+            <p className="text-sm text-emerald-900" style={{ margin: 0 }}>
+              {message}
+            </p>
+          </AppCard>
+        ) : null}
+
         <AppCard tone="muted" className="mb-6 border border-sky-200/60 bg-sky-50/40">
           <p className="text-sm text-slate-700" style={{ margin: 0 }}>
-            <strong>Phase 1 — lecture seule.</strong> Les actions de création, modification et
-            annulation de quarts seront disponibles dans une phase ultérieure, avec approbations et
-            piste d&apos;audit.
+            <strong>Consultation et correction rétroactive.</strong> Les demandes passent par
+            approbation admin. L&apos;ajout, la modification et l&apos;annulation directe de quarts
+            restent désactivés pour cette phase.
           </p>
         </AppCard>
 
@@ -539,19 +679,29 @@ export default function DirectionHorodateurPastShiftsClient() {
                       </dl>
 
                       <div className="flex flex-wrap gap-2 pt-2">
-                        <PrimaryButton type="button" disabled title="Phase suivante">
+                        <PrimaryButton
+                          type="button"
+                          onClick={openRetroCorrectionForSelectedShift}
+                          disabled={retroSaving}
+                        >
+                          <span className="inline-flex items-center gap-2">
+                            <ClipboardPen size={16} />
+                            Corriger ce quart
+                          </span>
+                        </PrimaryButton>
+                        <PrimaryButton type="button" disabled title="Phase ultérieure">
                           <span className="inline-flex items-center gap-2 opacity-60">
                             <Plus size={16} />
                             Ajouter un quart
                           </span>
                         </PrimaryButton>
-                        <SecondaryButton type="button" disabled title="Phase suivante">
+                        <SecondaryButton type="button" disabled title="Phase ultérieure">
                           <span className="inline-flex items-center gap-2 opacity-60">
                             <Lock size={14} />
                             Modifier
                           </span>
                         </SecondaryButton>
-                        <SecondaryButton type="button" disabled title="Phase suivante">
+                        <SecondaryButton type="button" disabled title="Phase ultérieure">
                           <span className="inline-flex items-center gap-2 opacity-60">
                             <Lock size={14} />
                             Annuler
@@ -560,7 +710,7 @@ export default function DirectionHorodateurPastShiftsClient() {
                       </div>
                       <p className="text-xs text-slate-500 flex items-center gap-1.5">
                         <Lock size={12} />
-                        Actions désactivées — phase 2 à venir
+                        Ajout / modification / annulation de quart — phase ultérieure
                       </p>
                     </div>
                   )}
@@ -635,11 +785,11 @@ export default function DirectionHorodateurPastShiftsClient() {
                         </ul>
                       )}
                       <p className="text-xs text-slate-500 mt-4">
-                        Approuver ou refuser : utilisez l&apos;
+                        Les demandes de correction rétroactive créées ici apparaissent dans l&apos;
                         <Link href="/direction/horodateur" className="underline text-sky-700">
                           horodateur live
                         </Link>{" "}
-                        (exceptions en attente) — phase dédiée à venir.
+                        (exceptions en attente admin).
                       </p>
                     </section>
                   </>
@@ -648,6 +798,31 @@ export default function DirectionHorodateurPastShiftsClient() {
             </div>
           </>
         ) : null}
+
+        <HorodateurRetroCorrectionModal
+          open={retroModalOpen}
+          saving={retroSaving}
+          submitError={retroError}
+          employees={retroEmployeeOptions}
+          employeeId={retroEmployeeId}
+          workDate={retroWorkDate}
+          eventType={retroEventType}
+          time={retroTime}
+          reason={retroReason}
+          title="Corriger ce quart"
+          onClose={() => {
+            if (!retroSaving) {
+              setRetroModalOpen(false);
+              setRetroError(null);
+            }
+          }}
+          onEmployeeIdChange={setRetroEmployeeId}
+          onWorkDateChange={setRetroWorkDate}
+          onEventTypeChange={setRetroEventType}
+          onTimeChange={setRetroTime}
+          onReasonChange={setRetroReason}
+          onSubmit={() => void handleRetroCorrectionSubmit()}
+        />
       </div>
     </main>
   );

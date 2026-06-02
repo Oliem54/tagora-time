@@ -4,11 +4,14 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
+  CalendarRange,
+  ClipboardPen,
   RefreshCw,
   ShieldCheck,
   TimerReset,
 } from "lucide-react";
 import AuthenticatedPageHeader from "@/app/components/ui/AuthenticatedPageHeader";
+import HorodateurRetroCorrectionModal from "@/app/components/horodateur/HorodateurRetroCorrectionModal";
 import HorodateurDirectionModuleNav from "@/app/direction/horodateur/HorodateurDirectionModuleNav";
 import AppCard from "@/app/components/ui/AppCard";
 import PrimaryButton from "@/app/components/ui/PrimaryButton";
@@ -16,6 +19,12 @@ import SecondaryButton from "@/app/components/ui/SecondaryButton";
 import SectionCard from "@/app/components/ui/SectionCard";
 import StatusBadge from "@/app/components/ui/StatusBadge";
 import { useCurrentAccess } from "@/app/hooks/useCurrentAccess";
+import {
+  isStaffRetroCorrectionException,
+  STAFF_RETRO_CORRECTION_REASON_LABEL,
+  type StaffRetroForgottenEventType,
+} from "@/app/lib/horodateur-retro-correction.shared";
+import { getLocalWorkDate } from "@/app/lib/horodateur-v1/rules";
 import { supabase } from "@/app/lib/supabase/client";
 import { getCompanyLabel } from "@/app/lib/account-requests.shared";
 import { normalizePhoneNumber } from "@/app/lib/timeclock-api.client";
@@ -552,8 +561,9 @@ function normalizePendingException(raw: unknown): PendingException | null {
 }
 
 export default function DirectionHorodateurPage() {
-  const { loading: accessLoading, hasPermission } = useCurrentAccess();
+  const { loading: accessLoading, hasPermission, role } = useCurrentAccess();
   const canUseTerrain = hasPermission("terrain");
+  const isAdmin = role === "admin";
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -581,6 +591,24 @@ export default function DirectionHorodateurPage() {
     direction_emails: [],
     direction_sms_numbers: [],
   });
+  const [retroModalOpen, setRetroModalOpen] = useState(false);
+  const [retroSaving, setRetroSaving] = useState(false);
+  const [retroError, setRetroError] = useState<string | null>(null);
+  const [retroEmployeeId, setRetroEmployeeId] = useState("");
+  const [retroWorkDate, setRetroWorkDate] = useState("");
+  const [retroEventType, setRetroEventType] =
+    useState<StaffRetroForgottenEventType>("punch_in");
+  const [retroTime, setRetroTime] = useState("");
+  const [retroReason, setRetroReason] = useState("");
+
+  const retroEmployeeOptions = useMemo(
+    () =>
+      board.map((row) => ({
+        id: row.employeeId,
+        label: row.fullName || row.email || `#${row.employeeId}`,
+      })),
+    [board]
+  );
 
   const counts = useMemo(() => {
     const active = board.filter((row) => getRowState(row) === "en_quart").length;
@@ -1091,6 +1119,73 @@ export default function DirectionHorodateurPage() {
     }
   }
 
+  function openRetroCorrectionModal(initial?: {
+    employeeId?: string;
+    workDate?: string;
+    eventType?: StaffRetroForgottenEventType;
+    time?: string;
+  }) {
+    setRetroError(null);
+    setRetroEmployeeId(initial?.employeeId ?? "");
+    setRetroWorkDate(initial?.workDate ?? getLocalWorkDate(new Date().toISOString()));
+    setRetroEventType(initial?.eventType ?? "punch_in");
+    setRetroTime(initial?.time ?? "");
+    setRetroReason("");
+    setRetroModalOpen(true);
+  }
+
+  async function handleRetroCorrectionSubmit() {
+    setRetroSaving(true);
+    setRetroError(null);
+    setMessage("");
+    setError("");
+
+    try {
+      await withToken(async (token) => {
+        const response = await fetch("/api/direction/horodateur/retro-correction", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            employeeId: Number(retroEmployeeId),
+            date: retroWorkDate,
+            eventType: retroEventType,
+            time: retroTime,
+            reason: retroReason,
+          }),
+        });
+
+        const result = await response.json().catch(() => ({}));
+
+        if (!response.ok) {
+          throw new Error(
+            typeof result.error === "string"
+              ? result.error
+              : "Impossible d envoyer la demande de correction."
+          );
+        }
+      });
+
+      setRetroModalOpen(false);
+      setRetroReason("");
+      setRetroTime("");
+      setMessage(
+        "Demande de correction envoyée. En attente d approbation admin avant comptabilisation."
+      );
+      await loadData("refresh", { preserveMessage: true });
+    } catch (submitError) {
+      setRetroError(
+        submitError instanceof Error
+          ? submitError.message
+          : "Erreur lors de l envoi de la demande."
+      );
+    } finally {
+      setRetroSaving(false);
+    }
+  }
+
   async function handleApprove(exceptionId: string) {
     setActiveActionKey(`approve:${exceptionId}`);
     setMessage("");
@@ -1290,6 +1385,16 @@ export default function DirectionHorodateurPage() {
               >
                 Zones punch QR
               </Link>
+              <PrimaryButton
+                onClick={() => openRetroCorrectionModal()}
+                disabled={isBusy}
+                style={{ whiteSpace: "nowrap" }}
+              >
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+                  <ClipboardPen size={16} />
+                  Corriger un oubli de punch
+                </span>
+              </PrimaryButton>
               <SecondaryButton
                 onClick={() => void loadData("refresh")}
                 disabled={refreshing || isBusy}
@@ -1327,6 +1432,107 @@ export default function DirectionHorodateurPage() {
           </AppCard>
         ) : null}
 
+        <section
+          aria-label="Actions principales horodateur"
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+            gap: "var(--ui-space-3)",
+          }}
+        >
+          <AppCard
+            className="ui-stack-xs"
+            style={{
+              border: "2px solid rgba(15, 41, 72, 0.18)",
+              background:
+                "linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(247,250,255,0.98) 100%)",
+            }}
+          >
+            <span className="ui-eyebrow">Action 1</span>
+            <strong style={{ fontSize: 18 }}>Horodateur live</strong>
+            <span className="ui-text-muted">Supervision en temps réel de l&apos;équipe</span>
+          </AppCard>
+
+          <button
+            type="button"
+            onClick={() => openRetroCorrectionModal()}
+            disabled={isBusy}
+            className="tagora-panel"
+            style={{
+              textAlign: "left",
+              cursor: isBusy ? "not-allowed" : "pointer",
+              border: "2px solid rgba(13, 148, 136, 0.35)",
+              background:
+                "linear-gradient(180deg, rgba(240,253,250,0.98) 0%, rgba(255,255,255,0.98) 100%)",
+              padding: "var(--ui-space-4)",
+              borderRadius: 16,
+              opacity: isBusy ? 0.7 : 1,
+            }}
+          >
+            <span className="ui-eyebrow" style={{ color: "#0f766e" }}>
+              Action 2
+            </span>
+            <strong
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                fontSize: 18,
+                marginTop: 4,
+                color: "#0f766e",
+              }}
+            >
+              <ClipboardPen size={18} />
+              Corriger un oubli de punch
+            </strong>
+            <span className="ui-text-muted" style={{ display: "block", marginTop: 6 }}>
+              Demande rétroactive avec approbation admin
+            </span>
+          </button>
+
+          <Link
+            href="/direction/horodateur/quarts"
+            className="tagora-panel"
+            style={{
+              textDecoration: "none",
+              color: "inherit",
+              border: "1px solid rgba(15, 41, 72, 0.08)",
+              background: "rgba(255,255,255,0.96)",
+              padding: "var(--ui-space-4)",
+              borderRadius: 16,
+            }}
+          >
+            <span className="ui-eyebrow">Action 3</span>
+            <strong
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                fontSize: 18,
+                marginTop: 4,
+              }}
+            >
+              <CalendarRange size={18} />
+              Quarts passés
+            </strong>
+            <span className="ui-text-muted" style={{ display: "block", marginTop: 6 }}>
+              Consulter et corriger un quart antérieur
+            </span>
+          </Link>
+        </section>
+
+        <details className="tagora-panel" style={{ padding: "var(--ui-space-4)" }}>
+          <summary
+            style={{
+              cursor: "pointer",
+              fontWeight: 700,
+              fontSize: 15,
+              color: "#0f2948",
+            }}
+          >
+            Statistiques détaillées
+          </summary>
+          <div className="ui-stack-md" style={{ marginTop: "var(--ui-space-4)" }}>
         <div
           style={{
             display: "grid",
@@ -1429,6 +1635,8 @@ export default function DirectionHorodateurPage() {
             <span className="ui-text-muted">En attente d approbation</span>
           </AppCard>
         </div>
+          </div>
+        </details>
 
         <SectionCard title="Exceptions a approuver" subtitle="Validation rapide.">
           {hasExceptions ? (
@@ -1445,6 +1653,8 @@ export default function DirectionHorodateurPage() {
                   item.employee?.fullName || item.employee?.email || item.id;
                 const isRefusing = refusingExceptionId === item.id;
                 const correction = timeCorrectionById[item.id] ?? { main: "", related: "" };
+                const isStaffRetro = isStaffRetroCorrectionException(item);
+                const canReviewException = !isStaffRetro || isAdmin;
 
                 return (
                 <AppCard
@@ -1474,9 +1684,16 @@ export default function DirectionHorodateurPage() {
                         lineHeight: 1.35,
                       }}
                     >
-                      Exception horodateur à traiter
+                      {isStaffRetro
+                        ? "Correction rétroactive à traiter"
+                        : "Exception horodateur à traiter"}
                     </h3>
-                    <StatusBadge label="En attente" tone="warning" />
+                    <StatusBadge
+                      label={
+                        isStaffRetro ? STAFF_RETRO_CORRECTION_REASON_LABEL : "En attente"
+                      }
+                      tone="warning"
+                    />
                   </div>
 
                   <div className="ui-stack-xs" style={{ gap: 10 }}>
@@ -1487,12 +1704,19 @@ export default function DirectionHorodateurPage() {
                       occurredAt ? formatDateTime(occurredAt) : "—"
                     )}
                     {exceptionSummaryRow(
-                      "Note employé",
+                      isStaffRetro ? "Raison" : "Note employé",
                       truncateEmployeeNote(item.details)
                     )}
                   </div>
 
-                  {!isRefusing ? (
+                  {!canReviewException ? (
+                    <AppCard tone="muted" className="ui-stack-xs">
+                      <p className="ui-text-muted" style={{ margin: 0 }}>
+                        Approbation admin requise pour cette demande de correction
+                        rétroactive.
+                      </p>
+                    </AppCard>
+                  ) : !isRefusing ? (
                     <div
                       style={{
                         display: "flex",
@@ -1930,6 +2154,19 @@ export default function DirectionHorodateurPage() {
           )}
         </SectionCard>
 
+        <details className="tagora-panel" style={{ padding: 0 }}>
+          <summary
+            style={{
+              cursor: "pointer",
+              fontWeight: 700,
+              fontSize: 15,
+              color: "#0f2948",
+              padding: "var(--ui-space-4)",
+            }}
+          >
+            Punch manuel avancé
+          </summary>
+          <div style={{ padding: "0 var(--ui-space-4) var(--ui-space-4)" }}>
         <SectionCard title="Action direction" subtitle="Punch manuel trace.">
           <div
             style={{
@@ -1998,7 +2235,22 @@ export default function DirectionHorodateurPage() {
             />
           </label>
         </SectionCard>
+          </div>
+        </details>
 
+        <details className="tagora-panel" style={{ padding: 0 }}>
+          <summary
+            style={{
+              cursor: "pointer",
+              fontWeight: 700,
+              fontSize: 15,
+              color: "#0f2948",
+              padding: "var(--ui-space-4)",
+            }}
+          >
+            Configuration des alertes
+          </summary>
+          <div style={{ padding: "0 var(--ui-space-4) var(--ui-space-4)" }}>
         <SectionCard
           title="Configuration des alertes"
           subtitle="Destinataires et delai du rappel automatique."
@@ -2234,6 +2486,32 @@ export default function DirectionHorodateurPage() {
             </PrimaryButton>
           </div>
         </SectionCard>
+          </div>
+        </details>
+
+        <HorodateurRetroCorrectionModal
+          open={retroModalOpen}
+          saving={retroSaving}
+          submitError={retroError}
+          employees={retroEmployeeOptions}
+          employeeId={retroEmployeeId}
+          workDate={retroWorkDate}
+          eventType={retroEventType}
+          time={retroTime}
+          reason={retroReason}
+          onClose={() => {
+            if (!retroSaving) {
+              setRetroModalOpen(false);
+              setRetroError(null);
+            }
+          }}
+          onEmployeeIdChange={setRetroEmployeeId}
+          onWorkDateChange={setRetroWorkDate}
+          onEventTypeChange={setRetroEventType}
+          onTimeChange={setRetroTime}
+          onReasonChange={setRetroReason}
+          onSubmit={() => void handleRetroCorrectionSubmit()}
+        />
       </div>
     </main>
   );
