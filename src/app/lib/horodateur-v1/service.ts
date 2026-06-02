@@ -19,6 +19,14 @@ import {
   notifyEmployeeHorodateurPunchSms,
   notifyHorodateurLateness,
 } from "@/app/lib/notifications";
+import {
+  composeStaffRetroCorrectionNote,
+  formatStaffRetroCorrectionDetails,
+  isStaffRetroCorrectionException,
+  isStaffRetroCorrectionEventNote,
+  STAFF_RETRO_CORRECTION_REASON_LABEL,
+} from "@/app/lib/horodateur-retro-correction.shared";
+import type { AppRole } from "@/app/lib/auth/roles";
 import { createAdminSupabaseClient } from "@/app/lib/supabase/admin";
 import { normalizePhoneToTwilioE164 } from "@/app/lib/timeclock-api.shared";
 import {
@@ -2992,6 +3000,111 @@ export async function createDirectionPunch(options: {
   };
 }
 
+export type StaffRetroCorrectionRequestResult = {
+  event: HorodateurPhase1EventRecord;
+  exception: HorodateurPhase1ExceptionRecord;
+  shift: HorodateurPhase1ShiftRecord;
+  currentState: HorodateurPhase1CurrentStateRecord;
+};
+
+export async function createStaffRetroCorrectionRequest(options: {
+  actorUserId: string;
+  actorRole: "direction" | "admin";
+  employeeId: number;
+  eventType: HorodateurPhase1InsertEventInput["eventType"];
+  occurredAt: string;
+  timeLabel: string;
+  reason: string;
+  companyContext?: AccountRequestCompany | null;
+}): Promise<StaffRetroCorrectionRequestResult> {
+  const normalizedReason = String(options.reason ?? "").trim();
+  if (!normalizedReason) {
+    throw new HorodateurPhase1Error(
+      "Une raison est obligatoire pour une correction rétroactive.",
+      { code: "retro_correction_reason_required", status: 400 }
+    );
+  }
+
+  const employee = await resolveEmployeeById(options.employeeId);
+  assertNoPaidBreakOperationalPunch(employee, options.eventType);
+  const companyContext = requireCompanyContext(options.companyContext, employee);
+  const workDate = getLocalWorkDate(options.occurredAt);
+  const eventNote = composeStaffRetroCorrectionNote(normalizedReason);
+  const exceptionDetails = formatStaffRetroCorrectionDetails({
+    eventType: options.eventType as Parameters<
+      typeof formatStaffRetroCorrectionDetails
+    >[0]["eventType"],
+    workDate,
+    time: options.timeLabel,
+    reason: normalizedReason,
+  });
+
+  const event = await insertHorodateurEvent({
+    userId: requireEmployeeAuthUserId(employee),
+    employeeId: employee.employeeId,
+    occurredAt: options.occurredAt,
+    ...resolveEventDates(options.occurredAt),
+    eventType: options.eventType,
+    actorUserId: options.actorUserId,
+    actorRole: "direction",
+    sourceKind: "direction",
+    companyContext,
+    note: eventNote,
+    relatedEventId: null,
+    isManualCorrection: false,
+    status: "en_attente",
+    requiresApproval: true,
+    exceptionCode: "missing_punch_adjustment",
+    approvalNote: "Correction rétroactive en attente d approbation admin.",
+  });
+
+  const existingShift = await getShiftByEmployeeAndWorkDate(employee.employeeId, workDate);
+
+  const exception = await insertException({
+    employeeId: employee.employeeId,
+    shiftId: existingShift?.id ?? null,
+    sourceEventId: event.id,
+    exceptionType: "missing_punch_adjustment",
+    reasonLabel: STAFF_RETRO_CORRECTION_REASON_LABEL,
+    details: exceptionDetails,
+    impactMinutes: 0,
+    requestedByUserId: options.actorUserId,
+  });
+
+  const shift = await recomputeShiftForDate(employee.employeeId, workDate);
+  const currentState = await recomputeCurrentState(employee.employeeId);
+
+  console.info("[horodateur-staff-retro]", "correction_request_created", {
+    employeeId: employee.employeeId,
+    eventId: event.id,
+    exceptionId: exception.id,
+    actorRole: options.actorRole,
+    eventType: options.eventType,
+    workDate,
+  });
+
+  return { event, exception, shift, currentState };
+}
+
+function assertAdminCanReviewStaffRetroCorrection(options: {
+  exception: HorodateurPhase1ExceptionRecord;
+  sourceEvent: HorodateurPhase1EventRecord;
+  approverRole: AppRole | null;
+}) {
+  const requiresAdmin =
+    isStaffRetroCorrectionException({
+      reason_label: options.exception.reason_label,
+      details: options.exception.details,
+    }) || isStaffRetroCorrectionEventNote(options.sourceEvent.notes ?? options.sourceEvent.note);
+
+  if (requiresAdmin && options.approverRole !== "admin") {
+    throw new HorodateurPhase1Error(
+      "Seul un administrateur peut approuver ou refuser cette demande de correction rétroactive.",
+      { code: "admin_approval_required", status: 403 }
+    );
+  }
+}
+
 export async function getWeeklyProjection(employeeId: number, weekStartDate?: string) {
   const employee = await resolveEmployeeById(employeeId);
   const resolvedWeekStartDate =
@@ -3628,6 +3741,7 @@ export async function getDirectionDashboardHorodateurAlerts(): Promise<{
 
 export async function approveHorodateurException(options: {
   actorUserId: string;
+  approverRole?: AppRole | null;
   exceptionId: string;
   reviewNote?: string | null;
   approvedMinutes?: number | null;
@@ -3670,6 +3784,12 @@ export async function approveHorodateurException(options: {
       status: 404,
     });
   }
+
+  assertAdminCanReviewStaffRetroCorrection({
+    exception,
+    sourceEvent,
+    approverRole: options.approverRole ?? null,
+  });
 
   if (options.correctedOccurredAt) {
     sourceEvent = await updateEventOccurredAt({
@@ -3749,6 +3869,7 @@ export async function approveHorodateurException(options: {
 
 export async function refuseHorodateurException(options: {
   actorUserId: string;
+  approverRole?: AppRole | null;
   exceptionId: string;
   reviewNote: string;
 }) {
@@ -3776,6 +3897,20 @@ export async function refuseHorodateurException(options: {
       status: 409,
     });
   }
+
+  const sourceEventForReview = await getEventById(exception.source_event_id);
+  if (!sourceEventForReview) {
+    throw new HorodateurPhase1Error("Evenement source introuvable.", {
+      code: "source_event_not_found",
+      status: 404,
+    });
+  }
+
+  assertAdminCanReviewStaffRetroCorrection({
+    exception,
+    sourceEvent: sourceEventForReview,
+    approverRole: options.approverRole ?? null,
+  });
 
   const reviewedException = await updateExceptionReview({
     exceptionId: exception.id,
