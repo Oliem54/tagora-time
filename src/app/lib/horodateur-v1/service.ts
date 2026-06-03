@@ -19,6 +19,24 @@ import {
   notifyEmployeeHorodateurPunchSms,
   notifyHorodateurLateness,
 } from "@/app/lib/notifications";
+import {
+  composeStaffRetroCorrectionNote,
+  formatStaffRetroCorrectionDetails,
+  isStaffRetroCorrectionException,
+  isStaffRetroCorrectionEventNote,
+  STAFF_RETRO_CORRECTION_REASON_LABEL,
+} from "@/app/lib/horodateur-retro-correction.shared";
+import {
+  formatAutoMissingExpectedPunchDetails,
+  HORODATEUR_DEFAULT_LATENESS_TOLERANCE_MINUTES,
+  isAutoMissingExpectedPunchException,
+  MISSING_EXPECTED_PUNCH_PRIORITY_REASON_LABEL,
+  MISSING_EXPECTED_PUNCH_REASON_LABEL,
+  parseAutoMissingExpectedPunchMarker,
+  resolveMissingPunchEscalationMinutes,
+  type AutoMissingExpectedPunchEventType,
+} from "@/app/lib/horodateur-expected-punch-missing.shared";
+import type { AppRole } from "@/app/lib/auth/roles";
 import { createAdminSupabaseClient } from "@/app/lib/supabase/admin";
 import { normalizePhoneToTwilioE164 } from "@/app/lib/timeclock-api.shared";
 import {
@@ -44,6 +62,7 @@ import {
   hasExpectedPunchSmsNotificationLog,
   updateEventOccurredAt,
   updateEventReviewStatus,
+  updateExceptionEscalationFields,
   updateExceptionNotificationStatus,
   updateExceptionReview,
   upsertDirectionAlertConfig,
@@ -103,8 +122,6 @@ import type {
   HorodateurPhase1Classification,
   HorodateurPhase1TodayTimeDisplay,
 } from "./types";
-
-const HORODATEUR_DEFAULT_LATENESS_TOLERANCE_MINUTES = 5;
 
 const HORODATEUR_PUNCH_SMS_SKIP_EVENT_TYPES = new Set<HorodateurPhase1EventType>([
   "correction",
@@ -564,13 +581,7 @@ function getScheduledStartMinutes(scheduleStart: string) {
   return hours * 60 + minutes;
 }
 
-type ExpectedPunchEventType =
-  | "quart_debut"
-  | "pause_debut"
-  | "pause_fin"
-  | "dinner_debut"
-  | "dinner_fin"
-  | "quart_fin";
+type ExpectedPunchEventType = AutoMissingExpectedPunchEventType;
 
 type ExpectedPunchScheduleItem = {
   eventType: ExpectedPunchEventType;
@@ -736,15 +747,18 @@ export async function getHorodateurDirectionAlertConfig(): Promise<HorodateurDir
     };
   }
 
+  const directionEmails = parseEnvList(process.env.DIRECTION_ALERT_EMAILS);
+  const directionSmsNumbers = parseEnvList(
+    process.env.DIRECTION_ALERT_SMS_NUMBERS ?? process.env.DIRECTION_ALERT_PHONES
+  );
+
   return {
     config_key: "default",
     email_enabled: true,
-    sms_enabled: true,
-    reminder_delay_minutes: 60,
-    direction_emails: parseEnvList(process.env.DIRECTION_ALERT_EMAILS),
-    direction_sms_numbers: parseEnvList(
-      process.env.DIRECTION_ALERT_SMS_NUMBERS ?? process.env.DIRECTION_ALERT_PHONES
-    ),
+    sms_enabled: directionSmsNumbers.length > 0,
+    reminder_delay_minutes: 5,
+    direction_emails: directionEmails,
+    direction_sms_numbers: directionSmsNumbers,
   };
 }
 
@@ -1661,13 +1675,15 @@ export async function processLateEmployeeNotifications() {
 export async function processExpectedPunchSmsNotifications(options?: {
   toleranceMinutes?: number;
 }) {
+  const alertConfig = await getHorodateurDirectionAlertConfig();
+  const escalation = resolveMissingPunchEscalationMinutes(
+    options?.toleranceMinutes ?? alertConfig.reminder_delay_minutes
+  );
+  // Seuil « rappel doux » = délai de rappel configuré
   const now = new Date();
   const { workDate, weekday } = getTodayWorkDateAndDay(now);
   const currentMinutes = getTorontoCurrentMinutes(now);
-  const toleranceMinutes = Math.max(
-    0,
-    Math.floor(options?.toleranceMinutes ?? HORODATEUR_DEFAULT_LATENESS_TOLERANCE_MINUTES)
-  );
+  const toleranceMinutes = Math.max(0, escalation.reminderMinutes);
   const employees = await listActiveEmployees();
 
   const processed: Array<{
@@ -1870,6 +1886,299 @@ export async function processExpectedPunchSmsNotifications(options?: {
     workDate,
     toleranceMinutes,
     processed,
+  };
+}
+
+function isExpectedPunchStillMissing(options: {
+  expectedEventType: ExpectedPunchEventType;
+  events: HorodateurPhase1EventRecord[];
+  currentState: HorodateurPhase1CurrentStateRecord | null;
+}) {
+  if (options.expectedEventType === "quart_debut") {
+    return !hasOpenOrStartedShiftForExpectedPunchSms({
+      currentState: options.currentState,
+      events: options.events,
+    });
+  }
+
+  return !options.events.some((item) => item.event_type === options.expectedEventType);
+}
+
+function findAutoMissingExpectedPunchException(options: {
+  exceptions: HorodateurPhase1ExceptionRecord[];
+  eventType: ExpectedPunchEventType;
+  workDate: string;
+}) {
+  return (
+    options.exceptions.find((item) => {
+      if (item.status !== "en_attente") {
+        return false;
+      }
+
+      const parsed = parseAutoMissingExpectedPunchMarker(item.details);
+      if (parsed) {
+        return parsed.eventType === options.eventType && parsed.workDate === options.workDate;
+      }
+
+      return (
+        isAutoMissingExpectedPunchException({
+          reasonLabel: item.reason_label,
+          details: item.details,
+        }) && item.details?.includes(options.eventType) === true
+      );
+    }) ?? null
+  );
+}
+
+/**
+ * Escalade automatique des punchs attendus manquants (cron lateness-check).
+ * Seuils dérivés du « Délai de rappel (minutes) » configuré côté direction.
+ */
+export async function processMissingExpectedPunchEscalation() {
+  const alertConfig = await getHorodateurDirectionAlertConfig();
+  const escalation = resolveMissingPunchEscalationMinutes(
+    alertConfig.reminder_delay_minutes
+  );
+  const watchMinutes = escalation.reminderMinutes;
+  const exceptionMinutes = escalation.exceptionMinutes;
+  const priorityMinutes = escalation.priorityMinutes;
+
+  const now = new Date();
+  const { workDate, weekday } = getTodayWorkDateAndDay(now);
+  const currentMinutes = getTorontoCurrentMinutes(now);
+  const employees = await listActiveEmployees();
+
+  const processed: Array<{
+    employeeId: number;
+    eventType: ExpectedPunchEventType;
+    phase: "watch" | "exception_created" | "priority_escalated" | "skipped";
+    reason?: string;
+  }> = [];
+
+  for (const employee of employees) {
+    if (!employee.active) {
+      continue;
+    }
+
+    if (
+      Array.isArray(employee.scheduledWorkDays) &&
+      employee.scheduledWorkDays.length > 0 &&
+      !employee.scheduledWorkDays.map((item) => item.toLowerCase()).includes(weekday)
+    ) {
+      continue;
+    }
+
+    const expectedItems = resolveExpectedPunchScheduleItems({
+      employee,
+      weekdayFr: weekday,
+    });
+    if (expectedItems.length === 0) {
+      continue;
+    }
+
+    const [existingEvents, currentState, pendingExceptionsToday] = await Promise.all([
+      listEventsForEmployee({
+        employeeId: employee.employeeId,
+        workDate,
+        statuses: ["normal", "approuve", "en_attente"],
+      }),
+      getCurrentStateByEmployeeId(employee.employeeId),
+      listExceptionsForEmployeeWorkDate({
+        employeeId: employee.employeeId,
+        workDate,
+        statuses: ["en_attente"],
+      }),
+    ]);
+
+    for (const expected of expectedItems) {
+      const minutesSinceScheduled = currentMinutes - expected.scheduledMinutes;
+
+      if (minutesSinceScheduled < watchMinutes) {
+        continue;
+      }
+
+      if (
+        !isExpectedPunchStillMissing({
+          expectedEventType: expected.eventType,
+          events: existingEvents,
+          currentState,
+        })
+      ) {
+        processed.push({
+          employeeId: employee.employeeId,
+          eventType: expected.eventType,
+          phase: "skipped",
+          reason: "already_punched",
+        });
+        continue;
+      }
+
+      if (minutesSinceScheduled < exceptionMinutes) {
+        console.info("[horodateur-missing-expected-punch] watch", {
+          employeeId: employee.employeeId,
+          workDate,
+          eventType: expected.eventType,
+          minutesSinceScheduled,
+          watchMinutes,
+        });
+        processed.push({
+          employeeId: employee.employeeId,
+          eventType: expected.eventType,
+          phase: "watch",
+        });
+        continue;
+      }
+
+      const existingException = findAutoMissingExpectedPunchException({
+        exceptions: pendingExceptionsToday,
+        eventType: expected.eventType,
+        workDate,
+      });
+
+      if (
+        minutesSinceScheduled >= priorityMinutes &&
+        existingException
+      ) {
+        if (existingException.reason_label !== MISSING_EXPECTED_PUNCH_PRIORITY_REASON_LABEL) {
+          await updateExceptionEscalationFields({
+            exceptionId: existingException.id,
+            impactMinutes: minutesSinceScheduled,
+            reasonLabel: MISSING_EXPECTED_PUNCH_PRIORITY_REASON_LABEL,
+            details: formatAutoMissingExpectedPunchDetails({
+              eventType: expected.eventType,
+              workDate,
+              scheduledLabel: expected.scheduledLabel,
+              priority: true,
+              priorityMinutes,
+            }),
+          });
+
+          console.info("[horodateur-missing-expected-punch] priority_escalated", {
+            employeeId: employee.employeeId,
+            workDate,
+            eventType: expected.eventType,
+            exceptionId: existingException.id,
+            minutesSinceScheduled,
+          });
+        }
+
+        processed.push({
+          employeeId: employee.employeeId,
+          eventType: expected.eventType,
+          phase: "priority_escalated",
+        });
+        continue;
+      }
+
+      if (existingException) {
+        processed.push({
+          employeeId: employee.employeeId,
+          eventType: expected.eventType,
+          phase: "skipped",
+          reason: "exception_exists",
+        });
+        continue;
+      }
+
+      let authUserId: string;
+      try {
+        authUserId = requireEmployeeAuthUserId(employee);
+      } catch {
+        processed.push({
+          employeeId: employee.employeeId,
+          eventType: expected.eventType,
+          phase: "skipped",
+          reason: "missing_auth_user",
+        });
+        continue;
+      }
+
+      let companyContext;
+      try {
+        companyContext = requireCompanyContext(null, employee);
+      } catch {
+        processed.push({
+          employeeId: employee.employeeId,
+          eventType: expected.eventType,
+          phase: "skipped",
+          reason: "missing_company_context",
+        });
+        continue;
+      }
+
+      const occurredAt = buildTorontoTimestamp(workDate, expected.scheduledLabel, now);
+      const existingShift = await getShiftByEmployeeAndWorkDate(employee.employeeId, workDate);
+      const eventDates = resolveEventDates(occurredAt);
+
+      const event = await insertHorodateurEvent({
+        userId: authUserId,
+        employeeId: employee.employeeId,
+        occurredAt,
+        workDate: eventDates.workDate,
+        weekStartDate: eventDates.weekStartDate,
+        eventType: expected.eventType,
+        actorUserId: null,
+        actorRole: "systeme",
+        sourceKind: "automatique",
+        companyContext,
+        note: formatAutoMissingExpectedPunchDetails({
+          eventType: expected.eventType,
+          workDate,
+          scheduledLabel: expected.scheduledLabel,
+        }),
+        relatedEventId: null,
+        isManualCorrection: false,
+        status: "en_attente",
+        requiresApproval: true,
+        exceptionCode: "missing_punch_adjustment",
+        approvalNote: "Punch attendu manquant — détection automatique.",
+      });
+
+      const exception = await insertException({
+        employeeId: employee.employeeId,
+        shiftId: existingShift?.id ?? null,
+        sourceEventId: event.id,
+        exceptionType: "missing_punch_adjustment",
+        reasonLabel: MISSING_EXPECTED_PUNCH_REASON_LABEL,
+        details: formatAutoMissingExpectedPunchDetails({
+          eventType: expected.eventType,
+          workDate,
+          scheduledLabel: expected.scheduledLabel,
+        }),
+        impactMinutes: minutesSinceScheduled,
+        requestedByUserId: null,
+      });
+
+      await recomputeShiftForDate(employee.employeeId, workDate);
+      await recomputeCurrentState(employee.employeeId);
+
+      pendingExceptionsToday.push(exception);
+
+      console.info("[horodateur-missing-expected-punch] exception_created", {
+        employeeId: employee.employeeId,
+        workDate,
+        eventType: expected.eventType,
+        eventId: event.id,
+        exceptionId: exception.id,
+        minutesSinceScheduled,
+      });
+
+      processed.push({
+        employeeId: employee.employeeId,
+        eventType: expected.eventType,
+        phase: "exception_created",
+      });
+    }
+  }
+
+  return {
+    workDate,
+    processedCount: processed.length,
+    processed,
+    watchMinutes,
+    exceptionMinutes,
+    priorityMinutes,
+    reminderDelayMinutes: escalation.reminderMinutes,
   };
 }
 
@@ -2992,6 +3301,116 @@ export async function createDirectionPunch(options: {
   };
 }
 
+export type StaffRetroCorrectionRequestResult = {
+  event: HorodateurPhase1EventRecord;
+  exception: HorodateurPhase1ExceptionRecord;
+  shift: HorodateurPhase1ShiftRecord;
+  currentState: HorodateurPhase1CurrentStateRecord;
+};
+
+/**
+ * Correction rétroactive manuelle direction/admin.
+ * Création immédiate de l'événement et de l'exception « En attente admin » —
+ * sans délai 5/10/15 min (réservé à la détection automatique).
+ */
+export async function createStaffRetroCorrectionRequest(options: {
+  actorUserId: string;
+  actorRole: "direction" | "admin";
+  employeeId: number;
+  eventType: HorodateurPhase1InsertEventInput["eventType"];
+  occurredAt: string;
+  timeLabel: string;
+  reason: string;
+  companyContext?: AccountRequestCompany | null;
+}): Promise<StaffRetroCorrectionRequestResult> {
+  const normalizedReason = String(options.reason ?? "").trim();
+  if (!normalizedReason) {
+    throw new HorodateurPhase1Error(
+      "Une raison est obligatoire pour une correction rétroactive.",
+      { code: "retro_correction_reason_required", status: 400 }
+    );
+  }
+
+  const employee = await resolveEmployeeById(options.employeeId);
+  assertNoPaidBreakOperationalPunch(employee, options.eventType);
+  const companyContext = requireCompanyContext(options.companyContext, employee);
+  const workDate = getLocalWorkDate(options.occurredAt);
+  const eventNote = composeStaffRetroCorrectionNote(normalizedReason);
+  const exceptionDetails = formatStaffRetroCorrectionDetails({
+    eventType: options.eventType as Parameters<
+      typeof formatStaffRetroCorrectionDetails
+    >[0]["eventType"],
+    workDate,
+    time: options.timeLabel,
+    reason: normalizedReason,
+  });
+
+  const event = await insertHorodateurEvent({
+    userId: requireEmployeeAuthUserId(employee),
+    employeeId: employee.employeeId,
+    occurredAt: options.occurredAt,
+    ...resolveEventDates(options.occurredAt),
+    eventType: options.eventType,
+    actorUserId: options.actorUserId,
+    actorRole: "direction",
+    sourceKind: "direction",
+    companyContext,
+    note: eventNote,
+    relatedEventId: null,
+    isManualCorrection: false,
+    status: "en_attente",
+    requiresApproval: true,
+    exceptionCode: "missing_punch_adjustment",
+    approvalNote: "Correction rétroactive en attente d approbation admin.",
+  });
+
+  const existingShift = await getShiftByEmployeeAndWorkDate(employee.employeeId, workDate);
+
+  const exception = await insertException({
+    employeeId: employee.employeeId,
+    shiftId: existingShift?.id ?? null,
+    sourceEventId: event.id,
+    exceptionType: "missing_punch_adjustment",
+    reasonLabel: STAFF_RETRO_CORRECTION_REASON_LABEL,
+    details: exceptionDetails,
+    impactMinutes: 0,
+    requestedByUserId: options.actorUserId,
+  });
+
+  const shift = await recomputeShiftForDate(employee.employeeId, workDate);
+  const currentState = await recomputeCurrentState(employee.employeeId);
+
+  console.info("[horodateur-staff-retro]", "correction_request_created", {
+    employeeId: employee.employeeId,
+    eventId: event.id,
+    exceptionId: exception.id,
+    actorRole: options.actorRole,
+    eventType: options.eventType,
+    workDate,
+  });
+
+  return { event, exception, shift, currentState };
+}
+
+function assertAdminCanReviewStaffRetroCorrection(options: {
+  exception: HorodateurPhase1ExceptionRecord;
+  sourceEvent: HorodateurPhase1EventRecord;
+  approverRole: AppRole | null;
+}) {
+  const requiresAdmin =
+    isStaffRetroCorrectionException({
+      reason_label: options.exception.reason_label,
+      details: options.exception.details,
+    }) || isStaffRetroCorrectionEventNote(options.sourceEvent.notes ?? options.sourceEvent.note);
+
+  if (requiresAdmin && options.approverRole !== "admin") {
+    throw new HorodateurPhase1Error(
+      "Seul un administrateur peut approuver ou refuser cette demande de correction rétroactive.",
+      { code: "admin_approval_required", status: 403 }
+    );
+  }
+}
+
 export async function getWeeklyProjection(employeeId: number, weekStartDate?: string) {
   const employee = await resolveEmployeeById(employeeId);
   const resolvedWeekStartDate =
@@ -3628,6 +4047,7 @@ export async function getDirectionDashboardHorodateurAlerts(): Promise<{
 
 export async function approveHorodateurException(options: {
   actorUserId: string;
+  approverRole?: AppRole | null;
   exceptionId: string;
   reviewNote?: string | null;
   approvedMinutes?: number | null;
@@ -3670,6 +4090,12 @@ export async function approveHorodateurException(options: {
       status: 404,
     });
   }
+
+  assertAdminCanReviewStaffRetroCorrection({
+    exception,
+    sourceEvent,
+    approverRole: options.approverRole ?? null,
+  });
 
   if (options.correctedOccurredAt) {
     sourceEvent = await updateEventOccurredAt({
@@ -3749,6 +4175,7 @@ export async function approveHorodateurException(options: {
 
 export async function refuseHorodateurException(options: {
   actorUserId: string;
+  approverRole?: AppRole | null;
   exceptionId: string;
   reviewNote: string;
 }) {
@@ -3776,6 +4203,20 @@ export async function refuseHorodateurException(options: {
       status: 409,
     });
   }
+
+  const sourceEventForReview = await getEventById(exception.source_event_id);
+  if (!sourceEventForReview) {
+    throw new HorodateurPhase1Error("Evenement source introuvable.", {
+      code: "source_event_not_found",
+      status: 404,
+    });
+  }
+
+  assertAdminCanReviewStaffRetroCorrection({
+    exception,
+    sourceEvent: sourceEventForReview,
+    approverRole: options.approverRole ?? null,
+  });
 
   const reviewedException = await updateExceptionReview({
     exceptionId: exception.id,

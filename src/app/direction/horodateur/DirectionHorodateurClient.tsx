@@ -1,21 +1,37 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
+  PenLine,
   RefreshCw,
   ShieldCheck,
   TimerReset,
 } from "lucide-react";
-import AuthenticatedPageHeader from "@/app/components/ui/AuthenticatedPageHeader";
-import HorodateurDirectionModuleNav from "@/app/direction/horodateur/HorodateurDirectionModuleNav";
+import HorodateurRetroCorrectionModal from "@/app/components/horodateur/HorodateurRetroCorrectionModal";
+import HorodateurLiveRowActions from "@/app/direction/horodateur/HorodateurLiveRowActions";
+import HorodateurDirectionPageShell from "@/app/direction/horodateur/HorodateurDirectionPageShell";
+import HorodateurDirectionPrimaryActions from "@/app/direction/horodateur/HorodateurDirectionPrimaryActions";
+import HorodateurDirectionAlertConfigPanel from "@/app/direction/horodateur/HorodateurDirectionAlertConfigPanel";
 import AppCard from "@/app/components/ui/AppCard";
+import TagoraIconBadge from "@/app/components/TagoraIconBadge";
 import PrimaryButton from "@/app/components/ui/PrimaryButton";
 import SecondaryButton from "@/app/components/ui/SecondaryButton";
 import SectionCard from "@/app/components/ui/SectionCard";
 import StatusBadge from "@/app/components/ui/StatusBadge";
 import { useCurrentAccess } from "@/app/hooks/useCurrentAccess";
+import {
+  isStaffRetroCorrectionException,
+  STAFF_RETRO_CORRECTION_REASON_LABEL,
+  type StaffRetroForgottenEventType,
+} from "@/app/lib/horodateur-retro-correction.shared";
+import {
+  isAutoMissingExpectedPunchException,
+  MISSING_EXPECTED_PUNCH_PRIORITY_REASON_LABEL,
+  MISSING_EXPECTED_PUNCH_REASON_LABEL,
+} from "@/app/lib/horodateur-expected-punch-missing.shared";
+import { getLocalWorkDate } from "@/app/lib/horodateur-v1/rules";
 import { supabase } from "@/app/lib/supabase/client";
 import { getCompanyLabel } from "@/app/lib/account-requests.shared";
 import { normalizePhoneNumber } from "@/app/lib/timeclock-api.client";
@@ -165,6 +181,46 @@ function formatDateTime(value: string | null | undefined) {
   return new Date(value).toLocaleString("fr-CA");
 }
 
+function formatShortDateTime(value: string | null | undefined) {
+  if (!value) {
+    return "—";
+  }
+
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) {
+    return "—";
+  }
+
+  return date.toLocaleString("fr-CA", {
+    day: "numeric",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function collectLiveShiftHints(row: LiveRow): string[] {
+  const hints: string[] = [];
+
+  if (row.todayTimeDisplay?.pendingPunchBlocksAccrual) {
+    hints.push("Punch en attente");
+  }
+  if (row.todayTimeDisplay?.openShiftSafetyCapReached) {
+    hints.push("Quart > 14 h — à approuver");
+  }
+  if (row.todayTimeDisplay?.openShiftWorkDateMismatch) {
+    hints.push(`Quart ouvert depuis ${row.todayTimeDisplay.openShiftWorkDate ?? "?"}`);
+  }
+  if (row.todayShift?.status === "en_attente") {
+    hints.push("Quart en attente");
+  }
+  if ((row.todayShift?.anomalies_count ?? 0) > 0) {
+    hints.push("Anomalie détectée");
+  }
+
+  return hints;
+}
+
 function toIsoWithOptionalTime(
   baseIso: string | null | undefined,
   maybeTime: string | null
@@ -219,14 +275,6 @@ function getStateTone(value: string | null | undefined) {
     default:
       return "default" as const;
   }
-}
-
-function getExceptionTone(count: number) {
-  if (count > 0) {
-    return "warning" as const;
-  }
-
-  return "success" as const;
 }
 
 function clampPercentage(value: number) {
@@ -353,6 +401,42 @@ function resolveDisplayedPayableMinutes(row: LiveRow) {
   return Math.max(
     0,
     row.todayTimeDisplay?.officialPayableMinutes ?? row.todayShift?.payable_minutes ?? 0
+  );
+}
+
+function liveRowNeedsAttention(row: LiveRow) {
+  return (
+    row.hasOpenException ||
+    (row.activeExceptionCount ?? 0) > 0 ||
+    (row.todayShift?.anomalies_count ?? 0) > 0 ||
+    row.todayShift?.status === "en_attente" ||
+    Boolean(row.todayTimeDisplay?.openShiftSafetyCapReached) ||
+    Boolean(row.todayTimeDisplay?.openShiftWorkDateMismatch) ||
+    Boolean(row.todayTimeDisplay?.pendingPunchBlocksAccrual)
+  );
+}
+
+function resolveEmployeePhoneHref(row: LiveRow): string | null {
+  const raw = (row.phone ?? row.phoneNumber ?? "").trim();
+  if (!raw) {
+    return null;
+  }
+
+  const normalized = normalizePhoneNumber(raw);
+  if (!normalized) {
+    return null;
+  }
+
+  const digits = normalized.replace(/\D/g, "");
+  return digits ? `tel:${digits}` : null;
+}
+
+function countRowExceptions(row: LiveRow, pending: PendingException[]) {
+  const employeeId = row.employeeId || row.employee_id || 0;
+  return Math.max(
+    pending.filter((item) => item.employee_id === employeeId).length,
+    row.activeExceptionCount ?? 0,
+    row.alertFlags?.hasOpenException ? 1 : 0
   );
 }
 
@@ -552,8 +636,9 @@ function normalizePendingException(raw: unknown): PendingException | null {
 }
 
 export default function DirectionHorodateurPage() {
-  const { loading: accessLoading, hasPermission } = useCurrentAccess();
+  const { loading: accessLoading, hasPermission, role } = useCurrentAccess();
   const canUseTerrain = hasPermission("terrain");
+  const isAdmin = role === "admin";
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -575,12 +660,36 @@ export default function DirectionHorodateurPage() {
   /** Date `work_date` utilisée pour la colonne « Quart du jour » (alignée sur l’API live, Toronto). */
   const [liveTodayWorkDate, setLiveTodayWorkDate] = useState<string | null>(null);
   const [config, setConfig] = useState<AlertConfig>({
-    email_enabled: false,
+    email_enabled: true,
     sms_enabled: false,
-    reminder_delay_minutes: 60,
+    reminder_delay_minutes: 5,
     direction_emails: [],
     direction_sms_numbers: [],
   });
+  const [retroModalOpen, setRetroModalOpen] = useState(false);
+  const [retroSaving, setRetroSaving] = useState(false);
+  const [retroError, setRetroError] = useState<string | null>(null);
+  const [retroEmployeeId, setRetroEmployeeId] = useState("");
+  const [retroWorkDate, setRetroWorkDate] = useState("");
+  const [retroEventType, setRetroEventType] =
+    useState<StaffRetroForgottenEventType>("punch_in");
+  const [retroTime, setRetroTime] = useState("");
+  const [retroReason, setRetroReason] = useState("");
+  const [liveDetailEmployeeId, setLiveDetailEmployeeId] = useState<number | null>(null);
+  const [highlightedExceptionEmployeeId, setHighlightedExceptionEmployeeId] = useState<
+    number | null
+  >(null);
+  const punchManualSectionRef = useRef<HTMLDivElement>(null);
+  const exceptionsSectionRef = useRef<HTMLDivElement>(null);
+
+  const retroEmployeeOptions = useMemo(
+    () =>
+      board.map((row) => ({
+        id: row.employeeId,
+        label: row.fullName || row.email || `#${row.employeeId}`,
+      })),
+    [board]
+  );
 
   const counts = useMemo(() => {
     const active = board.filter((row) => getRowState(row) === "en_quart").length;
@@ -1091,6 +1200,114 @@ export default function DirectionHorodateurPage() {
     }
   }
 
+  function openRetroCorrectionModal(initial?: {
+    employeeId?: string;
+    workDate?: string;
+    eventType?: StaffRetroForgottenEventType;
+    time?: string;
+  }) {
+    setRetroError(null);
+    setRetroEmployeeId(initial?.employeeId ?? "");
+    setRetroWorkDate(
+      initial?.workDate ?? liveTodayWorkDate ?? getLocalWorkDate(new Date().toISOString())
+    );
+    setRetroEventType(initial?.eventType ?? "punch_in");
+    setRetroTime(initial?.time ?? "");
+    setRetroReason("");
+    setRetroModalOpen(true);
+  }
+
+  function openLiveRowRetroCorrection(row: LiveRow) {
+    openRetroCorrectionModal({
+      employeeId: String(row.employeeId),
+      workDate: liveTodayWorkDate ?? getLocalWorkDate(new Date().toISOString()),
+    });
+  }
+
+  function focusManualPunchForRow(row: LiveRow) {
+    setSelectedEmployeeId(String(row.employeeId));
+    setLiveDetailEmployeeId(null);
+    window.requestAnimationFrame(() => {
+      punchManualSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  }
+
+  function focusLiveRowDetail(row: LiveRow) {
+    setLiveDetailEmployeeId(row.employeeId);
+    setHighlightedExceptionEmployeeId(null);
+  }
+
+  function focusEmployeeExceptions(row: LiveRow) {
+    const employeeId = row.employeeId || row.employee_id || 0;
+    const rowExceptionCount = countRowExceptions(row, exceptions);
+
+    if (!employeeId || rowExceptionCount <= 0) {
+      return;
+    }
+
+    setHighlightedExceptionEmployeeId(employeeId);
+    setLiveDetailEmployeeId(null);
+    window.requestAnimationFrame(() => {
+      exceptionsSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      const target = document.querySelector(
+        `[data-horodateur-exception-employee="${employeeId}"]`
+      );
+      target?.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+  }
+
+  async function handleRetroCorrectionSubmit() {
+    setRetroSaving(true);
+    setRetroError(null);
+    setMessage("");
+    setError("");
+
+    try {
+      await withToken(async (token) => {
+        const response = await fetch("/api/direction/horodateur/retro-correction", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            employeeId: Number(retroEmployeeId),
+            date: retroWorkDate,
+            eventType: retroEventType,
+            time: retroTime,
+            reason: retroReason,
+          }),
+        });
+
+        const result = await response.json().catch(() => ({}));
+
+        if (!response.ok) {
+          throw new Error(
+            typeof result.error === "string"
+              ? result.error
+              : "Impossible d envoyer la demande de correction."
+          );
+        }
+      });
+
+      setRetroModalOpen(false);
+      setRetroReason("");
+      setRetroTime("");
+      setMessage(
+        "Demande de correction envoyée. En attente d approbation admin avant comptabilisation."
+      );
+      await loadData("refresh", { preserveMessage: true });
+    } catch (submitError) {
+      setRetroError(
+        submitError instanceof Error
+          ? submitError.message
+          : "Erreur lors de l envoi de la demande."
+      );
+    } finally {
+      setRetroSaving(false);
+    }
+  }
+
   async function handleApprove(exceptionId: string) {
     setActiveActionKey(`approve:${exceptionId}`);
     setMessage("");
@@ -1238,70 +1455,60 @@ export default function DirectionHorodateurPage() {
 
   if (accessLoading || loading) {
     return (
-      <main className="tagora-app-shell">
-        <div className="tagora-app-content">
-          <AuthenticatedPageHeader
-            title="Horodateur direction"
-            subtitle=""
-            showNavigation={false}
-          />
-          <SectionCard title="Chargement" subtitle="Preparation de la supervision." />
-        </div>
-      </main>
+      <HorodateurDirectionPageShell
+        active="live"
+        subtitle="Supervision live des présences et des exceptions."
+      >
+        <SectionCard title="Chargement" subtitle="Préparation de la supervision." />
+      </HorodateurDirectionPageShell>
     );
   }
 
   if (!canUseTerrain) {
     return (
-      <main className="tagora-app-shell">
-        <div className="tagora-app-content">
-          <AuthenticatedPageHeader
-            title="Horodateur direction"
-            subtitle=""
-            showNavigation={false}
-          />
-          <SectionCard title="Acces" subtitle="Permission terrain requise." />
-        </div>
-      </main>
+      <HorodateurDirectionPageShell
+        active="live"
+        subtitle="Supervision live des présences et des exceptions."
+      >
+        <SectionCard title="Accès" subtitle="Permission terrain requise." />
+      </HorodateurDirectionPageShell>
     );
   }
 
+  const headerActions = (
+    <div
+      style={{
+        display: "flex",
+        gap: "var(--ui-space-3)",
+        flexWrap: "wrap",
+        alignItems: "center",
+      }}
+    >
+      <Link
+        href="/direction/horodateur/qr-zones"
+        className="tagora-dark-outline-action"
+        style={{ textDecoration: "none" }}
+      >
+        Zones punch QR
+      </Link>
+      <SecondaryButton
+        onClick={() => void loadData("refresh")}
+        disabled={refreshing || isBusy}
+      >
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+          <RefreshCw size={16} />
+          {refreshing ? "Actualisation..." : "Actualiser"}
+        </span>
+      </SecondaryButton>
+    </div>
+  );
+
   return (
-    <main className="tagora-app-shell">
-      <div className="tagora-app-content ui-stack-lg">
-        <AuthenticatedPageHeader
-          title="Horodateur direction"
-          subtitle=""
-          showNavigation={false}
-          navigation={<HorodateurDirectionModuleNav active="live" />}
-          actions={
-            <div
-              style={{
-                display: "flex",
-                gap: "var(--ui-space-3)",
-                flexWrap: "wrap",
-                alignItems: "center",
-              }}
-            >
-              <Link
-                href="/direction/horodateur/qr-zones"
-                className="tagora-dark-outline-action"
-                style={{ textDecoration: "none" }}
-              >
-                Zones punch QR
-              </Link>
-              <SecondaryButton
-                onClick={() => void loadData("refresh")}
-                disabled={refreshing || isBusy}
-              >
-                <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
-                  <RefreshCw size={16} />
-                  {refreshing ? "Actualisation..." : "Actualiser"}
-                </span>
-              </SecondaryButton>
-            </div>
-          }
-        />
+    <HorodateurDirectionPageShell
+      active="live"
+      subtitle="Supervision live, corrections rétroactives et validation des exceptions."
+      actions={headerActions}
+    >
 
         {error ? (
           <AppCard
@@ -1327,6 +1534,94 @@ export default function DirectionHorodateurPage() {
           </AppCard>
         ) : null}
 
+        <HorodateurDirectionPrimaryActions
+          onRetroCorrection={() => openRetroCorrectionModal()}
+          retroDisabled={isBusy}
+          current="live"
+        />
+
+        <div ref={punchManualSectionRef} id="horodateur-punch-manuel-section">
+        <SectionCard
+          title="Punch manuel avancé"
+          subtitle="Punch manuel tracé — intervention direction avec note obligatoire."
+          actions={
+            <TagoraIconBadge tone="blue" size="lg">
+              <PenLine size={24} strokeWidth={2.1} />
+            </TagoraIconBadge>
+          }
+        >
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "minmax(220px, 1.2fr) minmax(180px, 0.9fr) auto",
+              gap: "var(--ui-space-3)",
+              alignItems: "end",
+            }}
+          >
+            <label className="ui-stack-xs">
+              <span className="ui-eyebrow">Employe</span>
+              <select
+                className="tagora-input"
+                value={selectedEmployeeId}
+                onChange={(event) => setSelectedEmployeeId(event.target.value)}
+              >
+                <option value="">Selectionner</option>
+                {board.map((row) => (
+                  <option key={row.employeeId} value={row.employeeId}>
+                    {row.fullName || row.email || `#${row.employeeId}`}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="ui-stack-xs">
+              <span className="ui-eyebrow">Action</span>
+              <select
+                className="tagora-input"
+                value={selectedEventType}
+                onChange={(event) =>
+                  setSelectedEventType(
+                    event.target.value as (typeof DIRECTION_EVENT_TYPES)[number]
+                  )
+                }
+              >
+                {DIRECTION_EVENT_TYPES.map((item) => (
+                  <option key={item} value={item}>
+                    {item}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <PrimaryButton
+              onClick={() => void handleManualPunch()}
+              disabled={isBusy || !hasEmployees}
+              style={{ whiteSpace: "nowrap" }}
+            >
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+                <ShieldCheck size={16} />
+                {activeActionKey === "manual-punch"
+                  ? "Enregistrement..."
+                  : "Enregistrer le punch"}
+              </span>
+            </PrimaryButton>
+          </div>
+
+          <label className="ui-stack-xs" style={{ marginTop: "var(--ui-space-3)" }}>
+            <span className="ui-eyebrow">Note obligatoire</span>
+            <textarea
+              className="tagora-textarea"
+              value={note}
+              onChange={(event) => setNote(event.target.value)}
+              placeholder="Expliquez la correction ou l intervention direction"
+              style={{ minHeight: 90 }}
+            />
+          </label>
+        </SectionCard>
+        </div>
+
+        <details className="horodateur-direction-secondary-panel">
+          <summary>Statistiques détaillées</summary>
+          <div className="horodateur-direction-secondary-panel-body ui-stack-md">
         <div
           style={{
             display: "grid",
@@ -1429,8 +1724,19 @@ export default function DirectionHorodateurPage() {
             <span className="ui-text-muted">En attente d approbation</span>
           </AppCard>
         </div>
+          </div>
+        </details>
 
-        <SectionCard title="Exceptions a approuver" subtitle="Validation rapide.">
+        <div ref={exceptionsSectionRef} id="horodateur-exceptions-section">
+        <SectionCard
+          title="Exceptions à approuver"
+          subtitle="Validation rapide des demandes en attente."
+          actions={
+            <TagoraIconBadge tone="orange" size="lg">
+              <ShieldCheck size={24} strokeWidth={2.1} />
+            </TagoraIconBadge>
+          }
+        >
           {hasExceptions ? (
             <div
               style={{
@@ -1445,16 +1751,34 @@ export default function DirectionHorodateurPage() {
                   item.employee?.fullName || item.employee?.email || item.id;
                 const isRefusing = refusingExceptionId === item.id;
                 const correction = timeCorrectionById[item.id] ?? { main: "", related: "" };
+                const isStaffRetro = isStaffRetroCorrectionException(item);
+                const isAutoMissing = isAutoMissingExpectedPunchException({
+                  reasonLabel: item.reason_label,
+                  details: item.details,
+                });
+                const isAutoMissingPriority =
+                  item.reason_label === MISSING_EXPECTED_PUNCH_PRIORITY_REASON_LABEL;
+                const canReviewException = !isStaffRetro || isAdmin;
+
+                const isHighlighted =
+                  highlightedExceptionEmployeeId !== null &&
+                  item.employee_id === highlightedExceptionEmployeeId;
 
                 return (
                 <AppCard
                   key={item.id}
-                  className="ui-stack-sm"
+                  data-horodateur-exception-employee={item.employee_id}
+                  className={`ui-stack-sm${isHighlighted ? " horodateur-direction-exception-card--highlighted" : ""}`}
                   style={{
-                    border: "1px solid rgba(245, 158, 11, 0.32)",
-                    background:
-                      "linear-gradient(180deg, rgba(255,251,235,0.98) 0%, rgba(255,255,255,0.98) 100%)",
-                    boxShadow: "0 14px 28px rgba(120, 53, 15, 0.08)",
+                    border: isAutoMissingPriority
+                      ? "1px solid rgba(220, 38, 38, 0.28)"
+                      : "1px solid rgba(245, 158, 11, 0.32)",
+                    background: isAutoMissingPriority
+                      ? "linear-gradient(180deg, rgba(254,242,242,0.98) 0%, rgba(255,255,255,0.98) 100%)"
+                      : "linear-gradient(180deg, rgba(255,251,235,0.98) 0%, rgba(255,255,255,0.98) 100%)",
+                    boxShadow: isAutoMissingPriority
+                      ? "0 14px 28px rgba(127, 29, 29, 0.1)"
+                      : "0 14px 28px rgba(120, 53, 15, 0.08)",
                   }}
                 >
                   <div
@@ -1470,13 +1794,26 @@ export default function DirectionHorodateurPage() {
                         margin: 0,
                         fontSize: 17,
                         fontWeight: 800,
-                        color: "#92400e",
+                        color: isAutoMissingPriority ? "#991b1b" : "#92400e",
                         lineHeight: 1.35,
                       }}
                     >
-                      Exception horodateur à traiter
+                      {isStaffRetro
+                        ? "Correction rétroactive à traiter"
+                        : isAutoMissing
+                          ? MISSING_EXPECTED_PUNCH_REASON_LABEL
+                          : "Exception horodateur à traiter"}
                     </h3>
-                    <StatusBadge label="En attente" tone="warning" />
+                    <StatusBadge
+                      label={
+                        isStaffRetro
+                          ? STAFF_RETRO_CORRECTION_REASON_LABEL
+                          : isAutoMissingPriority
+                            ? "Priorité"
+                            : "En attente"
+                      }
+                      tone={isAutoMissingPriority ? "danger" : "warning"}
+                    />
                   </div>
 
                   <div className="ui-stack-xs" style={{ gap: 10 }}>
@@ -1487,12 +1824,19 @@ export default function DirectionHorodateurPage() {
                       occurredAt ? formatDateTime(occurredAt) : "—"
                     )}
                     {exceptionSummaryRow(
-                      "Note employé",
+                      isStaffRetro ? "Raison" : "Note employé",
                       truncateEmployeeNote(item.details)
                     )}
                   </div>
 
-                  {!isRefusing ? (
+                  {!canReviewException ? (
+                    <AppCard tone="muted" className="ui-stack-xs">
+                      <p className="ui-text-muted" style={{ margin: 0 }}>
+                        Approbation admin requise pour cette demande de correction
+                        rétroactive.
+                      </p>
+                    </AppCard>
+                  ) : !isRefusing ? (
                     <div
                       style={{
                         display: "flex",
@@ -1717,16 +2061,18 @@ export default function DirectionHorodateurPage() {
             </AppCard>
           )}
         </SectionCard>
+        </div>
 
-        <SectionCard title="Tableau live" subtitle="Etat courant et progression.">
-          <div
-            style={{
-              display: "flex",
-              gap: "var(--ui-space-2)",
-              flexWrap: "wrap",
-              marginBottom: "var(--ui-space-4)",
-            }}
-          >
+        <SectionCard
+          className="horodateur-live-section"
+          title="Tableau live"
+          subtitle={
+            liveTodayWorkDate
+              ? `Supervision du jour (Toronto) · ${liveTodayWorkDate}`
+              : "Etat courant et progression."
+          }
+        >
+          <div className="horodateur-direction-filter-chips horodateur-live-filter-chips">
             {[
               ["tous", `Tous (${board.length})`],
               ["en_quart", `En quart (${board.filter((row) => getRowState(row) === "en_quart").length})`],
@@ -1740,16 +2086,9 @@ export default function DirectionHorodateurPage() {
                   key={value}
                   type="button"
                   onClick={() => setLiveFilter(value as LiveFilter)}
-                  style={{
-                    borderRadius: 999,
-                    border: active ? "1px solid #0f2948" : "1px solid rgba(148, 163, 184, 0.28)",
-                    background: active ? "#0f2948" : "#ffffff",
-                    color: active ? "#ffffff" : "#334155",
-                    padding: "8px 14px",
-                    fontSize: 13,
-                    fontWeight: 700,
-                    cursor: "pointer",
-                  }}
+                  className={`horodateur-direction-filter-chip${
+                    active ? " horodateur-direction-filter-chip--active" : ""
+                  }`}
                 >
                   {label}
                 </button>
@@ -1758,502 +2097,302 @@ export default function DirectionHorodateurPage() {
           </div>
 
           {hasEmployees ? (
-            <div style={{ overflowX: "auto" }}>
-              <table
-                style={{
-                  width: "100%",
-                  borderCollapse: "separate",
-                  borderSpacing: 0,
-                  minWidth: 1120,
-                }}
-              >
-                <thead>
-                  <tr style={{ background: "rgba(15, 41, 72, 0.04)" }}>
-                    <th style={thStyle}>Employe</th>
-                    <th style={thStyle}>Compagnie</th>
-                    <th style={thStyle}>Etat</th>
-                    <th style={thStyle}>Dernier evenement</th>
-                    <th style={thStyle}>
-                      <div className="ui-stack-xs" style={{ alignItems: "flex-start" }}>
-                        <span>Quart du jour</span>
-                        {liveTodayWorkDate ? (
-                          <span className="ui-text-muted" style={{ fontSize: 11, fontWeight: 500 }}>
-                            Jour (Toronto) : {liveTodayWorkDate}
-                          </span>
-                        ) : null}
-                      </div>
-                    </th>
-                    <th style={thStyle}>Semaine</th>
-                    <th style={thStyle}>Projection</th>
-                    <th style={thStyle}>Exceptions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredBoard.map((row) => {
-                    const rowExceptionCount = Math.max(
-                      exceptions.filter((item) => item.employee_id === (row.employeeId || row.employee_id || 0)).length,
-                      row.activeExceptionCount ?? 0,
-                      row.alertFlags?.hasOpenException ? 1 : 0
-                    );
+            <div className="horodateur-live-board">
+              <div className="horodateur-live-board-head" aria-hidden="true">
+                <span>Employé</span>
+                <span>État</span>
+                <span>Quart du jour</span>
+                <span>Progression</span>
+                <span>Actions</span>
+              </div>
 
-                    return (
-                      <tr key={row.employeeId}>
-                        <td style={tdStyle}>
-                          <div className="ui-stack-xs">
-                            <strong style={{ fontSize: 14 }}>
-                              {row.fullName || row.email || row.phone || `#${row.employeeId}`}
-                            </strong>
-                            <span className="ui-text-muted">{row.email || row.phone || "-"}</span>
-                          </div>
-                        </td>
-                        <td style={tdStyle}>{getCompanyLabel(row.primaryCompany)}</td>
-                        <td style={tdStyle}>
+              <div className="horodateur-live-board-body">
+                {filteredBoard.map((row) => {
+                  const rowExceptionCount = countRowExceptions(row, exceptions);
+                  const needsAttention = liveRowNeedsAttention(row);
+                  const employeeLabel =
+                    row.fullName || row.email || row.phone || `#${row.employeeId}`;
+                  const isDetailOpen = liveDetailEmployeeId === row.employeeId;
+                  const shiftHints = collectLiveShiftHints(row);
+                  const ratio =
+                    row.weekTargetMinutes > 0
+                      ? row.weekWorkedMinutes / row.weekTargetMinutes
+                      : 0;
+                  const progressTone = getProgressTone({
+                    ratio,
+                    hasOpenException: row.hasOpenException,
+                    anomaliesCount: row.todayShift?.anomalies_count ?? 0,
+                  });
+                  const progressPercent = clampPercentage(Math.round(ratio * 100));
+
+                  return (
+                    <article
+                      key={row.employeeId}
+                      className={`horodateur-live-board-row${
+                        needsAttention ? " horodateur-live-board-row--attention" : ""
+                      }${isDetailOpen ? " horodateur-live-board-row--focused" : ""}`}
+                    >
+                      <div className="horodateur-live-board-cell" data-label="Employé">
+                        <div className="horodateur-live-employee">
+                          <strong className="horodateur-live-employee-name">
+                            {row.fullName || row.email || row.phone || `#${row.employeeId}`}
+                          </strong>
+                          <span className="horodateur-live-meta">
+                            {row.email || row.phone || "—"}
+                          </span>
+                          <span className="horodateur-live-company-tag">
+                            {getCompanyLabel(row.primaryCompany)}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="horodateur-live-board-cell" data-label="État">
+                        <div className="horodateur-live-state">
                           <StatusBadge
                             label={getStateLabel(getRowState(row))}
                             tone={getStateTone(getRowState(row))}
                           />
-                        </td>
-                        <td style={tdStyle}>
-                          <div className="ui-stack-xs">
-                            <span>{formatDateTime(row.lastEventAt)}</span>
-                            <span className="ui-text-muted">
-                              {row.currentEventType ?? row.lastEventType ?? "-"}
-                            </span>
-                          </div>
-                        </td>
-                        <td style={tdStyle}>
-                          <div className="ui-stack-xs">
-                            <span>{formatMinutes(resolveDisplayedPayableMinutes(row))}</span>
-                            {row.todayTimeDisplay?.hasOpenShiftAccrual ? (
-                              <span className="ui-text-muted">
-                                En cours (officiel :{" "}
-                                {formatMinutes(row.todayTimeDisplay.officialPayableMinutes)})
-                              </span>
-                            ) : null}
-                            {row.todayTimeDisplay?.pendingPunchBlocksAccrual ? (
-                              <span className="ui-text-muted">Punch en attente</span>
-                            ) : null}
-                            {row.todayTimeDisplay?.openShiftSafetyCapReached ? (
-                              <span className="ui-text-muted" style={{ color: "#b45309", fontWeight: 600 }}>
-                                Quart ouvert &gt; 14 h — fermeture à approuver
-                              </span>
-                            ) : null}
-                            {row.todayTimeDisplay?.openShiftWorkDateMismatch ? (
-                              <span className="ui-text-muted">
-                                Quart ouvert depuis {row.todayTimeDisplay.openShiftWorkDate ?? "?"}
-                              </span>
-                            ) : null}
-                            <span className="ui-text-muted">
-                              Debut: {formatDateTime(row.startedAt ?? row.todayShift?.shift_start_at ?? null)}
-                            </span>
-                          </div>
-                        </td>
-                        <td style={tdStyle}>
-                          {(() => {
-                            const ratio =
-                              row.weekTargetMinutes > 0
-                                ? row.weekWorkedMinutes / row.weekTargetMinutes
-                                : 0;
-                            const tone = getProgressTone({
-                              ratio,
-                              hasOpenException: row.hasOpenException,
-                              anomaliesCount: row.todayShift?.anomalies_count ?? 0,
-                            });
-                            const percent = clampPercentage(Math.round(ratio * 100));
+                          <span className="horodateur-live-meta">
+                            {formatShortDateTime(row.lastEventAt)} ·{" "}
+                            {row.currentEventType ?? row.lastEventType ?? "—"}
+                          </span>
+                        </div>
+                      </div>
 
-                            return (
-                              <div className="ui-stack-xs">
-                                <div
-                                  style={{
-                                    display: "flex",
-                                    justifyContent: "space-between",
-                                    gap: 12,
-                                    alignItems: "baseline",
-                                  }}
-                                >
-                                  <strong style={{ color: tone.text }}>{percent}%</strong>
-                                  <span className="ui-text-muted">
-                                    {formatMinutes(row.weekWorkedMinutes)} /{" "}
-                                    {formatMinutes(row.weekTargetMinutes)}
-                                  </span>
-                                </div>
-                                <div
-                                  style={{
-                                    height: 8,
-                                    borderRadius: 999,
-                                    background: tone.track,
-                                    overflow: "hidden",
-                                  }}
-                                >
-                                  <div
-                                    style={{
-                                      width: `${percent}%`,
-                                      height: "100%",
-                                      background: tone.bar,
-                                      borderRadius: 999,
-                                    }}
-                                  />
-                                </div>
-                                <span className="ui-text-muted">
-                                  Restant: {formatMinutes(row.weekRemainingMinutes)}
-                                </span>
-                              </div>
-                            );
-                          })()}
-                        </td>
-                        <td style={tdStyle}>
-                          <div className="ui-stack-xs">
-                            <span>{formatMinutes(row.projectedOverflowMinutes)}</span>
-                            <span className="ui-text-muted">
-                              Cible: {formatMinutes(row.weekTargetMinutes)}
+                      <div className="horodateur-live-board-cell" data-label="Quart du jour">
+                        <div className="horodateur-live-shift">
+                          <strong className="horodateur-live-shift-time">
+                            {formatMinutes(resolveDisplayedPayableMinutes(row))}
+                          </strong>
+                          {row.todayTimeDisplay?.hasOpenShiftAccrual ? (
+                            <span className="horodateur-live-meta">
+                              En cours · officiel{" "}
+                              {formatMinutes(row.todayTimeDisplay.officialPayableMinutes)}
+                            </span>
+                          ) : null}
+                          <span className="horodateur-live-meta">
+                            Début {formatShortDateTime(row.startedAt ?? row.todayShift?.shift_start_at ?? null)}
+                          </span>
+                          {shiftHints.length > 0 ? (
+                            <ul className="horodateur-live-hints">
+                              {shiftHints.map((hint) => (
+                                <li key={hint}>{hint}</li>
+                              ))}
+                            </ul>
+                          ) : null}
+                        </div>
+                      </div>
+
+                      <div className="horodateur-live-board-cell" data-label="Progression">
+                        <div className="horodateur-live-progress">
+                          <div className="horodateur-live-progress-top">
+                            <strong style={{ color: progressTone.text }}>{progressPercent}%</strong>
+                            <span className="horodateur-live-meta">
+                              {formatMinutes(row.weekWorkedMinutes)} /{" "}
+                              {formatMinutes(row.weekTargetMinutes)}
                             </span>
                           </div>
-                        </td>
-                        <td style={tdStyle}>
-                          <StatusBadge
-                            label={rowExceptionCount ? `${rowExceptionCount} en attente` : "Aucune"}
-                            tone={getExceptionTone(rowExceptionCount)}
-                          />
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+                          <div
+                            className="horodateur-live-progress-track"
+                            style={{ background: progressTone.track }}
+                          >
+                            <div
+                              className="horodateur-live-progress-bar"
+                              style={{
+                                width: `${progressPercent}%`,
+                                background: progressTone.bar,
+                              }}
+                            />
+                          </div>
+                          <span className="horodateur-live-meta">
+                            Restant {formatMinutes(row.weekRemainingMinutes)}
+                            {row.projectedOverflowMinutes > 0
+                              ? ` · Prévu +${formatMinutes(row.projectedOverflowMinutes)}`
+                              : ""}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="horodateur-live-board-cell horodateur-live-board-cell--actions" data-label="Actions">
+                        <HorodateurLiveRowActions
+                          employeeLabel={employeeLabel}
+                          exceptionCount={rowExceptionCount}
+                          needsAttention={needsAttention}
+                          phoneHref={resolveEmployeePhoneHref(row)}
+                          disabled={isBusy}
+                          onCorrect={() => openLiveRowRetroCorrection(row)}
+                          onManualPunch={() => focusManualPunchForRow(row)}
+                          onDetail={() => focusLiveRowDetail(row)}
+                          onExceptions={() => focusEmployeeExceptions(row)}
+                        />
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
             </div>
-          ) : (
+          ) : null}
+
+          {hasEmployees && liveDetailEmployeeId ? (() => {
+            const detailRow = board.find((row) => row.employeeId === liveDetailEmployeeId);
+            if (!detailRow) {
+              return null;
+            }
+
+            const detailExceptionCount = countRowExceptions(detailRow, exceptions);
+            const detailRatio =
+              detailRow.weekTargetMinutes > 0
+                ? detailRow.weekWorkedMinutes / detailRow.weekTargetMinutes
+                : 0;
+            const detailProgressTone = getProgressTone({
+              ratio: detailRatio,
+              hasOpenException: detailRow.hasOpenException,
+              anomaliesCount: detailRow.todayShift?.anomalies_count ?? 0,
+            });
+
+            return (
+              <AppCard className="horodateur-live-detail-panel ui-stack-sm">
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    gap: 12,
+                    alignItems: "flex-start",
+                    flexWrap: "wrap",
+                  }}
+                >
+                  <div className="ui-stack-xs">
+                    <span className="ui-eyebrow">Détail employé</span>
+                    <strong style={{ fontSize: 18 }}>
+                      {detailRow.fullName || detailRow.email || `#${detailRow.employeeId}`}
+                    </strong>
+                    <span className="ui-text-muted">
+                      {getCompanyLabel(detailRow.primaryCompany)} ·{" "}
+                      {detailRow.email || detailRow.phone || "—"}
+                    </span>
+                  </div>
+                  <SecondaryButton onClick={() => setLiveDetailEmployeeId(null)}>
+                    Fermer
+                  </SecondaryButton>
+                </div>
+
+                <ul className="horodateur-direction-detail-list">
+                  <li className="horodateur-direction-detail-list-item">
+                    <strong>État</strong> — {getStateLabel(getRowState(detailRow))}
+                  </li>
+                  <li className="horodateur-direction-detail-list-item">
+                    <strong>Début</strong> —{" "}
+                    {formatDateTime(detailRow.startedAt ?? detailRow.todayShift?.shift_start_at ?? null)}
+                  </li>
+                  <li className="horodateur-direction-detail-list-item">
+                    <strong>Dernier événement</strong> — {formatDateTime(detailRow.lastEventAt)} ·{" "}
+                    {detailRow.currentEventType ?? detailRow.lastEventType ?? "—"}
+                  </li>
+                  <li className="horodateur-direction-detail-list-item">
+                    <strong>Quart du jour</strong> — {formatMinutes(resolveDisplayedPayableMinutes(detailRow))}
+                    {detailRow.todayShift?.status ? ` · ${detailRow.todayShift.status}` : ""}
+                  </li>
+                  <li
+                    className={`horodateur-direction-detail-list-item${
+                      detailProgressTone.text === "#991b1b"
+                        ? " horodateur-direction-detail-list-item--warning"
+                        : ""
+                    }`}
+                  >
+                    <strong>Progression semaine</strong> —{" "}
+                    {clampPercentage(Math.round(detailRatio * 100))}% ·{" "}
+                    {formatMinutes(detailRow.weekWorkedMinutes)} /{" "}
+                    {formatMinutes(detailRow.weekTargetMinutes)}
+                  </li>
+                  <li
+                    className={`horodateur-direction-detail-list-item${
+                      detailExceptionCount > 0 ? " horodateur-direction-detail-list-item--warning" : ""
+                    }`}
+                  >
+                    <strong>Exceptions</strong> —{" "}
+                    {detailExceptionCount > 0
+                      ? `${detailExceptionCount} en attente`
+                      : "Aucune"}
+                  </li>
+                </ul>
+
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                  <SecondaryButton
+                    disabled={isBusy}
+                    onClick={() => openLiveRowRetroCorrection(detailRow)}
+                  >
+                    Corriger un oubli
+                  </SecondaryButton>
+                  <SecondaryButton
+                    disabled={isBusy}
+                    onClick={() => focusManualPunchForRow(detailRow)}
+                  >
+                    Punch manuel
+                  </SecondaryButton>
+                  {detailExceptionCount > 0 ? (
+                    <SecondaryButton
+                      disabled={isBusy}
+                      onClick={() => focusEmployeeExceptions(detailRow)}
+                    >
+                      Voir exceptions
+                    </SecondaryButton>
+                  ) : null}
+                </div>
+              </AppCard>
+            );
+          })() : null}
+
+          {!hasEmployees ? (
             <AppCard tone="muted" className="ui-stack-sm">
               <p className="ui-text-muted" style={{ margin: 0 }}>
                 Aucun employe actif a afficher pour le moment.
               </p>
             </AppCard>
-          )}
+          ) : null}
         </SectionCard>
 
-        <SectionCard title="Action direction" subtitle="Punch manuel trace.">
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "minmax(220px, 1.2fr) minmax(180px, 0.9fr) auto",
-              gap: "var(--ui-space-3)",
-              alignItems: "end",
-            }}
-          >
-            <label className="ui-stack-xs">
-              <span className="ui-eyebrow">Employe</span>
-              <select
-                className="tagora-input"
-                value={selectedEmployeeId}
-                onChange={(event) => setSelectedEmployeeId(event.target.value)}
-              >
-                <option value="">Selectionner</option>
-                {board.map((row) => (
-                  <option key={row.employeeId} value={row.employeeId}>
-                    {row.fullName || row.email || `#${row.employeeId}`}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            <label className="ui-stack-xs">
-              <span className="ui-eyebrow">Action</span>
-              <select
-                className="tagora-input"
-                value={selectedEventType}
-                onChange={(event) =>
-                  setSelectedEventType(
-                    event.target.value as (typeof DIRECTION_EVENT_TYPES)[number]
-                  )
-                }
-              >
-                {DIRECTION_EVENT_TYPES.map((item) => (
-                  <option key={item} value={item}>
-                    {item}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <PrimaryButton
-              onClick={() => void handleManualPunch()}
-              disabled={isBusy || !hasEmployees}
-              style={{ whiteSpace: "nowrap" }}
-            >
-              <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
-                <ShieldCheck size={16} />
-                {activeActionKey === "manual-punch"
-                  ? "Enregistrement..."
-                  : "Enregistrer le punch"}
-              </span>
-            </PrimaryButton>
-          </div>
-
-          <label className="ui-stack-xs" style={{ marginTop: "var(--ui-space-3)" }}>
-            <span className="ui-eyebrow">Note obligatoire</span>
-            <textarea
-              className="tagora-textarea"
-              value={note}
-              onChange={(event) => setNote(event.target.value)}
-              placeholder="Expliquez la correction ou l intervention direction"
-              style={{ minHeight: 90 }}
+        <details className="horodateur-direction-secondary-panel">
+          <summary>Configuration des alertes</summary>
+          <div className="horodateur-direction-secondary-panel-body">
+            <HorodateurDirectionAlertConfigPanel
+              config={config}
+              onConfigChange={setConfig}
+              onSave={() => void handleSaveConfig()}
+              saving={activeActionKey === "save-config"}
+              disabled={isBusy}
+              invalidEmails={invalidEmails}
+              isValidEmail={isValidEmail}
+              onUpdateEmailRow={updateEmailRow}
+              onUpdatePhoneRow={updatePhoneRow}
+              normalizePhoneNumber={normalizePhoneNumber}
             />
-          </label>
-        </SectionCard>
-
-        <SectionCard
-          title="Configuration des alertes"
-          subtitle="Destinataires et delai du rappel automatique."
-        >
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-              gap: "var(--ui-space-4)",
-            }}
-          >
-            <label className="ui-stack-xs">
-              <span className="ui-eyebrow">Email active</span>
-              <select
-                className="tagora-input"
-                value={config.email_enabled ? "yes" : "no"}
-                onChange={(event) =>
-                  setConfig((current) => ({
-                    ...current,
-                    email_enabled: event.target.value === "yes",
-                  }))
-                }
-              >
-                <option value="yes">Oui</option>
-                <option value="no">Non</option>
-              </select>
-            </label>
-
-            <label className="ui-stack-xs">
-              <span className="ui-eyebrow">SMS active</span>
-              <select
-                className="tagora-input"
-                value={config.sms_enabled ? "yes" : "no"}
-                onChange={(event) =>
-                  setConfig((current) => ({
-                    ...current,
-                    sms_enabled: event.target.value === "yes",
-                  }))
-                }
-              >
-                <option value="yes">Oui</option>
-                <option value="no">Non</option>
-              </select>
-            </label>
-
-            <label className="ui-stack-xs">
-              <span className="ui-eyebrow">Delai de rappel (minutes)</span>
-              <input
-                className="tagora-input"
-                type="number"
-                min={5}
-                value={config.reminder_delay_minutes}
-                onChange={(event) =>
-                  setConfig((current) => ({
-                    ...current,
-                    reminder_delay_minutes: Math.max(5, Number(event.target.value) || 5),
-                  }))
-                }
-              />
-            </label>
           </div>
+        </details>
 
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
-              gap: "var(--ui-space-5)",
-              marginTop: "var(--ui-space-4)",
-            }}
-          >
-            <div className="ui-stack-sm">
-              <div className="ui-stack-xs">
-                <span className="ui-eyebrow">Courriels direction</span>
-                <span className="ui-text-muted">Un destinataire par ligne</span>
-              </div>
-
-              {(config.direction_emails.length > 0
-                ? config.direction_emails
-                : [""]).map((value, index) => {
-                const trimmedValue = value.trim();
-                const isInvalid = trimmedValue.length > 0 && !isValidEmail(trimmedValue);
-
-                return (
-                  <div
-                    key={`email-${index}`}
-                    style={{
-                      display: "grid",
-                      gridTemplateColumns: "1fr auto",
-                      gap: "var(--ui-space-3)",
-                      alignItems: "start",
-                    }}
-                  >
-                    <div className="ui-stack-xs">
-                      <input
-                        className="tagora-input"
-                        type="email"
-                        value={value}
-                        onChange={(event) => updateEmailRow(index, event.target.value)}
-                        onBlur={() =>
-                          setConfig((current) => ({
-                            ...current,
-                            direction_emails: current.direction_emails.map((item, itemIndex) =>
-                              itemIndex === index ? item.trim().toLowerCase() : item.trim()
-                            ),
-                          }))
-                        }
-                        placeholder="direction@exemple.com"
-                        style={
-                          isInvalid
-                            ? { borderColor: "rgba(220, 38, 38, 0.45)" }
-                            : undefined
-                        }
-                      />
-                      {isInvalid ? (
-                        <span style={{ color: "#b91c1c", fontSize: 12 }}>
-                          Courriel invalide.
-                        </span>
-                      ) : null}
-                    </div>
-                    <SecondaryButton
-                      onClick={() =>
-                        setConfig((current) => ({
-                          ...current,
-                          direction_emails:
-                            current.direction_emails.length > 1
-                              ? current.direction_emails.filter((_, itemIndex) => itemIndex !== index)
-                              : [""],
-                        }))
-                      }
-                      disabled={isBusy}
-                    >
-                      Supprimer
-                    </SecondaryButton>
-                  </div>
-                );
-              })}
-
-              <div>
-                <SecondaryButton
-                  onClick={() =>
-                    setConfig((current) => ({
-                      ...current,
-                      direction_emails: [...current.direction_emails, ""],
-                    }))
-                  }
-                  disabled={isBusy}
-                >
-                  Ajouter un courriel
-                </SecondaryButton>
-              </div>
-
-              {invalidEmails.length > 0 ? (
-                <span style={{ color: "#b91c1c", fontSize: 12 }}>
-                  Corrigez les courriels invalides avant la sauvegarde.
-                </span>
-              ) : null}
-            </div>
-
-            <div className="ui-stack-sm">
-              <div className="ui-stack-xs">
-                <span className="ui-eyebrow">Numeros SMS direction</span>
-                <span className="ui-text-muted">Un destinataire par ligne</span>
-              </div>
-
-              {(config.direction_sms_numbers.length > 0
-                ? config.direction_sms_numbers
-                : [""]).map((value, index) => (
-                <div
-                  key={`sms-${index}`}
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns: "1fr auto",
-                    gap: "var(--ui-space-3)",
-                    alignItems: "center",
-                  }}
-                >
-                  <input
-                    className="tagora-input"
-                    type="tel"
-                    value={value}
-                    onChange={(event) => updatePhoneRow(index, event.target.value)}
-                    onBlur={() =>
-                      setConfig((current) => ({
-                        ...current,
-                        direction_sms_numbers: current.direction_sms_numbers.map((item, itemIndex) =>
-                          itemIndex === index ? normalizePhoneNumber(item) : item
-                        ),
-                      }))
-                    }
-                    placeholder="+15145550123"
-                  />
-                  <SecondaryButton
-                    onClick={() =>
-                      setConfig((current) => ({
-                        ...current,
-                        direction_sms_numbers:
-                          current.direction_sms_numbers.length > 1
-                            ? current.direction_sms_numbers.filter((_, itemIndex) => itemIndex !== index)
-                            : [""],
-                      }))
-                    }
-                    disabled={isBusy}
-                  >
-                    Supprimer
-                  </SecondaryButton>
-                </div>
-              ))}
-
-              <div>
-                <SecondaryButton
-                  onClick={() =>
-                    setConfig((current) => ({
-                      ...current,
-                      direction_sms_numbers: [...current.direction_sms_numbers, ""],
-                    }))
-                  }
-                  disabled={isBusy}
-                >
-                  Ajouter un numero
-                </SecondaryButton>
-              </div>
-            </div>
-          </div>
-
-          <div style={{ marginTop: "var(--ui-space-4)" }}>
-            <PrimaryButton
-              onClick={() => void handleSaveConfig()}
-              disabled={isBusy || invalidEmails.length > 0}
-            >
-              {activeActionKey === "save-config"
-                ? "Enregistrement..."
-                : "Enregistrer la configuration"}
-            </PrimaryButton>
-          </div>
-        </SectionCard>
-      </div>
-    </main>
+        <HorodateurRetroCorrectionModal
+          open={retroModalOpen}
+          saving={retroSaving}
+          submitError={retroError}
+          employees={retroEmployeeOptions}
+          employeeId={retroEmployeeId}
+          workDate={retroWorkDate}
+          eventType={retroEventType}
+          time={retroTime}
+          reason={retroReason}
+          onClose={() => {
+            if (!retroSaving) {
+              setRetroModalOpen(false);
+              setRetroError(null);
+            }
+          }}
+          onEmployeeIdChange={setRetroEmployeeId}
+          onWorkDateChange={setRetroWorkDate}
+          onEventTypeChange={setRetroEventType}
+          onTimeChange={setRetroTime}
+          onReasonChange={setRetroReason}
+          onSubmit={() => void handleRetroCorrectionSubmit()}
+        />
+    </HorodateurDirectionPageShell>
   );
 }
 
-const thStyle: React.CSSProperties = {
-  textAlign: "left",
-  padding: "12px 14px",
-  borderBottom: "1px solid rgba(148, 163, 184, 0.22)",
-  fontSize: 12,
-  fontWeight: 700,
-  letterSpacing: "0.04em",
-  textTransform: "uppercase",
-  color: "#64748b",
-};
-
-const tdStyle: React.CSSProperties = {
-  padding: "14px",
-  borderBottom: "1px solid rgba(148, 163, 184, 0.16)",
-  verticalAlign: "top",
-  fontSize: 14,
-  color: "#0f172a",
-};

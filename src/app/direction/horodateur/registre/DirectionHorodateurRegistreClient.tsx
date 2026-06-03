@@ -8,6 +8,7 @@ import {
   CalendarRange,
   Clock3,
   FileSpreadsheet,
+  RefreshCw,
   ShieldCheck,
   Timer,
   TrendingUp,
@@ -19,12 +20,13 @@ import {
 import AppCard from "@/app/components/ui/AppCard";
 import PrimaryButton from "@/app/components/ui/PrimaryButton";
 import SecondaryButton from "@/app/components/ui/SecondaryButton";
+import SectionCard from "@/app/components/ui/SectionCard";
 import StatusBadge from "@/app/components/ui/StatusBadge";
+import TagoraIconBadge from "@/app/components/TagoraIconBadge";
 import TagoraLoadingScreen from "@/app/components/ui/TagoraLoadingScreen";
 import TagoraStatCard from "@/app/components/TagoraStatCard";
 import type { TagoraStatTone } from "@/app/components/tagora-stat-tone";
-import AuthenticatedPageHeader from "@/app/components/ui/AuthenticatedPageHeader";
-import HorodateurDirectionModuleNav from "@/app/direction/horodateur/HorodateurDirectionModuleNav";
+import HorodateurDirectionPageShell from "@/app/direction/horodateur/HorodateurDirectionPageShell";
 import { useCurrentAccess } from "@/app/hooks/useCurrentAccess";
 import { supabase } from "@/app/lib/supabase/client";
 import { getWeekStartDate } from "@/app/lib/horodateur-v1/rules";
@@ -492,19 +494,22 @@ export default function DirectionHorodateurRegistreClient() {
 
   if (!hasPermission("terrain")) {
     return (
-      <main className="tagora-app-shell min-h-screen bg-[linear-gradient(180deg,#f1f5f9_0%,#eef4ff_100%)]">
-        <div className="mx-auto max-w-7xl px-4 py-10 sm:px-6 lg:px-8">
-          <div className="rounded-2xl border border-slate-200/70 bg-white p-8 shadow-sm">
-            <h1 className="text-xl font-semibold text-slate-900">Registre des heures</h1>
-            <p className="mt-3 text-sm text-slate-600">
-              La permission terrain est requise pour consulter le registre des heures.
-            </p>
-            <Link href="/direction/dashboard" className="mt-6 inline-block">
-              <SecondaryButton>Retour au tableau de bord</SecondaryButton>
-            </Link>
-          </div>
-        </div>
-      </main>
+      <HorodateurDirectionPageShell
+        active="registre"
+        subtitle="Registre consolidé des heures, événements et exceptions."
+      >
+        <AppCard tone="muted" className="ui-stack-sm">
+          <h2 className="text-lg font-bold text-slate-900" style={{ margin: 0 }}>
+            Accès restreint
+          </h2>
+          <p className="ui-text-muted" style={{ margin: 0 }}>
+            La permission terrain est requise pour consulter le registre des heures.
+          </p>
+          <Link href="/direction/dashboard">
+            <SecondaryButton>Retour au tableau de bord</SecondaryButton>
+          </Link>
+        </AppCard>
+      </HorodateurDirectionPageShell>
     );
   }
 
@@ -526,21 +531,23 @@ export default function DirectionHorodateurRegistreClient() {
     lastExceptionTouch(b).localeCompare(lastExceptionTouch(a))
   );
 
-  const inputClass =
-    "w-full rounded-xl border border-slate-200/90 bg-white px-3.5 py-3 text-[15px] text-slate-900 shadow-inner shadow-slate-900/5 outline-none ring-slate-300/80 transition focus:border-sky-400 focus:ring-2 focus:ring-sky-200/70";
+  const inputClass = "tagora-input";
 
   return (
-    <main className="tagora-app-shell min-h-screen bg-[linear-gradient(180deg,#eef2ff_0%,#f8fafc_45%,#f1f5f9_100%)]">
-      <div className="mx-auto max-w-7xl px-4 pb-14 pt-8 sm:px-6 lg:px-10">
-        <AuthenticatedPageHeader
-          title="Registre des heures"
-          subtitle=""
-          showNavigation={false}
-          navigation={<HorodateurDirectionModuleNav active="registre" />}
-        />
+    <HorodateurDirectionPageShell
+      active="registre"
+      subtitle="Registre consolidé des heures, événements et exceptions."
+      actions={
+        <SecondaryButton type="button" onClick={() => void loadRegister()} disabled={fetching}>
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+            <RefreshCw size={16} />
+            {fetching ? "Actualisation..." : "Actualiser"}
+          </span>
+        </SecondaryButton>
+      }
+    >
 
-        {/* Onglets */}
-        <div className="mb-6 inline-flex rounded-2xl border border-slate-200/80 bg-slate-200/35 p-1.5 shadow-inner">
+        <div className="horodateur-direction-tabs">
           {(
             [
               ["global", "Vue globale"],
@@ -554,10 +561,8 @@ export default function DirectionHorodateurRegistreClient() {
                 key={id}
                 type="button"
                 onClick={() => setActiveTab(id)}
-                className={`rounded-xl px-5 py-2.5 text-sm font-semibold transition sm:px-6 sm:py-3 sm:text-[15px] ${
-                  selected
-                    ? "bg-[linear-gradient(145deg,#0f3557,#153d66)] text-white shadow-md shadow-slate-900/20"
-                    : "bg-white/90 text-slate-600 hover:bg-white hover:text-slate-900"
+                className={`horodateur-direction-tab${
+                  selected ? " horodateur-direction-tab--active" : ""
                 }`}
               >
                 {label}
@@ -566,21 +571,21 @@ export default function DirectionHorodateurRegistreClient() {
           })}
         </div>
 
-        {/* Filtres — visibles surtout vue globale, utiles aussi aux autres */}
-        <section className="mb-8 rounded-3xl border border-slate-200/70 bg-white p-5 shadow-[0_14px_40px_-12px_rgba(15,23,42,0.1)] sm:p-7 lg:p-8">
-          <div className="mb-6 flex flex-col gap-2 border-b border-slate-100 pb-5">
-            <h2 className="text-lg font-bold text-slate-900">Filtres et période</h2>
-            <p className="text-sm text-slate-500">
-              Ajustez la fenêtre puis actualisez — les trois onglets utilisent ces paramètres.
-            </p>
-          </div>
-
-          <div className="grid gap-8 lg:grid-cols-[1fr,minmax(0,1fr)]">
+        <SectionCard
+          title="Filtres et période"
+          subtitle="Ajustez la fenêtre puis actualisez — les trois onglets utilisent ces paramètres."
+          actions={
+            <TagoraIconBadge tone="slate" size="lg">
+              <CalendarRange size={24} strokeWidth={2.1} />
+            </TagoraIconBadge>
+          }
+        >
+          <div className="ui-stack-md">
             <div>
-              <p className="mb-3 text-[13px] font-semibold uppercase tracking-wide text-slate-500">
+              <p className="ui-eyebrow" style={{ marginBottom: "var(--ui-space-2)" }}>
                 Période rapide
               </p>
-              <div className="flex flex-wrap gap-2.5">
+              <div className="horodateur-direction-filter-chips">
                 {(
                   [
                     ["week_current", "Semaine courante"],
@@ -596,10 +601,8 @@ export default function DirectionHorodateurRegistreClient() {
                       key={id}
                       type="button"
                       onClick={() => setPreset(id)}
-                      className={`rounded-xl px-4 py-2.5 text-sm font-semibold transition sm:px-5 sm:py-3 sm:text-[15px] ${
-                        sel
-                          ? "bg-slate-900 text-white shadow-md shadow-slate-900/25"
-                          : "border border-slate-200 bg-slate-50 text-slate-700 hover:bg-white"
+                      className={`horodateur-direction-filter-chip${
+                        sel ? " horodateur-direction-filter-chip--active" : ""
                       }`}
                     >
                       {label}
@@ -608,22 +611,20 @@ export default function DirectionHorodateurRegistreClient() {
                 })}
               </div>
 
-              <div className="mt-5 flex flex-wrap items-center gap-3 text-[15px] text-slate-700">
-                <CalendarRange className="h-5 w-5 text-sky-700" aria-hidden />
-                <span className="font-semibold">
-                  Fenêtre&nbsp;:{" "}
-                  <span className="tabular-nums text-slate-900">
+              <div className="horodateur-direction-period-label" style={{ marginTop: "var(--ui-space-4)" }}>
+                <CalendarRange size={18} strokeWidth={2.1} aria-hidden />
+                <span>
+                  Fenêtre :{" "}
+                  <span style={{ color: "#0f172a" }}>
                     {startDate} au {endDate}
                   </span>
                 </span>
               </div>
 
               {preset === "custom" ? (
-                <div className="mt-4 flex flex-wrap gap-5">
-                  <label className="block min-w-[200px] flex-1">
-                    <span className="mb-1.5 block text-sm font-semibold text-slate-700">
-                      Date début
-                    </span>
+                <div className="horodateur-direction-filter-grid" style={{ marginTop: "var(--ui-space-3)", maxWidth: 520 }}>
+                  <label className="ui-stack-xs">
+                    <span className="ui-eyebrow">Date début</span>
                     <input
                       type="date"
                       className={inputClass}
@@ -631,10 +632,8 @@ export default function DirectionHorodateurRegistreClient() {
                       onChange={(e) => setCustomStart(e.target.value)}
                     />
                   </label>
-                  <label className="block min-w-[200px] flex-1">
-                    <span className="mb-1.5 block text-sm font-semibold text-slate-700">
-                      Date fin
-                    </span>
+                  <label className="ui-stack-xs">
+                    <span className="ui-eyebrow">Date fin</span>
                     <input
                       type="date"
                       className={inputClass}
@@ -646,11 +645,9 @@ export default function DirectionHorodateurRegistreClient() {
               ) : null}
             </div>
 
-            <div className="grid gap-5 sm:grid-cols-2 lg:gap-6">
-              <label className="block">
-                <span className="mb-1.5 block text-sm font-semibold text-slate-700">
-                  Employé (filtre tableau)
-                </span>
+            <div className="horodateur-direction-filter-grid">
+              <label className="ui-stack-xs">
+                <span className="ui-eyebrow">Employé (filtre tableau)</span>
                 <select
                   className={inputClass}
                   value={employeeId}
@@ -664,10 +661,8 @@ export default function DirectionHorodateurRegistreClient() {
                   ))}
                 </select>
               </label>
-              <label className="block">
-                <span className="mb-1.5 block text-sm font-semibold text-slate-700">
-                  Compagnie
-                </span>
+              <label className="ui-stack-xs">
+                <span className="ui-eyebrow">Compagnie</span>
                 <select
                   className={inputClass}
                   value={company}
@@ -678,10 +673,8 @@ export default function DirectionHorodateurRegistreClient() {
                   <option value="titan">Titan</option>
                 </select>
               </label>
-              <label className="block sm:col-span-2">
-                <span className="mb-1.5 block text-sm font-semibold text-slate-700">
-                  Statut
-                </span>
+              <label className="ui-stack-xs">
+                <span className="ui-eyebrow">Statut</span>
                 <select
                   className={inputClass}
                   value={status}
@@ -698,31 +691,47 @@ export default function DirectionHorodateurRegistreClient() {
             </div>
           </div>
 
-          <div className="mt-7 flex flex-col gap-4 border-t border-slate-100 pt-7 sm:flex-row sm:items-center sm:justify-between">
+          <div
+            style={{
+              display: "flex",
+              flexWrap: "wrap",
+              gap: "var(--ui-space-3)",
+              alignItems: "center",
+              marginTop: "var(--ui-space-5)",
+              paddingTop: "var(--ui-space-4)",
+              borderTop: "1px solid rgba(148, 163, 184, 0.16)",
+            }}
+          >
             <PrimaryButton type="button" onClick={() => void loadRegister()}>
-              <span className="inline-flex items-center gap-2 text-[15px] font-semibold">
-                Actualiser le registre
-              </span>
+              Actualiser le registre
             </PrimaryButton>
             <SecondaryButton
               type="button"
               disabled
               title="Export prévu phase 2"
-              className="h-11 shrink-0 rounded-xl border border-slate-200 px-5 text-sm opacity-65"
             >
-              <span className="inline-flex items-center gap-2">
-                <FileSpreadsheet className="h-5 w-5" aria-hidden />
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+                <FileSpreadsheet size={18} aria-hidden />
                 Export phase 2
               </span>
             </SecondaryButton>
           </div>
 
           {error ? (
-            <p className="mt-6 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-800">
-              {error}
-            </p>
+            <AppCard
+              tone="muted"
+              style={{
+                marginTop: "var(--ui-space-4)",
+                borderColor: "rgba(220, 38, 38, 0.18)",
+                background: "rgba(254, 242, 242, 0.8)",
+              }}
+            >
+              <p className="horodateur-direction-info-banner horodateur-direction-info-banner--error" style={{ padding: 0 }}>
+                {error}
+              </p>
+            </AppCard>
           ) : null}
-        </section>
+        </SectionCard>
 
         {fetching && !data ? (
           <div className="py-16">
@@ -734,14 +743,16 @@ export default function DirectionHorodateurRegistreClient() {
         {activeTab === "global" ? (
           <>
             {summary ? (
-              <section className="mb-10">
-                <div className="mb-6">
-                  <h2 className="text-xl font-bold text-slate-900">Résumé global</h2>
-                  <p className="text-sm text-slate-500">
-                    Indicateurs agrégés sur la période et filtres sélectionnés.
-                  </p>
-                </div>
-                <div className="tagora-stat-grid">
+              <SectionCard
+                title="Résumé global"
+                subtitle="Indicateurs agrégés sur la période et filtres sélectionnés."
+                actions={
+                  <TagoraIconBadge tone="blue" size="lg">
+                    <TrendingUp size={24} strokeWidth={2.1} />
+                  </TagoraIconBadge>
+                }
+              >
+                <div className="horodateur-direction-stat-grid">
                   {(
                     [
                       {
@@ -808,18 +819,22 @@ export default function DirectionHorodateurRegistreClient() {
                     );
                   })}
                 </div>
-              </section>
+              </SectionCard>
             ) : null}
 
-            <section className="rounded-3xl border border-slate-200/70 bg-white p-5 shadow-[0_14px_40px_-12px_rgba(15,23,42,0.1)] sm:p-8">
-              <div className="mb-6 flex flex-col gap-1">
-                <h2 className="text-xl font-bold text-slate-900">Tableau du registre</h2>
-                <p className="text-sm text-slate-500">Une ligne par employé pour la période filtrée.</p>
-              </div>
-              <div className="overflow-x-auto rounded-2xl border border-slate-100">
-                <table className="w-full min-w-[920px] border-collapse text-[15px]">
+            <SectionCard
+              title="Tableau du registre"
+              subtitle="Une ligne par employé pour la période filtrée."
+              actions={
+                <TagoraIconBadge tone="slate" size="lg">
+                  <FileSpreadsheet size={24} strokeWidth={2.1} />
+                </TagoraIconBadge>
+              }
+            >
+              <div className="horodateur-direction-data-table-wrap">
+                <table className="horodateur-direction-data-table" style={{ minWidth: 920 }}>
                   <thead>
-                    <tr className="bg-slate-100/90 text-left text-[13px] font-bold uppercase tracking-wide text-slate-600">
+                    <tr>
                       {[
                         "Employé",
                         "Compagnie",
@@ -833,62 +848,46 @@ export default function DirectionHorodateurRegistreClient() {
                         "Dernière modif.",
                         "",
                       ].map((h) => (
-                        <th key={h} className="whitespace-nowrap px-4 py-4 font-semibold tracking-normal">
-                          {h}
-                        </th>
+                        <th key={h}>{h}</th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
-                    {(data?.employees ?? []).map((row, idx) => (
-                      <tr
-                        key={row.employeeId}
-                        className={`border-t border-slate-100 transition hover:bg-sky-50/40 ${
-                          idx % 2 === 1 ? "bg-slate-50/40" : "bg-white"
-                        }`}
-                      >
-                        <td className="px-4 py-3.5 font-semibold text-slate-900">
+                    {(data?.employees ?? []).map((row) => (
+                      <tr key={row.employeeId}>
+                        <td style={{ fontWeight: 700 }}>
                           {row.employeeName ?? `#${row.employeeId}`}
                         </td>
-                        <td className="px-4 py-3.5 text-slate-700">{row.primaryCompanyLabel}</td>
-                        <td className="max-w-[140px] px-4 py-3.5 text-slate-600">{row.periodLabel}</td>
-                        <td className="px-4 py-3.5 tabular-nums font-medium text-slate-800">
+                        <td>{row.primaryCompanyLabel}</td>
+                        <td className="ui-text-muted">{row.periodLabel}</td>
+                        <td style={{ fontWeight: 600 }}>
                           {fmtHoursMinutesLabel(row.normalMinutes)}
                         </td>
-                        <td className="px-4 py-3.5 tabular-nums text-slate-700">
-                          {fmtHoursMinutesLabel(row.overtimeMinutes)}
-                        </td>
-                        <td className="px-4 py-3.5 tabular-nums text-slate-700">
-                          {fmtHoursMinutesLabel(row.titanRefundableMinutes)}
-                        </td>
-                        <td className="px-4 py-3.5 tabular-nums text-slate-700">
-                          {fmtHoursMinutesLabel(row.breakMinutes)}
-                        </td>
-                        <td className="px-4 py-3.5">
+                        <td>{fmtHoursMinutesLabel(row.overtimeMinutes)}</td>
+                        <td>{fmtHoursMinutesLabel(row.titanRefundableMinutes)}</td>
+                        <td>{fmtHoursMinutesLabel(row.breakMinutes)}</td>
+                        <td>
                           {row.exceptionCount > 0 ? (
                             <StatusBadge label={`${row.exceptionCount}`} tone="warning" />
                           ) : (
-                            <span className="text-slate-400">0</span>
+                            <span className="ui-text-muted">0</span>
                           )}
                         </td>
-                        <td className="px-4 py-3.5">
-                          <span className="inline-flex">
-                            <StatusBadge label={row.statusLabel} tone={statusTone(row.statusKey)} />
-                          </span>
+                        <td>
+                          <StatusBadge label={row.statusLabel} tone={statusTone(row.statusKey)} />
                         </td>
-                        <td className="max-w-[120px] px-4 py-3.5 text-sm text-slate-600">
+                        <td className="ui-text-muted" style={{ fontSize: 13 }}>
                           {fmtDateTime(row.lastUpdatedAt)}
                         </td>
-                        <td className="px-4 py-3.5 text-right whitespace-nowrap">
-                          <button
+                        <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
+                          <PrimaryButton
                             type="button"
-                            className="inline-flex h-10 items-center rounded-xl bg-slate-900 px-4 text-sm font-semibold text-white shadow hover:bg-slate-800"
                             onClick={() =>
                               void loadEmployeePeriodDetail(row.employeeId, row.employeeName, "drawer")
                             }
                           >
                             Voir détail
-                          </button>
+                          </PrimaryButton>
                         </td>
                       </tr>
                     ))}
@@ -896,57 +895,63 @@ export default function DirectionHorodateurRegistreClient() {
                 </table>
               </div>
               {!fetching && (data?.employees?.length ?? 0) === 0 ? (
-                <p className="mt-10 text-center text-base font-medium text-slate-600">
+                <p className="ui-text-muted" style={{ marginTop: "var(--ui-space-5)", textAlign: "center" }}>
                   Aucune heure trouvée pour cette période.
                 </p>
               ) : null}
-            </section>
+            </SectionCard>
           </>
         ) : null}
 
         {activeTab === "employee" ? (
-          <section className="rounded-3xl border border-slate-200/70 bg-white p-5 shadow-[0_14px_40px_-12px_rgba(15,23,42,0.1)] sm:p-8 lg:p-10">
-            <div className="mb-8 flex flex-col gap-2">
-              <h2 className="text-xl font-bold text-slate-900">Rapport par employé</h2>
-              <p className="max-w-2xl text-sm text-slate-500">
-                Analyse chronologique des punchs pour un employé sur la période sélectionnée ci-dessus.
-              </p>
-            </div>
-
-            <label className="mb-10 block max-w-xl">
-              <span className="mb-2 block text-sm font-bold text-slate-800">
-                Sélectionnez un employé
-              </span>
-              <div className="relative">
-                <UserRound className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
-                <select
-                  className={`${inputClass} pl-12 text-[15px] font-medium`}
-                  value={reportEmployeeId}
-                  onChange={(e) => setReportEmployeeId(e.target.value)}
-                >
-                  <option value="">— Choisir un employé —</option>
-                  {(data?.employeeOptions ?? []).map((e) => (
-                    <option key={e.id} value={String(e.id)}>
-                      {e.name ?? `Employé #${e.id}`}
-                    </option>
-                  ))}
-                </select>
-              </div>
+          <SectionCard
+            title="Rapport par employé"
+            subtitle="Analyse chronologique des punchs pour un employé sur la période sélectionnée ci-dessus."
+            actions={
+              <TagoraIconBadge tone="green" size="lg">
+                <UserRound size={24} strokeWidth={2.1} />
+              </TagoraIconBadge>
+            }
+          >
+            <label className="ui-stack-xs" style={{ maxWidth: 480, marginBottom: "var(--ui-space-5)" }}>
+              <span className="ui-eyebrow">Sélectionnez un employé</span>
+              <select
+                className={inputClass}
+                value={reportEmployeeId}
+                onChange={(e) => setReportEmployeeId(e.target.value)}
+              >
+                <option value="">— Choisir un employé —</option>
+                {(data?.employeeOptions ?? []).map((e) => (
+                  <option key={e.id} value={String(e.id)}>
+                    {e.name ?? `Employé #${e.id}`}
+                  </option>
+                ))}
+              </select>
             </label>
 
             {reportEmployeeId === "" ? (
-              <p className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/70 py-14 text-center text-slate-500">
-                Sélectionnez un employé pour afficher le rapport détaillé.
-              </p>
+              <AppCard tone="muted" className="ui-stack-sm" style={{ textAlign: "center", padding: "var(--ui-space-6)" }}>
+                <p className="ui-text-muted" style={{ margin: 0 }}>
+                  Sélectionnez un employé pour afficher le rapport détaillé.
+                </p>
+              </AppCard>
             ) : reportLoading ? (
               <TagoraLoadingScreen isLoading message="Chargement du rapport employé..." />
             ) : reportError ? (
-              <p className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-800">
-                {reportError}
-              </p>
+              <AppCard
+                tone="muted"
+                style={{
+                  borderColor: "rgba(220, 38, 38, 0.18)",
+                  background: "rgba(254, 242, 242, 0.8)",
+                }}
+              >
+                <p className="horodateur-direction-info-banner horodateur-direction-info-banner--error" style={{ padding: 0 }}>
+                  {reportError}
+                </p>
+              </AppCard>
             ) : (
               <>
-                <div className="mb-10 grid gap-4 sm:grid-cols-3">
+                <div className="horodateur-direction-stat-grid" style={{ marginBottom: "var(--ui-space-5)" }}>
                   {[
                     {
                       title: "Minutes travaillées",
@@ -964,143 +969,136 @@ export default function DirectionHorodateurRegistreClient() {
                       sub: "Lignes de punch chronologiques",
                     },
                   ].map((c) => (
-                    <article
-                      key={c.title}
-                      className="rounded-3xl border border-slate-200/75 bg-gradient-to-br from-sky-50/80 via-white to-slate-50/50 p-6 shadow-sm"
-                    >
-                      <div className="text-[13px] font-semibold text-slate-500">{c.title}</div>
-                      <div className="mt-2 text-2xl font-bold text-slate-900">{c.v}</div>
-                      <div className="mt-1 text-sm text-slate-600">{c.sub}</div>
-                    </article>
+                    <AppCard key={c.title} tone="muted" className="ui-stack-xs">
+                      <span className="ui-eyebrow">{c.title}</span>
+                      <strong style={{ fontSize: 24, color: "#0f172a" }}>{c.v}</strong>
+                      <span className="ui-text-muted">{c.sub}</span>
+                    </AppCard>
                   ))}
                 </div>
 
-                <div className="mb-4 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                  <h3 className="text-lg font-bold text-slate-900">Historique chronologique</h3>
+                <div
+                  style={{
+                    display: "flex",
+                    flexWrap: "wrap",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: "var(--ui-space-3)",
+                    marginBottom: "var(--ui-space-4)",
+                  }}
+                >
+                  <h3 style={{ margin: 0, fontSize: 17, fontWeight: 800, color: "#0f172a" }}>
+                    Historique chronologique
+                  </h3>
                   <SecondaryButton
                     disabled
-                    className="h-10 rounded-xl px-5 text-sm opacity-60"
                     title="Export prévu phase 2"
                     type="button"
                   >
-                    <span className="inline-flex items-center gap-2">
-                      <FileSpreadsheet className="h-4 w-4" /> Export phase 2
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+                      <FileSpreadsheet size={16} /> Export phase 2
                     </span>
                   </SecondaryButton>
                 </div>
 
                 {(reportDetail.notes ?? []).map((note, idx) => (
-                  <AppCard key={note + idx} tone="muted" className="mb-4 rounded-2xl text-sm leading-relaxed">
+                  <AppCard key={note + idx} tone="muted" className="ui-stack-xs" style={{ marginBottom: "var(--ui-space-3)" }}>
                     {note}
                   </AppCard>
                 ))}
 
-                <div className="rounded-2xl border border-slate-100 bg-slate-50/40 p-5">
-                  <div className="space-y-3">
-                    {[...(reportDetail.events ?? [])]
-                      .sort((a, b) => {
-                        const ta = a.occurredAt ? Date.parse(a.occurredAt) : 0;
-                        const tb = b.occurredAt ? Date.parse(b.occurredAt) : 0;
-                        return ta - tb;
-                      })
-                      .map((ev) => (
-                        <div
-                          key={ev.id}
-                          className="flex flex-wrap items-start justify-between gap-3 rounded-xl border border-white bg-white px-4 py-3.5 shadow-sm"
-                        >
-                          <div className="min-w-0">
-                            <div className="flex flex-wrap items-center gap-2 font-semibold text-slate-900">
-                              {ev.eventType}
-                              <StatusBadge
-                                label={ev.status}
-                                tone={
-                                  ev.status === "en_attente"
-                                    ? "warning"
-                                    : ev.status === "approuve"
-                                      ? "success"
-                                      : "default"
-                                }
-                              />
-                              <StatusBadge label={sourceLabel(ev)} tone="info" />
-                            </div>
-                            <div className="mt-1 text-sm text-slate-600">
-                              {fmtDateTime(ev.occurredAt)} · Travail{" "}
-                              <span className="font-medium tabular-nums">{ev.workDate ?? "—"}</span>
-                            </div>
-                            {ev.notes ? (
-                              <p className="mt-2 text-sm text-slate-700">{ev.notes}</p>
-                            ) : null}
-                          </div>
+                <ul className="horodateur-direction-detail-list">
+                  {[...(reportDetail.events ?? [])]
+                    .sort((a, b) => {
+                      const ta = a.occurredAt ? Date.parse(a.occurredAt) : 0;
+                      const tb = b.occurredAt ? Date.parse(b.occurredAt) : 0;
+                      return ta - tb;
+                    })
+                    .map((ev) => (
+                      <li key={ev.id} className="horodateur-direction-detail-list-item">
+                        <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8 }}>
+                          <span style={{ fontWeight: 700, color: "#0f172a" }}>{ev.eventType}</span>
+                          <StatusBadge
+                            label={ev.status}
+                            tone={
+                              ev.status === "en_attente"
+                                ? "warning"
+                                : ev.status === "approuve"
+                                  ? "success"
+                                  : "default"
+                            }
+                          />
+                          <StatusBadge label={sourceLabel(ev)} tone="info" />
                         </div>
-                      ))}
-                  </div>
-                  {(reportDetail.events ?? []).length === 0 ? (
-                    <p className="py-12 text-center text-slate-500">
-                      Aucun punch dans la fenêtre sélectionnée.
-                    </p>
-                  ) : null}
-                </div>
+                        <p className="ui-text-muted" style={{ margin: "6px 0 0" }}>
+                          {fmtDateTime(ev.occurredAt)} · Travail {ev.workDate ?? "—"}
+                        </p>
+                        {ev.notes ? (
+                          <p style={{ margin: "8px 0 0", fontSize: 14, color: "#334155" }}>{ev.notes}</p>
+                        ) : null}
+                      </li>
+                    ))}
+                </ul>
+                {(reportDetail.events ?? []).length === 0 ? (
+                  <p className="ui-text-muted" style={{ marginTop: "var(--ui-space-4)", textAlign: "center" }}>
+                    Aucun punch dans la fenêtre sélectionnée.
+                  </p>
+                ) : null}
               </>
             )}
-          </section>
+          </SectionCard>
         ) : null}
 
         {activeTab === "exceptions" ? (
-          <section className="rounded-3xl border border-slate-200/70 bg-white p-5 shadow-[0_14px_40px_-12px_rgba(15,23,42,0.1)] sm:p-8 lg:p-10">
-            <div className="mb-8 flex flex-col gap-2">
-              <h2 className="text-xl font-bold text-slate-900">Exceptions à vérifier</h2>
-              <p className="max-w-2xl text-sm text-slate-500">
-                Synthèse des exceptions remontées sur la période (alignée avec le filtre registre).
-              </p>
-            </div>
-
-            <div className="overflow-x-auto rounded-2xl border border-slate-100">
-              <table className="w-full min-w-[840px] border-collapse text-[15px]">
+          <SectionCard
+            title="Exceptions à vérifier"
+            subtitle="Synthèse des exceptions remontées sur la période (alignée avec le filtre registre)."
+            actions={
+              <TagoraIconBadge tone="orange" size="lg">
+                <AlertTriangle size={24} strokeWidth={2.1} />
+              </TagoraIconBadge>
+            }
+          >
+            <div className="horodateur-direction-data-table-wrap">
+              <table className="horodateur-direction-data-table" style={{ minWidth: 840 }}>
                 <thead>
-                  <tr className="border-b border-slate-200 bg-amber-50/95 text-left text-[13px] font-bold uppercase tracking-wide text-slate-700">
+                  <tr>
                     {["Date / demande", "Employé", "Type", "Description", "Statut", "Dernière modif.", ""].map(
                       (h) => (
-                        <th key={h} className="whitespace-nowrap px-4 py-4 tracking-normal">
-                          {h}
-                        </th>
+                        <th key={h}>{h}</th>
                       )
                     )}
                   </tr>
                 </thead>
                 <tbody>
-                  {sortedExceptions.map((ex, idx) => {
+                  {sortedExceptions.map((ex) => {
                     const link = exLookup.get(ex.id);
                     return (
-                      <tr
-                        key={ex.id}
-                        className={`border-t border-slate-100 transition hover:bg-amber-50/25 ${
-                          idx % 2 === 1 ? "bg-slate-50/35" : "bg-white"
-                        }`}
-                      >
-                        <td className="max-w-[150px] px-4 py-3.5 text-sm text-slate-800">
+                      <tr key={ex.id}>
+                        <td className="ui-text-muted" style={{ fontSize: 13 }}>
                           {fmtDateTime(ex.requestedAt)}
                         </td>
-                        <td className="px-4 py-3.5 font-medium text-slate-900">
+                        <td style={{ fontWeight: 600 }}>
                           {link?.employeeName ?? "—"}
                         </td>
-                        <td className="px-4 py-3.5 font-mono text-xs text-slate-700">{ex.exceptionType}</td>
-                        <td className="max-w-[340px] px-4 py-3.5 text-slate-700">
-                          <div className="font-semibold">{ex.reasonLabel}</div>
+                        <td style={{ fontFamily: "monospace", fontSize: 12 }}>{ex.exceptionType}</td>
+                        <td>
+                          <div style={{ fontWeight: 700 }}>{ex.reasonLabel}</div>
                           {ex.details ? (
-                            <div className="mt-1 text-sm text-slate-600">{ex.details}</div>
+                            <div className="ui-text-muted" style={{ marginTop: 4, fontSize: 13 }}>{ex.details}</div>
                           ) : null}
                         </td>
-                        <td className="px-4 py-3.5 whitespace-nowrap">
+                        <td>
                           <StatusBadge
                             label={ex.status.replace(/_/g, " ")}
                             tone={ex.status === "en_attente" ? "warning" : "default"}
                           />
                         </td>
-                        <td className="max-w-[150px] px-4 py-3.5 text-sm text-slate-600">
+                        <td className="ui-text-muted" style={{ fontSize: 13 }}>
                           {fmtDateTime(lastExceptionTouch(ex))}
                         </td>
-                        <td className="px-4 py-3.5 text-right">
-                          <button
+                        <td style={{ textAlign: "right" }}>
+                          <PrimaryButton
                             type="button"
                             disabled={!link}
                             title={
@@ -1108,11 +1106,6 @@ export default function DirectionHorodateurRegistreClient() {
                                 ? "Ouvrir le détail employé"
                                 : "Employé non résolu automatiquement"
                             }
-                            className={`inline-flex h-10 items-center rounded-xl px-4 text-sm font-semibold ${
-                              link
-                                ? "bg-slate-900 text-white shadow hover:bg-slate-800"
-                                : "cursor-not-allowed border border-slate-200 bg-slate-100 text-slate-400"
-                            }`}
                             onClick={() =>
                               link
                                 ? void loadEmployeePeriodDetail(
@@ -1124,7 +1117,7 @@ export default function DirectionHorodateurRegistreClient() {
                             }
                           >
                             Voir détail
-                          </button>
+                          </PrimaryButton>
                         </td>
                       </tr>
                     );
@@ -1133,13 +1126,12 @@ export default function DirectionHorodateurRegistreClient() {
               </table>
             </div>
             {sortedExceptions.length === 0 ? (
-              <p className="mt-12 text-center text-base font-medium text-slate-600">
+              <p className="ui-text-muted" style={{ marginTop: "var(--ui-space-5)", textAlign: "center" }}>
                 Aucune exception à vérifier pour cette période.
               </p>
             ) : null}
-          </section>
+          </SectionCard>
         ) : null}
-      </div>
 
       {/* Panneau détail */}
       {detailOpen ? (
@@ -1293,6 +1285,6 @@ export default function DirectionHorodateurRegistreClient() {
           </div>
         </div>
       ) : null}
-    </main>
+    </HorodateurDirectionPageShell>
   );
 }
