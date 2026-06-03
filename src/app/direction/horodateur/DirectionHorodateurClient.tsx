@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   PenLine,
@@ -10,6 +10,7 @@ import {
   TimerReset,
 } from "lucide-react";
 import HorodateurRetroCorrectionModal from "@/app/components/horodateur/HorodateurRetroCorrectionModal";
+import HorodateurLiveRowActions from "@/app/direction/horodateur/HorodateurLiveRowActions";
 import HorodateurDirectionPageShell from "@/app/direction/horodateur/HorodateurDirectionPageShell";
 import HorodateurDirectionPrimaryActions from "@/app/direction/horodateur/HorodateurDirectionPrimaryActions";
 import HorodateurDirectionAlertConfigPanel from "@/app/direction/horodateur/HorodateurDirectionAlertConfigPanel";
@@ -180,6 +181,46 @@ function formatDateTime(value: string | null | undefined) {
   return new Date(value).toLocaleString("fr-CA");
 }
 
+function formatShortDateTime(value: string | null | undefined) {
+  if (!value) {
+    return "—";
+  }
+
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) {
+    return "—";
+  }
+
+  return date.toLocaleString("fr-CA", {
+    day: "numeric",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function collectLiveShiftHints(row: LiveRow): string[] {
+  const hints: string[] = [];
+
+  if (row.todayTimeDisplay?.pendingPunchBlocksAccrual) {
+    hints.push("Punch en attente");
+  }
+  if (row.todayTimeDisplay?.openShiftSafetyCapReached) {
+    hints.push("Quart > 14 h — à approuver");
+  }
+  if (row.todayTimeDisplay?.openShiftWorkDateMismatch) {
+    hints.push(`Quart ouvert depuis ${row.todayTimeDisplay.openShiftWorkDate ?? "?"}`);
+  }
+  if (row.todayShift?.status === "en_attente") {
+    hints.push("Quart en attente");
+  }
+  if ((row.todayShift?.anomalies_count ?? 0) > 0) {
+    hints.push("Anomalie détectée");
+  }
+
+  return hints;
+}
+
 function toIsoWithOptionalTime(
   baseIso: string | null | undefined,
   maybeTime: string | null
@@ -234,14 +275,6 @@ function getStateTone(value: string | null | undefined) {
     default:
       return "default" as const;
   }
-}
-
-function getExceptionTone(count: number) {
-  if (count > 0) {
-    return "warning" as const;
-  }
-
-  return "success" as const;
 }
 
 function clampPercentage(value: number) {
@@ -368,6 +401,42 @@ function resolveDisplayedPayableMinutes(row: LiveRow) {
   return Math.max(
     0,
     row.todayTimeDisplay?.officialPayableMinutes ?? row.todayShift?.payable_minutes ?? 0
+  );
+}
+
+function liveRowNeedsAttention(row: LiveRow) {
+  return (
+    row.hasOpenException ||
+    (row.activeExceptionCount ?? 0) > 0 ||
+    (row.todayShift?.anomalies_count ?? 0) > 0 ||
+    row.todayShift?.status === "en_attente" ||
+    Boolean(row.todayTimeDisplay?.openShiftSafetyCapReached) ||
+    Boolean(row.todayTimeDisplay?.openShiftWorkDateMismatch) ||
+    Boolean(row.todayTimeDisplay?.pendingPunchBlocksAccrual)
+  );
+}
+
+function resolveEmployeePhoneHref(row: LiveRow): string | null {
+  const raw = (row.phone ?? row.phoneNumber ?? "").trim();
+  if (!raw) {
+    return null;
+  }
+
+  const normalized = normalizePhoneNumber(raw);
+  if (!normalized) {
+    return null;
+  }
+
+  const digits = normalized.replace(/\D/g, "");
+  return digits ? `tel:${digits}` : null;
+}
+
+function countRowExceptions(row: LiveRow, pending: PendingException[]) {
+  const employeeId = row.employeeId || row.employee_id || 0;
+  return Math.max(
+    pending.filter((item) => item.employee_id === employeeId).length,
+    row.activeExceptionCount ?? 0,
+    row.alertFlags?.hasOpenException ? 1 : 0
   );
 }
 
@@ -606,6 +675,12 @@ export default function DirectionHorodateurPage() {
     useState<StaffRetroForgottenEventType>("punch_in");
   const [retroTime, setRetroTime] = useState("");
   const [retroReason, setRetroReason] = useState("");
+  const [liveDetailEmployeeId, setLiveDetailEmployeeId] = useState<number | null>(null);
+  const [highlightedExceptionEmployeeId, setHighlightedExceptionEmployeeId] = useState<
+    number | null
+  >(null);
+  const punchManualSectionRef = useRef<HTMLDivElement>(null);
+  const exceptionsSectionRef = useRef<HTMLDivElement>(null);
 
   const retroEmployeeOptions = useMemo(
     () =>
@@ -1133,11 +1208,52 @@ export default function DirectionHorodateurPage() {
   }) {
     setRetroError(null);
     setRetroEmployeeId(initial?.employeeId ?? "");
-    setRetroWorkDate(initial?.workDate ?? getLocalWorkDate(new Date().toISOString()));
+    setRetroWorkDate(
+      initial?.workDate ?? liveTodayWorkDate ?? getLocalWorkDate(new Date().toISOString())
+    );
     setRetroEventType(initial?.eventType ?? "punch_in");
     setRetroTime(initial?.time ?? "");
     setRetroReason("");
     setRetroModalOpen(true);
+  }
+
+  function openLiveRowRetroCorrection(row: LiveRow) {
+    openRetroCorrectionModal({
+      employeeId: String(row.employeeId),
+      workDate: liveTodayWorkDate ?? getLocalWorkDate(new Date().toISOString()),
+    });
+  }
+
+  function focusManualPunchForRow(row: LiveRow) {
+    setSelectedEmployeeId(String(row.employeeId));
+    setLiveDetailEmployeeId(null);
+    window.requestAnimationFrame(() => {
+      punchManualSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  }
+
+  function focusLiveRowDetail(row: LiveRow) {
+    setLiveDetailEmployeeId(row.employeeId);
+    setHighlightedExceptionEmployeeId(null);
+  }
+
+  function focusEmployeeExceptions(row: LiveRow) {
+    const employeeId = row.employeeId || row.employee_id || 0;
+    const rowExceptionCount = countRowExceptions(row, exceptions);
+
+    if (!employeeId || rowExceptionCount <= 0) {
+      return;
+    }
+
+    setHighlightedExceptionEmployeeId(employeeId);
+    setLiveDetailEmployeeId(null);
+    window.requestAnimationFrame(() => {
+      exceptionsSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      const target = document.querySelector(
+        `[data-horodateur-exception-employee="${employeeId}"]`
+      );
+      target?.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
   }
 
   async function handleRetroCorrectionSubmit() {
@@ -1424,6 +1540,7 @@ export default function DirectionHorodateurPage() {
           current="live"
         />
 
+        <div ref={punchManualSectionRef} id="horodateur-punch-manuel-section">
         <SectionCard
           title="Punch manuel avancé"
           subtitle="Punch manuel tracé — intervention direction avec note obligatoire."
@@ -1500,6 +1617,7 @@ export default function DirectionHorodateurPage() {
             />
           </label>
         </SectionCard>
+        </div>
 
         <details className="horodateur-direction-secondary-panel">
           <summary>Statistiques détaillées</summary>
@@ -1609,6 +1727,7 @@ export default function DirectionHorodateurPage() {
           </div>
         </details>
 
+        <div ref={exceptionsSectionRef} id="horodateur-exceptions-section">
         <SectionCard
           title="Exceptions à approuver"
           subtitle="Validation rapide des demandes en attente."
@@ -1641,10 +1760,15 @@ export default function DirectionHorodateurPage() {
                   item.reason_label === MISSING_EXPECTED_PUNCH_PRIORITY_REASON_LABEL;
                 const canReviewException = !isStaffRetro || isAdmin;
 
+                const isHighlighted =
+                  highlightedExceptionEmployeeId !== null &&
+                  item.employee_id === highlightedExceptionEmployeeId;
+
                 return (
                 <AppCard
                   key={item.id}
-                  className="ui-stack-sm"
+                  data-horodateur-exception-employee={item.employee_id}
+                  className={`ui-stack-sm${isHighlighted ? " horodateur-direction-exception-card--highlighted" : ""}`}
                   style={{
                     border: isAutoMissingPriority
                       ? "1px solid rgba(220, 38, 38, 0.28)"
@@ -1937,9 +2061,18 @@ export default function DirectionHorodateurPage() {
             </AppCard>
           )}
         </SectionCard>
+        </div>
 
-        <SectionCard title="Tableau live" subtitle="Etat courant et progression.">
-          <div className="horodateur-direction-filter-chips" style={{ marginBottom: "var(--ui-space-4)" }}>
+        <SectionCard
+          className="horodateur-live-section"
+          title="Tableau live"
+          subtitle={
+            liveTodayWorkDate
+              ? `Supervision du jour (Toronto) · ${liveTodayWorkDate}`
+              : "Etat courant et progression."
+          }
+        >
+          <div className="horodateur-direction-filter-chips horodateur-live-filter-chips">
             {[
               ["tous", `Tous (${board.length})`],
               ["en_quart", `En quart (${board.filter((row) => getRowState(row) === "en_quart").length})`],
@@ -1964,176 +2097,258 @@ export default function DirectionHorodateurPage() {
           </div>
 
           {hasEmployees ? (
-            <div style={{ overflowX: "auto" }}>
-              <table
-                style={{
-                  width: "100%",
-                  borderCollapse: "separate",
-                  borderSpacing: 0,
-                  minWidth: 1120,
-                }}
-              >
-                <thead>
-                  <tr style={{ background: "rgba(15, 41, 72, 0.04)" }}>
-                    <th style={thStyle}>Employe</th>
-                    <th style={thStyle}>Compagnie</th>
-                    <th style={thStyle}>Etat</th>
-                    <th style={thStyle}>Dernier evenement</th>
-                    <th style={thStyle}>
-                      <div className="ui-stack-xs" style={{ alignItems: "flex-start" }}>
-                        <span>Quart du jour</span>
-                        {liveTodayWorkDate ? (
-                          <span className="ui-text-muted" style={{ fontSize: 11, fontWeight: 500 }}>
-                            Jour (Toronto) : {liveTodayWorkDate}
-                          </span>
-                        ) : null}
-                      </div>
-                    </th>
-                    <th style={thStyle}>Semaine</th>
-                    <th style={thStyle}>Projection</th>
-                    <th style={thStyle}>Exceptions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredBoard.map((row) => {
-                    const rowExceptionCount = Math.max(
-                      exceptions.filter((item) => item.employee_id === (row.employeeId || row.employee_id || 0)).length,
-                      row.activeExceptionCount ?? 0,
-                      row.alertFlags?.hasOpenException ? 1 : 0
-                    );
+            <div className="horodateur-live-board">
+              <div className="horodateur-live-board-head" aria-hidden="true">
+                <span>Employé</span>
+                <span>État</span>
+                <span>Quart du jour</span>
+                <span>Progression</span>
+                <span>Actions</span>
+              </div>
 
-                    return (
-                      <tr key={row.employeeId}>
-                        <td style={tdStyle}>
-                          <div className="ui-stack-xs">
-                            <strong style={{ fontSize: 14 }}>
-                              {row.fullName || row.email || row.phone || `#${row.employeeId}`}
-                            </strong>
-                            <span className="ui-text-muted">{row.email || row.phone || "-"}</span>
-                          </div>
-                        </td>
-                        <td style={tdStyle}>{getCompanyLabel(row.primaryCompany)}</td>
-                        <td style={tdStyle}>
+              <div className="horodateur-live-board-body">
+                {filteredBoard.map((row) => {
+                  const rowExceptionCount = countRowExceptions(row, exceptions);
+                  const needsAttention = liveRowNeedsAttention(row);
+                  const employeeLabel =
+                    row.fullName || row.email || row.phone || `#${row.employeeId}`;
+                  const isDetailOpen = liveDetailEmployeeId === row.employeeId;
+                  const shiftHints = collectLiveShiftHints(row);
+                  const ratio =
+                    row.weekTargetMinutes > 0
+                      ? row.weekWorkedMinutes / row.weekTargetMinutes
+                      : 0;
+                  const progressTone = getProgressTone({
+                    ratio,
+                    hasOpenException: row.hasOpenException,
+                    anomaliesCount: row.todayShift?.anomalies_count ?? 0,
+                  });
+                  const progressPercent = clampPercentage(Math.round(ratio * 100));
+
+                  return (
+                    <article
+                      key={row.employeeId}
+                      className={`horodateur-live-board-row${
+                        needsAttention ? " horodateur-live-board-row--attention" : ""
+                      }${isDetailOpen ? " horodateur-live-board-row--focused" : ""}`}
+                    >
+                      <div className="horodateur-live-board-cell" data-label="Employé">
+                        <div className="horodateur-live-employee">
+                          <strong className="horodateur-live-employee-name">
+                            {row.fullName || row.email || row.phone || `#${row.employeeId}`}
+                          </strong>
+                          <span className="horodateur-live-meta">
+                            {row.email || row.phone || "—"}
+                          </span>
+                          <span className="horodateur-live-company-tag">
+                            {getCompanyLabel(row.primaryCompany)}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="horodateur-live-board-cell" data-label="État">
+                        <div className="horodateur-live-state">
                           <StatusBadge
                             label={getStateLabel(getRowState(row))}
                             tone={getStateTone(getRowState(row))}
                           />
-                        </td>
-                        <td style={tdStyle}>
-                          <div className="ui-stack-xs">
-                            <span>{formatDateTime(row.lastEventAt)}</span>
-                            <span className="ui-text-muted">
-                              {row.currentEventType ?? row.lastEventType ?? "-"}
-                            </span>
-                          </div>
-                        </td>
-                        <td style={tdStyle}>
-                          <div className="ui-stack-xs">
-                            <span>{formatMinutes(resolveDisplayedPayableMinutes(row))}</span>
-                            {row.todayTimeDisplay?.hasOpenShiftAccrual ? (
-                              <span className="ui-text-muted">
-                                En cours (officiel :{" "}
-                                {formatMinutes(row.todayTimeDisplay.officialPayableMinutes)})
-                              </span>
-                            ) : null}
-                            {row.todayTimeDisplay?.pendingPunchBlocksAccrual ? (
-                              <span className="ui-text-muted">Punch en attente</span>
-                            ) : null}
-                            {row.todayTimeDisplay?.openShiftSafetyCapReached ? (
-                              <span className="ui-text-muted" style={{ color: "#b45309", fontWeight: 600 }}>
-                                Quart ouvert &gt; 14 h — fermeture à approuver
-                              </span>
-                            ) : null}
-                            {row.todayTimeDisplay?.openShiftWorkDateMismatch ? (
-                              <span className="ui-text-muted">
-                                Quart ouvert depuis {row.todayTimeDisplay.openShiftWorkDate ?? "?"}
-                              </span>
-                            ) : null}
-                            <span className="ui-text-muted">
-                              Debut: {formatDateTime(row.startedAt ?? row.todayShift?.shift_start_at ?? null)}
-                            </span>
-                          </div>
-                        </td>
-                        <td style={tdStyle}>
-                          {(() => {
-                            const ratio =
-                              row.weekTargetMinutes > 0
-                                ? row.weekWorkedMinutes / row.weekTargetMinutes
-                                : 0;
-                            const tone = getProgressTone({
-                              ratio,
-                              hasOpenException: row.hasOpenException,
-                              anomaliesCount: row.todayShift?.anomalies_count ?? 0,
-                            });
-                            const percent = clampPercentage(Math.round(ratio * 100));
+                          <span className="horodateur-live-meta">
+                            {formatShortDateTime(row.lastEventAt)} ·{" "}
+                            {row.currentEventType ?? row.lastEventType ?? "—"}
+                          </span>
+                        </div>
+                      </div>
 
-                            return (
-                              <div className="ui-stack-xs">
-                                <div
-                                  style={{
-                                    display: "flex",
-                                    justifyContent: "space-between",
-                                    gap: 12,
-                                    alignItems: "baseline",
-                                  }}
-                                >
-                                  <strong style={{ color: tone.text }}>{percent}%</strong>
-                                  <span className="ui-text-muted">
-                                    {formatMinutes(row.weekWorkedMinutes)} /{" "}
-                                    {formatMinutes(row.weekTargetMinutes)}
-                                  </span>
-                                </div>
-                                <div
-                                  style={{
-                                    height: 8,
-                                    borderRadius: 999,
-                                    background: tone.track,
-                                    overflow: "hidden",
-                                  }}
-                                >
-                                  <div
-                                    style={{
-                                      width: `${percent}%`,
-                                      height: "100%",
-                                      background: tone.bar,
-                                      borderRadius: 999,
-                                    }}
-                                  />
-                                </div>
-                                <span className="ui-text-muted">
-                                  Restant: {formatMinutes(row.weekRemainingMinutes)}
-                                </span>
-                              </div>
-                            );
-                          })()}
-                        </td>
-                        <td style={tdStyle}>
-                          <div className="ui-stack-xs">
-                            <span>{formatMinutes(row.projectedOverflowMinutes)}</span>
-                            <span className="ui-text-muted">
-                              Cible: {formatMinutes(row.weekTargetMinutes)}
+                      <div className="horodateur-live-board-cell" data-label="Quart du jour">
+                        <div className="horodateur-live-shift">
+                          <strong className="horodateur-live-shift-time">
+                            {formatMinutes(resolveDisplayedPayableMinutes(row))}
+                          </strong>
+                          {row.todayTimeDisplay?.hasOpenShiftAccrual ? (
+                            <span className="horodateur-live-meta">
+                              En cours · officiel{" "}
+                              {formatMinutes(row.todayTimeDisplay.officialPayableMinutes)}
+                            </span>
+                          ) : null}
+                          <span className="horodateur-live-meta">
+                            Début {formatShortDateTime(row.startedAt ?? row.todayShift?.shift_start_at ?? null)}
+                          </span>
+                          {shiftHints.length > 0 ? (
+                            <ul className="horodateur-live-hints">
+                              {shiftHints.map((hint) => (
+                                <li key={hint}>{hint}</li>
+                              ))}
+                            </ul>
+                          ) : null}
+                        </div>
+                      </div>
+
+                      <div className="horodateur-live-board-cell" data-label="Progression">
+                        <div className="horodateur-live-progress">
+                          <div className="horodateur-live-progress-top">
+                            <strong style={{ color: progressTone.text }}>{progressPercent}%</strong>
+                            <span className="horodateur-live-meta">
+                              {formatMinutes(row.weekWorkedMinutes)} /{" "}
+                              {formatMinutes(row.weekTargetMinutes)}
                             </span>
                           </div>
-                        </td>
-                        <td style={tdStyle}>
-                          <StatusBadge
-                            label={rowExceptionCount ? `${rowExceptionCount} en attente` : "Aucune"}
-                            tone={getExceptionTone(rowExceptionCount)}
-                          />
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+                          <div
+                            className="horodateur-live-progress-track"
+                            style={{ background: progressTone.track }}
+                          >
+                            <div
+                              className="horodateur-live-progress-bar"
+                              style={{
+                                width: `${progressPercent}%`,
+                                background: progressTone.bar,
+                              }}
+                            />
+                          </div>
+                          <span className="horodateur-live-meta">
+                            Restant {formatMinutes(row.weekRemainingMinutes)}
+                            {row.projectedOverflowMinutes > 0
+                              ? ` · Prévu +${formatMinutes(row.projectedOverflowMinutes)}`
+                              : ""}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="horodateur-live-board-cell horodateur-live-board-cell--actions" data-label="Actions">
+                        <HorodateurLiveRowActions
+                          employeeLabel={employeeLabel}
+                          exceptionCount={rowExceptionCount}
+                          needsAttention={needsAttention}
+                          phoneHref={resolveEmployeePhoneHref(row)}
+                          disabled={isBusy}
+                          onCorrect={() => openLiveRowRetroCorrection(row)}
+                          onManualPunch={() => focusManualPunchForRow(row)}
+                          onDetail={() => focusLiveRowDetail(row)}
+                          onExceptions={() => focusEmployeeExceptions(row)}
+                        />
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
             </div>
-          ) : (
+          ) : null}
+
+          {hasEmployees && liveDetailEmployeeId ? (() => {
+            const detailRow = board.find((row) => row.employeeId === liveDetailEmployeeId);
+            if (!detailRow) {
+              return null;
+            }
+
+            const detailExceptionCount = countRowExceptions(detailRow, exceptions);
+            const detailRatio =
+              detailRow.weekTargetMinutes > 0
+                ? detailRow.weekWorkedMinutes / detailRow.weekTargetMinutes
+                : 0;
+            const detailProgressTone = getProgressTone({
+              ratio: detailRatio,
+              hasOpenException: detailRow.hasOpenException,
+              anomaliesCount: detailRow.todayShift?.anomalies_count ?? 0,
+            });
+
+            return (
+              <AppCard className="horodateur-live-detail-panel ui-stack-sm">
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    gap: 12,
+                    alignItems: "flex-start",
+                    flexWrap: "wrap",
+                  }}
+                >
+                  <div className="ui-stack-xs">
+                    <span className="ui-eyebrow">Détail employé</span>
+                    <strong style={{ fontSize: 18 }}>
+                      {detailRow.fullName || detailRow.email || `#${detailRow.employeeId}`}
+                    </strong>
+                    <span className="ui-text-muted">
+                      {getCompanyLabel(detailRow.primaryCompany)} ·{" "}
+                      {detailRow.email || detailRow.phone || "—"}
+                    </span>
+                  </div>
+                  <SecondaryButton onClick={() => setLiveDetailEmployeeId(null)}>
+                    Fermer
+                  </SecondaryButton>
+                </div>
+
+                <ul className="horodateur-direction-detail-list">
+                  <li className="horodateur-direction-detail-list-item">
+                    <strong>État</strong> — {getStateLabel(getRowState(detailRow))}
+                  </li>
+                  <li className="horodateur-direction-detail-list-item">
+                    <strong>Début</strong> —{" "}
+                    {formatDateTime(detailRow.startedAt ?? detailRow.todayShift?.shift_start_at ?? null)}
+                  </li>
+                  <li className="horodateur-direction-detail-list-item">
+                    <strong>Dernier événement</strong> — {formatDateTime(detailRow.lastEventAt)} ·{" "}
+                    {detailRow.currentEventType ?? detailRow.lastEventType ?? "—"}
+                  </li>
+                  <li className="horodateur-direction-detail-list-item">
+                    <strong>Quart du jour</strong> — {formatMinutes(resolveDisplayedPayableMinutes(detailRow))}
+                    {detailRow.todayShift?.status ? ` · ${detailRow.todayShift.status}` : ""}
+                  </li>
+                  <li
+                    className={`horodateur-direction-detail-list-item${
+                      detailProgressTone.text === "#991b1b"
+                        ? " horodateur-direction-detail-list-item--warning"
+                        : ""
+                    }`}
+                  >
+                    <strong>Progression semaine</strong> —{" "}
+                    {clampPercentage(Math.round(detailRatio * 100))}% ·{" "}
+                    {formatMinutes(detailRow.weekWorkedMinutes)} /{" "}
+                    {formatMinutes(detailRow.weekTargetMinutes)}
+                  </li>
+                  <li
+                    className={`horodateur-direction-detail-list-item${
+                      detailExceptionCount > 0 ? " horodateur-direction-detail-list-item--warning" : ""
+                    }`}
+                  >
+                    <strong>Exceptions</strong> —{" "}
+                    {detailExceptionCount > 0
+                      ? `${detailExceptionCount} en attente`
+                      : "Aucune"}
+                  </li>
+                </ul>
+
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                  <SecondaryButton
+                    disabled={isBusy}
+                    onClick={() => openLiveRowRetroCorrection(detailRow)}
+                  >
+                    Corriger un oubli
+                  </SecondaryButton>
+                  <SecondaryButton
+                    disabled={isBusy}
+                    onClick={() => focusManualPunchForRow(detailRow)}
+                  >
+                    Punch manuel
+                  </SecondaryButton>
+                  {detailExceptionCount > 0 ? (
+                    <SecondaryButton
+                      disabled={isBusy}
+                      onClick={() => focusEmployeeExceptions(detailRow)}
+                    >
+                      Voir exceptions
+                    </SecondaryButton>
+                  ) : null}
+                </div>
+              </AppCard>
+            );
+          })() : null}
+
+          {!hasEmployees ? (
             <AppCard tone="muted" className="ui-stack-sm">
               <p className="ui-text-muted" style={{ margin: 0 }}>
                 Aucun employe actif a afficher pour le moment.
               </p>
             </AppCard>
-          )}
+          ) : null}
         </SectionCard>
 
         <details className="horodateur-direction-secondary-panel">
@@ -2181,21 +2396,3 @@ export default function DirectionHorodateurPage() {
   );
 }
 
-const thStyle: React.CSSProperties = {
-  textAlign: "left",
-  padding: "12px 14px",
-  borderBottom: "1px solid rgba(148, 163, 184, 0.22)",
-  fontSize: 12,
-  fontWeight: 700,
-  letterSpacing: "0.04em",
-  textTransform: "uppercase",
-  color: "#64748b",
-};
-
-const tdStyle: React.CSSProperties = {
-  padding: "14px",
-  borderBottom: "1px solid rgba(148, 163, 184, 0.16)",
-  verticalAlign: "top",
-  fontSize: 14,
-  color: "#0f172a",
-};
