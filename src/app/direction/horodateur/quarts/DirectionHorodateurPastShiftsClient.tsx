@@ -12,13 +12,15 @@ import {
   Timer,
   UserRound,
 } from "lucide-react";
-import AuthenticatedPageHeader from "@/app/components/ui/AuthenticatedPageHeader";
 import HorodateurRetroCorrectionModal from "@/app/components/horodateur/HorodateurRetroCorrectionModal";
-import HorodateurDirectionModuleNav from "@/app/direction/horodateur/HorodateurDirectionModuleNav";
+import HorodateurDirectionPageShell from "@/app/direction/horodateur/HorodateurDirectionPageShell";
+import HorodateurDirectionPrimaryActions from "@/app/direction/horodateur/HorodateurDirectionPrimaryActions";
 import AppCard from "@/app/components/ui/AppCard";
 import PrimaryButton from "@/app/components/ui/PrimaryButton";
 import SecondaryButton from "@/app/components/ui/SecondaryButton";
+import SectionCard from "@/app/components/ui/SectionCard";
 import StatusBadge from "@/app/components/ui/StatusBadge";
+import TagoraIconBadge from "@/app/components/TagoraIconBadge";
 import TagoraLoadingScreen from "@/app/components/ui/TagoraLoadingScreen";
 import TagoraStatCard from "@/app/components/TagoraStatCard";
 import { useCurrentAccess } from "@/app/hooks/useCurrentAccess";
@@ -26,6 +28,7 @@ import {
   parsePastShiftRetroSuggestionFromEvents,
   type StaffRetroForgottenEventType,
 } from "@/app/lib/horodateur-retro-correction.shared";
+import { getLocalWorkDate } from "@/app/lib/horodateur-v1/rules";
 import { getWeekStartDate } from "@/app/lib/horodateur-v1/rules";
 import type {
   HorodateurPastShiftDetail,
@@ -278,6 +281,16 @@ export default function DirectionHorodateurPastShiftsClient() {
     [data?.employeeOptions]
   );
 
+  const openRetroCorrectionModal = useCallback(() => {
+    setRetroError(null);
+    setRetroEmployeeId("");
+    setRetroWorkDate(getLocalWorkDate(new Date().toISOString()));
+    setRetroEventType("punch_in");
+    setRetroTime("");
+    setRetroReason("");
+    setRetroModalOpen(true);
+  }, []);
+
   const openRetroCorrectionForSelectedShift = useCallback(() => {
     if (!selectedRow) {
       return;
@@ -359,8 +372,7 @@ export default function DirectionHorodateurPastShiftsClient() {
     }
   }
 
-  const inputClass =
-    "w-full rounded-xl border border-slate-200/90 bg-white px-3.5 py-3 text-[15px] text-slate-900 shadow-inner shadow-slate-900/5 outline-none ring-slate-300/80 transition focus:border-sky-400 focus:ring-2 focus:ring-sky-200/70";
+  const inputClass = "tagora-input";
 
   if (accessLoading) {
     return (
@@ -374,63 +386,76 @@ export default function DirectionHorodateurPastShiftsClient() {
 
   if (!hasPermission("terrain")) {
     return (
-      <main className="tagora-app-shell min-h-screen bg-[linear-gradient(180deg,#f1f5f9_0%,#eef4ff_100%)]">
-        <div className="mx-auto max-w-7xl px-4 py-10 sm:px-6 lg:px-8">
-          <div className="rounded-2xl border border-slate-200/70 bg-white p-8 shadow-sm">
-            <h1 className="text-xl font-semibold text-slate-900">Quarts passés</h1>
-            <p className="mt-3 text-sm text-slate-600">
-              La permission terrain est requise pour consulter les quarts passés.
-            </p>
-            <Link href="/direction/dashboard" className="mt-6 inline-block">
-              <SecondaryButton>Retour au tableau de bord</SecondaryButton>
-            </Link>
-          </div>
-        </div>
-      </main>
+      <HorodateurDirectionPageShell
+        active="quarts"
+        subtitle="Consultation des quarts antérieurs et corrections rétroactives."
+      >
+        <AppCard tone="muted" className="ui-stack-sm">
+          <h2 className="text-lg font-bold text-slate-900" style={{ margin: 0 }}>
+            Accès restreint
+          </h2>
+          <p className="ui-text-muted" style={{ margin: 0 }}>
+            La permission terrain est requise pour consulter les quarts passés.
+          </p>
+          <Link href="/direction/dashboard">
+            <SecondaryButton>Retour au tableau de bord</SecondaryButton>
+          </Link>
+        </AppCard>
+      </HorodateurDirectionPageShell>
     );
   }
 
   return (
-    <main className="tagora-app-shell min-h-screen bg-[linear-gradient(180deg,#eef2ff_0%,#f8fafc_45%,#f1f5f9_100%)]">
-      <div className="mx-auto max-w-[1600px] px-4 pb-14 pt-8 sm:px-6 lg:px-10">
-        <AuthenticatedPageHeader
-          title="Quarts passés"
-          subtitle="Consultation des quarts antérieurs et demandes de correction rétroactive."
-          showNavigation={false}
-          navigation={<HorodateurDirectionModuleNav active="quarts" />}
+    <HorodateurDirectionPageShell
+      active="quarts"
+      subtitle="Consultation des quarts antérieurs et corrections rétroactives."
+      actions={
+        <SecondaryButton type="button" onClick={() => void loadData()} disabled={loading}>
+          <span className="inline-flex items-center gap-2">
+            <RefreshCw size={16} />
+            {loading ? "Actualisation..." : "Actualiser"}
+          </span>
+        </SecondaryButton>
+      }
+    >
+        <HorodateurDirectionPrimaryActions
+          onRetroCorrection={openRetroCorrectionModal}
+          retroDisabled={retroSaving}
+          current="quarts"
         />
 
         {message ? (
-          <AppCard tone="muted" className="mb-6 border border-emerald-200/60 bg-emerald-50/40">
-            <p className="text-sm text-emerald-900" style={{ margin: 0 }}>
+          <AppCard
+            tone="muted"
+            style={{
+              borderColor: "rgba(5, 150, 105, 0.18)",
+              background: "rgba(236, 253, 245, 0.92)",
+            }}
+          >
+            <p className="horodateur-direction-info-banner horodateur-direction-info-banner--success" style={{ padding: 0 }}>
               {message}
             </p>
           </AppCard>
         ) : null}
 
-        <AppCard tone="muted" className="mb-6 border border-sky-200/60 bg-sky-50/40">
-          <p className="text-sm text-slate-700" style={{ margin: 0 }}>
+        <AppCard tone="muted" className="ui-stack-sm" style={{ borderColor: "rgba(14, 165, 233, 0.22)", background: "linear-gradient(180deg, rgba(240, 249, 255, 0.98) 0%, rgba(255, 255, 255, 0.98) 100%)" }}>
+          <p className="horodateur-direction-info-banner horodateur-direction-info-banner--info" style={{ padding: 0 }}>
             <strong>Consultation et correction rétroactive.</strong> Les demandes passent par
             approbation admin. L&apos;ajout, la modification et l&apos;annulation directe de quarts
             restent désactivés pour cette phase.
           </p>
         </AppCard>
 
-        <section className="mb-8 rounded-3xl border border-slate-200/70 bg-white p-5 shadow-[0_14px_40px_-12px_rgba(15,23,42,0.1)] sm:p-7">
-          <div className="mb-6 flex flex-col gap-2 border-b border-slate-100 pb-5 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <h2 className="text-lg font-bold text-slate-900">Filtres</h2>
-              <p className="text-sm text-slate-500">Période, employé, statut et compagnie.</p>
-            </div>
-            <SecondaryButton type="button" onClick={() => void loadData()} disabled={loading}>
-              <span className="inline-flex items-center gap-2">
-                <RefreshCw size={16} />
-                {loading ? "Actualisation..." : "Actualiser"}
-              </span>
-            </SecondaryButton>
-          </div>
-
-          <div className="flex flex-wrap gap-2.5 mb-6">
+        <SectionCard
+          title="Filtres"
+          subtitle="Période, employé, statut et compagnie."
+          actions={
+            <TagoraIconBadge tone="slate" size="lg">
+              <CalendarRange size={24} strokeWidth={2.1} />
+            </TagoraIconBadge>
+          }
+        >
+          <div className="horodateur-direction-filter-chips" style={{ marginBottom: "var(--ui-space-4)" }}>
             {(
               [
                 ["week_current", "Semaine courante"],
@@ -444,10 +469,8 @@ export default function DirectionHorodateurPastShiftsClient() {
                 key={id}
                 type="button"
                 onClick={() => applyPreset(id)}
-                className={`rounded-xl px-4 py-2 text-sm font-semibold transition ${
-                  periodPreset === id
-                    ? "bg-slate-900 text-white shadow-md"
-                    : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                className={`horodateur-direction-filter-chip${
+                  periodPreset === id ? " horodateur-direction-filter-chip--active" : ""
                 }`}
               >
                 {label}
@@ -455,9 +478,9 @@ export default function DirectionHorodateurPastShiftsClient() {
             ))}
           </div>
 
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+          <div className="horodateur-direction-filter-grid">
             <label className="ui-stack-xs">
-              <span className="text-xs font-semibold uppercase text-slate-500">Début</span>
+              <span className="ui-eyebrow">Début</span>
               <input
                 type="date"
                 className={inputClass}
@@ -469,7 +492,7 @@ export default function DirectionHorodateurPastShiftsClient() {
               />
             </label>
             <label className="ui-stack-xs">
-              <span className="text-xs font-semibold uppercase text-slate-500">Fin</span>
+              <span className="ui-eyebrow">Fin</span>
               <input
                 type="date"
                 className={inputClass}
@@ -481,7 +504,7 @@ export default function DirectionHorodateurPastShiftsClient() {
               />
             </label>
             <label className="ui-stack-xs">
-              <span className="text-xs font-semibold uppercase text-slate-500">Employé</span>
+              <span className="ui-eyebrow">Employé</span>
               <select
                 className={inputClass}
                 value={employeeId}
@@ -496,7 +519,7 @@ export default function DirectionHorodateurPastShiftsClient() {
               </select>
             </label>
             <label className="ui-stack-xs">
-              <span className="text-xs font-semibold uppercase text-slate-500">Statut</span>
+              <span className="ui-eyebrow">Statut</span>
               <select
                 className={inputClass}
                 value={status}
@@ -511,7 +534,7 @@ export default function DirectionHorodateurPastShiftsClient() {
               </select>
             </label>
             <label className="ui-stack-xs">
-              <span className="text-xs font-semibold uppercase text-slate-500">Compagnie</span>
+              <span className="ui-eyebrow">Compagnie</span>
               <select
                 className={inputClass}
                 value={company}
@@ -527,11 +550,17 @@ export default function DirectionHorodateurPastShiftsClient() {
               </select>
             </label>
           </div>
-        </section>
+        </SectionCard>
 
         {error ? (
-          <AppCard tone="muted" className="mb-6 border border-red-200 bg-red-50/50">
-            <p className="text-sm text-red-800" style={{ margin: 0 }}>
+          <AppCard
+            tone="muted"
+            style={{
+              borderColor: "rgba(220, 38, 38, 0.18)",
+              background: "rgba(254, 242, 242, 0.8)",
+            }}
+          >
+            <p className="horodateur-direction-info-banner horodateur-direction-info-banner--error" style={{ padding: 0 }}>
               {error}
             </p>
           </AppCard>
@@ -543,7 +572,7 @@ export default function DirectionHorodateurPastShiftsClient() {
 
         {data ? (
           <>
-            <div className="mb-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="horodateur-direction-stat-grid">
               <TagoraStatCard
                 title="Quarts affichés"
                 value={String(data.summary.totalShifts)}
@@ -572,29 +601,31 @@ export default function DirectionHorodateurPastShiftsClient() {
               />
             </div>
 
-            <div className="grid gap-6 xl:grid-cols-[minmax(0,1.1fr)_minmax(360px,0.9fr)]">
-              <section className="rounded-3xl border border-slate-200/70 bg-white shadow-sm overflow-hidden">
-                <div className="border-b border-slate-100 px-5 py-4">
-                  <h2 className="text-base font-bold text-slate-900">Liste des quarts</h2>
-                  <p className="text-sm text-slate-500">
-                    {data.summary.periodStart} → {data.summary.periodEnd}
-                  </p>
-                </div>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left text-sm">
-                    <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
+            <div className="horodateur-direction-split-layout">
+              <SectionCard
+                title="Liste des quarts"
+                subtitle={`${data.summary.periodStart} → ${data.summary.periodEnd}`}
+                actions={
+                  <TagoraIconBadge tone="blue" size="lg">
+                    <CalendarRange size={24} strokeWidth={2.1} />
+                  </TagoraIconBadge>
+                }
+              >
+                <div className="horodateur-direction-data-table-wrap">
+                  <table className="horodateur-direction-data-table">
+                    <thead>
                       <tr>
-                        <th className="px-4 py-3">Date</th>
-                        <th className="px-4 py-3">Employé</th>
-                        <th className="px-4 py-3">Statut</th>
-                        <th className="px-4 py-3">Payable</th>
-                        <th className="px-4 py-3">Compagnie</th>
+                        <th>Date</th>
+                        <th>Employé</th>
+                        <th>Statut</th>
+                        <th>Payable</th>
+                        <th>Compagnie</th>
                       </tr>
                     </thead>
                     <tbody>
                       {data.shifts.length === 0 ? (
                         <tr>
-                          <td colSpan={5} className="px-4 py-8 text-center text-slate-500">
+                          <td colSpan={5} style={{ textAlign: "center", color: "#64748b", padding: "32px 14px" }}>
                             Aucun quart pour ces filtres.
                           </td>
                         </tr>
@@ -604,23 +635,20 @@ export default function DirectionHorodateurPastShiftsClient() {
                           return (
                             <tr
                               key={row.shiftId}
-                              className={`cursor-pointer border-t border-slate-100 transition ${
-                                selected ? "bg-sky-50/80" : "hover:bg-slate-50/80"
-                              }`}
+                              className={selected ? "horodateur-direction-data-table-row--selected" : undefined}
+                              style={{ cursor: "pointer" }}
                               onClick={() => setSelectedShiftId(row.shiftId)}
                             >
-                              <td className="px-4 py-3 font-medium text-slate-900">
-                                {fmtDate(row.workDate)}
-                              </td>
-                              <td className="px-4 py-3">{row.employeeName ?? `#${row.employeeId}`}</td>
-                              <td className="px-4 py-3">
+                              <td style={{ fontWeight: 600 }}>{fmtDate(row.workDate)}</td>
+                              <td>{row.employeeName ?? `#${row.employeeId}`}</td>
+                              <td>
                                 <StatusBadge
                                   label={row.statusLabel}
                                   tone={statusTone(row.statusKey)}
                                 />
                               </td>
-                              <td className="px-4 py-3">{fmtHoursMinutes(row.payableMinutes)}</td>
-                              <td className="px-4 py-3 text-slate-600">{row.companyLabel}</td>
+                              <td>{fmtHoursMinutes(row.payableMinutes)}</td>
+                              <td className="ui-text-muted">{row.companyLabel}</td>
                             </tr>
                           );
                         })
@@ -628,111 +656,119 @@ export default function DirectionHorodateurPastShiftsClient() {
                     </tbody>
                   </table>
                 </div>
-              </section>
+              </SectionCard>
 
               <aside className="ui-stack-md">
-                <section className="rounded-3xl border border-slate-200/70 bg-white p-5 shadow-sm">
-                  <h2 className="text-base font-bold text-slate-900 mb-1">Détail du quart</h2>
+                <SectionCard
+                  title="Détail du quart"
+                  subtitle={selectedRow ? fmtDate(selectedRow.workDate) : "Sélectionnez un quart dans la liste."}
+                  actions={
+                    <TagoraIconBadge tone="green" size="lg">
+                      <ClipboardPen size={24} strokeWidth={2.1} />
+                    </TagoraIconBadge>
+                  }
+                >
                   {!selectedRow ? (
-                    <p className="text-sm text-slate-500">Sélectionnez un quart dans la liste.</p>
+                    <p className="ui-text-muted" style={{ margin: 0 }}>
+                      Sélectionnez un quart dans la liste.
+                    </p>
                   ) : (
                     <div className="ui-stack-sm">
                       <div>
-                        <p className="text-lg font-semibold text-slate-900">
+                        <p style={{ margin: 0, fontSize: 18, fontWeight: 700, color: "#0f172a" }}>
                           {selectedRow.employeeName ?? `Employé #${selectedRow.employeeId}`}
                         </p>
-                        <p className="text-sm text-slate-600">{fmtDate(selectedRow.workDate)}</p>
+                        <p className="ui-text-muted" style={{ margin: "4px 0 0" }}>
+                          {fmtDate(selectedRow.workDate)}
+                        </p>
                       </div>
                       <StatusBadge
                         label={selectedRow.statusLabel}
                         tone={statusTone(selectedRow.statusKey)}
                       />
-                      <dl className="grid grid-cols-2 gap-3 text-sm">
+                      <dl className="horodateur-direction-filter-grid" style={{ gridTemplateColumns: "1fr 1fr", margin: 0 }}>
                         <div>
-                          <dt className="text-slate-500">Début</dt>
-                          <dd className="font-medium">{fmtDateTime(selectedRow.shiftStartAt)}</dd>
+                          <dt className="ui-eyebrow">Début</dt>
+                          <dd style={{ margin: "4px 0 0", fontWeight: 600 }}>{fmtDateTime(selectedRow.shiftStartAt)}</dd>
                         </div>
                         <div>
-                          <dt className="text-slate-500">Fin</dt>
-                          <dd className="font-medium">{fmtDateTime(selectedRow.shiftEndAt)}</dd>
+                          <dt className="ui-eyebrow">Fin</dt>
+                          <dd style={{ margin: "4px 0 0", fontWeight: 600 }}>{fmtDateTime(selectedRow.shiftEndAt)}</dd>
                         </div>
                         <div>
-                          <dt className="text-slate-500">Travaillé</dt>
-                          <dd className="font-medium">
+                          <dt className="ui-eyebrow">Travaillé</dt>
+                          <dd style={{ margin: "4px 0 0", fontWeight: 600 }}>
                             {fmtHoursMinutes(selectedRow.workedMinutes)}
                           </dd>
                         </div>
                         <div>
-                          <dt className="text-slate-500">Payable</dt>
-                          <dd className="font-medium">
+                          <dt className="ui-eyebrow">Payable</dt>
+                          <dd style={{ margin: "4px 0 0", fontWeight: 600 }}>
                             {fmtHoursMinutes(selectedRow.payableMinutes)}
                           </dd>
                         </div>
                         <div>
-                          <dt className="text-slate-500">Statut shift</dt>
-                          <dd className="font-medium">{selectedRow.shiftStatus}</dd>
+                          <dt className="ui-eyebrow">Statut shift</dt>
+                          <dd style={{ margin: "4px 0 0", fontWeight: 600 }}>{selectedRow.shiftStatus}</dd>
                         </div>
                         <div>
-                          <dt className="text-slate-500">Exceptions</dt>
-                          <dd className="font-medium">{selectedRow.exceptionCount}</dd>
+                          <dt className="ui-eyebrow">Exceptions</dt>
+                          <dd style={{ margin: "4px 0 0", fontWeight: 600 }}>{selectedRow.exceptionCount}</dd>
                         </div>
                       </dl>
 
-                      <div className="flex flex-wrap gap-2 pt-2">
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--ui-space-2)", paddingTop: "var(--ui-space-2)" }}>
                         <PrimaryButton
                           type="button"
                           onClick={openRetroCorrectionForSelectedShift}
                           disabled={retroSaving}
                         >
-                          <span className="inline-flex items-center gap-2">
+                          <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
                             <ClipboardPen size={16} />
                             Corriger ce quart
                           </span>
                         </PrimaryButton>
                         <PrimaryButton type="button" disabled title="Phase ultérieure">
-                          <span className="inline-flex items-center gap-2 opacity-60">
+                          <span style={{ display: "inline-flex", alignItems: "center", gap: 8, opacity: 0.6 }}>
                             <Plus size={16} />
                             Ajouter un quart
                           </span>
                         </PrimaryButton>
                         <SecondaryButton type="button" disabled title="Phase ultérieure">
-                          <span className="inline-flex items-center gap-2 opacity-60">
+                          <span style={{ display: "inline-flex", alignItems: "center", gap: 8, opacity: 0.6 }}>
                             <Lock size={14} />
                             Modifier
                           </span>
                         </SecondaryButton>
                         <SecondaryButton type="button" disabled title="Phase ultérieure">
-                          <span className="inline-flex items-center gap-2 opacity-60">
+                          <span style={{ display: "inline-flex", alignItems: "center", gap: 8, opacity: 0.6 }}>
                             <Lock size={14} />
                             Annuler
                           </span>
                         </SecondaryButton>
                       </div>
-                      <p className="text-xs text-slate-500 flex items-center gap-1.5">
+                      <p className="ui-text-muted" style={{ margin: 0, fontSize: 12, display: "flex", alignItems: "center", gap: 6 }}>
                         <Lock size={12} />
                         Ajout / modification / annulation de quart — phase ultérieure
                       </p>
                     </div>
                   )}
-                </section>
+                </SectionCard>
 
                 {selectedRow && selectedDetail ? (
                   <>
-                    <section className="rounded-3xl border border-slate-200/70 bg-white p-5 shadow-sm">
-                      <h3 className="text-sm font-bold text-slate-900 mb-3">
-                        Événements ({selectedDetail.events.length})
-                      </h3>
+                    <SectionCard
+                      title={`Événements (${selectedDetail.events.length})`}
+                      subtitle="Chronologie des punchs du quart."
+                    >
                       {selectedDetail.events.length === 0 ? (
-                        <p className="text-sm text-slate-500">Aucun événement.</p>
+                        <p className="ui-text-muted" style={{ margin: 0 }}>Aucun événement.</p>
                       ) : (
-                        <ul className="ui-stack-sm" style={{ listStyle: "none", padding: 0, margin: 0 }}>
+                        <ul className="horodateur-direction-detail-list">
                           {selectedDetail.events.map((ev) => (
-                            <li
-                              key={ev.id}
-                              className="rounded-xl border border-slate-100 bg-slate-50/60 px-3 py-2.5 text-sm"
-                            >
-                              <div className="flex flex-wrap items-center justify-between gap-2">
-                                <span className="font-semibold text-slate-800">
+                            <li key={ev.id} className="horodateur-direction-detail-list-item">
+                              <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                                <span style={{ fontWeight: 700, color: "#0f172a" }}>
                                   {ev.canonicalType ?? ev.eventType}
                                 </span>
                                 <StatusBadge
@@ -740,58 +776,58 @@ export default function DirectionHorodateurPastShiftsClient() {
                                   tone={eventStatusTone(ev.status)}
                                 />
                               </div>
-                              <p className="text-slate-600 mt-1">{fmtDateTime(ev.occurredAt)}</p>
+                              <p className="ui-text-muted" style={{ margin: "6px 0 0" }}>{fmtDateTime(ev.occurredAt)}</p>
                               {ev.notes ? (
-                                <p className="text-slate-500 mt-1 text-xs">{ev.notes}</p>
+                                <p className="ui-text-muted" style={{ margin: "6px 0 0", fontSize: 12 }}>{ev.notes}</p>
                               ) : null}
-                              <p className="text-xs text-slate-400 mt-1">
+                              <p className="ui-text-muted" style={{ margin: "6px 0 0", fontSize: 12 }}>
                                 {ev.sourceKind ?? "—"} · {ev.actorRole ?? "—"}
                               </p>
                             </li>
                           ))}
                         </ul>
                       )}
-                    </section>
+                    </SectionCard>
 
-                    <section className="rounded-3xl border border-slate-200/70 bg-white p-5 shadow-sm">
-                      <h3 className="text-sm font-bold text-slate-900 mb-3">
-                        Exceptions ({selectedDetail.exceptions.length})
-                      </h3>
+                    <SectionCard
+                      title={`Exceptions (${selectedDetail.exceptions.length})`}
+                      subtitle="Demandes liées à ce quart."
+                    >
                       {selectedDetail.exceptions.length === 0 ? (
-                        <p className="text-sm text-slate-500">Aucune exception.</p>
+                        <p className="ui-text-muted" style={{ margin: 0 }}>Aucune exception.</p>
                       ) : (
-                        <ul className="ui-stack-sm" style={{ listStyle: "none", padding: 0, margin: 0 }}>
+                        <ul className="horodateur-direction-detail-list">
                           {selectedDetail.exceptions.map((ex) => (
                             <li
                               key={ex.id}
-                              className="rounded-xl border border-amber-100/80 bg-amber-50/30 px-3 py-2.5 text-sm"
+                              className="horodateur-direction-detail-list-item horodateur-direction-detail-list-item--warning"
                             >
-                              <div className="flex flex-wrap items-center justify-between gap-2">
-                                <span className="font-semibold text-slate-800">{ex.reasonLabel}</span>
+                              <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                                <span style={{ fontWeight: 700, color: "#0f172a" }}>{ex.reasonLabel}</span>
                                 <StatusBadge
                                   label={ex.status}
                                   tone={eventStatusTone(ex.status)}
                                 />
                               </div>
-                              <p className="text-xs text-slate-600 mt-1">{ex.exceptionType}</p>
+                              <p className="ui-text-muted" style={{ margin: "6px 0 0", fontSize: 12 }}>{ex.exceptionType}</p>
                               {ex.details ? (
-                                <p className="text-slate-600 mt-1">{ex.details}</p>
+                                <p style={{ margin: "6px 0 0", fontSize: 14, color: "#334155" }}>{ex.details}</p>
                               ) : null}
-                              <p className="text-xs text-slate-400 mt-1">
+                              <p className="ui-text-muted" style={{ margin: "6px 0 0", fontSize: 12 }}>
                                 Demandé {fmtDateTime(ex.requestedAt)}
                               </p>
                             </li>
                           ))}
                         </ul>
                       )}
-                      <p className="text-xs text-slate-500 mt-4">
+                      <p className="ui-text-muted" style={{ margin: "var(--ui-space-3) 0 0", fontSize: 12 }}>
                         Les demandes de correction rétroactive créées ici apparaissent dans l&apos;
-                        <Link href="/direction/horodateur" className="underline text-sky-700">
+                        <Link href="/direction/horodateur" className="tagora-dark-outline-action" style={{ textDecoration: "none", fontSize: 12, padding: "2px 8px", marginInline: 4 }}>
                           horodateur live
-                        </Link>{" "}
+                        </Link>
                         (exceptions en attente admin).
                       </p>
-                    </section>
+                    </SectionCard>
                   </>
                 ) : null}
               </aside>
@@ -823,7 +859,6 @@ export default function DirectionHorodateurPastShiftsClient() {
           onReasonChange={setRetroReason}
           onSubmit={() => void handleRetroCorrectionSubmit()}
         />
-      </div>
-    </main>
+    </HorodateurDirectionPageShell>
   );
 }

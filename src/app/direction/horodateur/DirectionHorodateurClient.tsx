@@ -4,16 +4,17 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
-  CalendarRange,
-  ClipboardPen,
+  PenLine,
   RefreshCw,
   ShieldCheck,
   TimerReset,
 } from "lucide-react";
-import AuthenticatedPageHeader from "@/app/components/ui/AuthenticatedPageHeader";
 import HorodateurRetroCorrectionModal from "@/app/components/horodateur/HorodateurRetroCorrectionModal";
-import HorodateurDirectionModuleNav from "@/app/direction/horodateur/HorodateurDirectionModuleNav";
+import HorodateurDirectionPageShell from "@/app/direction/horodateur/HorodateurDirectionPageShell";
+import HorodateurDirectionPrimaryActions from "@/app/direction/horodateur/HorodateurDirectionPrimaryActions";
+import HorodateurDirectionAlertConfigPanel from "@/app/direction/horodateur/HorodateurDirectionAlertConfigPanel";
 import AppCard from "@/app/components/ui/AppCard";
+import TagoraIconBadge from "@/app/components/TagoraIconBadge";
 import PrimaryButton from "@/app/components/ui/PrimaryButton";
 import SecondaryButton from "@/app/components/ui/SecondaryButton";
 import SectionCard from "@/app/components/ui/SectionCard";
@@ -24,6 +25,11 @@ import {
   STAFF_RETRO_CORRECTION_REASON_LABEL,
   type StaffRetroForgottenEventType,
 } from "@/app/lib/horodateur-retro-correction.shared";
+import {
+  isAutoMissingExpectedPunchException,
+  MISSING_EXPECTED_PUNCH_PRIORITY_REASON_LABEL,
+  MISSING_EXPECTED_PUNCH_REASON_LABEL,
+} from "@/app/lib/horodateur-expected-punch-missing.shared";
 import { getLocalWorkDate } from "@/app/lib/horodateur-v1/rules";
 import { supabase } from "@/app/lib/supabase/client";
 import { getCompanyLabel } from "@/app/lib/account-requests.shared";
@@ -585,9 +591,9 @@ export default function DirectionHorodateurPage() {
   /** Date `work_date` utilisée pour la colonne « Quart du jour » (alignée sur l’API live, Toronto). */
   const [liveTodayWorkDate, setLiveTodayWorkDate] = useState<string | null>(null);
   const [config, setConfig] = useState<AlertConfig>({
-    email_enabled: false,
+    email_enabled: true,
     sms_enabled: false,
-    reminder_delay_minutes: 60,
+    reminder_delay_minutes: 5,
     direction_emails: [],
     direction_sms_numbers: [],
   });
@@ -1333,80 +1339,60 @@ export default function DirectionHorodateurPage() {
 
   if (accessLoading || loading) {
     return (
-      <main className="tagora-app-shell">
-        <div className="tagora-app-content">
-          <AuthenticatedPageHeader
-            title="Horodateur direction"
-            subtitle=""
-            showNavigation={false}
-          />
-          <SectionCard title="Chargement" subtitle="Preparation de la supervision." />
-        </div>
-      </main>
+      <HorodateurDirectionPageShell
+        active="live"
+        subtitle="Supervision live des présences et des exceptions."
+      >
+        <SectionCard title="Chargement" subtitle="Préparation de la supervision." />
+      </HorodateurDirectionPageShell>
     );
   }
 
   if (!canUseTerrain) {
     return (
-      <main className="tagora-app-shell">
-        <div className="tagora-app-content">
-          <AuthenticatedPageHeader
-            title="Horodateur direction"
-            subtitle=""
-            showNavigation={false}
-          />
-          <SectionCard title="Acces" subtitle="Permission terrain requise." />
-        </div>
-      </main>
+      <HorodateurDirectionPageShell
+        active="live"
+        subtitle="Supervision live des présences et des exceptions."
+      >
+        <SectionCard title="Accès" subtitle="Permission terrain requise." />
+      </HorodateurDirectionPageShell>
     );
   }
 
+  const headerActions = (
+    <div
+      style={{
+        display: "flex",
+        gap: "var(--ui-space-3)",
+        flexWrap: "wrap",
+        alignItems: "center",
+      }}
+    >
+      <Link
+        href="/direction/horodateur/qr-zones"
+        className="tagora-dark-outline-action"
+        style={{ textDecoration: "none" }}
+      >
+        Zones punch QR
+      </Link>
+      <SecondaryButton
+        onClick={() => void loadData("refresh")}
+        disabled={refreshing || isBusy}
+      >
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+          <RefreshCw size={16} />
+          {refreshing ? "Actualisation..." : "Actualiser"}
+        </span>
+      </SecondaryButton>
+    </div>
+  );
+
   return (
-    <main className="tagora-app-shell">
-      <div className="tagora-app-content ui-stack-lg">
-        <AuthenticatedPageHeader
-          title="Horodateur direction"
-          subtitle=""
-          showNavigation={false}
-          navigation={<HorodateurDirectionModuleNav active="live" />}
-          actions={
-            <div
-              style={{
-                display: "flex",
-                gap: "var(--ui-space-3)",
-                flexWrap: "wrap",
-                alignItems: "center",
-              }}
-            >
-              <Link
-                href="/direction/horodateur/qr-zones"
-                className="tagora-dark-outline-action"
-                style={{ textDecoration: "none" }}
-              >
-                Zones punch QR
-              </Link>
-              <PrimaryButton
-                onClick={() => openRetroCorrectionModal()}
-                disabled={isBusy}
-                style={{ whiteSpace: "nowrap" }}
-              >
-                <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
-                  <ClipboardPen size={16} />
-                  Corriger un oubli de punch
-                </span>
-              </PrimaryButton>
-              <SecondaryButton
-                onClick={() => void loadData("refresh")}
-                disabled={refreshing || isBusy}
-              >
-                <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
-                  <RefreshCw size={16} />
-                  {refreshing ? "Actualisation..." : "Actualiser"}
-                </span>
-              </SecondaryButton>
-            </div>
-          }
-        />
+    <HorodateurDirectionPageShell
+      active="live"
+      subtitle="Supervision live, corrections rétroactives et validation des exceptions."
+      actions={headerActions}
+    >
 
         {error ? (
           <AppCard
@@ -1432,107 +1418,92 @@ export default function DirectionHorodateurPage() {
           </AppCard>
         ) : null}
 
-        <section
-          aria-label="Actions principales horodateur"
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-            gap: "var(--ui-space-3)",
-          }}
+        <HorodateurDirectionPrimaryActions
+          onRetroCorrection={() => openRetroCorrectionModal()}
+          retroDisabled={isBusy}
+          current="live"
+        />
+
+        <SectionCard
+          title="Punch manuel avancé"
+          subtitle="Punch manuel tracé — intervention direction avec note obligatoire."
+          actions={
+            <TagoraIconBadge tone="blue" size="lg">
+              <PenLine size={24} strokeWidth={2.1} />
+            </TagoraIconBadge>
+          }
         >
-          <AppCard
-            className="ui-stack-xs"
+          <div
             style={{
-              border: "2px solid rgba(15, 41, 72, 0.18)",
-              background:
-                "linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(247,250,255,0.98) 100%)",
+              display: "grid",
+              gridTemplateColumns: "minmax(220px, 1.2fr) minmax(180px, 0.9fr) auto",
+              gap: "var(--ui-space-3)",
+              alignItems: "end",
             }}
           >
-            <span className="ui-eyebrow">Action 1</span>
-            <strong style={{ fontSize: 18 }}>Horodateur live</strong>
-            <span className="ui-text-muted">Supervision en temps réel de l&apos;équipe</span>
-          </AppCard>
+            <label className="ui-stack-xs">
+              <span className="ui-eyebrow">Employe</span>
+              <select
+                className="tagora-input"
+                value={selectedEmployeeId}
+                onChange={(event) => setSelectedEmployeeId(event.target.value)}
+              >
+                <option value="">Selectionner</option>
+                {board.map((row) => (
+                  <option key={row.employeeId} value={row.employeeId}>
+                    {row.fullName || row.email || `#${row.employeeId}`}
+                  </option>
+                ))}
+              </select>
+            </label>
 
-          <button
-            type="button"
-            onClick={() => openRetroCorrectionModal()}
-            disabled={isBusy}
-            className="tagora-panel"
-            style={{
-              textAlign: "left",
-              cursor: isBusy ? "not-allowed" : "pointer",
-              border: "2px solid rgba(13, 148, 136, 0.35)",
-              background:
-                "linear-gradient(180deg, rgba(240,253,250,0.98) 0%, rgba(255,255,255,0.98) 100%)",
-              padding: "var(--ui-space-4)",
-              borderRadius: 16,
-              opacity: isBusy ? 0.7 : 1,
-            }}
-          >
-            <span className="ui-eyebrow" style={{ color: "#0f766e" }}>
-              Action 2
-            </span>
-            <strong
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 8,
-                fontSize: 18,
-                marginTop: 4,
-                color: "#0f766e",
-              }}
+            <label className="ui-stack-xs">
+              <span className="ui-eyebrow">Action</span>
+              <select
+                className="tagora-input"
+                value={selectedEventType}
+                onChange={(event) =>
+                  setSelectedEventType(
+                    event.target.value as (typeof DIRECTION_EVENT_TYPES)[number]
+                  )
+                }
+              >
+                {DIRECTION_EVENT_TYPES.map((item) => (
+                  <option key={item} value={item}>
+                    {item}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <PrimaryButton
+              onClick={() => void handleManualPunch()}
+              disabled={isBusy || !hasEmployees}
+              style={{ whiteSpace: "nowrap" }}
             >
-              <ClipboardPen size={18} />
-              Corriger un oubli de punch
-            </strong>
-            <span className="ui-text-muted" style={{ display: "block", marginTop: 6 }}>
-              Demande rétroactive avec approbation admin
-            </span>
-          </button>
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+                <ShieldCheck size={16} />
+                {activeActionKey === "manual-punch"
+                  ? "Enregistrement..."
+                  : "Enregistrer le punch"}
+              </span>
+            </PrimaryButton>
+          </div>
 
-          <Link
-            href="/direction/horodateur/quarts"
-            className="tagora-panel"
-            style={{
-              textDecoration: "none",
-              color: "inherit",
-              border: "1px solid rgba(15, 41, 72, 0.08)",
-              background: "rgba(255,255,255,0.96)",
-              padding: "var(--ui-space-4)",
-              borderRadius: 16,
-            }}
-          >
-            <span className="ui-eyebrow">Action 3</span>
-            <strong
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 8,
-                fontSize: 18,
-                marginTop: 4,
-              }}
-            >
-              <CalendarRange size={18} />
-              Quarts passés
-            </strong>
-            <span className="ui-text-muted" style={{ display: "block", marginTop: 6 }}>
-              Consulter et corriger un quart antérieur
-            </span>
-          </Link>
-        </section>
+          <label className="ui-stack-xs" style={{ marginTop: "var(--ui-space-3)" }}>
+            <span className="ui-eyebrow">Note obligatoire</span>
+            <textarea
+              className="tagora-textarea"
+              value={note}
+              onChange={(event) => setNote(event.target.value)}
+              placeholder="Expliquez la correction ou l intervention direction"
+              style={{ minHeight: 90 }}
+            />
+          </label>
+        </SectionCard>
 
-        <details className="tagora-panel" style={{ padding: "var(--ui-space-4)" }}>
-          <summary
-            style={{
-              cursor: "pointer",
-              fontWeight: 700,
-              fontSize: 15,
-              color: "#0f2948",
-            }}
-          >
-            Statistiques détaillées
-          </summary>
-          <div className="ui-stack-md" style={{ marginTop: "var(--ui-space-4)" }}>
+        <details className="horodateur-direction-secondary-panel">
+          <summary>Statistiques détaillées</summary>
+          <div className="horodateur-direction-secondary-panel-body ui-stack-md">
         <div
           style={{
             display: "grid",
@@ -1638,7 +1609,15 @@ export default function DirectionHorodateurPage() {
           </div>
         </details>
 
-        <SectionCard title="Exceptions a approuver" subtitle="Validation rapide.">
+        <SectionCard
+          title="Exceptions à approuver"
+          subtitle="Validation rapide des demandes en attente."
+          actions={
+            <TagoraIconBadge tone="orange" size="lg">
+              <ShieldCheck size={24} strokeWidth={2.1} />
+            </TagoraIconBadge>
+          }
+        >
           {hasExceptions ? (
             <div
               style={{
@@ -1654,6 +1633,12 @@ export default function DirectionHorodateurPage() {
                 const isRefusing = refusingExceptionId === item.id;
                 const correction = timeCorrectionById[item.id] ?? { main: "", related: "" };
                 const isStaffRetro = isStaffRetroCorrectionException(item);
+                const isAutoMissing = isAutoMissingExpectedPunchException({
+                  reasonLabel: item.reason_label,
+                  details: item.details,
+                });
+                const isAutoMissingPriority =
+                  item.reason_label === MISSING_EXPECTED_PUNCH_PRIORITY_REASON_LABEL;
                 const canReviewException = !isStaffRetro || isAdmin;
 
                 return (
@@ -1661,10 +1646,15 @@ export default function DirectionHorodateurPage() {
                   key={item.id}
                   className="ui-stack-sm"
                   style={{
-                    border: "1px solid rgba(245, 158, 11, 0.32)",
-                    background:
-                      "linear-gradient(180deg, rgba(255,251,235,0.98) 0%, rgba(255,255,255,0.98) 100%)",
-                    boxShadow: "0 14px 28px rgba(120, 53, 15, 0.08)",
+                    border: isAutoMissingPriority
+                      ? "1px solid rgba(220, 38, 38, 0.28)"
+                      : "1px solid rgba(245, 158, 11, 0.32)",
+                    background: isAutoMissingPriority
+                      ? "linear-gradient(180deg, rgba(254,242,242,0.98) 0%, rgba(255,255,255,0.98) 100%)"
+                      : "linear-gradient(180deg, rgba(255,251,235,0.98) 0%, rgba(255,255,255,0.98) 100%)",
+                    boxShadow: isAutoMissingPriority
+                      ? "0 14px 28px rgba(127, 29, 29, 0.1)"
+                      : "0 14px 28px rgba(120, 53, 15, 0.08)",
                   }}
                 >
                   <div
@@ -1680,19 +1670,25 @@ export default function DirectionHorodateurPage() {
                         margin: 0,
                         fontSize: 17,
                         fontWeight: 800,
-                        color: "#92400e",
+                        color: isAutoMissingPriority ? "#991b1b" : "#92400e",
                         lineHeight: 1.35,
                       }}
                     >
                       {isStaffRetro
                         ? "Correction rétroactive à traiter"
-                        : "Exception horodateur à traiter"}
+                        : isAutoMissing
+                          ? MISSING_EXPECTED_PUNCH_REASON_LABEL
+                          : "Exception horodateur à traiter"}
                     </h3>
                     <StatusBadge
                       label={
-                        isStaffRetro ? STAFF_RETRO_CORRECTION_REASON_LABEL : "En attente"
+                        isStaffRetro
+                          ? STAFF_RETRO_CORRECTION_REASON_LABEL
+                          : isAutoMissingPriority
+                            ? "Priorité"
+                            : "En attente"
                       }
-                      tone="warning"
+                      tone={isAutoMissingPriority ? "danger" : "warning"}
                     />
                   </div>
 
@@ -1943,14 +1939,7 @@ export default function DirectionHorodateurPage() {
         </SectionCard>
 
         <SectionCard title="Tableau live" subtitle="Etat courant et progression.">
-          <div
-            style={{
-              display: "flex",
-              gap: "var(--ui-space-2)",
-              flexWrap: "wrap",
-              marginBottom: "var(--ui-space-4)",
-            }}
-          >
+          <div className="horodateur-direction-filter-chips" style={{ marginBottom: "var(--ui-space-4)" }}>
             {[
               ["tous", `Tous (${board.length})`],
               ["en_quart", `En quart (${board.filter((row) => getRowState(row) === "en_quart").length})`],
@@ -1964,16 +1953,9 @@ export default function DirectionHorodateurPage() {
                   key={value}
                   type="button"
                   onClick={() => setLiveFilter(value as LiveFilter)}
-                  style={{
-                    borderRadius: 999,
-                    border: active ? "1px solid #0f2948" : "1px solid rgba(148, 163, 184, 0.28)",
-                    background: active ? "#0f2948" : "#ffffff",
-                    color: active ? "#ffffff" : "#334155",
-                    padding: "8px 14px",
-                    fontSize: 13,
-                    fontWeight: 700,
-                    cursor: "pointer",
-                  }}
+                  className={`horodateur-direction-filter-chip${
+                    active ? " horodateur-direction-filter-chip--active" : ""
+                  }`}
                 >
                   {label}
                 </button>
@@ -2154,338 +2136,21 @@ export default function DirectionHorodateurPage() {
           )}
         </SectionCard>
 
-        <details className="tagora-panel" style={{ padding: 0 }}>
-          <summary
-            style={{
-              cursor: "pointer",
-              fontWeight: 700,
-              fontSize: 15,
-              color: "#0f2948",
-              padding: "var(--ui-space-4)",
-            }}
-          >
-            Punch manuel avancé
-          </summary>
-          <div style={{ padding: "0 var(--ui-space-4) var(--ui-space-4)" }}>
-        <SectionCard title="Action direction" subtitle="Punch manuel trace.">
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "minmax(220px, 1.2fr) minmax(180px, 0.9fr) auto",
-              gap: "var(--ui-space-3)",
-              alignItems: "end",
-            }}
-          >
-            <label className="ui-stack-xs">
-              <span className="ui-eyebrow">Employe</span>
-              <select
-                className="tagora-input"
-                value={selectedEmployeeId}
-                onChange={(event) => setSelectedEmployeeId(event.target.value)}
-              >
-                <option value="">Selectionner</option>
-                {board.map((row) => (
-                  <option key={row.employeeId} value={row.employeeId}>
-                    {row.fullName || row.email || `#${row.employeeId}`}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            <label className="ui-stack-xs">
-              <span className="ui-eyebrow">Action</span>
-              <select
-                className="tagora-input"
-                value={selectedEventType}
-                onChange={(event) =>
-                  setSelectedEventType(
-                    event.target.value as (typeof DIRECTION_EVENT_TYPES)[number]
-                  )
-                }
-              >
-                {DIRECTION_EVENT_TYPES.map((item) => (
-                  <option key={item} value={item}>
-                    {item}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <PrimaryButton
-              onClick={() => void handleManualPunch()}
-              disabled={isBusy || !hasEmployees}
-              style={{ whiteSpace: "nowrap" }}
-            >
-              <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
-                <ShieldCheck size={16} />
-                {activeActionKey === "manual-punch"
-                  ? "Enregistrement..."
-                  : "Enregistrer le punch"}
-              </span>
-            </PrimaryButton>
-          </div>
-
-          <label className="ui-stack-xs" style={{ marginTop: "var(--ui-space-3)" }}>
-            <span className="ui-eyebrow">Note obligatoire</span>
-            <textarea
-              className="tagora-textarea"
-              value={note}
-              onChange={(event) => setNote(event.target.value)}
-              placeholder="Expliquez la correction ou l intervention direction"
-              style={{ minHeight: 90 }}
+        <details className="horodateur-direction-secondary-panel">
+          <summary>Configuration des alertes</summary>
+          <div className="horodateur-direction-secondary-panel-body">
+            <HorodateurDirectionAlertConfigPanel
+              config={config}
+              onConfigChange={setConfig}
+              onSave={() => void handleSaveConfig()}
+              saving={activeActionKey === "save-config"}
+              disabled={isBusy}
+              invalidEmails={invalidEmails}
+              isValidEmail={isValidEmail}
+              onUpdateEmailRow={updateEmailRow}
+              onUpdatePhoneRow={updatePhoneRow}
+              normalizePhoneNumber={normalizePhoneNumber}
             />
-          </label>
-        </SectionCard>
-          </div>
-        </details>
-
-        <details className="tagora-panel" style={{ padding: 0 }}>
-          <summary
-            style={{
-              cursor: "pointer",
-              fontWeight: 700,
-              fontSize: 15,
-              color: "#0f2948",
-              padding: "var(--ui-space-4)",
-            }}
-          >
-            Configuration des alertes
-          </summary>
-          <div style={{ padding: "0 var(--ui-space-4) var(--ui-space-4)" }}>
-        <SectionCard
-          title="Configuration des alertes"
-          subtitle="Destinataires et delai du rappel automatique."
-        >
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-              gap: "var(--ui-space-4)",
-            }}
-          >
-            <label className="ui-stack-xs">
-              <span className="ui-eyebrow">Email active</span>
-              <select
-                className="tagora-input"
-                value={config.email_enabled ? "yes" : "no"}
-                onChange={(event) =>
-                  setConfig((current) => ({
-                    ...current,
-                    email_enabled: event.target.value === "yes",
-                  }))
-                }
-              >
-                <option value="yes">Oui</option>
-                <option value="no">Non</option>
-              </select>
-            </label>
-
-            <label className="ui-stack-xs">
-              <span className="ui-eyebrow">SMS active</span>
-              <select
-                className="tagora-input"
-                value={config.sms_enabled ? "yes" : "no"}
-                onChange={(event) =>
-                  setConfig((current) => ({
-                    ...current,
-                    sms_enabled: event.target.value === "yes",
-                  }))
-                }
-              >
-                <option value="yes">Oui</option>
-                <option value="no">Non</option>
-              </select>
-            </label>
-
-            <label className="ui-stack-xs">
-              <span className="ui-eyebrow">Delai de rappel (minutes)</span>
-              <input
-                className="tagora-input"
-                type="number"
-                min={5}
-                value={config.reminder_delay_minutes}
-                onChange={(event) =>
-                  setConfig((current) => ({
-                    ...current,
-                    reminder_delay_minutes: Math.max(5, Number(event.target.value) || 5),
-                  }))
-                }
-              />
-            </label>
-          </div>
-
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
-              gap: "var(--ui-space-5)",
-              marginTop: "var(--ui-space-4)",
-            }}
-          >
-            <div className="ui-stack-sm">
-              <div className="ui-stack-xs">
-                <span className="ui-eyebrow">Courriels direction</span>
-                <span className="ui-text-muted">Un destinataire par ligne</span>
-              </div>
-
-              {(config.direction_emails.length > 0
-                ? config.direction_emails
-                : [""]).map((value, index) => {
-                const trimmedValue = value.trim();
-                const isInvalid = trimmedValue.length > 0 && !isValidEmail(trimmedValue);
-
-                return (
-                  <div
-                    key={`email-${index}`}
-                    style={{
-                      display: "grid",
-                      gridTemplateColumns: "1fr auto",
-                      gap: "var(--ui-space-3)",
-                      alignItems: "start",
-                    }}
-                  >
-                    <div className="ui-stack-xs">
-                      <input
-                        className="tagora-input"
-                        type="email"
-                        value={value}
-                        onChange={(event) => updateEmailRow(index, event.target.value)}
-                        onBlur={() =>
-                          setConfig((current) => ({
-                            ...current,
-                            direction_emails: current.direction_emails.map((item, itemIndex) =>
-                              itemIndex === index ? item.trim().toLowerCase() : item.trim()
-                            ),
-                          }))
-                        }
-                        placeholder="direction@exemple.com"
-                        style={
-                          isInvalid
-                            ? { borderColor: "rgba(220, 38, 38, 0.45)" }
-                            : undefined
-                        }
-                      />
-                      {isInvalid ? (
-                        <span style={{ color: "#b91c1c", fontSize: 12 }}>
-                          Courriel invalide.
-                        </span>
-                      ) : null}
-                    </div>
-                    <SecondaryButton
-                      onClick={() =>
-                        setConfig((current) => ({
-                          ...current,
-                          direction_emails:
-                            current.direction_emails.length > 1
-                              ? current.direction_emails.filter((_, itemIndex) => itemIndex !== index)
-                              : [""],
-                        }))
-                      }
-                      disabled={isBusy}
-                    >
-                      Supprimer
-                    </SecondaryButton>
-                  </div>
-                );
-              })}
-
-              <div>
-                <SecondaryButton
-                  onClick={() =>
-                    setConfig((current) => ({
-                      ...current,
-                      direction_emails: [...current.direction_emails, ""],
-                    }))
-                  }
-                  disabled={isBusy}
-                >
-                  Ajouter un courriel
-                </SecondaryButton>
-              </div>
-
-              {invalidEmails.length > 0 ? (
-                <span style={{ color: "#b91c1c", fontSize: 12 }}>
-                  Corrigez les courriels invalides avant la sauvegarde.
-                </span>
-              ) : null}
-            </div>
-
-            <div className="ui-stack-sm">
-              <div className="ui-stack-xs">
-                <span className="ui-eyebrow">Numeros SMS direction</span>
-                <span className="ui-text-muted">Un destinataire par ligne</span>
-              </div>
-
-              {(config.direction_sms_numbers.length > 0
-                ? config.direction_sms_numbers
-                : [""]).map((value, index) => (
-                <div
-                  key={`sms-${index}`}
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns: "1fr auto",
-                    gap: "var(--ui-space-3)",
-                    alignItems: "center",
-                  }}
-                >
-                  <input
-                    className="tagora-input"
-                    type="tel"
-                    value={value}
-                    onChange={(event) => updatePhoneRow(index, event.target.value)}
-                    onBlur={() =>
-                      setConfig((current) => ({
-                        ...current,
-                        direction_sms_numbers: current.direction_sms_numbers.map((item, itemIndex) =>
-                          itemIndex === index ? normalizePhoneNumber(item) : item
-                        ),
-                      }))
-                    }
-                    placeholder="+15145550123"
-                  />
-                  <SecondaryButton
-                    onClick={() =>
-                      setConfig((current) => ({
-                        ...current,
-                        direction_sms_numbers:
-                          current.direction_sms_numbers.length > 1
-                            ? current.direction_sms_numbers.filter((_, itemIndex) => itemIndex !== index)
-                            : [""],
-                      }))
-                    }
-                    disabled={isBusy}
-                  >
-                    Supprimer
-                  </SecondaryButton>
-                </div>
-              ))}
-
-              <div>
-                <SecondaryButton
-                  onClick={() =>
-                    setConfig((current) => ({
-                      ...current,
-                      direction_sms_numbers: [...current.direction_sms_numbers, ""],
-                    }))
-                  }
-                  disabled={isBusy}
-                >
-                  Ajouter un numero
-                </SecondaryButton>
-              </div>
-            </div>
-          </div>
-
-          <div style={{ marginTop: "var(--ui-space-4)" }}>
-            <PrimaryButton
-              onClick={() => void handleSaveConfig()}
-              disabled={isBusy || invalidEmails.length > 0}
-            >
-              {activeActionKey === "save-config"
-                ? "Enregistrement..."
-                : "Enregistrer la configuration"}
-            </PrimaryButton>
-          </div>
-        </SectionCard>
           </div>
         </details>
 
@@ -2512,8 +2177,7 @@ export default function DirectionHorodateurPage() {
           onReasonChange={setRetroReason}
           onSubmit={() => void handleRetroCorrectionSubmit()}
         />
-      </div>
-    </main>
+    </HorodateurDirectionPageShell>
   );
 }
 

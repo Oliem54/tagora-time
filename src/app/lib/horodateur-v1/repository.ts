@@ -900,6 +900,43 @@ export async function upsertLatenessNotification(input: {
   return data;
 }
 
+export async function updateExceptionEscalationFields(input: {
+  exceptionId: string;
+  impactMinutes?: number;
+  reasonLabel?: string;
+  details?: string | null;
+}) {
+  const supabase = createAdminSupabaseClient();
+  const updatePayload: Record<string, unknown> = {
+    updated_at: new Date().toISOString(),
+  };
+
+  if (typeof input.impactMinutes === "number") {
+    updatePayload.impact_minutes = Math.max(0, Math.floor(input.impactMinutes));
+  }
+
+  if (typeof input.reasonLabel === "string") {
+    updatePayload.reason_label = input.reasonLabel;
+  }
+
+  if (input.details !== undefined) {
+    updatePayload.details = input.details;
+  }
+
+  const { data, error } = await supabase
+    .from("horodateur_exceptions")
+    .update(updatePayload)
+    .eq("id", input.exceptionId)
+    .select("*")
+    .single<HorodateurPhase1ExceptionRecord>();
+
+  if (error) {
+    throw error;
+  }
+
+  return data;
+}
+
 export async function updateExceptionReview(input: {
   exceptionId: string;
   status: HorodateurPhase1ExceptionRecord["status"];
