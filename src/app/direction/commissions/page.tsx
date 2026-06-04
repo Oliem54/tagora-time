@@ -2,81 +2,49 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import AccessNotice from "@/app/components/AccessNotice";
-import FeedbackMessage from "@/app/components/FeedbackMessage";
 import AuthenticatedPageHeader from "@/app/components/ui/AuthenticatedPageHeader";
 import SectionCard from "@/app/components/ui/SectionCard";
-import AppCard from "@/app/components/ui/AppCard";
-import StatusBadge from "@/app/components/ui/StatusBadge";
 import TagoraLoadingScreen from "@/app/components/ui/TagoraLoadingScreen";
-import { supabase } from "@/app/lib/supabase/client";
 import { useCurrentAccess } from "@/app/hooks/useCurrentAccess";
-import {
-  COMMISSION_STATUS_LABELS,
-  OBJECTIVE_STATUS_LABELS,
-  RULE_TYPE_LABELS,
-  formatCad,
-  firstDayOfMonthIsoLocal,
-  todayIsoLocal,
-  commissionStatusTone,
-  objectiveStatusTone,
-  type CommissionEntryRow,
-  type CommissionsSummary,
-  type SalesObjectiveRow,
-} from "@/app/lib/commissions/commissions.shared";
+import { supabase } from "@/app/lib/supabase/client";
 
-type ChauffeurOption = {
-  id: number;
-  label: string;
-};
-
-type CreateFormState = {
+type DirectionObjectiveOperationalRow = {
+  id: string;
   title: string;
-  description: string;
-  chauffeur_id: string;
-  team_name: string;
+  description: string | null;
+  team_name: string | null;
+  chauffeur_id: number | null;
   period_start: string;
   period_end: string;
-  target_type: "amount" | "sales_count";
-  target_amount: string;
-  target_sales_count: string;
-  rule_type: "fixed" | "percentage" | "tier_bonus";
-  rule_name: string;
-  fixed_amount: string;
-  percentage_rate: string;
+  target_type: string;
+  target_sales_count: number | null;
+  achieved_sales_count: number;
+  status: string;
+  entries_count: number;
+  entries_pending_validation: number;
+  entries_paid: number;
 };
 
-function emptyForm(): CreateFormState {
-  return {
-    title: "",
-    description: "",
-    chauffeur_id: "",
-    team_name: "",
-    period_start: firstDayOfMonthIsoLocal(),
-    period_end: todayIsoLocal(),
-    target_type: "amount",
-    target_amount: "",
-    target_sales_count: "",
-    rule_type: "percentage",
-    rule_name: "Commission principale",
-    fixed_amount: "",
-    percentage_rate: "5",
-  };
+function toNumber(value: unknown) {
+  const parsed = Number(value ?? 0);
+  return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function assigneeLabel(objective: SalesObjectiveRow) {
-  if (objective.chauffeur_label?.trim()) return objective.chauffeur_label;
-  if (objective.team_name?.trim()) return objective.team_name;
-  return "Non assigne";
-}
-
-function targetLabel(objective: SalesObjectiveRow) {
-  if (objective.target_type === "amount") return formatCad(objective.target_amount ?? 0);
-  return `${objective.target_sales_count ?? 0} ventes`;
-}
-
-function achievedLabel(objective: SalesObjectiveRow) {
-  if (objective.target_type === "amount") return formatCad(objective.achieved_amount ?? 0);
-  return `${objective.achieved_sales_count ?? 0} ventes`;
+function statusLabel(value: string | null) {
+  switch ((value ?? "").toLowerCase()) {
+    case "active":
+      return "Actif";
+    case "achieved":
+      return "Atteint";
+    case "partially_achieved":
+      return "Partiel";
+    case "behind":
+      return "En retard";
+    case "cancelled":
+      return "Annule";
+    default:
+      return "Brouillon";
+  }
 }
 
 export default function DirectionCommissionsPage() {
@@ -84,634 +52,201 @@ export default function DirectionCommissionsPage() {
   const canUseCommissions = hasPermission("commissions");
 
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [message, setMessage] = useState("");
-  const [messageType, setMessageType] = useState<"success" | "error" | null>(null);
-  const [summary, setSummary] = useState<CommissionsSummary | null>(null);
-  const [objectives, setObjectives] = useState<SalesObjectiveRow[]>([]);
-  const [entries, setEntries] = useState<CommissionEntryRow[]>([]);
-  const [chauffeurs, setChauffeurs] = useState<ChauffeurOption[]>([]);
-  const [showCreateForm, setShowCreateForm] = useState(false);
-  const [createForm, setCreateForm] = useState<CreateFormState>(() => emptyForm());
-  const [actionKey, setActionKey] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState("");
+  const [rows, setRows] = useState<DirectionObjectiveOperationalRow[]>([]);
 
-  const loadData = useCallback(async () => {
+  const loadRows = useCallback(async () => {
     setLoading(true);
-    setMessage("");
-    setMessageType(null);
+    setErrorMessage("");
 
-    const [summaryRes, objectivesRes, entriesRes, chauffeursRes] = await Promise.all([
-      fetch("/api/direction/commissions/summary", { cache: "no-store" }),
-      fetch("/api/direction/commissions/objectives", { cache: "no-store" }),
-      fetch("/api/direction/commissions/entries", { cache: "no-store" }),
-      supabase
-        .from("chauffeurs")
-        .select("id, nom, prenom, nom_complet, actif")
-        .order("nom", { ascending: true }),
-    ]);
+    const { data, error } = await supabase
+      .from("direction_objectives_operational_view")
+      .select(
+        "id, title, description, team_name, chauffeur_id, period_start, period_end, target_type, target_sales_count, achieved_sales_count, status, entries_count, entries_pending_validation, entries_paid"
+      )
+      .order("period_end", { ascending: false })
+      .order("created_at", { ascending: false });
 
-    const summaryJson = (await summaryRes.json().catch(() => ({}))) as {
-      summary?: CommissionsSummary;
-      error?: string;
-    };
-    const objectivesJson = (await objectivesRes.json().catch(() => ({}))) as {
-      objectives?: SalesObjectiveRow[];
-      error?: string;
-    };
-    const entriesJson = (await entriesRes.json().catch(() => ({}))) as {
-      entries?: CommissionEntryRow[];
-      error?: string;
-    };
-
-    if (!summaryRes.ok || !objectivesRes.ok || !entriesRes.ok) {
-      setSummary(null);
-      setObjectives([]);
-      setEntries([]);
-      setMessage(
-        summaryJson.error ||
-          objectivesJson.error ||
-          entriesJson.error ||
-          "Impossible de charger le module commissions."
-      );
-      setMessageType("error");
-    } else {
-      setSummary(summaryJson.summary ?? null);
-      setObjectives(Array.isArray(objectivesJson.objectives) ? objectivesJson.objectives : []);
-      setEntries(Array.isArray(entriesJson.entries) ? entriesJson.entries : []);
+    if (error) {
+      setRows([]);
+      setErrorMessage(error.message);
+      setLoading(false);
+      return;
     }
 
-    if (!chauffeursRes.error) {
-      setChauffeurs(
-        (chauffeursRes.data ?? [])
-          .map((row) => {
-            const record = row as Record<string, unknown>;
-            const id = Number(record.id);
-            const label = String(
-              record.nom_complet ||
-                [record.prenom, record.nom].filter(Boolean).join(" ") ||
-                `#${id}`
-            ).trim();
-            return Number.isFinite(id) ? { id, label } : null;
-          })
-          .filter((item): item is ChauffeurOption => item !== null)
-      );
-    } else {
-      setChauffeurs([]);
-    }
-
+    setRows(
+      (data ?? []).map((row: Record<string, unknown>) => ({
+        id: String(row.id ?? ""),
+        title: String(row.title ?? ""),
+        description: typeof row.description === "string" ? row.description : null,
+        team_name: typeof row.team_name === "string" ? row.team_name : null,
+        chauffeur_id:
+          typeof row.chauffeur_id === "number" ? row.chauffeur_id : toNumber(row.chauffeur_id),
+        period_start: String(row.period_start ?? ""),
+        period_end: String(row.period_end ?? ""),
+        target_type: String(row.target_type ?? ""),
+        target_sales_count:
+          row.target_sales_count == null ? null : Math.trunc(toNumber(row.target_sales_count)),
+        achieved_sales_count: Math.trunc(toNumber(row.achieved_sales_count)),
+        status: String(row.status ?? "draft"),
+        entries_count: Math.trunc(toNumber(row.entries_count)),
+        entries_pending_validation: Math.trunc(toNumber(row.entries_pending_validation)),
+        entries_paid: Math.trunc(toNumber(row.entries_paid)),
+      }))
+    );
     setLoading(false);
   }, []);
 
   useEffect(() => {
     if (accessLoading || !user || !canUseCommissions) return;
-    void loadData();
-  }, [accessLoading, canUseCommissions, loadData, user]);
+    void loadRows();
+  }, [accessLoading, canUseCommissions, loadRows, user]);
 
-  const kpiCards = useMemo(
-    () => [
-      { label: "Objectifs actifs", value: String(summary?.activeObjectives ?? 0) },
-      { label: "Objectifs atteints", value: String(summary?.achievedObjectives ?? 0) },
-      { label: "Objectifs en retard", value: String(summary?.behindObjectives ?? 0) },
-      { label: "Commissions estimees", value: formatCad(summary?.estimatedCommissions ?? 0) },
-      { label: "A valider", value: formatCad(summary?.pendingValidationCommissions ?? 0) },
-      { label: "Commissions payees", value: formatCad(summary?.paidCommissions ?? 0) },
-    ],
-    [summary]
-  );
+  const summary = useMemo(() => {
+    return rows.reduce(
+      (acc, row) => {
+        acc.total += 1;
+        if (row.status === "active" || row.status === "partially_achieved") acc.active += 1;
+        if (row.status === "achieved") acc.achieved += 1;
+        if (row.status === "behind") acc.behind += 1;
+        acc.pendingValidation += row.entries_pending_validation;
+        return acc;
+      },
+      { total: 0, active: 0, achieved: 0, behind: 0, pendingValidation: 0 }
+    );
+  }, [rows]);
 
-  async function createObjective(publish: boolean) {
-    setSaving(true);
-    setMessage("");
-    setMessageType(null);
-    try {
-      const res = await fetch("/api/direction/commissions/objectives", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ...createForm,
-          chauffeur_id: createForm.chauffeur_id ? Number(createForm.chauffeur_id) : null,
-          target_amount: createForm.target_amount ? Number(createForm.target_amount) : null,
-          target_sales_count: createForm.target_sales_count
-            ? Number(createForm.target_sales_count)
-            : null,
-          achieved_amount: 0,
-          achieved_sales_count: 0,
-          publish,
-          rules: [
-            {
-              rule_name: createForm.rule_name,
-              rule_type: createForm.rule_type,
-              fixed_amount:
-                createForm.rule_type === "fixed" ? Number(createForm.fixed_amount || 0) : null,
-              percentage_rate:
-                createForm.rule_type === "percentage"
-                  ? Number(createForm.percentage_rate || 0)
-                  : null,
-              tier_config:
-                createForm.rule_type === "tier_bonus"
-                  ? [{ threshold: 0, bonus_amount: Number(createForm.fixed_amount || 0) }]
-                  : [],
-            },
-          ],
-        }),
-      });
-      const payload = (await res.json().catch(() => ({}))) as { error?: string };
-      if (!res.ok) throw new Error(payload.error || "Creation impossible.");
-
-      setShowCreateForm(false);
-      setCreateForm(emptyForm());
-      setMessage(publish ? "Objectif publie." : "Objectif enregistre en brouillon.");
-      setMessageType("success");
-      await loadData();
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Erreur creation.");
-      setMessageType("error");
-    } finally {
-      setSaving(false);
-    }
+  if (accessLoading || (!errorMessage && !canUseCommissions && !!user) || (canUseCommissions && loading)) {
+    return <TagoraLoadingScreen isLoading message="Chargement des objectifs..." fullScreen />;
   }
 
-  async function updateAchieved(objective: SalesObjectiveRow) {
-    const promptValue =
-      objective.target_type === "amount"
-        ? window.prompt("Realise ($ CAD)", String(objective.achieved_amount ?? 0))
-        : window.prompt("Realise (nombre de ventes)", String(objective.achieved_sales_count ?? 0));
-    if (promptValue == null) return;
-
-    setActionKey(`achieved:${objective.id}`);
-    try {
-      const body =
-        objective.target_type === "amount"
-          ? { achieved_amount: Number(promptValue) }
-          : { achieved_sales_count: Number(promptValue) };
-
-      const res = await fetch(`/api/direction/commissions/objectives/${objective.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      const payload = (await res.json().catch(() => ({}))) as { error?: string };
-      if (!res.ok) throw new Error(payload.error || "Mise a jour impossible.");
-      await loadData();
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Erreur saisie realise.");
-      setMessageType("error");
-    } finally {
-      setActionKey(null);
-    }
+  if (!user) {
+    return (
+      <div className="page-container">
+        <AccessNotice title="Session requise" description="Connectez-vous pour continuer." />
+      </div>
+    );
   }
-
-  async function recalculateObjective(objectiveId: string) {
-    setActionKey(`recalc:${objectiveId}`);
-    try {
-      const res = await fetch(`/api/direction/commissions/objectives/${objectiveId}/recalculate`, {
-        method: "POST",
-      });
-      const payload = (await res.json().catch(() => ({}))) as { error?: string };
-      if (!res.ok) throw new Error(payload.error || "Recalcul impossible.");
-      setMessage("Commissions recalculees.");
-      setMessageType("success");
-      await loadData();
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Erreur recalcul.");
-      setMessageType("error");
-    } finally {
-      setActionKey(null);
-    }
-  }
-
-  async function patchEntry(entryId: string, action: "validate" | "pay" | "cancel") {
-    setActionKey(`${action}:${entryId}`);
-    try {
-      const res = await fetch(`/api/direction/commissions/entries/${entryId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action }),
-      });
-      const payload = (await res.json().catch(() => ({}))) as { error?: string };
-      if (!res.ok) throw new Error(payload.error || "Action impossible.");
-      setMessage("Commission mise a jour.");
-      setMessageType("success");
-      await loadData();
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Erreur commission.");
-      setMessageType("error");
-    } finally {
-      setActionKey(null);
-    }
-  }
-
-  if (accessLoading || (canUseCommissions && loading)) {
-    return <TagoraLoadingScreen isLoading message="Chargement du module commissions..." fullScreen />;
-  }
-
-  if (!user) return null;
 
   if (!canUseCommissions) {
     return (
-      <main className="page-container">
-        <AuthenticatedPageHeader title="Commissions & objectifs" subtitle="" showNavigation={false} />
-        <AccessNotice description="Permission commissions requise." />
-      </main>
+      <div className="page-container">
+        <AccessNotice
+          title="Acces refuse"
+          description="La permission commissions est requise pour consulter les objectifs."
+        />
+      </div>
     );
   }
 
   return (
-    <main className="page-container commissions-page">
+    <main className="page-container">
       <AuthenticatedPageHeader
-        title="Commissions & objectifs"
-        subtitle="Objectifs de vente, performance et suivi des commissions."
+        title="Objectifs & performance"
+        subtitle="Vue Direction operationnelle : objectifs et performance sans montants de commission."
       />
 
-      {message && messageType ? (
-        <FeedbackMessage message={message} type={messageType} />
+      {errorMessage ? (
+        <div style={{ marginTop: 20 }}>
+          <AccessNotice title="Chargement limite" description={errorMessage} />
+        </div>
       ) : null}
 
-      <section className="commissions-kpi-grid">
-        {kpiCards.map((card) => (
-          <AppCard key={card.label} className="commissions-kpi-card">
-            <span className="tagora-label">{card.label}</span>
-            <strong className="commissions-kpi-value">{card.value}</strong>
-          </AppCard>
-        ))}
-      </section>
-
-      <div className="commissions-toolbar">
-        <button
-          type="button"
-          className="tagora-dark-action"
-          onClick={() => setShowCreateForm((prev) => !prev)}
+      <SectionCard
+        title="Indicateurs operationnels"
+        subtitle="Suivi des objectifs et du workflow, sans donnees monetaires."
+        className="ui-stack-sm"
+      >
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
+            gap: 12,
+          }}
         >
-          {showCreateForm ? "Fermer le formulaire" : "Nouvel objectif"}
-        </button>
-      </div>
-
-      {showCreateForm ? (
-        <SectionCard title="Creer un objectif" subtitle="Saisie manuelle direction (v1).">
-          <div className="commissions-form-grid">
-            <label className="tagora-field">
-              <span className="tagora-label">Titre</span>
-              <input
-                className="tagora-input"
-                value={createForm.title}
-                onChange={(e) => setCreateForm({ ...createForm, title: e.target.value })}
-              />
-            </label>
-            <label className="tagora-field">
-              <span className="tagora-label">Employe / representant</span>
-              <select
-                className="tagora-input"
-                value={createForm.chauffeur_id}
-                onChange={(e) => setCreateForm({ ...createForm, chauffeur_id: e.target.value })}
-              >
-                <option value="">— Choisir —</option>
-                {chauffeurs.map((item) => (
-                  <option key={item.id} value={String(item.id)}>
-                    {item.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="tagora-field">
-              <span className="tagora-label">Equipe (si pas d employe)</span>
-              <input
-                className="tagora-input"
-                value={createForm.team_name}
-                onChange={(e) => setCreateForm({ ...createForm, team_name: e.target.value })}
-                placeholder="Ex.: Equipe showroom"
-              />
-            </label>
-            <label className="tagora-field">
-              <span className="tagora-label">Debut periode</span>
-              <input
-                type="date"
-                className="tagora-input"
-                value={createForm.period_start}
-                onChange={(e) => setCreateForm({ ...createForm, period_start: e.target.value })}
-              />
-            </label>
-            <label className="tagora-field">
-              <span className="tagora-label">Fin periode</span>
-              <input
-                type="date"
-                className="tagora-input"
-                value={createForm.period_end}
-                onChange={(e) => setCreateForm({ ...createForm, period_end: e.target.value })}
-              />
-            </label>
-            <label className="tagora-field">
-              <span className="tagora-label">Type de cible</span>
-              <select
-                className="tagora-input"
-                value={createForm.target_type}
-                onChange={(e) =>
-                  setCreateForm({
-                    ...createForm,
-                    target_type: e.target.value === "sales_count" ? "sales_count" : "amount",
-                  })
-                }
-              >
-                <option value="amount">Montant ($)</option>
-                <option value="sales_count">Nombre de ventes</option>
-              </select>
-            </label>
-            {createForm.target_type === "amount" ? (
-              <label className="tagora-field">
-                <span className="tagora-label">Montant cible (CAD)</span>
-                <input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  className="tagora-input"
-                  value={createForm.target_amount}
-                  onChange={(e) => setCreateForm({ ...createForm, target_amount: e.target.value })}
-                />
-              </label>
-            ) : (
-              <label className="tagora-field">
-                <span className="tagora-label">Nombre de ventes cible</span>
-                <input
-                  type="number"
-                  min="1"
-                  step="1"
-                  className="tagora-input"
-                  value={createForm.target_sales_count}
-                  onChange={(e) =>
-                    setCreateForm({ ...createForm, target_sales_count: e.target.value })
-                  }
-                />
-              </label>
-            )}
-            <label className="tagora-field">
-              <span className="tagora-label">Regle de commission</span>
-              <select
-                className="tagora-input"
-                value={createForm.rule_type}
-                onChange={(e) =>
-                  setCreateForm({
-                    ...createForm,
-                    rule_type:
-                      e.target.value === "percentage" || e.target.value === "tier_bonus"
-                        ? e.target.value
-                        : "fixed",
-                  })
-                }
-              >
-                {Object.entries(RULE_TYPE_LABELS).map(([value, label]) => (
-                  <option key={value} value={value}>
-                    {label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            {createForm.rule_type === "fixed" || createForm.rule_type === "tier_bonus" ? (
-              <label className="tagora-field">
-                <span className="tagora-label">
-                  {createForm.rule_type === "fixed" ? "Montant fixe (CAD)" : "Bonus palier initial (CAD)"}
-                </span>
-                <input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  className="tagora-input"
-                  value={createForm.fixed_amount}
-                  onChange={(e) => setCreateForm({ ...createForm, fixed_amount: e.target.value })}
-                />
-              </label>
-            ) : null}
-            {createForm.rule_type === "percentage" ? (
-              <label className="tagora-field">
-                <span className="tagora-label">Pourcentage (%)</span>
-                <input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  className="tagora-input"
-                  value={createForm.percentage_rate}
-                  onChange={(e) =>
-                    setCreateForm({ ...createForm, percentage_rate: e.target.value })
-                  }
-                />
-              </label>
-            ) : null}
-            <label className="tagora-field commissions-form-span-2">
-              <span className="tagora-label">Description</span>
-              <textarea
-                className="tagora-textarea"
-                rows={3}
-                value={createForm.description}
-                onChange={(e) => setCreateForm({ ...createForm, description: e.target.value })}
-              />
-            </label>
+          <div className="tagora-panel-muted" style={{ padding: 12 }}>
+            <div className="tagora-label">Objectifs</div>
+            <div style={{ marginTop: 6, fontWeight: 800 }}>{summary.total}</div>
           </div>
-          <div className="commissions-form-actions">
-            <button
-              type="button"
-              className="tagora-dark-outline-action"
-              disabled={saving}
-              onClick={() => void createObjective(false)}
-            >
-              Enregistrer brouillon
-            </button>
-            <button
-              type="button"
-              className="tagora-dark-action"
-              disabled={saving}
-              onClick={() => void createObjective(true)}
-            >
-              {saving ? "Enregistrement..." : "Publier objectif"}
-            </button>
+          <div className="tagora-panel-muted" style={{ padding: 12 }}>
+            <div className="tagora-label">Actifs</div>
+            <div style={{ marginTop: 6, fontWeight: 800 }}>{summary.active}</div>
           </div>
-        </SectionCard>
-      ) : null}
+          <div className="tagora-panel-muted" style={{ padding: 12 }}>
+            <div className="tagora-label">Atteints</div>
+            <div style={{ marginTop: 6, fontWeight: 800 }}>{summary.achieved}</div>
+          </div>
+          <div className="tagora-panel-muted" style={{ padding: 12 }}>
+            <div className="tagora-label">En retard</div>
+            <div style={{ marginTop: 6, fontWeight: 800 }}>{summary.behind}</div>
+          </div>
+          <div className="tagora-panel-muted" style={{ padding: 12 }}>
+            <div className="tagora-label">Entrees a valider</div>
+            <div style={{ marginTop: 6, fontWeight: 800 }}>{summary.pendingValidation}</div>
+          </div>
+        </div>
+      </SectionCard>
 
-      <div className="commissions-panels">
-        <SectionCard title="Objectifs" subtitle="Performance par employe, representant ou equipe.">
-          {objectives.length === 0 ? (
-            <p className="ui-text-muted">Aucun objectif pour le moment.</p>
-          ) : (
-            <div className="commissions-list">
-              {objectives.map((objective) => {
-                const status = objective.computed_status ?? objective.status;
-                return (
-                  <AppCard key={objective.id} className="commissions-list-item">
-                    <div className="commissions-list-head">
-                      <div>
-                        <strong>{objective.title}</strong>
-                        <p className="ui-text-muted">
-                          {assigneeLabel(objective)} · {objective.period_start} → {objective.period_end}
-                        </p>
-                      </div>
-                      <StatusBadge
-                        label={OBJECTIVE_STATUS_LABELS[status]}
-                        tone={objectiveStatusTone(status)}
-                      />
+      <SectionCard
+        title="Objectifs"
+        subtitle="Performance non monetaire pour pilotage operationnel."
+        className="ui-stack-sm"
+      >
+        <div className="tagora-panel" style={{ overflowX: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.92rem" }}>
+            <thead>
+              <tr style={{ textAlign: "left", borderBottom: "1px solid #e2e8f0" }}>
+                <th style={{ padding: "10px 12px" }}>Objectif</th>
+                <th style={{ padding: "10px 12px" }}>Periode</th>
+                <th style={{ padding: "10px 12px" }}>Type</th>
+                <th style={{ padding: "10px 12px" }}>Cible (non monetaire)</th>
+                <th style={{ padding: "10px 12px" }}>Realise</th>
+                <th style={{ padding: "10px 12px" }}>Statut</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row) => (
+                <tr key={row.id} style={{ borderBottom: "1px solid #f1f5f9" }}>
+                  <td style={{ padding: "10px 12px" }}>
+                    <div style={{ fontWeight: 700 }}>{row.title}</div>
+                    <div className="tagora-note" style={{ marginTop: 4 }}>
+                      {row.team_name
+                        ? `Equipe: ${row.team_name}`
+                        : row.chauffeur_id
+                          ? `Employe #${row.chauffeur_id}`
+                          : "Affectation operationnelle"}
                     </div>
-                    <div className="commissions-list-meta">
-                      <span>Cible: {targetLabel(objective)}</span>
-                      <span>Realise: {achievedLabel(objective)}</span>
-                      <span>Progression: {objective.progress_percent ?? 0}%</span>
-                    </div>
-                    <div className="commissions-list-actions">
-                      <button
-                        type="button"
-                        className="tagora-dark-outline-action"
-                        disabled={actionKey != null}
-                        onClick={() => void updateAchieved(objective)}
-                      >
-                        Saisir realise
-                      </button>
-                      <button
-                        type="button"
-                        className="tagora-dark-outline-action"
-                        disabled={actionKey != null}
-                        onClick={() => void recalculateObjective(objective.id)}
-                      >
-                        Recalculer
-                      </button>
-                    </div>
-                  </AppCard>
-                );
-              })}
-            </div>
-          )}
-        </SectionCard>
-
-        <SectionCard title="Commissions" subtitle="Estimees, a valider et payees.">
-          {entries.length === 0 ? (
-            <p className="ui-text-muted">Aucune commission calculee.</p>
-          ) : (
-            <div className="commissions-list">
-              {entries.map((entry) => (
-                <AppCard key={entry.id} className="commissions-list-item">
-                  <div className="commissions-list-head">
-                    <div>
-                      <strong>{entry.label}</strong>
-                      <p className="ui-text-muted">
-                        {entry.objective_title || "Objectif"} · {entry.period_start} → {entry.period_end}
-                      </p>
-                    </div>
-                    <StatusBadge
-                      label={COMMISSION_STATUS_LABELS[entry.status]}
-                      tone={commissionStatusTone(entry.status)}
-                    />
-                  </div>
-                  <div className="commissions-list-meta">
-                    <span>Base: {formatCad(entry.sales_basis_amount)}</span>
-                    <span>Montant: {formatCad(entry.calculated_amount)}</span>
-                  </div>
-                  <div className="commissions-list-actions">
-                    {entry.status === "estimated" ? (
-                      <button
-                        type="button"
-                        className="tagora-dark-outline-action"
-                        disabled={actionKey != null}
-                        onClick={() => void patchEntry(entry.id, "validate")}
-                      >
-                        Marquer a valider
-                      </button>
-                    ) : null}
-                    {entry.status === "pending_validation" ? (
-                      <button
-                        type="button"
-                        className="tagora-dark-action"
-                        disabled={actionKey != null}
-                        onClick={() => void patchEntry(entry.id, "pay")}
-                      >
-                        Marquer payee
-                      </button>
-                    ) : null}
-                    {entry.status === "estimated" || entry.status === "pending_validation" ? (
-                      <button
-                        type="button"
-                        className="tagora-dark-outline-action"
-                        disabled={actionKey != null}
-                        onClick={() => void patchEntry(entry.id, "cancel")}
-                      >
-                        Annuler
-                      </button>
-                    ) : null}
-                  </div>
-                </AppCard>
+                  </td>
+                  <td style={{ padding: "10px 12px" }}>
+                    {row.period_start} - {row.period_end}
+                  </td>
+                  <td style={{ padding: "10px 12px" }}>
+                    {row.target_type === "sales_count" ? "Volume" : "Objectif qualitatif"}
+                  </td>
+                  <td style={{ padding: "10px 12px" }}>
+                    {row.target_type === "sales_count" && row.target_sales_count != null
+                      ? `${row.target_sales_count} ventes`
+                      : "Reserve admin"}
+                  </td>
+                  <td style={{ padding: "10px 12px" }}>
+                    {row.target_type === "sales_count"
+                      ? `${row.achieved_sales_count} ventes`
+                      : "Suivi operationnel"}
+                  </td>
+                  <td style={{ padding: "10px 12px" }}>{statusLabel(row.status)}</td>
+                </tr>
               ))}
-            </div>
-          )}
-        </SectionCard>
-      </div>
-
-      <style jsx>{`
-        .commissions-kpi-grid {
-          display: grid;
-          grid-template-columns: repeat(6, minmax(0, 1fr));
-          gap: 12px;
-          margin-bottom: 20px;
-        }
-        .commissions-kpi-card {
-          display: grid;
-          gap: 8px;
-        }
-        .commissions-kpi-value {
-          font-size: 1.35rem;
-        }
-        .commissions-toolbar {
-          display: flex;
-          justify-content: flex-end;
-          margin-bottom: 16px;
-        }
-        .commissions-form-grid {
-          display: grid;
-          grid-template-columns: repeat(2, minmax(0, 1fr));
-          gap: 12px;
-        }
-        .commissions-form-span-2 {
-          grid-column: span 2;
-        }
-        .commissions-form-actions {
-          display: flex;
-          flex-wrap: wrap;
-          gap: 10px;
-          justify-content: flex-end;
-          margin-top: 16px;
-        }
-        .commissions-panels {
-          display: grid;
-          grid-template-columns: repeat(2, minmax(0, 1fr));
-          gap: 16px;
-        }
-        .commissions-list {
-          display: grid;
-          gap: 12px;
-        }
-        .commissions-list-item {
-          display: grid;
-          gap: 10px;
-        }
-        .commissions-list-head,
-        .commissions-list-meta,
-        .commissions-list-actions {
-          display: flex;
-          flex-wrap: wrap;
-          gap: 10px;
-          align-items: center;
-          justify-content: space-between;
-        }
-        .commissions-list-meta {
-          color: var(--ui-text-muted, #64748b);
-          font-size: 0.92rem;
-        }
-        @media (max-width: 1100px) {
-          .commissions-kpi-grid {
-            grid-template-columns: repeat(2, minmax(0, 1fr));
-          }
-          .commissions-panels,
-          .commissions-form-grid {
-            grid-template-columns: 1fr;
-          }
-          .commissions-form-span-2 {
-            grid-column: span 1;
-          }
-        }
-      `}</style>
+              {rows.length === 0 ? (
+                <tr>
+                  <td colSpan={6} style={{ padding: "16px 12px", color: "#64748b" }}>
+                    Aucun objectif disponible.
+                  </td>
+                </tr>
+              ) : null}
+            </tbody>
+          </table>
+        </div>
+      </SectionCard>
     </main>
   );
 }

@@ -47,7 +47,7 @@ export default function DirectionPaieOperationalPage() {
     setErrorMessage("");
 
     const { data, error } = await supabase
-      .from("payroll_company_summary")
+      .from("direction_payroll_operational_summary")
       .select("employe_id, employe_nom, first_work_date, last_work_date, total_hours");
 
     if (error) {

@@ -349,7 +349,7 @@ export default function DirectionPayrollByCompanyPage() {
     return (
       <div className="page-container">
         <HeaderTagora
-          title="Paie par compagnie"
+          title="Repartition Oliem / Titan"
           subtitle=""
           showNavigation={false}
         />
@@ -366,7 +366,7 @@ export default function DirectionPayrollByCompanyPage() {
     return (
       <div className="page-container">
         <HeaderTagora
-          title="Paie par compagnie"
+          title="Repartition Oliem / Titan"
           subtitle=""
           showNavigation={false}
         />
@@ -378,11 +378,11 @@ export default function DirectionPayrollByCompanyPage() {
   return (
     <div className="page-container">
       <DirectionFinancePhase2Notice
-        moduleName="Paie par compagnie"
+        moduleName="Repartition Oliem / Titan"
         adminHref="/admin/paie-compagnies"
       />
       <HeaderTagora
-        title="Paie par compagnie"
+        title="Repartition Oliem / Titan"
         subtitle=""
         showNavigation={false}
       />

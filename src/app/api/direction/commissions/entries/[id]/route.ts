@@ -1,12 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getUserDisplayName, mapEntryRow, requireCommissionsAccess } from "@/app/api/direction/commissions/_lib";
+import {
+  getUserDisplayName,
+  mapEntryRow,
+  requireAdminFinanceCommissionsAccess,
+} from "@/app/api/direction/commissions/_lib";
 
 export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const auth = await requireCommissionsAccess(req);
+    const auth = await requireAdminFinanceCommissionsAccess(req);
     if (!auth.ok) return auth.response;
     const { supabase, user } = auth;
     const { id } = await params;

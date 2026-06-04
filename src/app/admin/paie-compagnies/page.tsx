@@ -5,7 +5,7 @@ import DirectionPayrollByCompanyPage from "@/app/direction/paie-compagnies/Direc
 
 export default function AdminPaieCompagniesPage() {
   return (
-    <AdminFinanceGate moduleLabel="Paie par compagnie">
+    <AdminFinanceGate moduleLabel="Repartition Oliem / Titan">
       <DirectionPayrollByCompanyPage />
     </AdminFinanceGate>
   );

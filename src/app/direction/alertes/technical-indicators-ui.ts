@@ -164,13 +164,14 @@ export function humanizeTechnicalIndicator(row: QueueRowForUi): HumanTechnicalIn
       extraTech = [{ label: "Source (réf.)", value: "livraisons_planifiees (statut en_retard)" }];
       break;
     case "titan-validation":
-      title = "Refacturation Titan";
+      title = "Refacturation intercompagnies";
       summary =
         n === 0
-          ? "Aucune ligne Titan en attente de validation."
-          : `${n} élément${n > 1 ? "s" : ""} à valider pour la refacturation Titan.`;
+          ? "Aucune ligne en attente de validation pour la refacturation intercompagnies."
+          : `${n} élément${n > 1 ? "s" : ""} à valider pour la refacturation intercompagnies.`;
       probableCause = "Données horaires ou taux nécessitant validation avant prise en compte.";
-      recommendedAction = "Ouvrir le module temps Titan pour valider ou corriger les lignes en attente.";
+      recommendedAction =
+        "Ouvrir le module Suivi des heures pour valider ou corriger les lignes en attente.";
       extraTech = [{ label: "Source (réf.)", value: "temps_titan (si présente en base)" }];
       break;
     default:

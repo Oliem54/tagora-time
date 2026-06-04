@@ -117,7 +117,7 @@ const CATEGORY_ORDER = [
   "Horodateur",
   "Livraisons / Ramassages",
   "Dépenses",
-  "Refacturation Titan",
+  "Refacturation intercompagnies",
   "Améliorations",
   "Système",
 ] as const;

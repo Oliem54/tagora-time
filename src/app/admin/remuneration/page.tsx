@@ -10,33 +10,33 @@ const FINANCE_MODULE_LINKS = [
   { href: "/admin/paie", label: "Paie (synthese)", description: "Vue payroll_company_summary." },
   {
     href: "/admin/paie-compagnies",
-    label: "Paie par compagnie",
-    description: "Detail lignes temps_titan et ventilation Oliem / Titan.",
+    label: "Repartition Oliem / Titan",
+    description: "Detail des heures par compagnie et ventilation Oliem / Titan.",
   },
   {
     href: "/admin/temps-titan-finance",
-    label: "Temps Titan (finance)",
-    description: "Saisie temps, taux salariaux, marges et refacturation.",
+    label: "Journal des heures et couts",
+    description: "Saisie des heures, taux horaires, marges et refacturation intercompagnies.",
   },
   {
     href: "/admin/facturation-titan",
-    label: "Facturation Titan",
-    description: "Montants facturables et salaires par entree.",
+    label: "Refacturation intercompagnies",
+    description: "Montants a refacturer entre Oliem et Titan par entree.",
   },
   {
     href: "/admin/commissions",
     label: "Commissions & objectifs",
-    description: "A venir sur cette branche (MVP commissions non inclus).",
+    description: "Objectifs de vente, regles et suivi des commissions.",
   },
 ] as const;
 
 export default function AdminRemunerationPage() {
   return (
-    <AdminFinanceGate moduleLabel="Remuneration">
+    <AdminFinanceGate moduleLabel="Finance & remuneration">
       <main className="page-container">
         <AuthenticatedPageHeader
-          title="Remuneration"
-          subtitle="Hub admin pour paie, taux, commissions et donnees confidentielles (phase 1)."
+          title="Finance & remuneration"
+          subtitle="Hub admin pour paie, heures par compagnie, refacturation intercompagnies et donnees financieres reservees a l administration."
         />
 
         <p className="tagora-note" style={{ marginTop: 0, lineHeight: 1.55 }}>
