@@ -1,6 +1,16 @@
 -- Phase 2B-2: durcissement finance via vues operationnelles Direction.
 -- Objectif: Direction sans montants financiers sensibles, Admin complet.
 -- IMPORTANT: migration locale uniquement (aucune execution prod automatique).
+--
+-- Perimetre (separation explicite):
+--   Finance interne confidentielle (admin seulement, tables brutes):
+--     temps_titan, sales_objectives, commission_rules, commission_entries
+--     + colonnes sensibles exclues des vues direction_* (taux, montants paie, commissions)
+--   Finance operationnelle client / livraison / ramassage (hors migration):
+--     livraisons_planifiees (payment_*, montants client), clients, operations, dossiers
+--     — RLS existant (permissions livraisons) inchange par ce fichier
+--   Chauffeurs: table partagee; lecture Direction restauree pour modules operationnels
+--     (livraisons, ramassages, terrain, ressources) sans reouvrir commissions/paie.
 
 begin;
 
@@ -31,8 +41,19 @@ as $$
   select public.current_app_role() = 'direction'
 $$;
 
+create or replace function public.is_direction_or_admin()
+returns boolean
+language sql
+stable
+as $$
+  select public.current_app_role() in ('direction', 'admin')
+$$;
+
 -- ---------------------------------------------------------------------------
 -- Vues operationnelles Direction (sans montants/taux/marges/couts)
+-- Acces: Direction/Admin uniquement via barriere de role dans la vue.
+-- Les vues direction_* n'utilisent pas security_invoker: les tables brutes
+-- restent admin-only au niveau RLS; la vue filtre le role avant exposition.
 -- ---------------------------------------------------------------------------
 
 drop view if exists public.direction_temps_titan_operational;
@@ -62,7 +83,8 @@ select
   tt.statut_paiement_titan,
   tt.source_type,
   tt.source_id
-from public.temps_titan tt;
+from public.temps_titan tt
+where public.is_direction_or_admin();
 
 comment on view public.direction_temps_titan_operational is
   'Vue Direction operationnelle de temps_titan, sans colonnes financieres sensibles.';
@@ -76,7 +98,8 @@ select
   p.first_work_date,
   p.last_work_date,
   p.total_hours
-from public.payroll_company_summary p;
+from public.payroll_company_summary p
+where public.is_direction_or_admin();
 
 comment on view public.direction_payroll_operational_summary is
   'Synthese operationnelle Direction sans montants (payroll_company_summary).';
@@ -93,8 +116,11 @@ select
   tt.statut_paiement_titan,
   tt.refacturee_a_titan
 from public.temps_titan tt
-where tt.refacturee_a_titan is true
-   or tt.statut_paiement_titan is not null;
+where public.is_direction_or_admin()
+  and (
+    tt.refacturee_a_titan is true
+    or tt.statut_paiement_titan is not null
+  );
 
 comment on view public.direction_intercompany_operational is
   'Vue Direction facturation operationnelle sans ventilation et sans montants.';
@@ -174,7 +200,8 @@ select
   c.account_invited_by_name,
   c.account_invitation_status,
   c.account_invitation_error
-from public.chauffeurs c;
+from public.chauffeurs c
+where public.is_direction_or_admin();
 
 comment on view public.direction_employee_operational_profile is
   'Profil employe Direction sans taux/couts/avantages financiers.';
@@ -200,6 +227,7 @@ select
   count(ce.id) filter (where ce.status = 'paid') as entries_paid
 from public.sales_objectives so
 left join public.commission_entries ce on ce.objective_id = so.id
+where public.is_direction_or_admin()
 group by
   so.id,
   so.title,
@@ -219,13 +247,15 @@ comment on view public.direction_objectives_operational_view is
   'Objectifs Direction sans montants de commission ni bonus monetaire.';
 
 -- ---------------------------------------------------------------------------
--- Grants / revokes pour vues operationnelles Direction
+-- Grants PostgREST + barriere de role (employe = 0 ligne)
+-- GRANT SELECT sur authenticated est requis par PostgREST; l'acces reel est
+-- limite par is_direction_or_admin() dans chaque vue direction_*.
 -- ---------------------------------------------------------------------------
-revoke all on table public.direction_temps_titan_operational from public;
-revoke all on table public.direction_payroll_operational_summary from public;
-revoke all on table public.direction_intercompany_operational from public;
-revoke all on table public.direction_employee_operational_profile from public;
-revoke all on table public.direction_objectives_operational_view from public;
+revoke all on table public.direction_temps_titan_operational from public, anon;
+revoke all on table public.direction_payroll_operational_summary from public, anon;
+revoke all on table public.direction_intercompany_operational from public, anon;
+revoke all on table public.direction_employee_operational_profile from public, anon;
+revoke all on table public.direction_objectives_operational_view from public, anon;
 
 grant select on table public.direction_temps_titan_operational to authenticated;
 grant select on table public.direction_payroll_operational_summary to authenticated;
@@ -234,13 +264,22 @@ grant select on table public.direction_employee_operational_profile to authentic
 grant select on table public.direction_objectives_operational_view to authenticated;
 
 -- ---------------------------------------------------------------------------
--- Vues financieres existantes: appliquer security_invoker pour respecter RLS
+-- Vues financieres existantes (Admin via RLS): security_invoker
 -- ---------------------------------------------------------------------------
 alter view if exists public.payroll_company_summary set (security_invoker = true);
 alter view if exists public.intercompany_billing_summary set (security_invoker = true);
 
+-- Vues direction_*: security_invoker desactive pour ne pas contourner la
+-- barriere de role ni exposer les tables brutes (admin-only) aux employes.
+alter view if exists public.direction_temps_titan_operational set (security_invoker = false);
+alter view if exists public.direction_payroll_operational_summary set (security_invoker = false);
+alter view if exists public.direction_intercompany_operational set (security_invoker = false);
+alter view if exists public.direction_employee_operational_profile set (security_invoker = false);
+alter view if exists public.direction_objectives_operational_view set (security_invoker = false);
+
 -- ---------------------------------------------------------------------------
--- RLS strict sur tables brutes sensibles: Admin seulement
+-- RLS strict sur tables brutes sensibles (finance interne): Admin seulement
+-- Hors perimetre: livraisons_planifiees, clients, operations (finance client intacte)
 -- ---------------------------------------------------------------------------
 alter table if exists public.temps_titan enable row level security;
 alter table if exists public.chauffeurs enable row level security;
@@ -314,6 +353,25 @@ create policy "chauffeurs_admin_delete"
   for delete
   to authenticated
   using (public.is_admin_user());
+
+-- Direction: lecture chauffeurs pour livraisons / ramassages / terrain / effectifs UI.
+-- Remplace chauffeurs_select_policy (supprime ci-dessus). Ecriture reste admin-only.
+-- Finance confidentielle (taux, commissions): tables commission_* admin-only;
+-- profil sans taux via direction_employee_operational_profile.
+drop policy if exists "chauffeurs_direction_operational_select" on public.chauffeurs;
+
+create policy "chauffeurs_direction_operational_select"
+  on public.chauffeurs
+  for select
+  to authenticated
+  using (
+    public.is_direction_user()
+    and (
+      public.has_app_permission('ressources')
+      or public.has_app_permission('livraisons')
+      or public.has_app_permission('terrain')
+    )
+  );
 
 drop policy if exists "sales_objectives_commissions_policy" on public.sales_objectives;
 drop policy if exists "commission_rules_commissions_policy" on public.commission_rules;
