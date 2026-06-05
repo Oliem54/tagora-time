@@ -5437,6 +5437,419 @@ select {
   background: linear-gradient(180deg, rgba(247, 250, 255, 0.98) 0%, rgba(255, 255, 255, 0.98) 100%);
 }
 
+.horo-pending-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--ui-space-4);
+  max-width: 1120px;
+}
+
+@media (min-width: 1280px) {
+  .horo-pending-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    max-width: none;
+  }
+}
+
+.horo-pending-card {
+  border-radius: 20px;
+  border: 1px solid #dbe4f0;
+  background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.07);
+  padding: 24px;
+}
+
+.horo-pending-card--priority {
+  border-color: #f5caca;
+  background: linear-gradient(180deg, #fffafa 0%, #fff8f8 100%);
+}
+
+.horo-pending-card--highlighted {
+  outline: 2px solid rgba(14, 165, 233, 0.55);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 4px rgba(14, 165, 233, 0.12), 0 18px 36px rgba(15, 41, 72, 0.12);
+}
+
+.horo-pending-top-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.horo-pending-main {
+  flex: 1 1 320px;
+  min-width: 0;
+}
+
+.horo-pending-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 14px;
+  align-items: center;
+}
+
+.horo-pending-badge {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 8px;
+  white-space: nowrap;
+}
+
+.horo-pending-badge--case {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  padding: 5px 11px;
+  border-radius: 8px;
+  background: linear-gradient(135deg, #17376b 0%, #245496 100%);
+  color: #fff;
+  border: 1px solid #13305f;
+  white-space: normal;
+  line-height: 1.25;
+}
+
+.horo-pending-badge--warning {
+  background: #fff7ed;
+  color: #c2410c;
+  border: 1px solid #fed7aa;
+}
+
+.horo-pending-badge--muted {
+  background: #f8fafc;
+  color: #64748b;
+  border: 1px solid #e2e8f0;
+}
+
+.horo-pending-badge--decision {
+  background: #ecfdf5;
+  color: #047857;
+  border: 1px solid #a7f3d0;
+}
+
+.horo-pending-badge--priority {
+  background: #fef2f2;
+  color: #b91c1c;
+  border: 1px solid #fecaca;
+}
+
+.horo-pending-title {
+  margin: 0 0 10px;
+  font-size: 22px;
+  font-weight: 800;
+  color: #0f172a;
+  line-height: 1.25;
+  letter-spacing: -0.02em;
+}
+
+.horo-pending-summary {
+  margin: 0 0 16px;
+  font-size: 15px;
+  line-height: 1.55;
+  color: #334155;
+}
+
+.horo-pending-decision-panel {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+  border-radius: 16px;
+  border: 1px solid #dbeafe;
+  background: linear-gradient(180deg, #f8fbff 0%, #eef6ff 100%);
+}
+
+.horo-pending-decision-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
+}
+
+.horo-pending-label {
+  display: block;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #64748b;
+  margin-bottom: 4px;
+}
+
+.horo-pending-employee {
+  display: grid;
+  gap: 2px;
+}
+
+.horo-pending-employee-id {
+  font-size: 12px;
+  font-weight: 600;
+  color: #64748b;
+}
+
+.horo-pending-insight {
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid #e2e8f0;
+  font-size: 14px;
+  line-height: 1.5;
+  color: #1e293b;
+}
+
+.horo-pending-insight p {
+  margin: 6px 0 0;
+  color: #475569;
+}
+
+.horo-pending-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.horo-pending-links a {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+  background: #fff;
+  color: #475569;
+  text-decoration: none;
+}
+
+.horo-pending-tech-toggle {
+  margin-top: 14px;
+}
+
+.horo-pending-tech-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #475569;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.horo-pending-tech-chevron {
+  transition: transform 140ms ease;
+}
+
+.horo-pending-tech-chevron--open {
+  transform: rotate(180deg);
+}
+
+.horo-pending-correction-panel {
+  margin-top: 14px;
+  padding: 14px 16px;
+  border-radius: 14px;
+  border: 1px solid #dbe4f0;
+  background: #f8fafc;
+  display: grid;
+  gap: 10px;
+}
+
+.horo-pending-correction-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.horo-pending-correction-panel p {
+  margin: 0;
+  font-size: 13px;
+  color: #64748b;
+  line-height: 1.45;
+}
+
+.horo-pending-field--light {
+  color: #475569;
+}
+
+.horo-pending-tech-panel {
+  margin-top: 12px;
+  padding: 14px;
+  border-radius: 14px;
+  background: #0f172a;
+  color: #e2e8f0;
+}
+
+.horo-pending-tech-panel dl {
+  margin: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.horo-pending-tech-panel dt {
+  font-weight: 700;
+  color: #94a3b8;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.horo-pending-tech-panel dd {
+  margin: 2px 0 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  color: #f1f5f9;
+}
+
+.horo-pending-correction {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid rgba(148, 163, 184, 0.25);
+  display: grid;
+  gap: 10px;
+}
+
+.horo-pending-correction p {
+  margin: 0;
+  font-size: 13px;
+  color: #cbd5e1;
+}
+
+.horo-pending-field {
+  display: grid;
+  gap: 6px;
+  font-size: 13px;
+  color: #cbd5e1;
+}
+
+.horo-pending-actions {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 220px;
+}
+
+.horo-pending-primary-actions {
+  display: grid;
+  gap: 8px;
+  width: min(240px, 100%);
+}
+
+.horo-pending-action-btn {
+  width: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  text-align: center;
+  font-size: 14px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  font-weight: 700;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: transform 140ms ease, box-shadow 140ms ease, background 140ms ease, border-color 140ms ease;
+}
+
+.horo-pending-action-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+.horo-pending-action-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.horo-pending-action-btn--approve {
+  background: linear-gradient(135deg, #3f6f63 0%, #4d7f72 100%);
+  color: #f8fcfa;
+  border-color: #356859;
+  box-shadow: 0 4px 12px rgba(53, 104, 89, 0.14);
+}
+
+.horo-pending-action-btn--approve:hover:not(:disabled) {
+  background: linear-gradient(135deg, #46786b 0%, #568a7d 100%);
+  box-shadow: 0 8px 18px rgba(53, 104, 89, 0.18);
+}
+
+.horo-pending-action-btn--refuse {
+  color: #9a4f4f;
+  border-color: #e4c3c3;
+  background: #fff;
+  box-shadow: none;
+}
+
+.horo-pending-action-btn--refuse:hover:not(:disabled) {
+  background: #fff8f8;
+  border-color: #d9aeae;
+}
+
+.horo-pending-action-btn--refuse-confirm {
+  background: #9a4f4f;
+  color: #fff;
+  border-color: #8a4545;
+}
+
+.horo-pending-action-btn--muted {
+  color: #64748b;
+  border-color: #e2e8f0;
+  background: #fff;
+}
+
+.horo-pending-action-btn--muted:hover:not(:disabled) {
+  background: #f8fafc;
+  border-color: #d8e0ea;
+}
+
+.horo-pending-action-btn--secondary {
+  color: #334155;
+  border-color: #d7e0ea;
+  background: #f8fafc;
+  text-decoration: none;
+}
+
+.horo-pending-action-btn--secondary:hover:not(:disabled) {
+  background: #f1f5f9;
+  border-color: #c5d3e1;
+}
+
+.horo-pending-action-btn--open {
+  background: linear-gradient(135deg, #17376b 0%, #245496 100%);
+  color: #ffffff;
+  border-color: #13305f;
+  box-shadow: 0 4px 12px rgba(23, 55, 107, 0.18);
+}
+
+.horo-pending-action-btn--open:hover:not(:disabled) {
+  background: linear-gradient(135deg, #1d427f 0%, #2b5ea3 100%);
+  box-shadow: 0 8px 18px rgba(23, 55, 107, 0.24);
+}
+
+.horo-pending-refuse-panel {
+  display: grid;
+  gap: 10px;
+  width: min(280px, 100%);
+}
+
+.horo-pending-admin-note {
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+  color: #475569;
+  font-size: 13px;
+  line-height: 1.5;
+  max-width: 280px;
+}
+
 .horodateur-direction-exception-card--highlighted {
   outline: 2px solid rgba(14, 165, 233, 0.55);
   outline-offset: 2px;
