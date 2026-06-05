@@ -183,8 +183,8 @@ const MODULES: ModuleDefinition[] = [
   },
   {
     href: "/direction/commissions",
-    label: "Objectifs & performance",
-    description: "Objectifs de vente et suivi operationnel sans montants de commission.",
+    label: "Livres autorises",
+    description: "Livres de ventes accordes par l administration, sans montants monetaires.",
     permission: "commissions",
     group: "gestion",
     icon: Target,

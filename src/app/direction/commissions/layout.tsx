@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import type { ReactNode } from "react";
 
 export const metadata: Metadata = {
-  title: "Objectifs & performance",
-  description: "Objectifs de vente et suivi des commissions direction Tagora.",
+  title: "Livres autorises",
+  description: "Livres de ventes autorises pour la Direction Tagora (vue operationnelle sans montants).",
 };
 
 export default function DirectionCommissionsLayout({ children }: { children: ReactNode }) {
