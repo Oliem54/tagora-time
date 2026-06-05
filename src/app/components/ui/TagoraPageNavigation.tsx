@@ -100,6 +100,10 @@ function getBackHref(
     return "/employe/dashboard";
   }
 
+  if (pathname === "/employe/mon-livre") {
+    return "/employe/dashboard";
+  }
+
   return pathname === dashboardHref ? "/employe" : dashboardHref;
 }
 
