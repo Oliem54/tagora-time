@@ -297,12 +297,278 @@ const acScopedCss = `
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
     color: #f1f5f9;
   }
+  .ac-journal-card {
+    border-radius: 20px;
+    border: 1px solid #dbe4f0;
+    background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+    box-shadow: 0 10px 30px rgba(15, 23, 42, 0.07);
+    padding: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+  .ac-alert-top-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 20px;
+    align-items: flex-start;
+    justify-content: space-between;
+  }
+  .ac-journal-card__main { flex: 1 1 320px; min-width: 0; }
+  .ac-journal-card__badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 14px;
+    align-items: center;
+  }
+  .ac-journal-card__title {
+    margin: 0 0 10px;
+    font-size: 24px;
+    font-weight: 800;
+    color: #0f172a;
+    line-height: 1.2;
+    letter-spacing: -0.03em;
+  }
+  .ac-journal-card__summary {
+    margin: 0 0 16px;
+    font-size: 15px;
+    line-height: 1.55;
+    color: #334155;
+  }
+  .ac-horo-decision-panel {
+    display: grid;
+    gap: 14px;
+    padding: 16px;
+    border-radius: 16px;
+    border: 1px solid #dbeafe;
+    background: linear-gradient(180deg, #f8fbff 0%, #eef6ff 100%);
+  }
+  .ac-horo-decision-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 12px;
+  }
+  .ac-horo-decision-label {
+    display: block;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: #64748b;
+    margin-bottom: 4px;
+  }
+  .ac-horo-insight-block {
+    padding: 12px 14px;
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.72);
+    border: 1px solid #e2e8f0;
+    font-size: 14px;
+    line-height: 1.5;
+    color: #1e293b;
+  }
+  .ac-horo-insight-block p { margin: 6px 0 0; color: #475569; }
+  .ac-horo-decision-note {
+    padding: 12px 14px;
+    border-radius: 12px;
+    border: 1px solid #fde68a;
+    background: #fffbeb;
+    color: #92400e;
+    font-size: 13px;
+    line-height: 1.5;
+  }
+  .ac-horo-decision-note p { margin: 6px 0 0; }
+  .ac-journal-card__meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px 18px;
+    font-size: 13px;
+    color: #64748b;
+    margin-top: 14px;
+  }
+  .ac-journal-card__repeat { color: #b45309; font-weight: 700; }
+  .ac-journal-card__secondary-links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 12px;
+  }
+  .ac-journal-card__secondary-links a {
+    font-size: 12px;
+    font-weight: 600;
+    padding: 6px 10px;
+    border-radius: 8px;
+    border: 1px solid #e2e8f0;
+    background: #fff;
+    color: #475569;
+    text-decoration: none;
+  }
+  .ac-journal-tech-button {
+    font-size: 13px;
+    font-weight: 600;
+    color: #0d9488;
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 0;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+  .ac-alert-actions-col {
+    flex: 0 0 auto;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 10px;
+    min-width: 220px;
+  }
+  .ac-horo-primary-actions {
+    display: grid;
+    gap: 8px;
+    width: min(240px, 100%);
+  }
+  .ac-horo-decision-employee {
+    display: grid;
+    gap: 2px;
+  }
+  .ac-horo-decision-employee-id {
+    font-size: 12px;
+    font-weight: 600;
+    color: #64748b;
+  }
+  .ac-horo-action-btn {
+    width: 100%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    text-decoration: none;
+    font-size: 13px;
+    padding: 10px 14px;
+    border-radius: 12px;
+    font-weight: 700;
+    border: 1px solid transparent;
+    cursor: pointer;
+    transition: transform 140ms ease, box-shadow 140ms ease, background 140ms ease, border-color 140ms ease;
+  }
+  .ac-horo-action-btn:hover {
+    transform: translateY(-1px);
+  }
+  .ac-horo-action-btn:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+    transform: none;
+  }
+  .ac-horo-action-btn--open {
+    background: linear-gradient(135deg, #17376b 0%, #245496 100%);
+    color: #ffffff;
+    border-color: #13305f;
+    box-shadow: 0 4px 12px rgba(23, 55, 107, 0.18);
+  }
+  .ac-horo-action-btn--open:hover {
+    background: linear-gradient(135deg, #1d427f 0%, #2b5ea3 100%);
+    box-shadow: 0 8px 18px rgba(23, 55, 107, 0.24);
+  }
+  .ac-horo-action-btn--approve {
+    background: linear-gradient(135deg, #3f6f63 0%, #4d7f72 100%);
+    color: #f8fcfa;
+    border-color: #356859;
+    box-shadow: 0 4px 12px rgba(53, 104, 89, 0.14);
+  }
+  .ac-horo-action-btn--approve:hover {
+    background: linear-gradient(135deg, #46786b 0%, #568a7d 100%);
+    box-shadow: 0 8px 18px rgba(53, 104, 89, 0.18);
+  }
+  .ac-horo-action-btn--refuse {
+    color: #9a4f4f;
+    border-color: #e4c3c3;
+    background: #fff;
+    box-shadow: none;
+  }
+  .ac-horo-action-btn--refuse:hover {
+    background: #fff8f8;
+    border-color: #d9aeae;
+  }
+  .ac-horo-action-btn--secondary {
+    color: #334155;
+    border-color: #d7e0ea;
+    background: #f8fafc;
+  }
+  .ac-horo-action-btn--secondary:hover {
+    background: #f1f5f9;
+    border-color: #c5d3e1;
+  }
+  .ac-horo-action-btn--muted {
+    color: #64748b;
+    border-color: #e2e8f0;
+    background: #fff;
+  }
+  .ac-horo-action-btn--muted:hover {
+    background: #f8fafc;
+    border-color: #d8e0ea;
+  }
+  .ac-horo-more > summary {
+    color: #64748b;
+    border-color: #e2e8f0;
+    background: #fafbfd;
+  }
+  .ac-alert-more-menu {
+    position: absolute;
+    right: 0;
+    top: calc(100% + 6px);
+    min-width: 200px;
+    background: #fff;
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    box-shadow: 0 12px 40px rgba(15,23,42,0.12);
+    padding: 8px;
+    z-index: 20;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .ac-alert-more-menu button,
+  .ac-alert-more-menu summary {
+    text-align: left;
+    padding: 10px 12px;
+    border-radius: 8px;
+    border: none;
+    background: #f8fafc;
+    font-size: 13px;
+    cursor: pointer;
+  }
+  .ac-alert-delete-btn { background: #fef2f2 !important; color: #b91c1c !important; }
+  .ac-alert-more-note { padding: 10px 12px; font-size: 12px; color: #64748b; }
+  .ac-horo-more { position: relative; width: 100%; }
+  .ac-horo-more > summary,
+  .ac-alert-details > summary {
+    list-style: none;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 600;
+    padding: 9px 16px;
+    border-radius: 10px;
+    border: 1px solid #cbd5e1;
+    background: #f8fafc;
+    color: #334155;
+    text-align: center;
+  }
+  .ac-journal-card__footer {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px 16px;
+    font-size: 12px;
+    color: #64748b;
+    padding-top: 4px;
+    border-top: 1px solid #f1f5f9;
+  }
   @media (max-width: 720px) {
     .ac-alert-top-row { flex-direction: column !important; align-items: stretch !important; }
     .ac-alert-actions-col { align-items: stretch !important; min-width: 0 !important; width: 100%; }
     .ac-alert-actions-col > div { justify-content: flex-start !important; flex-wrap: wrap; }
     .ac-alert-details details { width: 100%; }
     .ac-alert-details summary { width: 100%; text-align: center; }
+    .ac-horo-primary-actions { width: 100%; }
   }
 `;
 
@@ -485,6 +751,79 @@ export default function AlertCenterDirectionClient() {
       setJournalItems(Array.isArray(j.items) ? j.items : []);
     }
   }, [journalQueryString]);
+
+  async function approveHorodateurException(alertId: string, exceptionId: string) {
+    if (!window.confirm("Approuver cette exception horodateur ?")) {
+      return;
+    }
+
+    try {
+      setJournalMutatingId(alertId);
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (!session?.access_token) return;
+
+      const res = await fetch(
+        `/api/direction/horodateur/exceptions/${encodeURIComponent(exceptionId)}/approve`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${session.access_token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({}),
+        }
+      );
+
+      if (!res.ok) {
+        const payload = (await res.json().catch(() => null)) as { error?: string } | null;
+        window.alert(payload?.error ?? "L'approbation de l'exception a échoué.");
+        return;
+      }
+
+      await Promise.all([refreshJournalList(), refreshSummary()]);
+    } finally {
+      setJournalMutatingId(null);
+    }
+  }
+
+  async function refuseHorodateurException(alertId: string, exceptionId: string) {
+    const reviewNote = window.prompt("Motif du refus (obligatoire) :")?.trim();
+    if (!reviewNote) {
+      return;
+    }
+
+    try {
+      setJournalMutatingId(alertId);
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (!session?.access_token) return;
+
+      const res = await fetch(
+        `/api/direction/horodateur/exceptions/${encodeURIComponent(exceptionId)}/refuse`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${session.access_token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ reviewNote }),
+        }
+      );
+
+      if (!res.ok) {
+        const payload = (await res.json().catch(() => null)) as { error?: string } | null;
+        window.alert(payload?.error ?? "Le refus de l'exception a échoué.");
+        return;
+      }
+
+      await Promise.all([refreshJournalList(), refreshSummary()]);
+    } finally {
+      setJournalMutatingId(null);
+    }
+  }
 
   async function patchJournalAction(alertId: string, action: "mark_handled" | "archive" | "cancel") {
     try {
@@ -1068,6 +1407,12 @@ export default function AlertCenterDirectionClient() {
                       onArchive={() => void patchJournalAction(row.id, "archive")}
                       onCancel={() => void patchJournalAction(row.id, "cancel")}
                       onDelete={() => void deleteJournalRow(row.id)}
+                      onApproveException={(exceptionId) =>
+                        void approveHorodateurException(row.id, exceptionId)
+                      }
+                      onRefuseException={(exceptionId) =>
+                        void refuseHorodateurException(row.id, exceptionId)
+                      }
                     />
                   </li>
                 );

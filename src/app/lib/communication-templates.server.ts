@@ -439,12 +439,12 @@ export function getTemplateFallback(
   void channel;
   const fallbacks: Record<string, { subject: string | null; body: string }> = {
     horodateur_exception_created_direction_email: {
-      subject: "TAGORA Time — Exception horodateur à traiter",
-      body: "Une exception horodateur requiert votre attention. Consultez l’horodateur direction.",
+      subject: "TAGORA Time — Décision requise — exception horaire",
+      body: "Une décision horodateur est requise. Ouvrez l’horodateur direction pour approuver, refuser ou corriger le cas signalé.",
     },
     horodateur_exception_created_direction_sms: {
       subject: null,
-      body: "TAGORA Time : exception horodateur à traiter. Consultez l’application.",
+      body: "TAGORA Time : décision horodateur requise. Consultez l’horodateur direction.",
     },
   };
   return fallbacks[templateKey] ?? null;

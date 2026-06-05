@@ -4,7 +4,6 @@ import Link from "next/link";
 import type { CSSProperties } from "react";
 import {
   buildJournalHumanView,
-  categoryLabelFr,
   formatJournalDate,
   hasTechnicalDetails,
   type JournalRowForDisplay,
@@ -26,6 +25,8 @@ type JournalAlertCardProps = {
   onArchive: () => void;
   onCancel: () => void;
   onDelete: () => void;
+  onApproveException?: (exceptionId: string) => void;
+  onRefuseException?: (exceptionId: string) => void;
 };
 
 function statusBadgeStyle(status: string): CSSProperties {
@@ -73,31 +74,20 @@ function priorityBadgeStyle(p: string): CSSProperties {
   }
 }
 
-function alertTypeBadgeStyle(): CSSProperties {
+function caseBadgeStyle(): CSSProperties {
   return {
     fontSize: 11,
-    fontWeight: 700,
+    fontWeight: 800,
     letterSpacing: "0.03em",
     textTransform: "uppercase",
     padding: "5px 11px",
     borderRadius: 8,
-    background: "#0f766e",
+    background: "linear-gradient(135deg, #0f766e 0%, #115e59 100%)",
     color: "#fff",
     border: "1px solid #0d9488",
-    whiteSpace: "nowrap",
-  };
-}
-
-function categoryBadgeStyle(): CSSProperties {
-  return {
-    fontSize: 11,
-    fontWeight: 600,
-    padding: "4px 9px",
-    borderRadius: 6,
-    background: "#f1f5f9",
-    color: "#475569",
-    border: "1px solid #e2e8f0",
-    whiteSpace: "nowrap",
+    whiteSpace: "normal",
+    lineHeight: 1.25,
+    textAlign: "center",
   };
 }
 
@@ -110,8 +100,11 @@ export default function JournalAlertCard({
   onArchive,
   onCancel,
   onDelete,
+  onApproveException,
+  onRefuseException,
 }: JournalAlertCardProps) {
   const view = buildJournalHumanView(row);
+  const horo = view.horodateurDisplay;
   const showTechToggle = hasTechnicalDetails(view);
   const fc = row.failureCount;
   const showRepeat = typeof fc === "number" && fc > 1 ? `Répété ${fc - 1} fois` : null;
@@ -122,191 +115,117 @@ export default function JournalAlertCard({
     row.status === "handled" ||
     row.status === "snoozed";
   const isCritical = row.priority === "critical";
-  const isHorodateurExceptionOpen =
-    row.category === "horodateur_exception" && row.status === "open";
+  const isHorodateurOpen = Boolean(horo && (row.status === "open" || row.status === "failed"));
+  const exceptionId = horo?.exceptionId ?? null;
+  const horodateurHref = row.linkHref ?? horo?.horodateurHref ?? "/direction/horodateur";
 
   return (
-    <article
-      style={{
-        borderRadius: 18,
-        border: "1px solid #e2e8f0",
-        background: "#fff",
-        boxShadow: "0 4px 20px rgba(15, 23, 42, 0.06)",
-        padding: "22px 24px",
-        display: "flex",
-        flexDirection: "column",
-        gap: 18,
-      }}
-    >
-      <div
-        className="ac-alert-top-row"
-        style={{
-          display: "flex",
-          flexWrap: "wrap",
-          gap: 20,
-          alignItems: "flex-start",
-          justifyContent: "space-between",
-        }}
-      >
-        <div style={{ flex: "1 1 300px", minWidth: 0 }}>
-          <div
-            style={{
-              display: "flex",
-              flexWrap: "wrap",
-              gap: 8,
-              marginBottom: 12,
-              alignItems: "center",
-            }}
-          >
-            <span style={alertTypeBadgeStyle()}>{view.alertTypeLabel}</span>
+    <article className="ac-journal-card">
+      <div className="ac-alert-top-row">
+        <div className="ac-journal-card__main">
+          <div className="ac-journal-card__badges">
+            <span style={caseBadgeStyle()}>{view.alertTypeLabel}</span>
             <span style={statusBadgeStyle(row.status)}>{view.statusLabel}</span>
             <span style={priorityBadgeStyle(row.priority)}>{view.priorityLabel}</span>
-            <span style={categoryBadgeStyle()}>{categoryLabelFr(row.category)}</span>
           </div>
 
-          <h3
-            style={{
-              margin: "0 0 12px",
-              fontSize: 18,
-              fontWeight: 800,
-              color: "#0f172a",
-              lineHeight: 1.35,
-              letterSpacing: "-0.02em",
-            }}
-          >
-            {view.simpleTitle}
-          </h3>
+          <h3 className="ac-journal-card__title">{view.simpleTitle}</h3>
 
-          <div
-            style={{
-              display: "flex",
-              flexWrap: "wrap",
-              gap: "10px 18px",
-              fontSize: 13,
-              color: "#64748b",
-              marginBottom: 12,
-            }}
-          >
+          <p className="ac-journal-card__summary">{view.summary}</p>
+
+          {horo ? (
+            <div className="ac-horo-decision-panel" aria-label="Décision horodateur">
+              <div className="ac-horo-decision-grid">
+                <div className="ac-horo-decision-employee">
+                  <span className="ac-horo-decision-label">Employé</span>
+                  <strong>{horo.employeeName}</strong>
+                  {horo.employeeIdLabel ? (
+                    <span className="ac-horo-decision-employee-id">{horo.employeeIdLabel}</span>
+                  ) : null}
+                </div>
+                <div>
+                  <span className="ac-horo-decision-label">Action attendue</span>
+                  <strong>{horo.actionLabel}</strong>
+                </div>
+                <div>
+                  <span className="ac-horo-decision-label">Heure prévue</span>
+                  <strong>{horo.expectedTime ?? "—"}</strong>
+                </div>
+                <div>
+                  <span className="ac-horo-decision-label">Punch détecté</span>
+                  <strong>{horo.detectedPunchLabel}</strong>
+                </div>
+                <div>
+                  <span className="ac-horo-decision-label">Date</span>
+                  <strong>{horo.dateLabel}</strong>
+                </div>
+                <div>
+                  <span className="ac-horo-decision-label">Statut</span>
+                  <strong>{horo.decisionStatusLabel}</strong>
+                </div>
+              </div>
+
+              <div className="ac-horo-insight-block">
+                <strong>Pourquoi cette alerte ?</strong>
+                <p>{view.probableCause}</p>
+              </div>
+
+              <div className="ac-horo-insight-block">
+                <strong>Action recommandée</strong>
+                <p>{view.recommendedAction}</p>
+              </div>
+
+              {isHorodateurOpen ? (
+                <div className="ac-horo-decision-note" role="note">
+                  <strong>Important</strong>
+                  <p>
+                    « Classer l&apos;alerte » ne règle pas l&apos;exception. Pour approuver ou
+                    refuser, utilisez les actions horodateur ci-dessous.
+                  </p>
+                </div>
+              ) : null}
+            </div>
+          ) : (
+            <div className="ac-journal-insight" aria-label="Résumé de l'alerte">
+              <dl className="ac-journal-insight-row">
+                <dt>Cause probable</dt>
+                <dd>{view.probableCause}</dd>
+              </dl>
+              <dl className="ac-journal-insight-row">
+                <dt>Action recommandée</dt>
+                <dd>{view.recommendedAction}</dd>
+              </dl>
+            </div>
+          )}
+
+          <div className="ac-journal-card__meta">
             <span>
-              <strong style={{ color: "#475569" }}>Cible</strong> {view.targetLabel}
-            </span>
-            <span>
-              <strong style={{ color: "#475569" }}>Date</strong> {view.formattedDate}
+              <strong>Créée</strong> {view.formattedDate}
             </span>
             {row.companyKey ? (
               <span>
-                <strong style={{ color: "#475569" }}>Compagnie</strong> {row.companyKey}
+                <strong>Compagnie</strong> {row.companyKey}
               </span>
             ) : null}
-            {showRepeat ? (
-              <span style={{ color: "#b45309", fontWeight: 600 }}>{showRepeat}</span>
-            ) : null}
+            {showRepeat ? <span className="ac-journal-card__repeat">{showRepeat}</span> : null}
           </div>
-
-          <div className="ac-journal-insight" aria-label="Résumé de l'alerte">
-            <dl className="ac-journal-insight-row">
-              <dt>Résumé</dt>
-              <dd>{view.summary}</dd>
-            </dl>
-            <dl className="ac-journal-insight-row">
-              <dt>Cause probable</dt>
-              <dd>{view.probableCause}</dd>
-            </dl>
-            <dl className="ac-journal-insight-row">
-              <dt>Action recommandée</dt>
-              <dd>{view.recommendedAction}</dd>
-            </dl>
-          </div>
-
-          {isHorodateurExceptionOpen ? (
-            <div
-              role="note"
-              style={{
-                marginTop: 4,
-                padding: "12px 14px",
-                borderRadius: 10,
-                border: "1px solid #fde68a",
-                background: "#fffbeb",
-                fontSize: 13,
-                lineHeight: 1.5,
-                color: "#92400e",
-              }}
-            >
-              <strong style={{ display: "block", marginBottom: 4 }}>
-                Décision requise
-              </strong>
-              Approuver ou refuser dans Horodateur direction. Le bouton « Traité » marque
-              seulement l&apos;alerte comme lue — ce n&apos;est pas une approbation métier.
-            </div>
-          ) : null}
 
           {row.employeeId != null ? (
-            <nav
-              aria-label="Actions rapides employé"
-              style={{
-                display: "flex",
-                flexWrap: "wrap",
-                gap: 8,
-                marginTop: 12,
-              }}
-            >
-              <Link
-                href={`/direction/ressources/employes/${row.employeeId}`}
-                className="ui-button ui-button-secondary"
-                style={{
-                  fontSize: 12,
-                  padding: "6px 12px",
-                  borderRadius: 8,
-                  fontWeight: 600,
-                }}
-              >
-                Profil employé
-              </Link>
-              <Link
-                href={`/direction/horodateur/registre?employeeId=${row.employeeId}`}
-                className="ui-button ui-button-secondary"
-                style={{
-                  fontSize: 12,
-                  padding: "6px 12px",
-                  borderRadius: 8,
-                  fontWeight: 600,
-                }}
-              >
+            <nav className="ac-journal-card__secondary-links" aria-label="Liens secondaires employé">
+              <Link href={`/direction/ressources/employes/${row.employeeId}`}>Profil employé</Link>
+              <Link href={`/direction/horodateur/registre?employeeId=${row.employeeId}`}>
                 Registre horaire
               </Link>
-              <Link
-                href={`/direction/ressources/employes/${row.employeeId}?section=alertes_sms`}
-                className="ui-button ui-button-secondary"
-                style={{
-                  fontSize: 12,
-                  padding: "6px 12px",
-                  borderRadius: 8,
-                  fontWeight: 600,
-                }}
-              >
+              <Link href={`/direction/ressources/employes/${row.employeeId}?section=alertes_sms`}>
                 Alertes SMS
               </Link>
             </nav>
           ) : null}
 
           {showTechToggle ? (
-            <div style={{ marginTop: 12 }}>
-              <button
-                type="button"
-                onClick={onToggleTechnical}
-                style={{
-                  fontSize: 13,
-                  fontWeight: 600,
-                  color: "#0d9488",
-                  background: "none",
-                  border: "none",
-                  cursor: "pointer",
-                  padding: 0,
-                  textDecoration: "underline",
-                  textUnderlineOffset: 3,
-                }}
-              >
-                {techExpanded ? "Masquer détail technique" : "Voir détail technique"}
+            <div className="ac-journal-card__tech-toggle">
+              <button type="button" onClick={onToggleTechnical} className="ac-journal-tech-button">
+                {techExpanded ? "Masquer détail technique" : "Détail technique"}
               </button>
               {techExpanded ? (
                 <div className="ac-tech-panel" role="region" aria-label="Détail technique">
@@ -324,176 +243,114 @@ export default function JournalAlertCard({
           ) : null}
         </div>
 
-        <div
-          className="ac-alert-actions-col"
-          style={{
-            flex: "0 0 auto",
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "flex-end",
-            gap: 10,
-            minWidth: 200,
-          }}
-        >
-          <div
-            className="ac-alert-details"
-            style={{ display: "flex", flexWrap: "wrap", gap: 8, justifyContent: "flex-end" }}
-          >
-            {row.linkHref ? (
+        <div className="ac-alert-actions-col">
+          {isHorodateurOpen ? (
+            <div className="ac-horo-primary-actions">
               <Link
-                href={row.linkHref}
-                className="ui-button ui-button-primary"
-                style={{ fontSize: 13, padding: "9px 16px", borderRadius: 10 }}
+                href={horodateurHref}
+                className="ac-horo-action-btn ac-horo-action-btn--open"
               >
-                {isHorodateurExceptionOpen ? "Ouvrir horodateur" : "Ouvrir"}
+                Ouvrir dans l&apos;horodateur
               </Link>
-            ) : null}
-            <button
-              type="button"
-              className="ui-button ui-button-secondary"
-              style={{ fontSize: 13, padding: "9px 16px", borderRadius: 10, fontWeight: 600 }}
-              disabled={busy || !canHandle}
-              onClick={onMarkHandled}
-              title={
-                isHorodateurExceptionOpen
-                  ? "Marquer l'alerte comme lue — n'approuve ni ne refuse l'exception horodateur."
-                  : undefined
-              }
-            >
-              {busy ? "…" : "Traité"}
-            </button>
-            <details className="ac-details-reset" style={{ position: "relative" }}>
-              <summary
-                style={{
-                  listStyle: "none",
-                  cursor: "pointer",
-                  fontSize: 13,
-                  fontWeight: 600,
-                  padding: "9px 16px",
-                  borderRadius: 10,
-                  border: "1px solid #cbd5e1",
-                  background: "#f8fafc",
-                  color: "#334155",
-                }}
-              >
-                Plus
-              </summary>
-              <div
-                style={{
-                  position: "absolute",
-                  right: 0,
-                  top: "calc(100% + 6px)",
-                  minWidth: 200,
-                  background: "#fff",
-                  border: "1px solid #e2e8f0",
-                  borderRadius: 12,
-                  boxShadow: "0 12px 40px rgba(15,23,42,0.12)",
-                  padding: 8,
-                  zIndex: 20,
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: 4,
-                }}
-              >
+              {exceptionId && onApproveException ? (
                 <button
                   type="button"
-                  disabled={busy || !canArchive || row.status === "archived"}
-                  onClick={onArchive}
-                  style={{
-                    textAlign: "left",
-                    padding: "10px 12px",
-                    borderRadius: 8,
-                    border: "none",
-                    background: "#f8fafc",
-                    fontSize: 13,
-                    cursor: busy || !canArchive ? "not-allowed" : "pointer",
-                    opacity: !canArchive || row.status === "archived" ? 0.45 : 1,
-                  }}
+                  className="ac-horo-action-btn ac-horo-action-btn--approve"
+                  disabled={busy}
+                  onClick={() => onApproveException(exceptionId)}
                 >
+                  Approuver
+                </button>
+              ) : null}
+              {exceptionId && onRefuseException ? (
+                <button
+                  type="button"
+                  className="ac-horo-action-btn ac-horo-action-btn--refuse"
+                  disabled={busy}
+                  onClick={() => onRefuseException(exceptionId)}
+                >
+                  Refuser
+                </button>
+              ) : null}
+              <Link href={horodateurHref} className="ac-horo-action-btn ac-horo-action-btn--secondary">
+                Corriger
+              </Link>
+              <button
+                type="button"
+                className="ac-horo-action-btn ac-horo-action-btn--muted"
+                disabled={busy || !canHandle}
+                onClick={onMarkHandled}
+                title="Marquer l'alerte comme lue ou classée — n'approuve pas l'exception."
+              >
+                {busy ? "…" : "Classer l'alerte"}
+              </button>
+            </div>
+          ) : (
+            <div className="ac-alert-details">
+              {row.linkHref ? (
+                <Link href={row.linkHref} className="ui-button ui-button-primary">
+                  Ouvrir
+                </Link>
+              ) : null}
+              <button
+                type="button"
+                className="ui-button ui-button-secondary"
+                disabled={busy || !canHandle}
+                onClick={onMarkHandled}
+              >
+                {busy ? "…" : "Classer l'alerte"}
+              </button>
+              <details className="ac-details-reset">
+                <summary>Plus</summary>
+                <div className="ac-alert-more-menu">
+                  <button type="button" disabled={busy || !canArchive || row.status === "archived"} onClick={onArchive}>
+                    Archiver
+                  </button>
+                  <button type="button" disabled={busy || !canHandle} onClick={onCancel}>
+                    Annuler
+                  </button>
+                  {isCritical ? (
+                    <span className="ac-alert-more-note">Non supprimable</span>
+                  ) : (
+                    <button type="button" disabled={busy} onClick={onDelete} className="ac-alert-delete-btn">
+                      Supprimer…
+                    </button>
+                  )}
+                </div>
+              </details>
+            </div>
+          )}
+
+          {isHorodateurOpen ? (
+            <details className="ac-details-reset ac-horo-more">
+              <summary>Plus</summary>
+              <div className="ac-alert-more-menu">
+                <button type="button" disabled={busy || !canArchive || row.status === "archived"} onClick={onArchive}>
                   Archiver
                 </button>
-                <button
-                  type="button"
-                  disabled={busy || !canHandle}
-                  onClick={onCancel}
-                  style={{
-                    textAlign: "left",
-                    padding: "10px 12px",
-                    borderRadius: 8,
-                    border: "none",
-                    background: "#f8fafc",
-                    fontSize: 13,
-                    cursor: busy || !canHandle ? "not-allowed" : "pointer",
-                    opacity: !canHandle ? 0.45 : 1,
-                  }}
-                >
+                <button type="button" disabled={busy || !canHandle} onClick={onCancel}>
                   Annuler
                 </button>
-                {isCritical ? (
-                  <span
-                    title="Les alertes critiques ne peuvent pas être supprimées depuis l’interface."
-                    style={{ padding: "10px 12px", fontSize: 12, color: "#64748b" }}
-                  >
-                    Non supprimable
-                  </span>
-                ) : (
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={onDelete}
-                    style={{
-                      textAlign: "left",
-                      padding: "10px 12px",
-                      borderRadius: 8,
-                      border: "none",
-                      background: "#fef2f2",
-                      color: "#b91c1c",
-                      fontSize: 13,
-                      cursor: busy ? "not-allowed" : "pointer",
-                    }}
-                  >
+                {!isCritical ? (
+                  <button type="button" disabled={busy} onClick={onDelete} className="ac-alert-delete-btn">
                     Supprimer…
                   </button>
+                ) : (
+                  <span className="ac-alert-more-note">Non supprimable</span>
                 )}
               </div>
             </details>
-          </div>
+          ) : null}
         </div>
       </div>
 
-      {(row.emailDelivery !== "—" || row.smsDelivery !== "—" || row.handledAt) && (
-        <div
-          style={{
-            display: "flex",
-            flexWrap: "wrap",
-            gap: "10px 16px",
-            fontSize: 12,
-            color: "#64748b",
-            paddingTop: 2,
-            borderTop: "1px solid #f1f5f9",
-          }}
-        >
-          {row.emailDelivery !== "—" ? (
-            <span>
-              <strong style={{ color: "#475569" }}>Courriel</strong>{" "}
-              {row.emailDelivery === "failed" ? "Échec" : row.emailDelivery}
-            </span>
-          ) : null}
-          {row.smsDelivery !== "—" ? (
-            <span>
-              <strong style={{ color: "#475569" }}>SMS</strong>{" "}
-              {row.smsDelivery === "failed" ? "Échec" : row.smsDelivery}
-            </span>
-          ) : null}
-          {row.handledAt ? (
-            <span>
-              <strong style={{ color: "#475569" }}>Traitée le</strong>{" "}
-              {formatJournalDate(row.handledAt)}
-            </span>
-          ) : null}
+      {row.handledAt ? (
+        <div className="ac-journal-card__footer">
+          <span>
+            <strong>Classée le</strong> {formatJournalDate(row.handledAt)}
+          </span>
         </div>
-      )}
+      ) : null}
     </article>
   );
 }
-

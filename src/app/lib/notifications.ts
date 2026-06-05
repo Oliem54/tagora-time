@@ -5,6 +5,7 @@ import {
   isValidEmail,
   type AccountRequestCompany,
 } from "@/app/lib/account-requests.shared";
+import { resolveHorodateurExceptionDisplay } from "@/app/lib/horodateur-exception-display.shared";
 import type { HorodateurPhase1EmployeeProfile } from "@/app/lib/horodateur-v1/types";
 import {
   getHorodateurQuickActionActorUserId,
@@ -1272,6 +1273,7 @@ function buildHorodateurExceptionDirectionSmsBody(options: {
   isReminder: boolean;
   employeeName: string | null | undefined;
   noteShort: string | null;
+  caseSmsText?: string | null;
   quickRespondUrl?: string | null;
   quickPair: { approveUrl: string; rejectUrl: string } | null;
   openUrl: string | null;
@@ -1285,9 +1287,13 @@ function buildHorodateurExceptionDirectionSmsBody(options: {
     return parts.join(" ");
   }
 
-  parts.push(`${head} : exception horodateur de ${name}.`);
-  if (options.noteShort) {
-    parts.push(`Note : ${options.noteShort}`);
+  if (options.caseSmsText?.trim()) {
+    parts.push(options.caseSmsText.trim());
+  } else {
+    parts.push(`${head} : exception horodateur de ${name}.`);
+    if (options.noteShort) {
+      parts.push(`Note : ${options.noteShort}`);
+    }
   }
   if (options.quickPair?.approveUrl) {
     parts.push(`Approuver : ${options.quickPair.approveUrl}`);
@@ -1507,9 +1513,21 @@ export async function notifyDirectionOfHorodateurException(
   const managementUrl = payload.managementUrl ?? "/direction/horodateur";
   const formattedOccurredAt = formatAlertDateTime(payload.occurredAt);
   const formattedRequestedAt = formatAlertDateTime(payload.requestedAt);
+  const caseDisplay = resolveHorodateurExceptionDisplay({
+    category: "horodateur_exception",
+    status: "open",
+    priority: "high",
+    exceptionType: payload.exceptionType,
+    reasonLabel: payload.reasonLabel,
+    details: payload.employeeNote,
+    employeeName: payload.employeeName,
+    occurredAt: payload.occurredAt,
+    createdAt: payload.requestedAt,
+    dedupeKey: `horodateur_exception:${payload.exceptionId}`,
+  });
   const emailSubject = payload.isReminder
-    ? "TAGORA Time — Rappel : exception horodateur à traiter"
-    : "TAGORA Time — Exception horodateur à traiter";
+    ? `TAGORA Time — Rappel : ${caseDisplay?.emailSubject ?? "décision horodateur requise"}`
+    : `TAGORA Time — ${caseDisplay?.emailSubject ?? "Décision requise — exception horaire"}`;
 
   const employeeNote =
     payload.employeeNote && payload.employeeNote.trim()
@@ -1538,10 +1556,13 @@ export async function notifyDirectionOfHorodateurException(
           title: payload.isReminder
             ? "Rappel : exception horodateur"
             : "Exception horodateur",
-          summary: payload.isReminder
-            ? "Une exception horodateur est toujours en attente. Acceptez ou refusez la demande."
-            : "Une exception horodateur est en attente. Acceptez ou refusez la demande.",
+          summary:
+            caseDisplay?.humanSummary ??
+            (payload.isReminder
+              ? "Une exception horodateur est toujours en attente. Acceptez ou refusez la demande."
+              : "Une exception horodateur est en attente. Acceptez ou refusez la demande."),
           detailRows: [
+            { label: "Cas métier", value: caseDisplay?.caseLabel ?? "Exception horaire" },
             { label: "Employe", value: payload.employeeName ?? "-" },
             { label: "Courriel", value: payload.employeeEmail ?? "-" },
             { label: "Telephone", value: phoneDisplay },
@@ -1609,9 +1630,10 @@ export async function notifyDirectionOfHorodateurException(
       classification: "direction_action_required",
       subject: emailSubject,
       summary:
-        payload.isReminder
+        caseDisplay?.emailPreview ??
+        (payload.isReminder
           ? "Une exception horodateur est toujours en attente d’approbation et requiert un suivi de la direction."
-          : "Une exception horodateur est en attente d’approbation et requiert une intervention rapide de la direction.",
+          : "Une exception horodateur est en attente d’approbation et requiert une intervention rapide de la direction."),
       requesterLabel: "Employé",
       requesterName: payload.employeeName,
       requesterEmail: payload.employeeEmail,
@@ -1629,6 +1651,7 @@ export async function notifyDirectionOfHorodateurException(
         Courriel: payload.employeeEmail ?? "-",
         Téléphone: phoneDisplay,
         Compagnie: companyLabel,
+        "Cas métier": caseDisplay?.caseLabel ?? "Exception horaire",
         "Type d’exception": payload.exceptionType,
         "Motif système": payload.reasonLabel,
         "Note employé": employeeNote ?? "Aucune note fournie.",
@@ -1667,6 +1690,7 @@ export async function notifyDirectionOfHorodateurException(
     isReminder: Boolean(payload.isReminder),
     employeeName: payload.employeeName ?? payload.employeeEmail,
     noteShort: noteForSms,
+    caseSmsText: caseDisplay?.smsText ?? null,
     quickRespondUrl,
     quickPair,
     openUrl: smsOpenUrl,
