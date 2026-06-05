@@ -24,6 +24,7 @@ type ListedFactor = {
   factor_type: string;
   status: string;
   friendly_name?: string | null;
+  phone?: string | null;
 };
 
 function readListedFactors(data: unknown): ListedFactor[] {
