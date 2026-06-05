@@ -4,13 +4,17 @@ import type { ReactNode } from "react";
 import StatusBadge from "@/app/components/ui/StatusBadge";
 import { accountRequestPermissionOptions } from "@/app/lib/account-request-options";
 import type { AccountAccessRequestRecord, AccountAccessStatus } from "@/app/lib/account-access";
-import { isAccessDisabledRequest } from "@/app/lib/account-access";
+import {
+  getAccountRequestPortalSummaryLabel,
+  isAccessDisabledRequest,
+} from "@/app/lib/account-access";
 import {
   getCompanyLabel,
   type AccountRequestCompany,
 } from "@/app/lib/account-requests.shared";
+import { isReconciliationCandidate } from "@/app/lib/account-reconcile.shared";
 import AccountRequestRowActions from "./AccountRequestRowActions";
-import EmployeeLinkStatusBadge from "./EmployeeLinkStatusBadge";
+import EmployeeLinkCellContent from "./EmployeeLinkCellContent";
 
 type RequestRole = "employe" | "direction" | "admin";
 
@@ -83,9 +87,11 @@ export default function AccountRequestMobileCard({
   onDelete,
   onDisableAccess,
   onReactivateAccess,
+  onReconcile,
   deleting,
   disabling,
   reactivating,
+  reconciling,
   canDelete,
   canManage,
   canManageRoles,
@@ -95,9 +101,11 @@ export default function AccountRequestMobileCard({
   onDelete: () => void;
   onDisableAccess?: () => void;
   onReactivateAccess?: () => void;
+  onReconcile?: () => void;
   deleting?: boolean;
   disabling?: boolean;
   reactivating?: boolean;
+  reconciling?: boolean;
   canDelete?: boolean;
   canManage?: boolean;
   canManageRoles?: boolean;
@@ -108,7 +116,12 @@ export default function AccountRequestMobileCard({
     <article className="account-requests-mobile-card">
       <header className="account-requests-mobile-card__head">
         <h3 className="account-requests-mobile-card__name">{request.full_name}</h3>
-        <StatusBadge label={getStatusLabel(request.status, request)} tone={getStatusTone(request.status, request)} />
+        <div className="account-requests-cell-badge-row">
+          <StatusBadge label={getStatusLabel(request.status, request)} tone={getStatusTone(request.status, request)} />
+          {isReconciliationCandidate(request) ? (
+            <StatusBadge label="À réconcilier" tone="warning" />
+          ) : null}
+        </div>
       </header>
 
       <div className="account-requests-mobile-card__fields">
@@ -125,13 +138,11 @@ export default function AccountRequestMobileCard({
           {getCompanyLabel(request.company as AccountRequestCompany)}
         </MobileField>
         <MobileField label="Compte">
-          {request.existing_account?.exists ? "Compte detecte" : "Compte a creer"}
+          {getAccountRequestPortalSummaryLabel(request) ??
+            (request.existing_account?.exists ? "Compte detecte" : "Compte a creer")}
         </MobileField>
         <MobileField label="Fiche employe">
-          <EmployeeLinkStatusBadge employeeLink={request.employee_link} />
-          {request.employee_link?.id ? (
-            <span className="account-requests-mobile-card__sub">#{request.employee_link.id}</span>
-          ) : null}
+          <EmployeeLinkCellContent request={request} />
         </MobileField>
         <MobileField label="Derniere connexion">
           <span className="account-requests-mobile-card__date">
@@ -151,9 +162,11 @@ export default function AccountRequestMobileCard({
           onDelete={onDelete}
           onDisableAccess={onDisableAccess}
           onReactivateAccess={onReactivateAccess}
+          onReconcile={onReconcile}
           deleting={deleting}
           disabling={disabling}
           reactivating={reactivating}
+          reconciling={reconciling}
           canDelete={canDelete}
           canManage={canManage}
           canManageRoles={canManageRoles}

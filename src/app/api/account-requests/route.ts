@@ -55,17 +55,26 @@ type ChauffeurProfileRow = {
   id: number;
   auth_user_id?: string | null;
   courriel?: string | null;
+  telephone?: string | null;
+  actif?: boolean | null;
+  schedule_active?: boolean | null;
 };
 
 function getPersistedEmployeeLinkStatus(
-  auditLog: { details?: Record<string, unknown> }[] | null | undefined
+  auditLog: { event?: string; details?: Record<string, unknown> }[] | null | undefined
 ) {
-  const matchingEntry = [...(auditLog ?? [])]
-    .reverse()
-    .find((entry) => {
-      const disposition = entry.details?.employeeProfileDisposition;
-      return disposition === "created" || disposition === "existing";
-    });
+  const entries = [...(auditLog ?? [])].reverse();
+
+  if (
+    entries.some((entry) => entry.event === "request_reconciled_existing_account")
+  ) {
+    return "existing";
+  }
+
+  const matchingEntry = entries.find((entry) => {
+    const disposition = entry.details?.employeeProfileDisposition;
+    return disposition === "created" || disposition === "existing";
+  });
 
   const disposition = matchingEntry?.details?.employeeProfileDisposition;
 
@@ -101,8 +110,12 @@ function buildEmployeeLinkSummary(options: {
     id: options.profile.id,
     exists: true,
     status,
-    label: status === "created" ? "Employe cree" : "Employe deja existant",
+    label: status === "created" ? "Employé créé" : "Employé déjà existant",
     source: options.source,
+    actif: options.profile.actif ?? null,
+    schedule_active: options.profile.schedule_active ?? null,
+    profile_telephone: options.profile.telephone ?? null,
+    auth_user_id: options.profile.auth_user_id ?? null,
   };
 }
 
@@ -158,6 +171,67 @@ export async function POST(req: NextRequest) {
         { error: "Le format du courriel est invalide." },
         { status: 400 }
       );
+    }
+
+    const creationSource = String(body.creationSource ?? "").trim();
+
+    if (creationSource === "direction_manual") {
+      const { user, role, mfaError } = await getStrictDirectionRequestUser(req);
+      if (mfaError) {
+        return mfaError;
+      }
+
+      if (!user || (role !== "direction" && role !== "admin")) {
+        return NextResponse.json({ error: "Acces refuse." }, { status: 403 });
+      }
+
+      try {
+        const authUsers = await listAllAuthUsers();
+        const existingAuthUser = authUsers.find(
+          (item) => normalizeEmail(item.email ?? "") === email
+        );
+
+        if (existingAuthUser) {
+          return NextResponse.json(
+            {
+              error:
+                "Ce compte portail existe déjà. Utilisez « Gérer » sur la demande existante ou ouvrez la fiche employé pour modifier l'accès.",
+              code: "portal_account_exists",
+            },
+            { status: 409 }
+          );
+        }
+
+        const adminSupabase = createAdminSupabaseClient();
+        const { data: existingRequests } = await adminSupabase
+          .from("account_requests")
+          .select("id, status")
+          .eq("email", email)
+          .in("status", ["pending", "invited", "active"]);
+
+        if (existingRequests && existingRequests.length > 0) {
+          const activeLike = existingRequests.find(
+            (item) => item.status === "active" || item.status === "invited"
+          );
+          return NextResponse.json(
+            {
+              error: activeLike
+                ? "Une demande active ou invitée existe déjà pour ce courriel. Utilisez « Gérer » pour consulter ou modifier l'accès existant."
+                : "Une demande en attente existe déjà pour ce courriel. Ouvrez-la avec « Gérer » au lieu d'en créer une nouvelle.",
+              code: "account_request_exists",
+            },
+            { status: 409 }
+          );
+        }
+      } catch (validationError) {
+        console.error("[account-requests][create] direction_manual_precheck_failed", {
+          email,
+          message:
+            validationError instanceof Error
+              ? validationError.message
+              : "unknown_error",
+        });
+      }
     }
 
     try {
@@ -318,7 +392,7 @@ export async function GET(req: NextRequest) {
     const authUsers = await listAllAuthUsers();
     const { data: chauffeurProfiles } = await supabase
       .from("chauffeurs")
-      .select("id, auth_user_id, courriel")
+      .select("id, auth_user_id, courriel, telephone, actif, schedule_active")
       .order("id", { ascending: true });
 
     const userByEmail = new Map(

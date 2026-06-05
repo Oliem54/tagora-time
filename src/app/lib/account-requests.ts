@@ -48,6 +48,7 @@ export type AccountRequestAuditEntry = {
     | "request_updated"
     | "request_reopened"
     | "request_deleted"
+    | "request_reconciled_existing_account"
     | "invitation_resent"
     | "access_disabled";
   actorUserId?: string | null;
