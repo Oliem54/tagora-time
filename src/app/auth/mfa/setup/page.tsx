@@ -32,6 +32,7 @@ import {
   buildMfaPhoneFactorMismatchLog,
   resolveEnsureUnverifiedPhoneFactor,
 } from "@/app/lib/auth/mfa-setup.shared";
+import { signOutToSwitchAccount } from "@/app/lib/auth/password-mfa.client";
 import { getHomePathForRole, getUserRole } from "@/app/lib/auth/roles";
 import { supabase } from "@/app/lib/supabase/client";
 import {
@@ -65,6 +66,7 @@ export default function MfaSetupPage() {
   const [totpBusy, setTotpBusy] = useState(false);
   const [totpMessage, setTotpMessage] = useState("");
   const [totpMessageType, setTotpMessageType] = useState<"success" | "error" | null>(null);
+  const [switchAccountBusy, setSwitchAccountBusy] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -139,6 +141,20 @@ export default function MfaSetupPage() {
       cancelled = true;
     };
   }, [checkingUser, phoneInput]);
+
+  async function handleSwitchAccount() {
+    if (switchAccountBusy || smsBusy || totpBusy) {
+      return;
+    }
+    setSwitchAccountBusy(true);
+    try {
+      const loginPath = await signOutToSwitchAccount();
+      router.replace(loginPath);
+      router.refresh();
+    } finally {
+      setSwitchAccountBusy(false);
+    }
+  }
 
   async function syncCookie() {
     const {
@@ -425,10 +441,23 @@ export default function MfaSetupPage() {
 
         {required ? (
           <SectionCard title="Obligatoire">
-            <p style={{ margin: 0, fontSize: 14, color: "#92400e" }}>
-              Votre rôle exige la vérification en deux étapes avant d’accéder à la direction ou à
-              l’administration.
-            </p>
+            <div className="ui-stack-md">
+              <p style={{ margin: 0, fontSize: 14, color: "#92400e" }}>
+                Votre rôle exige la vérification en deux étapes avant d’accéder à la direction ou à
+                l’administration.
+              </p>
+              <p style={{ margin: 0, fontSize: 14, color: "#475569", lineHeight: 1.5 }}>
+                Vous n’êtes pas sur le bon compte ? Déconnectez-vous pour vous connecter avec un autre
+                utilisateur.
+              </p>
+              <SecondaryButton
+                type="button"
+                disabled={switchAccountBusy}
+                onClick={() => void handleSwitchAccount()}
+              >
+                Changer de compte
+              </SecondaryButton>
+            </div>
           </SectionCard>
         ) : null}
 
@@ -510,7 +539,20 @@ export default function MfaSetupPage() {
                   <SecondaryButton type="button" disabled={smsBusy} onClick={() => router.back()}>
                     Annuler
                   </SecondaryButton>
+                  <SecondaryButton
+                    type="button"
+                    disabled={smsBusy || switchAccountBusy}
+                    onClick={() => void handleSwitchAccount()}
+                  >
+                    Changer de compte
+                  </SecondaryButton>
                 </div>
+                {!required ? (
+                  <p style={{ margin: 0, fontSize: 13, color: "#64748b", lineHeight: 1.5 }}>
+                    Vous n’êtes pas sur le bon compte ? Utilisez « Changer de compte » pour vous
+                    déconnecter et vous reconnecter avec un autre utilisateur.
+                  </p>
+                ) : null}
               </form>
             </AppCard>
 
