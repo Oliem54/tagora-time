@@ -392,9 +392,9 @@ export default function AdminCommissionsPageClient() {
             <KeyRound size={20} />
           </div>
           <div>
-            <div style={{ fontWeight: 800 }}>Gerer acces Direction</div>
+            <div style={{ fontWeight: 800 }}>Partage des livres de ventes</div>
             <p className="tagora-note" style={{ margin: "6px 0 0" }}>
-              Accorder ou revoquer la consultation operationnelle d un livre sans montants monetaires.
+              Configurer les personnes autorisées à consulter un livre, sans montants confidentiels.
             </p>
           </div>
           <span className="tagora-dark-action admin-commissions-access-cta">Ouvrir</span>

@@ -41,7 +41,9 @@ export async function GET(req: NextRequest) {
 
     let query = supabase
       .from("chauffeurs")
-      .select("id, nom, courriel, telephone, actif, primary_company, fonctions, fonction_autre, can_deliver")
+      .select(
+        "id, nom, courriel, telephone, actif, auth_user_id, primary_company, fonctions, fonction_autre, can_deliver"
+      )
       .order("id", { ascending: true });
 
     if (status === "active") {

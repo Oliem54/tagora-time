@@ -1,15 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
-  extractRoleFromUser,
-} from "@/app/lib/account-requests.server";
-import {
   loadChauffeurLabels,
   requireAdminFinanceCommissionsAccess,
 } from "@/app/api/direction/commissions/_lib";
+import { validateAuthorizedViewerAuthUser } from "@/app/lib/commissions/commission-book-authorized-viewers.shared";
 import {
   mapCommissionBookAccessGrantRecord,
 } from "@/app/lib/commissions/sales-book-grants.server";
-import { getUserRole } from "@/app/lib/auth/roles";
 
 export const dynamic = "force-dynamic";
 
@@ -32,21 +29,21 @@ function parseActiveFilter(value: string | null) {
   return null;
 }
 
-async function resolveDirectionViewerUserId(
+async function resolveAuthorizedViewerUserId(
   supabase: ReturnType<typeof import("@/app/lib/supabase/admin").createAdminSupabaseClient>,
   viewerUserId: string
 ) {
   const { data, error } = await supabase.auth.admin.getUserById(viewerUserId);
   if (error || !data.user) {
-    return { ok: false as const, error: "Utilisateur Direction introuvable." };
+    return { ok: false as const, error: "Personne autorisée introuvable." };
   }
 
-  const role = getUserRole(data.user) ?? extractRoleFromUser(data.user);
-  if (role !== "direction") {
-    return { ok: false as const, error: "Le viewer doit etre un utilisateur Direction." };
+  const validation = validateAuthorizedViewerAuthUser(data.user);
+  if (!validation.ok) {
+    return { ok: false as const, error: validation.error };
   }
 
-  return { ok: true as const, user: data.user };
+  return { ok: true as const, user: data.user, role: validation.role };
 }
 
 export async function GET(req: NextRequest) {
@@ -127,7 +124,7 @@ export async function POST(req: NextRequest) {
 
     const ownerRes = await supabase
       .from("chauffeurs")
-      .select("id")
+      .select("id, actif, auth_user_id")
       .eq("id", Math.trunc(ownerChauffeurId))
       .maybeSingle();
 
@@ -135,7 +132,22 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Employe proprietaire introuvable." }, { status: 404 });
     }
 
-    const viewerResolution = await resolveDirectionViewerUserId(supabase, viewerUserId);
+    const ownerRecord = ownerRes.data as {
+      actif?: boolean | null;
+      auth_user_id?: string | null;
+    };
+    const ownerAuthUserId =
+      typeof ownerRecord.auth_user_id === "string" ? ownerRecord.auth_user_id.trim() : "";
+    if (ownerRecord.actif !== true || !ownerAuthUserId) {
+      return NextResponse.json(
+        {
+          error: "L'employé sélectionné doit être actif et lié à un compte portail.",
+        },
+        { status: 400 }
+      );
+    }
+
+    const viewerResolution = await resolveAuthorizedViewerUserId(supabase, viewerUserId);
     if (!viewerResolution.ok) {
       return NextResponse.json({ error: viewerResolution.error }, { status: 400 });
     }
@@ -153,7 +165,7 @@ export async function POST(req: NextRequest) {
     }
     if (duplicateRes.data) {
       return NextResponse.json(
-        { error: "Un acces actif existe deja pour cet employe et cet utilisateur Direction." },
+        { error: "Un accès actif existe déjà pour ce livre et cette personne autorisée." },
         { status: 409 }
       );
     }
@@ -164,6 +176,7 @@ export async function POST(req: NextRequest) {
         {
           owner_chauffeur_id: Math.trunc(ownerChauffeurId),
           viewer_user_id: viewerUserId,
+          // Temporaire jusqu'à migration viewer_role admin/direction (contrainte SQL V1).
           viewer_role: "direction",
           granted_by_admin_id: user.id,
           can_view: true,

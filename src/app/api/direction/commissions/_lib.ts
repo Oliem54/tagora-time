@@ -8,10 +8,11 @@ import { hasUserPermission } from "@/app/lib/auth/permissions";
 import { isJwtExplicitlyAal1Only } from "@/app/lib/auth/jwt-access-token";
 import { createAdminSupabaseClient } from "@/app/lib/supabase/admin";
 import { parseTierConfig } from "@/app/lib/commissions/calculate.server";
-import type {
-  CommissionEntryRow,
-  CommissionRuleRow,
-  SalesObjectiveRow,
+import {
+  formatChauffeurDisplayLabel,
+  type CommissionEntryRow,
+  type CommissionRuleRow,
+  type SalesObjectiveRow,
 } from "@/app/lib/commissions/commissions.shared";
 
 export const dynamic = "force-dynamic";
@@ -165,19 +166,15 @@ export async function loadChauffeurLabels(
 
   const { data } = await supabase
     .from("chauffeurs")
-    .select("id, nom, prenom, nom_complet")
+    .select("id, nom, courriel")
     .in("id", unique);
 
   const map = new Map<number, string>();
   for (const row of data ?? []) {
-    const id = Number((row as Record<string, unknown>).id);
     const record = row as Record<string, unknown>;
-    const label = String(
-      record.nom_complet ||
-        [record.prenom, record.nom].filter(Boolean).join(" ") ||
-        `#${id}`
-    ).trim();
-    if (Number.isFinite(id)) map.set(id, label);
+    const id = Number(record.id);
+    if (!Number.isFinite(id)) continue;
+    map.set(id, formatChauffeurDisplayLabel(record));
   }
   return map;
 }

@@ -5,7 +5,7 @@ import AdminCommissionBookAccessClient from "@/app/admin/commissions/acces-direc
 
 export default function AdminCommissionBookAccessPage() {
   return (
-    <AdminFinanceGate moduleLabel="Acces Direction aux livres">
+    <AdminFinanceGate moduleLabel="Partage des livres de ventes">
       <AdminCommissionBookAccessClient />
     </AdminFinanceGate>
   );

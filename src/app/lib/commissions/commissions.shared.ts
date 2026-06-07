@@ -146,3 +146,18 @@ export function firstDayOfMonthIsoLocal() {
   const now = new Date();
   return new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
 }
+
+export function formatChauffeurDisplayLabel(row: {
+  id?: unknown;
+  nom?: unknown;
+  courriel?: unknown;
+}): string {
+  const id = Number(row.id);
+  const nom = String(row.nom ?? "").trim();
+  const courriel = String(row.courriel ?? "").trim();
+
+  if (nom && courriel) return `${nom} (${courriel})`;
+  if (nom) return Number.isFinite(id) ? `${nom} (#${Math.trunc(id)})` : nom;
+  if (courriel) return courriel;
+  return Number.isFinite(id) ? `Employé #${Math.trunc(id)}` : "Employé";
+}
