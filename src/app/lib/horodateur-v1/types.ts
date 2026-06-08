@@ -130,6 +130,7 @@ export type HorodateurPhase1EmployeeProfile = {
   email: string | null;
   phoneNumber: string | null;
   active: boolean;
+  scheduleActive: boolean;
   primaryCompany: AccountRequestCompany | null;
   scheduleStart: string | null;
   scheduleEnd: string | null;
