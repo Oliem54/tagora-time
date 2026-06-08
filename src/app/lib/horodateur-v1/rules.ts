@@ -15,6 +15,8 @@ import {
 
 export const HORODATEUR_PHASE1_TIMEZONE = "America/Toronto";
 export const HORODATEUR_PHASE1_WEEKLY_TARGET_HOURS = 40;
+/** Entree jusqu'a N minutes avant schedule_start : auto-acceptee si GPS OK (Phase A hotfix). */
+export const HORODATEUR_EARLY_PUNCH_IN_GRACE_MINUTES = 10;
 /** Duree maximale d un quart ouvert (horloge murale depuis le debut) avant plafond live et sortie a approuver. */
 export const HORODATEUR_OPEN_SHIFT_SAFETY_MAX_ELAPSED_MINUTES = 840;
 const PHASE1_DEFAULT_MAX_BREAK_MINUTES = 120;
@@ -183,6 +185,34 @@ function isWithinScheduledWindow(
   const windowEnd = scheduleEndMinutes + employee.toleranceAfterEndMinutes;
 
   return currentMinutes >= windowStart && currentMinutes <= windowEnd;
+}
+
+export function isWithinEarlyPunchInGraceWindow(
+  employee: HorodateurPhase1EmployeeProfile,
+  occurredAt: string,
+  graceMinutes = HORODATEUR_EARLY_PUNCH_IN_GRACE_MINUTES
+) {
+  if (!employee.scheduleStart?.trim()) {
+    return false;
+  }
+
+  if (!isValidScheduledWorkDay(employee, occurredAt)) {
+    return false;
+  }
+
+  const scheduleStartMinutes = parseTimeToMinutes(employee.scheduleStart);
+  if (scheduleStartMinutes == null) {
+    return false;
+  }
+
+  const currentMinutes = getMinutesSinceLocalMidnight(occurredAt);
+  const graceStartMinutes = scheduleStartMinutes - Math.max(0, graceMinutes);
+  const windowStart =
+    scheduleStartMinutes - employee.toleranceBeforeStartMinutes;
+
+  return (
+    currentMinutes >= graceStartMinutes && currentMinutes < windowStart
+  );
 }
 
 export function isValidScheduledWorkDayForEmployee(
@@ -493,12 +523,21 @@ function classifyPunchOutAfterOpenShiftSafetyLimit(options: {
   occurredAt: string;
   note?: string | null;
   allApprovedEvents: HorodateurPhase1EventRecord[];
+  pendingPunchOutEvents?: HorodateurPhase1EventRecord[];
 }): HorodateurPhase1Classification | null {
   if (options.canonicalEventType !== "punch_out") {
     return null;
   }
 
-  const activeShiftStart = resolveOpenShiftStartEvent(options.allApprovedEvents);
+  const openShiftTimeline = [
+    ...options.allApprovedEvents,
+    ...(options.pendingPunchOutEvents ?? []).filter(
+      (event) =>
+        event.status === "en_attente" &&
+        toCanonicalEventType(event.event_type) === "punch_out"
+    ),
+  ];
+  const activeShiftStart = resolveOpenShiftStartEvent(openShiftTimeline);
   if (!activeShiftStart) {
     return null;
   }
@@ -529,6 +568,7 @@ export function classifyEventPhase1(
     currentState,
     latestApprovedEvents,
     allApprovedEvents,
+    pendingPunchOutEvents,
     eventType,
     occurredAt,
     actorRole,
@@ -622,15 +662,18 @@ export function classifyEventPhase1(
     occurredAt,
     note,
     allApprovedEvents: openShiftApprovedEvents,
+    pendingPunchOutEvents,
   });
   if (punchOutSafetyClassification) {
     return punchOutSafetyClassification;
   }
 
-  if (
-    !isValidScheduledWorkDay(employee, occurredAt) ||
-    !isWithinScheduledWindow(employee, occurredAt)
-  ) {
+  const withinScheduleOrEarlyGrace =
+    isWithinScheduledWindow(employee, occurredAt) ||
+    (canonicalEventType === "punch_in" &&
+      isWithinEarlyPunchInGraceWindow(employee, occurredAt));
+
+  if (!isValidScheduledWorkDay(employee, occurredAt) || !withinScheduleOrEarlyGrace) {
     return buildPendingClassification(
       "outside_schedule",
       "Pointage hors horaire prevu",

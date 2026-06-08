@@ -340,6 +340,14 @@ export type HorodateurPhase1TodayTimeDisplay = {
   computedAt: string;
 };
 
+export type HorodateurPendingPunchOutSnapshot = {
+  eventId: string;
+  occurredAt: string;
+  workDate: string | null;
+  exceptionType: HorodateurPhase1ExceptionType | null;
+  payrollValidationPending: true;
+};
+
 export type HorodateurPhase1EmployeeDashboardSnapshot = {
   employee: HorodateurPhase1EmployeeProfile;
   currentState: HorodateurPhase1CurrentStateRecord;
@@ -356,6 +364,7 @@ export type HorodateurPhase1EmployeeDashboardSnapshot = {
     primaryCompanyLabel: string;
   };
   pendingExceptions: HorodateurPhase1ExceptionRecord[];
+  pendingPunchOut: HorodateurPendingPunchOutSnapshot | null;
   latenessContext: HorodateurPhase1LatenessContext;
 };
 
@@ -373,6 +382,8 @@ export type HorodateurPhase1ClassifyInput = {
   latestApprovedEvents: HorodateurPhase1EventRecord[];
   /** Timeline approuvee complete — necessaire pour quart ouvert cross-jour et regle 14 h. */
   allApprovedEvents?: HorodateurPhase1EventRecord[];
+  /** Sorties en attente — ferment le quart pour la regle 14 h sans approuver la paie. */
+  pendingPunchOutEvents?: HorodateurPhase1EventRecord[];
   eventType: HorodateurPhase1EventType | HorodateurCanonicalEventType;
   occurredAt: string;
   actorRole: HorodateurPhase1ActorRole;
@@ -414,6 +425,8 @@ export type HorodateurPhase1CreatePunchResult = {
   exception: HorodateurPhase1ExceptionRecord | null;
   currentState: HorodateurPhase1CurrentStateRecord;
   shift: HorodateurPhase1ShiftRecord;
+  alreadySubmitted?: boolean;
+  alreadySubmittedMessage?: string;
 };
 
 export class HorodateurPhase1Error extends Error {
