@@ -31,6 +31,7 @@ type ChauffeurProfileRow = {
   telephone?: string | null;
   phone_number?: string | null;
   actif: boolean | null;
+  schedule_active?: boolean | null;
   primary_company: HorodateurPhase1EmployeeProfile["primaryCompany"];
   can_work_for_oliem_solutions?: boolean | null;
   can_work_for_titan_produits_industriels?: boolean | null;
@@ -72,6 +73,7 @@ const CHAUFFEUR_PHASE1_SELECT_CANONICAL = `
   courriel,
   telephone,
   actif,
+  schedule_active,
   primary_company,
   can_work_for_oliem_solutions,
   can_work_for_titan_produits_industriels,
@@ -108,6 +110,7 @@ const CHAUFFEUR_PHASE1_SELECT_LEGACY_PHONE = `
   courriel,
   phone_number,
   actif,
+  schedule_active,
   primary_company,
   can_work_for_oliem_solutions,
   can_work_for_titan_produits_industriels,
@@ -229,6 +232,7 @@ function mapProfile(row: ChauffeurProfileRow): HorodateurPhase1EmployeeProfile {
     email: row.courriel,
     phoneNumber: row.telephone ?? row.phone_number ?? null,
     active: row.actif !== false,
+    scheduleActive: row.schedule_active !== false,
     primaryCompany: row.primary_company,
     canWorkForOliemSolutions: row.can_work_for_oliem_solutions !== false,
     canWorkForTitanProduitsIndustriels:

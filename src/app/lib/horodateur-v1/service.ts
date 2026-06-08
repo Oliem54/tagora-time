@@ -76,6 +76,14 @@ import {
   resolveEffectiveHorodateurScheduleForDate,
   type HorodateurEffectiveScheduleForDate,
 } from "./effective-schedule.server";
+import { resolveHorodateurAlertScheduleContext } from "./horodateur-alert-schedule.server";
+import {
+  buildOperationalStateEvents,
+  compareHorodateurExceptionReviewPriority,
+  computeStateFromEventTimeline,
+  findActivePendingPunchOutFromEvents,
+  formatPendingPunchOutSubmittedMessage,
+} from "./operational-state.shared";
 import {
   classifyEventPhase1,
   computeOpenShiftElapsedMinutes,
@@ -121,6 +129,7 @@ import type {
   HorodateurPhase1EventType,
   HorodateurPhase1Classification,
   HorodateurPhase1TodayTimeDisplay,
+  HorodateurPendingPunchOutSnapshot,
 } from "./types";
 
 const HORODATEUR_PUNCH_SMS_SKIP_EVENT_TYPES = new Set<HorodateurPhase1EventType>([
@@ -627,6 +636,11 @@ function resolveExpectedPunchScheduleItems(options: {
   weekdayFr: string;
 }) {
   const expected: ExpectedPunchScheduleItem[] = [];
+
+  if (!options.employee.scheduleActive) {
+    return expected;
+  }
+
   const weekly = options.employee.weeklyScheduleConfig;
   const weekdayKey = weekdayFrToWeeklyDayKey(options.weekdayFr);
 
@@ -892,29 +906,74 @@ export async function createPendingExceptionForEvent(options: {
   });
 }
 
-async function assertNoPendingShiftTooLongPunchOut(employeeId: number) {
-  const pendingExceptions = await listPendingExceptions({ employeeId });
+async function findActivePendingPunchOutForEmployee(employeeId: number) {
+  const [pendingEvents, approvedEvents] = await Promise.all([
+    listEventsForEmployee({ employeeId, statuses: ["en_attente"] }),
+    listEventsForEmployee({ employeeId, statuses: ["normal", "approuve"] }),
+  ]);
 
-  for (const pendingException of pendingExceptions) {
-    if (pendingException.exception_type !== "shift_too_long") {
-      continue;
-    }
+  return findActivePendingPunchOutFromEvents(pendingEvents, approvedEvents);
+}
 
-    const sourceEvent = await getEventById(pendingException.source_event_id);
-    if (
-      sourceEvent &&
-      sourceEvent.status === "en_attente" &&
-      toCanonicalEventType(sourceEvent.event_type) === "punch_out"
-    ) {
-      throw new HorodateurPhase1Error(
-        "Une sortie apres 14 h est deja en attente d approbation direction.",
-        {
-          code: "pending_shift_close_already_exists",
-          status: 409,
-        }
-      );
-    }
+async function buildPendingPunchOutSnapshot(
+  employeeId: number
+): Promise<HorodateurPendingPunchOutSnapshot | null> {
+  const pendingEvent = await findActivePendingPunchOutForEmployee(employeeId);
+  if (!pendingEvent) {
+    return null;
   }
+
+  const occurredAt = getEventOccurredAt(pendingEvent);
+  if (!occurredAt) {
+    return null;
+  }
+
+  const pendingExceptions = await listPendingExceptions({ employeeId });
+  const linkedException =
+    pendingExceptions.find(
+      (item) => item.source_event_id === pendingEvent.id && item.status === "en_attente"
+    ) ?? null;
+
+  return {
+    eventId: pendingEvent.id,
+    occurredAt,
+    workDate: pendingEvent.work_date ?? getLocalWorkDate(occurredAt),
+    exceptionType: linkedException?.exception_type ?? pendingEvent.exception_code ?? null,
+    payrollValidationPending: true,
+  };
+}
+
+async function resolveAlreadySubmittedPunchOutResult(options: {
+  employee: HorodateurPhase1EmployeeProfile;
+  pendingEvent: HorodateurPhase1EventRecord;
+}): Promise<HorodateurPhase1CreatePunchResult> {
+  const occurredAt = getEventOccurredAt(options.pendingEvent);
+  const workDate =
+    options.pendingEvent.work_date ??
+    (occurredAt ? getLocalWorkDate(occurredAt) : getLocalWorkDate(new Date().toISOString()));
+
+  const [shift, currentState, pendingExceptions] = await Promise.all([
+    recomputeShiftForDate(options.employee.employeeId, workDate),
+    recomputeCurrentState(options.employee.employeeId),
+    listPendingExceptions({ employeeId: options.employee.employeeId }),
+  ]);
+
+  const linkedException =
+    pendingExceptions.find(
+      (item) =>
+        item.source_event_id === options.pendingEvent.id && item.status === "en_attente"
+    ) ?? null;
+
+  return {
+    event: options.pendingEvent,
+    exception: linkedException,
+    currentState,
+    shift,
+    alreadySubmitted: true,
+    alreadySubmittedMessage: occurredAt
+      ? formatPendingPunchOutSubmittedMessage(occurredAt)
+      : "Votre sortie a deja ete soumise et attend la validation de la direction.",
+  };
 }
 
 function tryCreateAdminClient(): SupabaseClient | null {
@@ -1529,19 +1588,12 @@ export async function processLateEmployeeNotifications() {
       continue;
     }
 
-    if (!employee.scheduleStart) {
+    const scheduleContext = await resolveHorodateurAlertScheduleContext(employee, workDate);
+    if (!scheduleContext.scheduled || !scheduleContext.shiftStart) {
       continue;
     }
 
-    if (
-      Array.isArray(employee.scheduledWorkDays) &&
-      employee.scheduledWorkDays.length > 0 &&
-      !employee.scheduledWorkDays.map((item) => item.toLowerCase()).includes(weekday)
-    ) {
-      continue;
-    }
-
-    const scheduledStartMinutes = getScheduledStartMinutes(employee.scheduleStart);
+    const scheduledStartMinutes = getScheduledStartMinutes(scheduleContext.shiftStart);
 
     if (scheduledStartMinutes == null) {
       continue;
@@ -1580,14 +1632,14 @@ export async function processLateEmployeeNotifications() {
         await upsertLatenessNotification({
           employeeId: employee.employeeId,
           workDate,
-          scheduledStartAt: buildTorontoTimestamp(workDate, employee.scheduleStart, now),
+          scheduledStartAt: buildTorontoTimestamp(workDate, scheduleContext.shiftStart, now),
           resolutionReason: "approved_exception_or_absence",
         });
       }
       continue;
     }
 
-    const scheduledStartAt = buildTorontoTimestamp(workDate, employee.scheduleStart, now);
+    const scheduledStartAt = buildTorontoTimestamp(workDate, scheduleContext.shiftStart, now);
     const lateDetectedAt = now.toISOString();
     const notification =
       existingNotification ??
@@ -1702,11 +1754,8 @@ export async function processExpectedPunchSmsNotifications(options?: {
   for (const employee of employees) {
     if (!employee.active) continue;
 
-    if (
-      Array.isArray(employee.scheduledWorkDays) &&
-      employee.scheduledWorkDays.length > 0 &&
-      !employee.scheduledWorkDays.map((item) => item.toLowerCase()).includes(weekday)
-    ) {
+    const scheduleContext = await resolveHorodateurAlertScheduleContext(employee, workDate);
+    if (!scheduleContext.scheduled) {
       continue;
     }
 
@@ -1960,11 +2009,8 @@ export async function processMissingExpectedPunchEscalation() {
       continue;
     }
 
-    if (
-      Array.isArray(employee.scheduledWorkDays) &&
-      employee.scheduledWorkDays.length > 0 &&
-      !employee.scheduledWorkDays.map((item) => item.toLowerCase()).includes(weekday)
-    ) {
+    const scheduleContext = await resolveHorodateurAlertScheduleContext(employee, workDate);
+    if (!scheduleContext.scheduled) {
       continue;
     }
 
@@ -2233,103 +2279,46 @@ export async function recomputeCurrentState(
     ...pendingOperationalEvents,
   ]);
   /**
-   * Machine d'état uniquement sur les événements déjà approuvés / normal.
-   * Sinon un break_end ou punch_out encore « en_attente » faisait passer l'état
-   * hors pause payée ou hors quart avant validation direction — effet « dépunch auto ».
+   * Etat operationnel employe : inclut punch_out en_attente pour fermer le quart cote interface.
+   * La paie reste calculee uniquement sur normal / approuve (recomputeShiftForDate).
    */
-  const approvedEffectiveEvents = sortEventsForState(approvedEvents);
+  const pendingPunchOutEvents = pendingOperationalEvents.filter(
+    (event) => toCanonicalEventType(event.event_type) === "punch_out"
+  );
+  const operationalTimeline = buildOperationalStateEvents(
+    approvedEvents,
+    pendingPunchOutEvents
+  );
+  const operationalState = computeStateFromEventTimeline(operationalTimeline, {
+    ignorePaidBreakPunches,
+  });
+  const payrollState = computeStateFromEventTimeline(
+    sortEventsForState(approvedEvents),
+    { ignorePaidBreakPunches }
+  );
+
   const lastEvent =
     effectiveEvents.length > 0
       ? effectiveEvents[effectiveEvents.length - 1]
       : getLastApprovedEvent(approvedEvents);
   const pendingExceptionsCount = await countPendingExceptionsForEmployee(employeeId);
 
-  let currentState: HorodateurPhase1StateKind = "hors_quart";
-  let activeShiftStartEventId: string | null = null;
-  let activePauseStartEventId: string | null = null;
-  let activeDinnerStartEventId: string | null = null;
-  let hasSequenceAnomaly = false;
+  const currentState: HorodateurPhase1StateKind = operationalState.currentState;
+  const activeShiftStartEventId = operationalState.activeShiftStartEventId;
+  const activePauseStartEventId = operationalState.activePauseStartEventId;
+  const activeDinnerStartEventId = operationalState.activeDinnerStartEventId;
+  const hasSequenceAnomaly = operationalState.hasSequenceAnomaly;
 
-  for (const event of approvedEffectiveEvents) {
-    const canonicalEventType = toCanonicalEventType(event.event_type);
-
-    if (!canonicalEventType) {
-      hasSequenceAnomaly = true;
-      continue;
-    }
-
-    if (
-      ignorePaidBreakPunches &&
-      (canonicalEventType === "break_start" || canonicalEventType === "break_end")
-    ) {
-      continue;
-    }
-
-    if (
-      canonicalEventType === "punch_in" ||
-      (canonicalEventType === "retroactive_entry" &&
-        shouldTreatApprovedEventAsShiftStart(event, approvedEffectiveEvents))
-    ) {
-      currentState = "en_quart";
-      activeShiftStartEventId = event.id;
-      activePauseStartEventId = null;
-      activeDinnerStartEventId = null;
-      continue;
-    }
-
-    if (canonicalEventType === "break_start") {
-      if (currentState === "en_quart") {
-        currentState = "en_pause";
-        activePauseStartEventId = event.id;
-      } else {
-        hasSequenceAnomaly = true;
-      }
-      continue;
-    }
-
-    if (canonicalEventType === "break_end") {
-      if (currentState === "en_pause") {
-        currentState = "en_quart";
-        activePauseStartEventId = null;
-      } else {
-        hasSequenceAnomaly = true;
-      }
-      continue;
-    }
-
-    if (canonicalEventType === "meal_start") {
-      if (currentState === "en_quart") {
-        currentState = "en_diner";
-        activeDinnerStartEventId = event.id;
-      } else {
-        hasSequenceAnomaly = true;
-      }
-      continue;
-    }
-
-    if (canonicalEventType === "meal_end") {
-      if (currentState === "en_diner") {
-        currentState = "en_quart";
-        activeDinnerStartEventId = null;
-      } else {
-        hasSequenceAnomaly = true;
-      }
-      continue;
-    }
-
-    if (canonicalEventType === "punch_out") {
-      if (
-        currentState !== "en_quart" &&
-        currentState !== "en_pause" &&
-        currentState !== "en_diner"
-      ) {
-        hasSequenceAnomaly = true;
-      }
-      currentState = "termine";
-      activeShiftStartEventId = null;
-      activePauseStartEventId = null;
-      activeDinnerStartEventId = null;
-    }
+  if (
+    payrollState.currentState !== operationalState.currentState &&
+    pendingPunchOutEvents.length > 0
+  ) {
+    console.info("[horodateur-live]", "operational_state_closed_by_pending_punch_out", {
+      employeeId,
+      operationalState: operationalState.currentState,
+      payrollState: payrollState.currentState,
+      pendingPunchOutCount: pendingPunchOutEvents.length,
+    });
   }
 
   const activeShift =
@@ -2975,7 +2964,15 @@ export async function createEmployeePunch(options: {
   const scheduleEmployee = profileForScheduleValidation(employee, effectiveSchedule);
 
   if (canonicalType === "punch_out") {
-    await assertNoPendingShiftTooLongPunchOut(employee.employeeId);
+    const existingPendingPunchOut = await findActivePendingPunchOutForEmployee(
+      employee.employeeId
+    );
+    if (existingPendingPunchOut) {
+      return resolveAlreadySubmittedPunchOutResult({
+        employee,
+        pendingEvent: existingPendingPunchOut,
+      });
+    }
   }
 
   let currentState = await getCurrentStateByEmployeeId(employee.employeeId);
@@ -2988,6 +2985,12 @@ export async function createEmployeePunch(options: {
     employeeId: employee.employeeId,
     statuses: ["normal", "approuve"],
   });
+  const pendingPunchOutEvents = (
+    await listEventsForEmployee({
+      employeeId: employee.employeeId,
+      statuses: ["en_attente"],
+    })
+  ).filter((event) => toCanonicalEventType(event.event_type) === "punch_out");
 
   if (canonicalType === "punch_out") {
     const autoClosed = await closeOpenPauseOrMealBeforePunchOut({
@@ -3018,6 +3021,7 @@ export async function createEmployeePunch(options: {
     currentState,
     latestApprovedEvents,
     allApprovedEvents,
+    pendingPunchOutEvents,
     eventType: options.eventType,
     occurredAt,
     actorRole: "employe",
@@ -3827,6 +3831,7 @@ export async function getEmployeeDashboardSnapshotByAuthUserId(
     todayTimeDisplay,
     weeklyProjection,
     pendingExceptions,
+    pendingPunchOut: await buildPendingPunchOutSnapshot(employee.employeeId),
     latenessContext,
   };
 }
@@ -4010,7 +4015,24 @@ export async function listPendingExceptionsForDirection() {
           }
         : null,
     employee: employeeMap.get(item.employee_id) ?? null,
-  }));
+  })).sort((left, right) => {
+    const priority = compareHorodateurExceptionReviewPriority(
+      {
+        exception_type: left.exception_type,
+        event_type: left.event?.event_type ?? null,
+      },
+      {
+        exception_type: right.exception_type,
+        event_type: right.event?.event_type ?? null,
+      }
+    );
+    if (priority !== 0) {
+      return priority;
+    }
+    return (
+      new Date(right.requested_at).getTime() - new Date(left.requested_at).getTime()
+    );
+  });
 }
 
 export async function getDirectionDashboardHorodateurAlerts(): Promise<{

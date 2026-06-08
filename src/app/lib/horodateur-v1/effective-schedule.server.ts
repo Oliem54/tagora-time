@@ -6,11 +6,8 @@ import {
   listRequestDates,
   type EffectifsScheduleRequest,
 } from "@/app/lib/effectifs-schedule-request.shared";
-import {
-  createWeeklyScheduleFromLegacy,
-  WEEKLY_SCHEDULE_DAY_KEYS,
-} from "@/app/lib/weekly-schedule";
 
+import { getHabitualHorodateurDaySliceForWeekdayIndex } from "./horodateur-alert-schedule.shared";
 import { listApprovedScheduleRequestsForEmployee } from "./repository";
 import type { HorodateurPhase1EmployeeProfile } from "./types";
 
@@ -28,31 +25,7 @@ function getProfileDaySlice(
   employee: HorodateurPhase1EmployeeProfile,
   weekdayIndex: number
 ): { active: boolean; start: string | null; end: string | null } {
-  const dayKey = WEEKLY_SCHEDULE_DAY_KEYS[weekdayIndex];
-  if (!dayKey) {
-    return { active: false, start: null, end: null };
-  }
-
-  if (employee.weeklyScheduleConfig) {
-    const day = employee.weeklyScheduleConfig.days[dayKey];
-    return {
-      active: day.active,
-      start: day.start?.trim().slice(0, 5) ?? null,
-      end: day.end?.trim().slice(0, 5) ?? null,
-    };
-  }
-
-  const legacy = createWeeklyScheduleFromLegacy({
-    schedule_start: employee.scheduleStart,
-    schedule_end: employee.scheduleEnd,
-    scheduled_work_days: employee.scheduledWorkDays,
-  });
-  const day = legacy.days[dayKey];
-  return {
-    active: day.active,
-    start: day.start,
-    end: day.end,
-  };
+  return getHabitualHorodateurDaySliceForWeekdayIndex(employee, weekdayIndex);
 }
 
 export function profileForScheduleValidation(
