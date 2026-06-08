@@ -33,6 +33,28 @@ import {
 } from "@/app/lib/horodateur-v1/service";
 import { createAdminSupabaseClient } from "@/app/lib/supabase/admin";
 
+function buildPunchApiResponse(
+  result: Awaited<ReturnType<typeof createEmployeePunch>>,
+  snapshot: Awaited<ReturnType<typeof getEmployeeDashboardSnapshotByAuthUserId>>
+) {
+  return {
+    success: true,
+    alreadySubmitted: result.alreadySubmitted === true,
+    alreadySubmittedMessage: result.alreadySubmittedMessage ?? null,
+    code: result.alreadySubmitted ? "punch_out_already_pending" : undefined,
+    insertedEvent: normalizeEventForApi(result.event),
+    exception: result.exception,
+    employee: snapshot.employee,
+    currentState: snapshot.currentState,
+    shift: snapshot.todayShift,
+    weeklyProjection: snapshot.weeklyProjection,
+    pendingExceptions: snapshot.pendingExceptions,
+    pendingPunchOut: snapshot.pendingPunchOut,
+    latenessContext: snapshot.latenessContext,
+    todayTimeDisplay: snapshot.todayTimeDisplay,
+  };
+}
+
 export async function GET(req: NextRequest) {
   try {
     const auth = await requireEmployeeHorodateurAccess(req);
@@ -50,7 +72,9 @@ export async function GET(req: NextRequest) {
       shift: snapshot.todayShift,
       weeklyProjection: snapshot.weeklyProjection,
       pendingExceptions: snapshot.pendingExceptions,
+      pendingPunchOut: snapshot.pendingPunchOut,
       latenessContext: snapshot.latenessContext,
+      todayTimeDisplay: snapshot.todayTimeDisplay,
     });
   } catch (error) {
     return buildHorodateurErrorResponse(error, {
@@ -330,17 +354,7 @@ export async function POST(req: NextRequest) {
           });
         }
 
-        return NextResponse.json({
-          success: true,
-          insertedEvent: normalizeEventForApi(result.event),
-          exception: result.exception,
-          employee: snapshot.employee,
-          currentState: snapshot.currentState,
-          shift: snapshot.todayShift,
-          weeklyProjection: snapshot.weeklyProjection,
-          pendingExceptions: snapshot.pendingExceptions,
-          latenessContext: snapshot.latenessContext,
-        });
+        return NextResponse.json(buildPunchApiResponse(result, snapshot));
       } catch (punchErr) {
         await insertQrPunchAppAlert(admin, {
           alertType: "qr_punch_save_failed",
@@ -498,17 +512,7 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    return NextResponse.json({
-      success: true,
-      insertedEvent: normalizeEventForApi(result.event),
-      exception: result.exception,
-      employee: snapshot.employee,
-      currentState: snapshot.currentState,
-      shift: snapshot.todayShift,
-      weeklyProjection: snapshot.weeklyProjection,
-      pendingExceptions: snapshot.pendingExceptions,
-      latenessContext: snapshot.latenessContext,
-    });
+    return NextResponse.json(buildPunchApiResponse(result, snapshot));
   } catch (error) {
     return buildHorodateurErrorResponse(error, {
       route: "/api/horodateur/punch",

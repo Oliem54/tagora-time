@@ -65,6 +65,13 @@ type EmployeeSnapshot = {
   }>;
   latenessContext?: LatenessContext | null;
   todayTimeDisplay?: TodayTimeDisplay | null;
+  pendingPunchOut?: {
+    eventId: string;
+    occurredAt: string;
+    workDate: string | null;
+    exceptionType: string | null;
+    payrollValidationPending: true;
+  } | null;
 };
 
 type TodayTimeDisplay = {
@@ -345,7 +352,10 @@ const PUNCH_GPS_PUNCH_NOT_COMPLETED_MESSAGE =
   "Position obtenue, mais le pointage n'a pas pu être complété. Vérifiez le message ci-dessus et réessayez.";
 
 const PUNCH_OUT_PENDING_APPROVAL_MESSAGE =
-  "Sortie enregistrée, en attente d'approbation. Votre quart restera ouvert jusqu'à validation.";
+  "Sortie soumise. Votre quart est ferme cote horodateur; la paie reste en attente de validation direction.";
+
+const PUNCH_OUT_ALREADY_SUBMITTED_FALLBACK =
+  "Votre sortie a deja ete soumise et attend la validation de la direction.";
 
 const OPEN_SHIFT_SAFETY_CAP_MESSAGE =
   "Quart ouvert depuis plus de 14 h — veuillez poinçonner votre sortie. La fermeture nécessitera une approbation.";
@@ -728,7 +738,67 @@ function normalizeSnapshotPayload(payload: unknown): EmployeeSnapshot | null {
       normalizeTodayTimeDisplay(
         raw && typeof raw === "object" ? (raw as Record<string, unknown>).todayTimeDisplay : null
       ),
+    pendingPunchOut: normalizePendingPunchOut(
+      source.pendingPunchOut ??
+        (raw?.snapshot && typeof raw.snapshot === "object"
+          ? (raw.snapshot as Record<string, unknown>).pendingPunchOut
+          : null) ??
+        (raw && typeof raw === "object"
+          ? (raw as Record<string, unknown>).pendingPunchOut
+          : null)
+    ),
   };
+}
+
+function normalizePendingPunchOut(raw: unknown): EmployeeSnapshot["pendingPunchOut"] {
+  const source = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : null;
+  if (!source) {
+    return null;
+  }
+  const occurredAt =
+    typeof source.occurredAt === "string"
+      ? source.occurredAt
+      : typeof source.occurred_at === "string"
+        ? source.occurred_at
+        : null;
+  const eventId =
+    typeof source.eventId === "string"
+      ? source.eventId
+      : typeof source.event_id === "string"
+        ? source.event_id
+        : null;
+  if (!occurredAt || !eventId) {
+    return null;
+  }
+  return {
+    eventId,
+    occurredAt,
+    workDate:
+      typeof source.workDate === "string"
+        ? source.workDate
+        : typeof source.work_date === "string"
+          ? source.work_date
+          : null,
+    exceptionType:
+      typeof source.exceptionType === "string"
+        ? source.exceptionType
+        : typeof source.exception_type === "string"
+          ? source.exception_type
+          : null,
+    payrollValidationPending: true,
+  };
+}
+
+function formatPendingPunchOutBannerMessage(
+  pendingPunchOut: NonNullable<EmployeeSnapshot["pendingPunchOut"]>
+) {
+  const label = new Date(pendingPunchOut.occurredAt).toLocaleTimeString("fr-CA", {
+    timeZone: "America/Toronto",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+  return `Votre sortie a deja ete soumise a ${label} et attend la validation de la direction. Votre quart est ferme; la paie reste a valider.`;
 }
 
 export default function EmployeHorodateurPage() {
@@ -1010,6 +1080,10 @@ export default function EmployeHorodateurPage() {
     "hors_quart";
   const isHorsQuart = currentStateValue === "hors_quart";
   const isShiftCompleted = currentStateValue === "termine";
+  const pendingPunchOut = snapshot?.pendingPunchOut ?? null;
+  const punchOutBlockedReason = pendingPunchOut
+    ? formatPendingPunchOutBannerMessage(pendingPunchOut)
+    : null;
   const punchInBlockedReason = useMemo(() => {
     if (isHorsQuart || isShiftCompleted) {
       if (canStartShiftPunch) {
@@ -1322,6 +1396,16 @@ export default function EmployeHorodateurPage() {
         throw new Error(serverMessage);
       }
 
+      if (payload.alreadySubmitted === true) {
+        const alreadySubmittedMessage =
+          typeof payload.alreadySubmittedMessage === "string"
+            ? payload.alreadySubmittedMessage
+            : PUNCH_OUT_ALREADY_SUBMITTED_FALLBACK;
+        setMessage(alreadySubmittedMessage);
+        punchSucceeded = true;
+        return;
+      }
+
       assertActiveCorrectionSubmit(correctionCtx, activeCorrectionSubmitIdRef.current);
 
       if (options?.requireGps && !correctionCtx) {
@@ -1400,6 +1484,10 @@ export default function EmployeHorodateurPage() {
       return;
     }
     if (eventType === "punch_out") {
+      if (punchOutBlockedReason) {
+        setMessage(punchOutBlockedReason);
+        return;
+      }
       await handlePunch("punch_out", { requireGps: true });
       return;
     }
@@ -1593,6 +1681,20 @@ export default function EmployeHorodateurPage() {
 
       {message ? <AccessNotice title="Information" description={message} /> : null}
 
+      {pendingPunchOut ? (
+        <section
+          className="tagora-panel"
+          style={{ marginTop: 24, borderColor: "rgba(245,158,11,0.55)" }}
+        >
+          <h2 className="section-title" style={{ marginBottom: 8 }}>
+            Sortie soumise — validation en cours
+          </h2>
+          <p style={{ margin: 0, lineHeight: 1.55, color: "#0f172a" }}>
+            {formatPendingPunchOutBannerMessage(pendingPunchOut)}
+          </p>
+        </section>
+      ) : null}
+
       {longLeaveBanner ? (
         <section className="tagora-panel" style={{ marginTop: 24, borderColor: "rgba(245,158,11,0.5)" }}>
           <h2 className="section-title" style={{ marginBottom: 8 }}>
@@ -1731,17 +1833,27 @@ export default function EmployeHorodateurPage() {
             {PRIMARY_PUNCH_ACTIONS.map((action) => {
               const isPunchInBlocked =
                 action.eventType === "punch_in" && Boolean(punchInBlockedReason);
+              const isPunchOutBlocked =
+                action.eventType === "punch_out" && Boolean(punchOutBlockedReason);
+              const actionLabel =
+                isPunchOutBlocked ? "Sortie soumise" : action.label;
               return (
               <button
                 key={action.eventType}
                 type="button"
                 className="tagora-dark-action"
                 style={punchPrimaryButtonStyle}
-                disabled={saving || isPunchInBlocked}
-                title={isPunchInBlocked ? punchInBlockedReason ?? undefined : undefined}
+                disabled={saving || isPunchInBlocked || isPunchOutBlocked}
+                title={
+                  isPunchInBlocked
+                    ? punchInBlockedReason ?? undefined
+                    : isPunchOutBlocked
+                      ? punchOutBlockedReason ?? undefined
+                      : undefined
+                }
                 onClick={() => void handlePrimaryPunch(action.eventType)}
               >
-                {action.label}
+                {actionLabel}
               </button>
             );
             })}
