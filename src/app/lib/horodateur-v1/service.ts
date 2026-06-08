@@ -76,6 +76,7 @@ import {
   resolveEffectiveHorodateurScheduleForDate,
   type HorodateurEffectiveScheduleForDate,
 } from "./effective-schedule.server";
+import { resolveHorodateurAlertScheduleContext } from "./horodateur-alert-schedule.server";
 import {
   classifyEventPhase1,
   computeOpenShiftElapsedMinutes,
@@ -627,6 +628,11 @@ function resolveExpectedPunchScheduleItems(options: {
   weekdayFr: string;
 }) {
   const expected: ExpectedPunchScheduleItem[] = [];
+
+  if (!options.employee.scheduleActive) {
+    return expected;
+  }
+
   const weekly = options.employee.weeklyScheduleConfig;
   const weekdayKey = weekdayFrToWeeklyDayKey(options.weekdayFr);
 
@@ -1529,19 +1535,12 @@ export async function processLateEmployeeNotifications() {
       continue;
     }
 
-    if (!employee.scheduleStart) {
+    const scheduleContext = await resolveHorodateurAlertScheduleContext(employee, workDate);
+    if (!scheduleContext.scheduled || !scheduleContext.shiftStart) {
       continue;
     }
 
-    if (
-      Array.isArray(employee.scheduledWorkDays) &&
-      employee.scheduledWorkDays.length > 0 &&
-      !employee.scheduledWorkDays.map((item) => item.toLowerCase()).includes(weekday)
-    ) {
-      continue;
-    }
-
-    const scheduledStartMinutes = getScheduledStartMinutes(employee.scheduleStart);
+    const scheduledStartMinutes = getScheduledStartMinutes(scheduleContext.shiftStart);
 
     if (scheduledStartMinutes == null) {
       continue;
@@ -1580,14 +1579,14 @@ export async function processLateEmployeeNotifications() {
         await upsertLatenessNotification({
           employeeId: employee.employeeId,
           workDate,
-          scheduledStartAt: buildTorontoTimestamp(workDate, employee.scheduleStart, now),
+          scheduledStartAt: buildTorontoTimestamp(workDate, scheduleContext.shiftStart, now),
           resolutionReason: "approved_exception_or_absence",
         });
       }
       continue;
     }
 
-    const scheduledStartAt = buildTorontoTimestamp(workDate, employee.scheduleStart, now);
+    const scheduledStartAt = buildTorontoTimestamp(workDate, scheduleContext.shiftStart, now);
     const lateDetectedAt = now.toISOString();
     const notification =
       existingNotification ??
@@ -1702,11 +1701,8 @@ export async function processExpectedPunchSmsNotifications(options?: {
   for (const employee of employees) {
     if (!employee.active) continue;
 
-    if (
-      Array.isArray(employee.scheduledWorkDays) &&
-      employee.scheduledWorkDays.length > 0 &&
-      !employee.scheduledWorkDays.map((item) => item.toLowerCase()).includes(weekday)
-    ) {
+    const scheduleContext = await resolveHorodateurAlertScheduleContext(employee, workDate);
+    if (!scheduleContext.scheduled) {
       continue;
     }
 
@@ -1960,11 +1956,8 @@ export async function processMissingExpectedPunchEscalation() {
       continue;
     }
 
-    if (
-      Array.isArray(employee.scheduledWorkDays) &&
-      employee.scheduledWorkDays.length > 0 &&
-      !employee.scheduledWorkDays.map((item) => item.toLowerCase()).includes(weekday)
-    ) {
+    const scheduleContext = await resolveHorodateurAlertScheduleContext(employee, workDate);
+    if (!scheduleContext.scheduled) {
       continue;
     }
 
