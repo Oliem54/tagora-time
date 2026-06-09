@@ -19,6 +19,9 @@ export const HORODATEUR_RECOMMENDED_REMINDER_DELAY_MINUTES = 5;
 export const HORODATEUR_MISSING_PUNCH_EXCEPTION_OFFSET_MINUTES = 5;
 export const HORODATEUR_MISSING_PUNCH_PRIORITY_OFFSET_MINUTES = 10;
 
+/** Seuil unique absence / retard matin : alerte Direction, SMS employé, AUTO_MISSING quart_debut. */
+export const HORODATEUR_DIRECTION_ABSENCE_ALERT_MINUTES = 30;
+
 /** Alias historique : seuil de surveillance / rappel doux par défaut. */
 export const HORODATEUR_DEFAULT_LATENESS_TOLERANCE_MINUTES =
   HORODATEUR_RECOMMENDED_REMINDER_DELAY_MINUTES;
@@ -58,6 +61,72 @@ export type AutoMissingExpectedPunchEventType =
   | "dinner_fin"
   | "quart_fin";
 
+const MORNING_PUNCH_EVENT_TYPES = new Set<string>(["quart_debut", "punch_in"]);
+
+/** Punchs post-matin qui exigent une entrée réelle employé avant rappel / AUTO_MISSING. */
+export const EXPECTED_PUNCH_TYPES_REQUIRING_MORNING_PUNCH: ReadonlySet<AutoMissingExpectedPunchEventType> =
+  new Set([
+    "pause_debut",
+    "pause_fin",
+    "dinner_debut",
+    "dinner_fin",
+    "quart_fin",
+  ]);
+
+export function expectedPunchRequiresMorningPunchIn(
+  eventType: AutoMissingExpectedPunchEventType
+): boolean {
+  return EXPECTED_PUNCH_TYPES_REQUIRING_MORNING_PUNCH.has(eventType);
+}
+
+/** Entrée matin réelle employé / direction — exclut les événements système inventés. */
+export function isRealEmployeeMorningPunchInEvent(event: {
+  event_type: string;
+  source_kind?: string | null;
+  actor_role?: string | null;
+}): boolean {
+  if (!MORNING_PUNCH_EVENT_TYPES.has(event.event_type)) {
+    return false;
+  }
+
+  if (event.source_kind === "automatique" || event.actor_role === "systeme") {
+    return false;
+  }
+
+  return true;
+}
+
+/**
+ * Présence matinale réelle : punch_in employé/direction ou état opérationnel actif
+ * issu d'un punch (y compris en attente d'approbation), jamais d'un AUTO_MISSING système.
+ */
+export function hasRealMorningPunchInForWorkDay(
+  events: Array<{
+    event_type: string;
+    source_kind?: string | null;
+    actor_role?: string | null;
+    status?: string | null;
+  }>,
+  currentState?: { current_state?: string | null } | null
+): boolean {
+  if (events.some(isRealEmployeeMorningPunchInEvent)) {
+    return true;
+  }
+
+  const state = currentState?.current_state;
+  if (state !== "en_quart" && state !== "en_pause" && state !== "en_diner") {
+    return false;
+  }
+
+  return events.some(
+    (event) =>
+      MORNING_PUNCH_EVENT_TYPES.has(event.event_type) &&
+      event.status === "en_attente" &&
+      event.source_kind !== "automatique" &&
+      event.actor_role !== "systeme"
+  );
+}
+
 export type MissingPunchEscalationMinutes = {
   reminderMinutes: number;
   exceptionMinutes: number;
@@ -84,6 +153,18 @@ export function resolveMissingPunchEscalationMinutes(
     priorityMinutes:
       reminderMinutes + HORODATEUR_MISSING_PUNCH_PRIORITY_OFFSET_MINUTES,
   };
+}
+
+/** Seuil de création AUTO_MISSING : 30 min pour le début de quart, sinon dérivé du rappel configuré. */
+export function resolveAutoMissingExceptionThresholdMinutes(
+  eventType: AutoMissingExpectedPunchEventType,
+  escalation: MissingPunchEscalationMinutes
+): number {
+  if (eventType === "quart_debut") {
+    return HORODATEUR_DIRECTION_ABSENCE_ALERT_MINUTES;
+  }
+
+  return escalation.exceptionMinutes;
 }
 
 const EXPECTED_PUNCH_ADMIN_LABELS: Record<AutoMissingExpectedPunchEventType, string> = {

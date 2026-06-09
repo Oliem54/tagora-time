@@ -207,10 +207,11 @@ function exceptionStatusLabelFr(status: string) {
     case "en_attente":
       return "En attente";
     case "approuve":
+      return "Mise à jour";
     case "modifie":
-      return "Approuvée";
+      return "Ajustée";
     case "refuse":
-      return "Refusée";
+      return "À vérifier";
     default:
       return status;
   }
