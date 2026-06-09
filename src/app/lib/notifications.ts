@@ -22,14 +22,14 @@ import {
   normalizePhoneToTwilioE164,
 } from "@/app/lib/timeclock-api.shared";
 import {
-  createMissingCommunicationTemplateAlert,
   trySendCommunicationDirectionEmail,
   trySendCommunicationDirectionSms,
-  trySendCommunicationEmployeeEmail,
-  trySendCommunicationEmployeeSms,
 } from "@/app/lib/communication-templates.server";
+import {
+  resolveHorodateurEmployeeDecisionCopy,
+  type HorodateurEmployeeExceptionDecisionOutcome,
+} from "@/app/lib/notifications.horodateur-phase0.shared";
 import { resolveResendFromEmail } from "@/app/lib/resend-email";
-import { createAdminSupabaseClient } from "@/app/lib/supabase/admin";
 
 type DirectionAlertClassification = "informative" | "direction_action_required";
 type DirectionAlertDetailValue =
@@ -1152,7 +1152,7 @@ export async function notifyEmployeeExpectedPunchSms(payload: {
   }
 
   const messageByEvent: Record<typeof payload.eventType, string> = {
-    quart_debut: `TAGORA Time : tu n'as pas encore punché ton début de quart prévu à ${payload.scheduledTimeLabel}.${maybeLinkSuffix}`,
+    quart_debut: `TAGORA Time : Vous deviez commencer à ${payload.scheduledTimeLabel}. Êtes-vous absent, malade ou en retard?${maybeLinkSuffix}`,
     pause_debut: `TAGORA Time : ta pause devait commencer à ${payload.scheduledTimeLabel} et aucun punch n'a été reçu.${maybeLinkSuffix}`,
     pause_fin: `TAGORA Time : ta pause devait être terminée à ${payload.scheduledTimeLabel}.${maybeLinkSuffix}`,
     dinner_debut: `TAGORA Time : ton dîner devait commencer à ${payload.scheduledTimeLabel} et aucun punch n'a été reçu.${maybeLinkSuffix}`,
@@ -1309,7 +1309,7 @@ function truncateHorodateurSmsNote(text: string, max: number) {
 
 export async function notifyEmployeeHorodateurExceptionDecision(options: {
   employee: HorodateurPhase1EmployeeProfile;
-  outcome: "approved" | "rejected";
+  outcome: HorodateurEmployeeExceptionDecisionOutcome;
   exceptionId: string;
 }): Promise<{ emailStatus: string; smsStatus: string }> {
   const { employee, outcome, exceptionId } = options;
@@ -1320,167 +1320,77 @@ export async function notifyEmployeeHorodateurExceptionDecision(options: {
     exceptionFocusUrl ??
     (baseUrl ? `${baseUrl}/employe/horodateur` : "/employe/horodateur");
   const { firstName } = splitFullName(employee.fullName ?? "");
-
-  let admin: ReturnType<typeof createAdminSupabaseClient> | null = null;
-  try {
-    admin = createAdminSupabaseClient();
-  } catch {
-    admin = null;
-  }
-
-  const emailKey =
-    outcome === "approved"
-      ? "horodateur_exception_approved_employee_email"
-      : "horodateur_exception_rejected_employee_email";
-  const smsKey =
-    outcome === "approved"
-      ? "horodateur_exception_approved_employee_sms"
-      : "horodateur_exception_rejected_employee_sms";
-
-  const templateVars: Record<string, string | undefined> = {
-    employee_name: employee.fullName ?? firstName,
-    employee_email: employee.email ?? "",
-    employee_phone: employee.phoneNumber ?? "",
-    action_url: linkLine,
-    app_url: baseUrl ?? "",
-    decision_note: "",
-  };
-
-  const emailTry = await trySendCommunicationEmployeeEmail({
-    supabase: admin,
-    templateKey: emailKey,
-    audience: "employee",
-    variables: templateVars,
-    toEmail: employee.email,
-  });
+  const copy = resolveHorodateurEmployeeDecisionCopy(outcome);
 
   let emailStatus = "skipped";
   const email = employee.email?.trim().toLowerCase() ?? "";
 
-  if (emailTry.usedTemplate) {
-    if (!email || !isValidEmail(email)) {
-      emailStatus = "no_valid_email";
-    } else if (emailTry.skipped) {
-      emailStatus = "skipped";
-    } else if (emailTry.ok) {
-      emailStatus = "sent";
-    } else {
-      emailStatus = "error";
-    }
-  } else {
-    if (admin) {
-      await createMissingCommunicationTemplateAlert(admin, emailKey, "email", "employee");
-    }
-
-    const subject =
-      outcome === "approved"
-        ? "Votre exception horodateur a été approuvée"
-        : "Votre exception horodateur a été refusée";
-
-    const textBody =
-      outcome === "approved"
-        ? `Bonjour ${firstName},\n\nVotre demande d'exception horodateur a été approuvée.\n\nVeuillez consulter votre horodateur dans TAGORA Time.\n\n${linkLine}`
-        : `Bonjour ${firstName},\n\nVotre demande d'exception horodateur a été refusée.\n\nVeuillez consulter le détail dans TAGORA Time.\n\n${linkLine}`;
-
-    const ctaButton = `<a href="${escapeHtml(linkLine)}" style="display:inline-block;background:#0f2948;color:#ffffff;text-decoration:none;font-size:15px;font-weight:700;padding:12px 22px;border-radius:10px;">Ouvrir mon horodateur</a>`;
-    const htmlBody = `<p style="margin:0 0 10px;">Bonjour ${escapeHtml(firstName)},</p><p style="margin:0 0 12px;">${
-      outcome === "approved"
-        ? "Votre demande d’exception horodateur a été <strong>approuvée</strong>."
-        : "Votre demande d’exception horodateur a été <strong>refusée</strong>."
-    }</p><p style="margin:0 0 18px;">Consultez le détail de l’exception directement dans TAGORA Time.</p><p style="margin:0 0 12px;">${ctaButton}</p><p style="margin:0;color:#64748b;font-size:12px;word-break:break-all;">${escapeHtml(linkLine)}</p>`;
-
-    if (email && isValidEmail(email)) {
-      const apiKey = process.env.RESEND_API_KEY;
-      const fromEmailResolution = resolveResendFromEmail(process.env.RESEND_FROM_EMAIL);
-      const fromEmail = fromEmailResolution.fromEmail;
-      if (apiKey && fromEmail) {
-        try {
-          const response = await fetch("https://api.resend.com/emails", {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${apiKey}`,
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              from: fromEmail,
-              to: [email],
-              subject,
-              text: textBody,
-              html: `<!DOCTYPE html><html lang="fr"><body style="font-family:Arial,sans-serif;font-size:15px;color:#0f172a;">${htmlBody}</body></html>`,
-            }),
-          });
-          if (!response.ok) {
-            const raw = await response.text();
-            throw new Error(`Resend ${response.status}: ${raw}`);
-          }
-          emailStatus = "sent";
-        } catch (error) {
-          emailStatus = "error";
-          console.error(logPrefix, {
-            exceptionId,
-            employeeId: employee.employeeId,
-            outcome,
-            email,
-            emailStatus,
-            message: error instanceof Error ? error.message : String(error),
-          });
+  if (email && isValidEmail(email)) {
+    const apiKey = process.env.RESEND_API_KEY;
+    const fromEmailResolution = resolveResendFromEmail(process.env.RESEND_FROM_EMAIL);
+    const fromEmail = fromEmailResolution.fromEmail;
+    if (apiKey && fromEmail) {
+      try {
+        const ctaButton = `<a href="${escapeHtml(linkLine)}" style="display:inline-block;background:#0f2948;color:#ffffff;text-decoration:none;font-size:15px;font-weight:700;padding:12px 22px;border-radius:10px;">Ouvrir mon horodateur</a>`;
+        const htmlBody = `<p style="margin:0 0 10px;">Bonjour ${escapeHtml(firstName)},</p><p style="margin:0 0 12px;">${escapeHtml(copy.emailHtml)}</p><p style="margin:0 0 18px;">Consultez votre registre dans TAGORA Time.</p><p style="margin:0 0 12px;">${ctaButton}</p><p style="margin:0;color:#64748b;font-size:12px;word-break:break-all;">${escapeHtml(linkLine)}</p>`;
+        const response = await fetch("https://api.resend.com/emails", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            from: fromEmail,
+            to: [email],
+            subject: copy.emailSubject,
+            text: `Bonjour ${firstName},\n\n${copy.emailText}\n\n${linkLine}`,
+            html: `<!DOCTYPE html><html lang="fr"><body style="font-family:Arial,sans-serif;font-size:15px;color:#0f172a;">${htmlBody}</body></html>`,
+          }),
+        });
+        if (!response.ok) {
+          const raw = await response.text();
+          throw new Error(`Resend ${response.status}: ${raw}`);
         }
-      } else {
-        emailStatus = "email_config_missing";
+        emailStatus = "sent";
+      } catch (error) {
+        emailStatus = "error";
         console.error(logPrefix, {
           exceptionId,
           employeeId: employee.employeeId,
           outcome,
           email,
           emailStatus,
+          message: error instanceof Error ? error.message : String(error),
         });
       }
     } else {
-      emailStatus = "no_valid_email";
+      emailStatus = "email_config_missing";
     }
+  } else {
+    emailStatus = "no_valid_email";
   }
 
-  const smsTry = await trySendCommunicationEmployeeSms({
-    supabase: admin,
-    templateKey: smsKey,
-    audience: "employee",
-    variables: templateVars,
-    phone: employee.phoneNumber,
-  });
-
   let smsStatus = "skipped";
-  if (smsTry.usedTemplate) {
-    if (smsTry.sent) smsStatus = "sent";
-    else if (smsTry.skipped) smsStatus = "skipped";
-    else smsStatus = "error";
-  } else {
-    if (admin) {
-      await createMissingCommunicationTemplateAlert(admin, smsKey, "sms", "employee");
-    }
-    const horodateurUrl = exceptionFocusUrl ?? (baseUrl ? `${baseUrl}/employe/horodateur` : "");
-    const smsBody =
-      outcome === "approved"
-        ? `TAGORA Time : ton exception horodateur a été approuvée.${horodateurUrl ? ` Détails : ${horodateurUrl}` : " Consulte l'application TAGORA Time."}`
-        : `TAGORA Time : ton exception horodateur a été refusée.${horodateurUrl ? ` Détails : ${horodateurUrl}` : " Consulte l'application TAGORA Time."}`;
+  const horodateurUrl = exceptionFocusUrl ?? (baseUrl ? `${baseUrl}/employe/horodateur` : "");
+  const smsBody = `${copy.smsBody}${horodateurUrl ? ` ${horodateurUrl}` : ""}`;
 
-    try {
-      const smsResult = await sendSmsToPhone({
-        phone: employee.phoneNumber,
-        body: smsBody,
-      });
-      if (smsResult.sent) smsStatus = "sent";
-      else if (smsResult.skipped) smsStatus = smsResult.reason ?? "skipped";
-      else smsStatus = smsResult.reason ?? "error";
-    } catch (error) {
-      smsStatus = "error";
-      console.error(logPrefix, {
-        exceptionId,
-        employeeId: employee.employeeId,
-        outcome,
-        smsStatus,
-        message: error instanceof Error ? error.message : String(error),
-      });
-    }
+  try {
+    const smsResult = await sendSmsToPhone({
+      phone: employee.phoneNumber,
+      body: smsBody,
+    });
+    if (smsResult.sent) smsStatus = "sent";
+    else if (smsResult.skipped) smsStatus = smsResult.reason ?? "skipped";
+    else smsStatus = smsResult.reason ?? "error";
+  } catch (error) {
+    smsStatus = "error";
+    console.error(logPrefix, {
+      exceptionId,
+      employeeId: employee.employeeId,
+      outcome,
+      smsStatus,
+      message: error instanceof Error ? error.message : String(error),
+    });
   }
 
   console.info(logPrefix, {
@@ -1490,6 +1400,7 @@ export async function notifyEmployeeHorodateurExceptionDecision(options: {
     email: email || null,
     emailStatus,
     smsStatus,
+    copySource: "phase0_inline",
   });
 
   return { emailStatus, smsStatus };
@@ -1697,9 +1608,9 @@ export async function notifyHorodateurLateness(
     {
       alertType: "horodateur_lateness",
       classification: "direction_action_required",
-      subject: "TAGORA Time — Retard horodateur signalé",
+      subject: "TAGORA Time — Absence ou retard à justifier",
       summary:
-        "Un employé n’a pas commencé son quart à l’heure prévue et requiert un suivi rapide de la direction.",
+        "Un employé n'a pas commencé son quart à l'heure prévue. Absence ou retard à justifier.",
       requesterLabel: "Employé",
       requesterName: payload.employeeName,
       requesterPhone: payload.employeePhone,
@@ -1712,7 +1623,7 @@ export async function notifyHorodateurLateness(
         Téléphone: payload.employeePhone,
         "Heure prévue": formattedScheduledStart,
         "Heure actuelle": formattedDetectedAt,
-        "Type d’alerte": "Retard employé",
+        "Type d’alerte": "Absence ou retard à justifier",
       },
     },
     {
@@ -1724,7 +1635,7 @@ export async function notifyHorodateurLateness(
   const directionSms = await sendDirectionSmsAlert(
     {
       body: [
-        "Retard horodateur TAGORA",
+        "Absence ou retard a justifier TAGORA",
         `Employe: ${payload.employeeName ?? "-"}`,
         `Prevu: ${formattedScheduledStart}`,
         `Actuel: ${formattedDetectedAt}`,
@@ -1750,11 +1661,10 @@ export async function notifyHorodateurLateness(
           phone: payload.employeePhone,
           body: [
             "TAGORA Time",
-            `Ton quart devait commencer a ${formattedScheduledStart}.`,
-            `Heure actuelle: ${formattedDetectedAt}.`,
+            `Vous deviez commencer a ${formattedScheduledStart}. Etes-vous absent, malade ou en retard?`,
             employeePunchUrl
               ? `Punche ici : ${employeePunchUrl}`
-              : "Ouvre l'application TAGORA Time ou contacte la direction.",
+              : "Ouvrez l'application TAGORA Time ou contactez la direction.",
           ].join(" "),
         });
 

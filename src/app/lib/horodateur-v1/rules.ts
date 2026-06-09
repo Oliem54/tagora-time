@@ -17,6 +17,8 @@ export const HORODATEUR_PHASE1_TIMEZONE = "America/Toronto";
 export const HORODATEUR_PHASE1_WEEKLY_TARGET_HOURS = 40;
 /** Entree jusqu'a N minutes avant schedule_start : auto-acceptee si GPS OK (Phase A hotfix). */
 export const HORODATEUR_EARLY_PUNCH_IN_GRACE_MINUTES = 10;
+/** Entree jusqu'a N minutes avant schedule_start : acceptee sans exception Direction (Phase 0). */
+export const HORODATEUR_EARLY_PUNCH_SILENT_MAX_MINUTES = 45;
 /** Duree maximale d un quart ouvert (horloge murale depuis le debut) avant plafond live et sortie a approuver. */
 export const HORODATEUR_OPEN_SHIFT_SAFETY_MAX_ELAPSED_MINUTES = 840;
 const PHASE1_DEFAULT_MAX_BREAK_MINUTES = 120;
@@ -185,6 +187,98 @@ function isWithinScheduledWindow(
   const windowEnd = scheduleEndMinutes + employee.toleranceAfterEndMinutes;
 
   return currentMinutes >= windowStart && currentMinutes <= windowEnd;
+}
+
+function formatTorontoOffsetFromReference(reference: string | Date): string {
+  const date = reference instanceof Date ? reference : new Date(reference);
+  const formatter = new Intl.DateTimeFormat("en-CA", {
+    timeZone: HORODATEUR_PHASE1_TIMEZONE,
+    timeZoneName: "shortOffset",
+  });
+  const raw =
+    formatter.formatToParts(date).find((part) => part.type === "timeZoneName")?.value ??
+    "GMT-5";
+  const match = raw.match(/GMT([+-])(\d{1,2})(?::(\d{2}))?/i);
+  if (!match) {
+    return "-05:00";
+  }
+  const sign = match[1];
+  const hours = match[2]?.padStart(2, "0") ?? "05";
+  const minutes = match[3]?.padStart(2, "0") ?? "00";
+  return `${sign}${hours}:${minutes}`;
+}
+
+export function buildScheduledStartIsoForWorkDate(
+  workDate: string,
+  scheduleStart: string,
+  referenceOccurredAt: string
+): string {
+  const trimmed = scheduleStart.trim();
+  const normalizedTime =
+    trimmed.length <= 5 ? `${trimmed}:00` : trimmed.slice(0, 8);
+  const offset = formatTorontoOffsetFromReference(referenceOccurredAt);
+  return `${workDate}T${normalizedTime}${offset}`;
+}
+
+/**
+ * Début d'accrual payable : horaire prévu si punch avant schedule_start, sinon heure réelle.
+ * L'état opérationnel conserve l'heure réelle du punch.
+ */
+export function resolvePayableWorkSegmentStartAt(options: {
+  punchInOccurredAt: string;
+  workDate: string;
+  scheduleStart: string | null | undefined;
+}): string {
+  const { punchInOccurredAt, workDate, scheduleStart } = options;
+  if (!scheduleStart?.trim()) {
+    return punchInOccurredAt;
+  }
+
+  if (getLocalWorkDate(punchInOccurredAt) !== workDate) {
+    return punchInOccurredAt;
+  }
+
+  const scheduleStartMinutes = parseTimeToMinutes(scheduleStart);
+  if (scheduleStartMinutes == null) {
+    return punchInOccurredAt;
+  }
+
+  const punchMinutes = getMinutesSinceLocalMidnight(punchInOccurredAt);
+  if (punchMinutes >= scheduleStartMinutes) {
+    return punchInOccurredAt;
+  }
+
+  return buildScheduledStartIsoForWorkDate(
+    workDate,
+    scheduleStart,
+    punchInOccurredAt
+  );
+}
+
+export function isEarlyPunchInWithinSilentWindow(
+  employee: HorodateurPhase1EmployeeProfile,
+  occurredAt: string,
+  maxEarlyMinutes = HORODATEUR_EARLY_PUNCH_SILENT_MAX_MINUTES
+) {
+  if (!employee.scheduleStart?.trim()) {
+    return false;
+  }
+
+  if (!isValidScheduledWorkDay(employee, occurredAt)) {
+    return false;
+  }
+
+  const scheduleStartMinutes = parseTimeToMinutes(employee.scheduleStart);
+  if (scheduleStartMinutes == null) {
+    return false;
+  }
+
+  const currentMinutes = getMinutesSinceLocalMidnight(occurredAt);
+  const silentEarliestMinutes = scheduleStartMinutes - Math.max(0, maxEarlyMinutes);
+
+  return (
+    currentMinutes >= silentEarliestMinutes && currentMinutes < scheduleStartMinutes
+  );
 }
 
 export function isWithinEarlyPunchInGraceWindow(
@@ -671,7 +765,9 @@ export function classifyEventPhase1(
   const withinScheduleOrEarlyGrace =
     isWithinScheduledWindow(employee, occurredAt) ||
     (canonicalEventType === "punch_in" &&
-      isWithinEarlyPunchInGraceWindow(employee, occurredAt));
+      isWithinEarlyPunchInGraceWindow(employee, occurredAt)) ||
+    (canonicalEventType === "punch_in" &&
+      isEarlyPunchInWithinSilentWindow(employee, occurredAt));
 
   if (!isValidScheduledWorkDay(employee, occurredAt) || !withinScheduleOrEarlyGrace) {
     return buildPendingClassification(

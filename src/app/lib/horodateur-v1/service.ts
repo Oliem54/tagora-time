@@ -28,11 +28,15 @@ import {
 } from "@/app/lib/horodateur-retro-correction.shared";
 import {
   formatAutoMissingExpectedPunchDetails,
+  expectedPunchRequiresMorningPunchIn,
   HORODATEUR_DEFAULT_LATENESS_TOLERANCE_MINUTES,
+  HORODATEUR_DIRECTION_ABSENCE_ALERT_MINUTES,
+  hasRealMorningPunchInForWorkDay,
   isAutoMissingExpectedPunchException,
   MISSING_EXPECTED_PUNCH_PRIORITY_REASON_LABEL,
   MISSING_EXPECTED_PUNCH_REASON_LABEL,
   parseAutoMissingExpectedPunchMarker,
+  resolveAutoMissingExceptionThresholdMinutes,
   resolveMissingPunchEscalationMinutes,
   type AutoMissingExpectedPunchEventType,
 } from "@/app/lib/horodateur-expected-punch-missing.shared";
@@ -104,6 +108,7 @@ import {
   resolveInitialCurrentState,
   resolveLiveAccrualEndIso,
   resolveOpenShiftStartAt,
+  resolvePayableWorkSegmentStartAt,
   resolveShiftStatus,
   shouldTreatApprovedEventAsShiftStart,
   toCanonicalEventType,
@@ -631,7 +636,18 @@ function weekdayFrToWeeklyDayKey(
   }
 }
 
-function resolveExpectedPunchScheduleItems(options: {
+function resolveExpectedPunchDelayMinutes(
+  eventType: ExpectedPunchEventType,
+  escalation: ReturnType<typeof resolveMissingPunchEscalationMinutes>
+) {
+  if (eventType === "quart_debut") {
+    return HORODATEUR_DIRECTION_ABSENCE_ALERT_MINUTES;
+  }
+
+  return Math.max(0, escalation.reminderMinutes);
+}
+
+export function resolveExpectedPunchScheduleItems(options: {
   employee: HorodateurPhase1EmployeeProfile;
   weekdayFr: string;
 }) {
@@ -1304,46 +1320,33 @@ function hasApprovedRetroactiveShiftStartInEvents(events: HorodateurPhase1EventR
   );
 }
 
-/** Quart déjà ouvert : état courant actif ou début de quart dans la timeline du jour. */
+function hasEmployeeMorningPresenceForDay(options: {
+  events: HorodateurPhase1EventRecord[];
+  currentState: HorodateurPhase1CurrentStateRecord | null;
+}) {
+  return (
+    hasRealMorningPunchInForWorkDay(options.events, options.currentState) ||
+    hasApprovedRetroactiveShiftStartInEvents(options.events)
+  );
+}
+
+/** Quart déjà ouvert : entrée matin réelle ou état opérationnel actif (jamais AUTO_MISSING système). */
 function hasOpenOrStartedShiftForExpectedPunchSms(options: {
   currentState: HorodateurPhase1CurrentStateRecord | null;
   events: HorodateurPhase1EventRecord[];
 }) {
-  const state = options.currentState?.current_state;
-  if (state === "en_quart" || state === "en_pause" || state === "en_diner") {
-    return true;
-  }
-
-  const hasExplicitShiftStart = options.events.some((event) => {
-    const canonical = toCanonicalEventType(event.event_type);
-    return canonical === "punch_in" || event.event_type === "quart_debut";
-  });
-  if (hasExplicitShiftStart) {
-    return true;
-  }
-
-  return hasApprovedRetroactiveShiftStartInEvents(options.events);
+  return hasEmployeeMorningPresenceForDay(options);
 }
 
 function hasStartedShiftToday(
   events: HorodateurPhase1EventRecord[],
   currentState: HorodateurPhase1CurrentStateRecord | null
 ) {
-  const hasQuarterStart = events.some((event) => {
-    const canonical = toCanonicalEventType(event.event_type);
-    return canonical === "punch_in" || event.event_type === "quart_debut";
-  });
-  const stateIndicatesStarted =
-    currentState?.current_state === "en_quart" ||
-    currentState?.current_state === "en_pause" ||
-    currentState?.current_state === "en_diner" ||
-    currentState?.current_state === "termine";
+  if (hasEmployeeMorningPresenceForDay({ events, currentState })) {
+    return true;
+  }
 
-  return (
-    hasQuarterStart ||
-    stateIndicatesStarted ||
-    hasApprovedRetroactiveShiftStartInEvents(events)
-  );
+  return currentState?.current_state === "termine";
 }
 
 function formatLocalTimeLabel(isoOrDate: string | Date) {
@@ -1501,37 +1504,8 @@ export function buildEmployeeLatenessContext(options: {
   };
 }
 
-function shouldForceLateStartShiftException(options: {
-  employee: HorodateurPhase1EmployeeProfile;
-  eventType: HorodateurPhase1InsertEventInput["eventType"];
-  occurredAt: string;
-  classification: HorodateurPhase1Classification;
-  currentState: HorodateurPhase1CurrentStateRecord | null;
-}): boolean {
-  const canonical = toCanonicalEventType(options.eventType);
-  if (canonical !== "punch_in") {
-    return false;
-  }
-
-  if (options.classification.requiresApproval) {
-    return false;
-  }
-
-  if (resolveInitialCurrentState(options.currentState) !== "hors_quart") {
-    return false;
-  }
-
-  if (
-    !isEmployeeLateForScheduledShiftStart(
-      options.employee,
-      options.occurredAt,
-      HORODATEUR_DEFAULT_LATENESS_TOLERANCE_MINUTES
-    )
-  ) {
-    return false;
-  }
-
-  return isWithinScheduledWindowForEmployee(options.employee, options.occurredAt);
+function shouldForceLateStartShiftException(): boolean {
+  return false;
 }
 
 function buildLateStartExceptionClassification(options: {
@@ -1599,10 +1573,8 @@ export async function processLateEmployeeNotifications() {
       continue;
     }
 
-    const toleranceMinutes =
-      employee.toleranceBeforeStartMinutes ??
-      HORODATEUR_DEFAULT_LATENESS_TOLERANCE_MINUTES;
-    const lateThresholdMinutes = scheduledStartMinutes + Math.max(0, toleranceMinutes);
+    const directionAlertMinutes = HORODATEUR_DIRECTION_ABSENCE_ALERT_MINUTES;
+    const lateThresholdMinutes = scheduledStartMinutes + directionAlertMinutes;
 
     if (currentMinutes <= lateThresholdMinutes) {
       continue;
@@ -1747,6 +1719,7 @@ export async function processExpectedPunchSmsNotifications(options?: {
       | "phone_missing"
       | "already_punched"
       | "already_notified"
+      | "no_morning_punch_in"
       | "sms_sent"
       | "sms_failed";
   }> = [];
@@ -1775,7 +1748,9 @@ export async function processExpectedPunchSmsNotifications(options?: {
     ]);
 
     for (const expected of expectedItems) {
-      if (currentMinutes < expected.scheduledMinutes + toleranceMinutes) {
+      const delayMinutes = resolveExpectedPunchDelayMinutes(expected.eventType, escalation);
+
+      if (currentMinutes < expected.scheduledMinutes + delayMinutes) {
         continue;
       }
 
@@ -1785,8 +1760,24 @@ export async function processExpectedPunchSmsNotifications(options?: {
         eventType: expected.eventType,
         scheduledAt: expected.scheduledLabel,
         currentMinutes,
-        toleranceMinutes,
+        toleranceMinutes: delayMinutes,
       };
+
+      if (
+        expectedPunchRequiresMorningPunchIn(expected.eventType) &&
+        !hasEmployeeMorningPresenceForDay({ events: existingEvents, currentState })
+      ) {
+        console.info("[horodateur-expected-punch-sms] skip", {
+          ...logBase,
+          reason: "no_morning_punch_in",
+        });
+        processed.push({
+          employeeId: employee.employeeId,
+          eventType: expected.eventType,
+          status: "no_morning_punch_in",
+        });
+        continue;
+      }
 
       if (employee.alertSmsEnabled === false) {
         console.info("[horodateur-expected-punch-sms] skip", {
@@ -1943,6 +1934,16 @@ function isExpectedPunchStillMissing(options: {
   events: HorodateurPhase1EventRecord[];
   currentState: HorodateurPhase1CurrentStateRecord | null;
 }) {
+  if (
+    expectedPunchRequiresMorningPunchIn(options.expectedEventType) &&
+    !hasEmployeeMorningPresenceForDay({
+      events: options.events,
+      currentState: options.currentState,
+    })
+  ) {
+    return false;
+  }
+
   if (options.expectedEventType === "quart_debut") {
     return !hasOpenOrStartedShiftForExpectedPunchSms({
       currentState: options.currentState,
@@ -2036,10 +2037,32 @@ export async function processMissingExpectedPunchEscalation() {
       }),
     ]);
 
+    const latenessNotification = await getLatenessNotification(employee.employeeId, workDate);
+
     for (const expected of expectedItems) {
       const minutesSinceScheduled = currentMinutes - expected.scheduledMinutes;
+      const exceptionThresholdMinutes = resolveAutoMissingExceptionThresholdMinutes(
+        expected.eventType,
+        escalation
+      );
 
-      if (minutesSinceScheduled < watchMinutes) {
+      if (
+        expectedPunchRequiresMorningPunchIn(expected.eventType) &&
+        !hasEmployeeMorningPresenceForDay({
+          events: existingEvents,
+          currentState,
+        })
+      ) {
+        processed.push({
+          employeeId: employee.employeeId,
+          eventType: expected.eventType,
+          phase: "skipped",
+          reason: "no_morning_punch_in",
+        });
+        continue;
+      }
+
+      if (minutesSinceScheduled < watchMinutes && expected.eventType !== "quart_debut") {
         continue;
       }
 
@@ -2059,18 +2082,30 @@ export async function processMissingExpectedPunchEscalation() {
         continue;
       }
 
-      if (minutesSinceScheduled < exceptionMinutes) {
-        console.info("[horodateur-missing-expected-punch] watch", {
-          employeeId: employee.employeeId,
-          workDate,
-          eventType: expected.eventType,
-          minutesSinceScheduled,
-          watchMinutes,
-        });
+      if (minutesSinceScheduled < exceptionThresholdMinutes) {
+        if (expected.eventType !== "quart_debut" && minutesSinceScheduled >= watchMinutes) {
+          console.info("[horodateur-missing-expected-punch] watch", {
+            employeeId: employee.employeeId,
+            workDate,
+            eventType: expected.eventType,
+            minutesSinceScheduled,
+            watchMinutes,
+          });
+          processed.push({
+            employeeId: employee.employeeId,
+            eventType: expected.eventType,
+            phase: "watch",
+          });
+        }
+        continue;
+      }
+
+      if (expected.eventType === "quart_debut" && latenessNotification) {
         processed.push({
           employeeId: employee.employeeId,
           eventType: expected.eventType,
-          phase: "watch",
+          phase: "skipped",
+          reason: "lateness_notification_active",
         });
         continue;
       }
@@ -2478,14 +2513,22 @@ export async function recomputeShiftForDate(
     if (shouldTreatApprovedEventAsShiftStart(event, orderedEvents)) {
       if (shiftStartAt && shiftEndAt && state === "termine") {
         shiftEndAt = null;
-        workSegmentStartAt = eventOccurredAt;
+        workSegmentStartAt = resolvePayableWorkSegmentStartAt({
+          punchInOccurredAt: eventOccurredAt,
+          workDate,
+          scheduleStart: employee.scheduleStart,
+        });
         state = "en_quart";
         continue;
       }
 
       if (!shiftStartAt) {
         shiftStartAt = eventOccurredAt;
-        workSegmentStartAt = eventOccurredAt;
+        workSegmentStartAt = resolvePayableWorkSegmentStartAt({
+          punchInOccurredAt: eventOccurredAt,
+          workDate,
+          scheduleStart: employee.scheduleStart,
+        });
         state = "en_quart";
       } else if (!shiftEndAt) {
         anomalies.push("Double punch_in detecte (overlap / missing_punch_out).");
@@ -3028,13 +3071,7 @@ export async function createEmployeePunch(options: {
     note: options.note,
   });
 
-  const forceLateStartException = shouldForceLateStartShiftException({
-    employee: scheduleEmployee,
-    eventType: options.eventType,
-    occurredAt,
-    classification,
-    currentState,
-  });
+  const forceLateStartException = shouldForceLateStartShiftException();
 
   if (forceLateStartException) {
     classification = buildLateStartExceptionClassification({
@@ -3607,14 +3644,22 @@ export function computeTodayLiveShiftDisplayMinutes(options: {
     if (shouldTreatApprovedEventAsShiftStart(event, orderedEvents)) {
       if (shiftStartAt && shiftEndAt && state === "termine") {
         shiftEndAt = null;
-        workSegmentStartAt = eventOccurredAt;
+        workSegmentStartAt = resolvePayableWorkSegmentStartAt({
+          punchInOccurredAt: eventOccurredAt,
+          workDate: options.workDate,
+          scheduleStart: options.employee.scheduleStart,
+        });
         state = "en_quart";
         continue;
       }
 
       if (!shiftStartAt) {
         shiftStartAt = eventOccurredAt;
-        workSegmentStartAt = eventOccurredAt;
+        workSegmentStartAt = resolvePayableWorkSegmentStartAt({
+          punchInOccurredAt: eventOccurredAt,
+          workDate: options.workDate,
+          scheduleStart: options.employee.scheduleStart,
+        });
         state = "en_quart";
       }
       continue;
@@ -4164,7 +4209,7 @@ export async function approveHorodateurException(options: {
     if (employee) {
       employeeNotify = await notifyEmployeeHorodateurExceptionDecision({
         employee,
-        outcome: "approved",
+        outcome: reviewedException.status === "modifie" ? "adjusted" : "approved",
         exceptionId: exception.id,
       });
     }
