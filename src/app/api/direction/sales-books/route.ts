@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { loadChauffeurLabels, requireCommissionsAccess } from "@/app/api/direction/commissions/_lib";
-import { hasAdminFinanceAccess } from "@/app/lib/auth/admin-finance";
+import { loadChauffeurProfiles, requireCommissionsAccess } from "@/app/api/direction/commissions/_lib";
 import {
   loadActiveGrantOwnerChauffeurIds,
   loadDirectionGrantedOperationalObjectives,
@@ -14,23 +13,21 @@ export async function GET(req: NextRequest) {
     if (!auth.ok) return auth.response;
     const { supabase, user } = auth;
 
-    if (hasAdminFinanceAccess(user)) {
-      return NextResponse.json(
-        { error: "Utilisez les routes commissions admin pour la vue complete." },
-        { status: 403 }
-      );
-    }
-
     const grantedChauffeurIds = await loadActiveGrantOwnerChauffeurIds(supabase, user.id);
     const objectivesResult = await loadDirectionGrantedOperationalObjectives(supabase, user.id);
     const objectives = objectivesResult === "forbidden" ? [] : objectivesResult;
-    const labelMap = await loadChauffeurLabels(supabase, grantedChauffeurIds);
+    const profileMap = await loadChauffeurProfiles(supabase, grantedChauffeurIds);
 
-    const books = grantedChauffeurIds.map((chauffeurId) => ({
-      chauffeur_id: chauffeurId,
-      chauffeur_label: labelMap.get(chauffeurId) ?? `Employe #${chauffeurId}`,
-      objectives: objectives.filter((item) => item.chauffeur_id === chauffeurId),
-    }));
+    const books = grantedChauffeurIds.map((chauffeurId) => {
+      const profile = profileMap.get(chauffeurId);
+      return {
+        chauffeur_id: chauffeurId,
+        chauffeur_label: profile?.label ?? `Employé #${chauffeurId}`,
+        chauffeur_nom: profile?.nom ?? null,
+        chauffeur_courriel: profile?.courriel ?? null,
+        objectives: objectives.filter((item) => item.chauffeur_id === chauffeurId),
+      };
+    });
 
     return NextResponse.json({ books, granted_chauffeur_ids: grantedChauffeurIds });
   } catch (error) {

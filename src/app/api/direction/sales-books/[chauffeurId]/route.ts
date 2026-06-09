@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { loadChauffeurLabels, requireCommissionsAccess } from "@/app/api/direction/commissions/_lib";
-import { hasAdminFinanceAccess } from "@/app/lib/auth/admin-finance";
+import { loadChauffeurProfiles, requireCommissionsAccess } from "@/app/api/direction/commissions/_lib";
 import { loadDirectionGrantedOperationalObjectives } from "@/app/lib/commissions/sales-book-grants.server";
 
 export const dynamic = "force-dynamic";
@@ -21,13 +20,6 @@ export async function GET(
     const { supabase, user } = auth;
     const { chauffeurId: rawChauffeurId } = await params;
 
-    if (hasAdminFinanceAccess(user)) {
-      return NextResponse.json(
-        { error: "Utilisez les routes commissions admin pour la vue complete." },
-        { status: 403 }
-      );
-    }
-
     const chauffeurId = parseChauffeurId(rawChauffeurId);
     if (chauffeurId == null) {
       return NextResponse.json({ error: "Identifiant employe invalide." }, { status: 400 });
@@ -44,11 +36,14 @@ export async function GET(
       );
     }
 
-    const labelMap = await loadChauffeurLabels(supabase, [chauffeurId]);
+    const profileMap = await loadChauffeurProfiles(supabase, [chauffeurId]);
+    const profile = profileMap.get(chauffeurId);
 
     return NextResponse.json({
       chauffeur_id: chauffeurId,
-      chauffeur_label: labelMap.get(chauffeurId) ?? `Employe #${chauffeurId}`,
+      chauffeur_label: profile?.label ?? `Employé #${chauffeurId}`,
+      chauffeur_nom: profile?.nom ?? null,
+      chauffeur_courriel: profile?.courriel ?? null,
       objectives,
     });
   } catch (error) {

@@ -183,8 +183,8 @@ const MODULES: ModuleDefinition[] = [
   },
   {
     href: "/direction/commissions",
-    label: "Livres autorises",
-    description: "Livres de ventes accordes par l administration, sans montants monetaires.",
+    label: "Livres de ventes autorisés",
+    description: "Consultation des livres ouverts par l'administration, sans montants confidentiels.",
     permission: "commissions",
     group: "gestion",
     icon: Target,

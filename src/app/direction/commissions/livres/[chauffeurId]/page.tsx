@@ -109,7 +109,7 @@ export default function DirectionSalesBookDetailPage({
     (!errorMessage && !forbidden && !canUseCommissions && !!user) ||
     (canUseCommissions && loading)
   ) {
-    return <TagoraLoadingScreen isLoading message="Chargement du livre autorise..." fullScreen />;
+    return <TagoraLoadingScreen isLoading message="Chargement du livre autorisé..." fullScreen />;
   }
 
   if (!user) {
@@ -139,11 +139,11 @@ export default function DirectionSalesBookDetailPage({
           subtitle="Vous n avez pas d acces actif a ce livre de ventes."
         />
         <AccessNotice
-          title="Acces refuse"
-          description="Ce livre n est pas autorise pour votre compte Direction. Demandez l acces a un administrateur."
+          title="Accès refusé"
+          description="Ce livre n'est pas autorisé pour votre compte. Demandez l'accès à un administrateur."
         />
         <Link href="/direction/commissions" className="tagora-dark-action" style={{ marginTop: 16 }}>
-          Retour aux livres autorises
+          Retour aux livres autorisés
         </Link>
       </main>
     );
@@ -154,17 +154,18 @@ export default function DirectionSalesBookDetailPage({
       <div className="direction-sales-book-detail-nav">
         <Link href="/direction/commissions" className="direction-sales-book-back">
           <ArrowLeft size={16} aria-hidden />
-          Livres autorises
+          Livres de ventes autorisés
         </Link>
       </div>
 
       <AuthenticatedPageHeader
-        title={chauffeurLabel || "Livre autorise"}
-        subtitle="Detail operationnel sans montants monetaires."
+        title={chauffeurLabel || "Livre autorisé"}
+        subtitle="Détail opérationnel sans montants confidentiels."
       />
 
       <div className="direction-sales-book-detail-badges">
-        <StatusBadge label="Acces accorde par Admin" tone="info" />
+        <StatusBadge label="Accès accordé" tone="info" />
+        <StatusBadge label="Montants masqués" tone="warning" />
         <StatusBadge label="Lecture seule" tone="default" />
       </div>
 
@@ -174,28 +175,36 @@ export default function DirectionSalesBookDetailPage({
         </div>
       ) : null}
 
-      <SectionCard title="Indicateurs operationnels" className="ui-stack-sm">
+      <SectionCard title="Indicateurs opérationnels" className="ui-stack-sm">
         <div className="direction-sales-books-kpi-grid">
-          <AppCard tone="muted" className="direction-sales-books-kpi">
-            <span className="tagora-label">Objectifs</span>
-            <strong>{summary.total}</strong>
+          <AppCard tone="muted" className="direction-sales-books-kpi-card">
+            <div>
+              <div className="direction-sales-books-kpi-value">{summary.total}</div>
+              <div className="direction-sales-books-kpi-label">Objectifs</div>
+            </div>
           </AppCard>
-          <AppCard tone="muted" className="direction-sales-books-kpi">
-            <span className="tagora-label">Actifs</span>
-            <strong>{summary.active}</strong>
+          <AppCard tone="muted" className="direction-sales-books-kpi-card">
+            <div>
+              <div className="direction-sales-books-kpi-value">{summary.active}</div>
+              <div className="direction-sales-books-kpi-label">Actifs</div>
+            </div>
           </AppCard>
-          <AppCard tone="muted" className="direction-sales-books-kpi">
-            <span className="tagora-label">Atteints</span>
-            <strong>{summary.achieved}</strong>
+          <AppCard tone="muted" className="direction-sales-books-kpi-card">
+            <div>
+              <div className="direction-sales-books-kpi-value">{summary.achieved}</div>
+              <div className="direction-sales-books-kpi-label">Atteints</div>
+            </div>
           </AppCard>
-          <AppCard tone="muted" className="direction-sales-books-kpi">
-            <span className="tagora-label">Entrees a valider</span>
-            <strong>{summary.pendingValidation}</strong>
+          <AppCard tone="muted" className="direction-sales-books-kpi-card">
+            <div>
+              <div className="direction-sales-books-kpi-value">{summary.pendingValidation}</div>
+              <div className="direction-sales-books-kpi-label">Entrées à valider</div>
+            </div>
           </AppCard>
         </div>
       </SectionCard>
 
-      <SectionCard title="Objectifs du livre" subtitle="Performance non monetaire pour pilotage operationnel.">
+      <SectionCard title="Objectifs du livre" subtitle="Performance sans montants confidentiels.">
         <div className="tagora-panel" style={{ overflowX: "auto" }}>
           <table className="direction-sales-book-table">
             <thead>
@@ -256,12 +265,12 @@ export default function DirectionSalesBookDetailPage({
         </div>
       </SectionCard>
 
-      <SectionCard title="Confidentialite">
+      <SectionCard title="Confidentialité">
         <div className="tagora-panel-muted direction-sales-books-security">
           <ShieldCheck size={18} aria-hidden />
           <p>
-            Ce livre est affiche sans montants monetaires. Les commissions en dollars, salaires, taux,
-            bonus et couts de paie restent reserves a l administration.
+            Ce livre est affiché sans montants confidentiels. Les commissions en dollars, salaires,
+            taux, bonus et coûts de paie restent réservés à l&apos;administration.
           </p>
         </div>
       </SectionCard>
@@ -287,15 +296,21 @@ export default function DirectionSalesBookDetailPage({
         .direction-sales-books-kpi-grid {
           display: grid;
           grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-          gap: 12px;
+          gap: 14px;
         }
-        .direction-sales-books-kpi {
-          display: grid;
-          gap: 8px;
-          padding: 14px;
+        .direction-sales-books-kpi-card {
+          padding: 16px;
         }
-        .direction-sales-books-kpi strong {
+        .direction-sales-books-kpi-value {
           font-size: 1.45rem;
+          font-weight: 800;
+          line-height: 1.1;
+        }
+        .direction-sales-books-kpi-label {
+          font-weight: 700;
+          color: #334155;
+          margin-top: 4px;
+          font-size: 0.92rem;
         }
         .direction-sales-book-table {
           width: 100%;

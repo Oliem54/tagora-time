@@ -124,7 +124,6 @@ export async function loadActiveGrantOwnerChauffeurIds(
     .from("commission_book_access_grants")
     .select("owner_chauffeur_id, revoked_at, expires_at, can_view")
     .eq("viewer_user_id", viewerUserId)
-    .eq("viewer_role", "direction")
     .is("revoked_at", null);
 
   if (error) {

@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 
 export const metadata: Metadata = {
   title: "Mon livre de ventes",
-  description: "Suivi personnel de vos objectifs et commissions.",
+  description: "Vos objectifs et commissions personnelles, en lecture seule.",
 };
 
 export default function EmployeMonLivreLayout({ children }: { children: ReactNode }) {

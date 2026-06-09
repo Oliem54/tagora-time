@@ -35,6 +35,8 @@ type AuthGateProps = {
   publicPaths?: string[];
   /** Accès lecture pour d’autres rôles (ex. employés sur une route sous /direction). */
   crossAreaReadPaths?: CrossAreaReadRule[];
+  /** Routes où un rôle hors zone peut quand même voir la page (message côté client). */
+  wrongRoleRenderPaths?: string[];
 };
 
 export default function AuthGate({
@@ -42,6 +44,7 @@ export default function AuthGate({
   children,
   publicPaths = [],
   crossAreaReadPaths = [],
+  wrongRoleRenderPaths = [],
 }: AuthGateProps) {
   const pathname = usePathname();
   const router = useRouter();
@@ -60,6 +63,14 @@ export default function AuthGate({
           pathname === rule.pathPrefix || pathname.startsWith(`${rule.pathPrefix}/`)
       ),
     [pathname, crossAreaReadPaths]
+  );
+
+  const wrongRoleRenderOk = useMemo(
+    () =>
+      wrongRoleRenderPaths.some(
+        (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`)
+      ),
+    [pathname, wrongRoleRenderPaths]
   );
   useEffect(() => {
     let cancelled = false;
@@ -125,7 +136,7 @@ export default function AuthGate({
             Boolean(crossAreaReadMatch) &&
             Boolean(role && crossAreaReadMatch?.roles.includes(role));
 
-          if (!roleMatchesArea && !crossReadOk) {
+          if (!roleMatchesArea && !crossReadOk && !wrongRoleRenderOk) {
             router.replace(getHomePathForRole(role));
             return;
           }
@@ -204,7 +215,7 @@ export default function AuthGate({
       cancelled = true;
       subscription.unsubscribe();
     };
-  }, [areaRole, crossAreaReadMatch, isPublicPath, pathname, router]);
+  }, [areaRole, crossAreaReadMatch, isPublicPath, pathname, router, wrongRoleRenderOk]);
 
   if (status === "allowed") {
     return <>{children}</>;

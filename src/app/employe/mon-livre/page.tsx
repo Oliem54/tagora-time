@@ -1,8 +1,17 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { BookOpen, Lock, ShieldCheck } from "lucide-react";
+import {
+  BookOpen,
+  ClipboardList,
+  Lock,
+  ShieldCheck,
+  Target,
+  TrendingUp,
+  Wallet,
+} from "lucide-react";
 import AccessNotice from "@/app/components/AccessNotice";
 import AuthenticatedPageHeader from "@/app/components/ui/AuthenticatedPageHeader";
 import AppCard from "@/app/components/ui/AppCard";
@@ -10,6 +19,7 @@ import SectionCard from "@/app/components/ui/SectionCard";
 import StatusBadge from "@/app/components/ui/StatusBadge";
 import TagoraLoadingScreen from "@/app/components/ui/TagoraLoadingScreen";
 import { useCurrentAccess } from "@/app/hooks/useCurrentAccess";
+import { getHomePathForRole, type AppRole } from "@/app/lib/auth/roles";
 import {
   formatCad,
   OBJECTIVE_STATUS_LABELS,
@@ -98,6 +108,17 @@ function formatAchieved(objective: EmployeeSalesBookObjective) {
   return `${objective.achieved_sales_count ?? 0} vente(s)`;
 }
 
+function sharedBooksHref(role: AppRole | null) {
+  if (role === "admin") return "/direction/commissions";
+  if (role === "direction") return "/direction/commissions";
+  return getHomePathForRole(role ?? "employe");
+}
+
+function sharedBooksLabel(role: AppRole | null) {
+  if (role === "admin" || role === "direction") return "Voir les livres autorisés";
+  return "Retour au tableau de bord";
+}
+
 export default function EmployeMonLivrePage() {
   const router = useRouter();
   const { user, role, loading: accessLoading } = useCurrentAccess();
@@ -107,12 +128,6 @@ export default function EmployeMonLivrePage() {
   const [profileNotLinked, setProfileNotLinked] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const [objectives, setObjectives] = useState<EmployeeSalesBookObjective[]>([]);
-
-  useEffect(() => {
-    if (!accessLoading && user && role && role !== "employe") {
-      router.replace("/employe/login");
-    }
-  }, [accessLoading, user, role, router]);
 
   const loadSalesBook = useCallback(async () => {
     setLoading(true);
@@ -214,7 +229,7 @@ export default function EmployeMonLivrePage() {
     );
   }, [objectives]);
 
-  if (accessLoading || (user && role === "employe" && loading)) {
+  if (accessLoading) {
     return <TagoraLoadingScreen isLoading message="Chargement de votre livre..." fullScreen />;
   }
 
@@ -227,7 +242,32 @@ export default function EmployeMonLivrePage() {
   }
 
   if (role !== "employe") {
-    return <TagoraLoadingScreen isLoading message="Redirection..." fullScreen />;
+    return (
+      <main className="page-container employe-sales-book-page">
+        <AuthenticatedPageHeader
+          title="Mon livre de ventes"
+          subtitle="Espace réservé aux comptes employé."
+        />
+        <AccessNotice
+          title="Réservé aux comptes employé"
+          description="Cette page affiche le livre de ventes personnel d'un employé. Utilisez l'espace de consultation des livres autorisés si un accès vous a été partagé."
+        />
+        <Link href={sharedBooksHref(role)} className="tagora-dark-action employe-sales-book-wrong-role-cta">
+          {sharedBooksLabel(role)}
+        </Link>
+        <style jsx>{`
+          .employe-sales-book-wrong-role-cta {
+            display: inline-flex;
+            margin-top: 16px;
+            text-decoration: none;
+          }
+        `}</style>
+      </main>
+    );
+  }
+
+  if (loading) {
+    return <TagoraLoadingScreen isLoading message="Chargement de votre livre..." fullScreen />;
   }
 
   if (forbidden) {
@@ -235,7 +275,7 @@ export default function EmployeMonLivrePage() {
       <main className="page-container employe-sales-book-page">
         <AuthenticatedPageHeader
           title="Mon livre de ventes"
-          subtitle="Suivi personnel de vos objectifs et commissions"
+          subtitle="Vos objectifs et commissions personnelles, en lecture seule."
         />
         <AccessNotice
           title="Accès refusé"
@@ -250,12 +290,12 @@ export default function EmployeMonLivrePage() {
       <main className="page-container employe-sales-book-page">
         <AuthenticatedPageHeader
           title="Mon livre de ventes"
-          subtitle="Suivi personnel de vos objectifs et commissions"
+          subtitle="Vos objectifs et commissions personnelles, en lecture seule."
         />
         <AppCard tone="muted" className="employe-sales-book-empty">
           <BookOpen size={28} strokeWidth={2} aria-hidden />
-          <p style={{ margin: 0, fontWeight: 700 }}>{PROFILE_NOT_LINKED_MESSAGE}</p>
-          <p className="tagora-note" style={{ margin: 0 }}>
+          <p className="employe-sales-book-empty-title">{PROFILE_NOT_LINKED_MESSAGE}</p>
+          <p className="tagora-note employe-sales-book-empty-text">
             Votre compte utilisateur n&apos;est pas encore associé à un profil employé.
           </p>
         </AppCard>
@@ -267,7 +307,7 @@ export default function EmployeMonLivrePage() {
     <main className="page-container employe-sales-book-page">
       <AuthenticatedPageHeader
         title="Mon livre de ventes"
-        subtitle="Suivi personnel de vos objectifs et commissions"
+        subtitle="Vos objectifs et commissions personnelles, en lecture seule."
       />
 
       <div className="employe-sales-book-badges">
@@ -276,33 +316,58 @@ export default function EmployeMonLivrePage() {
       </div>
 
       {errorMessage ? (
-        <div style={{ marginTop: 16 }}>
-          <AccessNotice title="Chargement limité" description={errorMessage} />
+        <div className="employe-sales-book-alert">
+          <AccessNotice title="Chargement impossible" description={errorMessage} />
+          <button type="button" className="tagora-dark-outline-action" onClick={() => void loadSalesBook()}>
+            Réessayer
+          </button>
         </div>
       ) : null}
 
-      <SectionCard title="Vue d'ensemble" subtitle="Résumé de votre performance personnelle.">
-        <div className="employe-sales-book-kpi-grid">
-          <AppCard tone="muted" className="employe-sales-book-kpi">
-            <span className="tagora-label">Objectifs actifs</span>
-            <strong>{summary.activeObjectives}</strong>
-          </AppCard>
-          <AppCard tone="muted" className="employe-sales-book-kpi">
-            <span className="tagora-label">Progression moyenne</span>
-            <strong>{summary.averageProgress}%</strong>
-          </AppCard>
-          <AppCard tone="muted" className="employe-sales-book-kpi">
-            <span className="tagora-label">Commissions calculées</span>
-            <strong>{formatCad(summary.totalCalculated)}</strong>
-          </AppCard>
-          <AppCard tone="muted" className="employe-sales-book-kpi">
-            <span className="tagora-label">Entrées à valider / payées</span>
-            <strong>
-              {summary.entriesPending} / {summary.entriesPaid}
-            </strong>
-          </AppCard>
-        </div>
-      </SectionCard>
+      {!errorMessage ? (
+        <SectionCard title="Vue d'ensemble" subtitle="Résumé de votre performance personnelle.">
+          <div className="employe-sales-book-kpi-grid">
+            <AppCard tone="muted" className="employe-sales-book-kpi-card">
+              <div className="employe-sales-book-kpi-icon employe-sales-book-kpi-icon-target" aria-hidden>
+                <Target size={20} />
+              </div>
+              <div>
+                <div className="employe-sales-book-kpi-value">{summary.activeObjectives}</div>
+                <div className="employe-sales-book-kpi-label">Objectifs actifs</div>
+              </div>
+            </AppCard>
+            <AppCard tone="muted" className="employe-sales-book-kpi-card">
+              <div className="employe-sales-book-kpi-icon employe-sales-book-kpi-icon-progress" aria-hidden>
+                <TrendingUp size={20} />
+              </div>
+              <div>
+                <div className="employe-sales-book-kpi-value">{summary.averageProgress}%</div>
+                <div className="employe-sales-book-kpi-label">Progression moyenne</div>
+              </div>
+            </AppCard>
+            <AppCard tone="muted" className="employe-sales-book-kpi-card">
+              <div className="employe-sales-book-kpi-icon employe-sales-book-kpi-icon-wallet" aria-hidden>
+                <Wallet size={20} />
+              </div>
+              <div>
+                <div className="employe-sales-book-kpi-value">{formatCad(summary.totalCalculated)}</div>
+                <div className="employe-sales-book-kpi-label">Commissions calculées</div>
+              </div>
+            </AppCard>
+            <AppCard tone="muted" className="employe-sales-book-kpi-card">
+              <div className="employe-sales-book-kpi-icon employe-sales-book-kpi-icon-entries" aria-hidden>
+                <ClipboardList size={20} />
+              </div>
+              <div>
+                <div className="employe-sales-book-kpi-value">
+                  {summary.entriesPending} / {summary.entriesPaid}
+                </div>
+                <div className="employe-sales-book-kpi-label">Entrées à valider / payées</div>
+              </div>
+            </AppCard>
+          </div>
+        </SectionCard>
+      ) : null}
 
       <SectionCard
         title="Mes objectifs"
@@ -311,9 +376,10 @@ export default function EmployeMonLivrePage() {
         {objectives.length === 0 ? (
           <AppCard tone="muted" className="employe-sales-book-empty">
             <BookOpen size={28} strokeWidth={2} aria-hidden />
-            <p style={{ margin: 0, fontWeight: 700 }}>Aucun objectif pour le moment</p>
-            <p className="tagora-note" style={{ margin: 0 }}>
-              Votre livre apparaîtra ici dès qu&apos;un objectif ou une commission vous sera assigné.
+            <p className="employe-sales-book-empty-title">Votre livre sera disponible ici</p>
+            <p className="tagora-note employe-sales-book-empty-text">
+              Dès qu&apos;un objectif ou une commission vous sera assigné, il apparaîtra dans cette
+              page.
             </p>
           </AppCard>
         ) : (
@@ -360,7 +426,7 @@ export default function EmployeMonLivrePage() {
                   </div>
 
                   <div className="employe-sales-book-entries">
-                    <span className="tagora-label">Entrées de commission liées</span>
+                    <div className="employe-sales-book-entries-title">Entrées de commission liées</div>
                     <div className="employe-sales-book-entries-grid">
                       <div>
                         <span className="employe-sales-book-entry-stat-label">Total</span>
@@ -394,11 +460,11 @@ export default function EmployeMonLivrePage() {
       <div className="tagora-panel-muted employe-sales-book-security">
         <ShieldCheck size={18} aria-hidden />
         <div>
-          <p style={{ margin: 0, fontWeight: 700 }}>Confidentialité</p>
-          <p style={{ margin: "6px 0 0" }}>
+          <p className="employe-sales-book-security-title">Confidentialité</p>
+          <p className="employe-sales-book-security-text">
             Ces données sont visibles seulement par vous et les administrateurs autorisés.
           </p>
-          <p className="tagora-note" style={{ margin: "8px 0 0", display: "flex", gap: 6, alignItems: "center" }}>
+          <p className="tagora-note employe-sales-book-security-note">
             <Lock size={14} aria-hidden />
             Consultation en lecture seule — aucune modification possible depuis cet espace.
           </p>
@@ -412,20 +478,60 @@ export default function EmployeMonLivrePage() {
           gap: 8px;
           margin-top: 12px;
         }
+        .employe-sales-book-alert {
+          display: flex;
+          flex-direction: column;
+          align-items: flex-start;
+          gap: 12px;
+          margin-top: 16px;
+        }
         .employe-sales-book-kpi-grid {
           display: grid;
           grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-          gap: 12px;
+          gap: 14px;
         }
-        .employe-sales-book-kpi {
+        .employe-sales-book-kpi-card {
           display: flex;
-          flex-direction: column;
-          gap: 6px;
+          align-items: flex-start;
+          gap: 12px;
           padding: 16px;
         }
-        .employe-sales-book-kpi strong {
-          font-size: 1.5rem;
+        .employe-sales-book-kpi-icon {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          width: 42px;
+          height: 42px;
+          border-radius: 12px;
+          flex-shrink: 0;
+        }
+        .employe-sales-book-kpi-icon-target {
+          background: linear-gradient(135deg, #f5f3ff, #ede9fe);
+          color: #6d28d9;
+        }
+        .employe-sales-book-kpi-icon-progress {
+          background: linear-gradient(135deg, #eff6ff, #dbeafe);
+          color: #1d4ed8;
+        }
+        .employe-sales-book-kpi-icon-wallet {
+          background: linear-gradient(135deg, #ecfdf5, #d1fae5);
+          color: #047857;
+        }
+        .employe-sales-book-kpi-icon-entries {
+          background: linear-gradient(135deg, #fff7ed, #ffedd5);
+          color: #c2410c;
+        }
+        .employe-sales-book-kpi-value {
+          font-size: 1.45rem;
+          font-weight: 800;
+          line-height: 1.1;
           letter-spacing: -0.02em;
+        }
+        .employe-sales-book-kpi-label {
+          font-weight: 700;
+          color: #334155;
+          margin-top: 4px;
+          font-size: 0.92rem;
         }
         .employe-sales-book-empty {
           display: flex;
@@ -434,6 +540,17 @@ export default function EmployeMonLivrePage() {
           text-align: center;
           gap: 10px;
           padding: 36px 24px;
+        }
+        .employe-sales-book-empty-title {
+          margin: 0;
+          font-weight: 800;
+          font-size: 1.05rem;
+          color: #334155;
+        }
+        .employe-sales-book-empty-text {
+          margin: 0;
+          max-width: 32rem;
+          line-height: 1.5;
         }
         .employe-sales-book-objectives {
           display: flex;
@@ -498,6 +615,11 @@ export default function EmployeMonLivrePage() {
           padding-top: 4px;
           border-top: 1px solid var(--ui-color-border, #e2e8f0);
         }
+        .employe-sales-book-entries-title {
+          font-weight: 700;
+          font-size: 0.88rem;
+          color: #334155;
+        }
         .employe-sales-book-entries-grid {
           display: grid;
           grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
@@ -517,8 +639,19 @@ export default function EmployeMonLivrePage() {
           padding: 16px 18px;
           border-radius: 14px;
         }
-        .employe-sales-book-security p {
+        .employe-sales-book-security-title {
+          margin: 0;
+          font-weight: 700;
+        }
+        .employe-sales-book-security-text {
+          margin: 6px 0 0;
           color: var(--ui-color-text, #0f172a);
+        }
+        .employe-sales-book-security-note {
+          margin: 8px 0 0;
+          display: flex;
+          gap: 6px;
+          align-items: center;
         }
       `}</style>
     </main>
