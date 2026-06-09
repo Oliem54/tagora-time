@@ -32,12 +32,12 @@ import {
 import {
   buildEmployeForm,
   buildEmployePayload,
-  CHAUFFEUR_OPERATIONAL_PROFILE_SELECT,
+  buildEmployeeProfileGetApiPath,
   computeBreakSummary,
   EFFECTIFS_DEPARTMENT_ENTRIES,
   EFFECTIFS_LOCATION_ENTRIES,
+  EMPLOYEE_PROFILE_LOAD_ERROR_MESSAGE,
   employeeWorkDays,
-  stripConfidentialFinanceFields,
   validateEffectifsFormForSave,
   type EmployeFormState,
   type EmployeProfile,
@@ -194,45 +194,60 @@ export default function EmployeeProfilePageClient({
   const loadEmployeProfile = useCallback(async (targetId: number) => {
     setLoading(true);
 
-    const { data, error } = await supabase
-      .from(
-        canManageConfidentialFinance
-          ? "chauffeurs"
-          : "direction_employee_operational_profile"
-      )
-      .select(
-        canManageConfidentialFinance ? "*" : CHAUFFEUR_OPERATIONAL_PROFILE_SELECT
-      )
-      .eq("id", targetId)
-      .maybeSingle();
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      if (!token) {
+        setMessage(EMPLOYEE_PROFILE_LOAD_ERROR_MESSAGE);
+        setMessageType("error");
+        setOriginalProfile(null);
+        setLoading(false);
+        return;
+      }
 
-    if (error) {
-      setMessage(`Erreur chargement: ${error.message}`);
+      const response = await fetch(buildEmployeeProfileGetApiPath(targetId), {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      const json = (await response.json().catch(() => ({}))) as {
+        success?: boolean;
+        error?: string;
+        profile?: EmployeProfile;
+      };
+
+      if (response.status === 404) {
+        setMessage("Employe introuvable.");
+        setMessageType("error");
+        setOriginalProfile(null);
+        setLoading(false);
+        return;
+      }
+
+      if (!response.ok || json.success === false || !json.profile) {
+        setMessage(EMPLOYEE_PROFILE_LOAD_ERROR_MESSAGE);
+        setMessageType("error");
+        setOriginalProfile(null);
+        setLoading(false);
+        return;
+      }
+
+      const nextProfile = json.profile;
+      setOriginalProfile(nextProfile);
+      setForm(buildEmployeForm(nextProfile));
+      setMessage("");
+      setMessageType(null);
+      setLoading(false);
+    } catch {
+      setMessage(EMPLOYEE_PROFILE_LOAD_ERROR_MESSAGE);
       setMessageType("error");
       setOriginalProfile(null);
       setLoading(false);
-      return;
     }
-
-    if (!data) {
-      setMessage("Employe introuvable.");
-      setMessageType("error");
-      setOriginalProfile(null);
-      setLoading(false);
-      return;
-    }
-
-    const profileRow = canManageConfidentialFinance
-      ? data
-      : stripConfidentialFinanceFields(data as unknown as Record<string, unknown>);
-
-    const nextProfile = profileRow as EmployeProfile;
-    setOriginalProfile(nextProfile);
-    setForm(buildEmployeForm(nextProfile));
-    setMessage("");
-    setMessageType(null);
-    setLoading(false);
-  }, [canManageConfidentialFinance]);
+  }, []);
 
   useEffect(() => {
     if (isCreating) {
