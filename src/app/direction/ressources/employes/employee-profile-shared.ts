@@ -122,6 +122,20 @@ export function stripConfidentialFinanceFields<T extends Record<string, unknown>
   return next;
 }
 
+export function buildEmployeeProfileApiResponse(
+  row: Record<string, unknown>,
+  canManageConfidentialFinance: boolean
+): Record<string, unknown> {
+  return canManageConfidentialFinance ? row : stripConfidentialFinanceFields(row);
+}
+
+export const EMPLOYEE_PROFILE_LOAD_ERROR_MESSAGE =
+  "Cette fiche employé n'a pas pu être chargée. Veuillez réessayer ou contacter l'administration.";
+
+export function buildEmployeeProfileGetApiPath(employeeId: number): string {
+  return `/api/direction/ressources/employes/${employeeId}`;
+}
+
 export type EmployeProfile = {
   id: number;
   auth_user_id?: string | null;

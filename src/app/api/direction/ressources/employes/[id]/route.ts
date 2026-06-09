@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthenticatedRequestUser } from "@/app/lib/account-requests.server";
 import { hasAdminFinanceAccess } from "@/app/lib/auth/admin-finance";
-import { stripConfidentialFinanceFields } from "@/app/direction/ressources/employes/employee-profile-shared";
+import {
+  buildEmployeeProfileApiResponse,
+  stripConfidentialFinanceFields,
+} from "@/app/direction/ressources/employes/employee-profile-shared";
 import { isValidEmail, normalizeEmail } from "@/app/lib/account-requests.shared";
 import { createAdminSupabaseClient } from "@/app/lib/supabase/admin";
 import {
@@ -180,6 +183,68 @@ function formatDbErrorForClient(error: SupabaseLikeError): string {
   const msg = (error.message ?? "").trim();
   if (msg) return msg;
   return "Erreur lors de l'enregistrement en base.";
+}
+
+export async function GET(
+  req: NextRequest,
+  ctx: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { user, role } = await getAuthenticatedRequestUser(req);
+    if (!user) {
+      return jsonError(401, "Non authentifié.");
+    }
+    if (role !== "direction" && role !== "admin") {
+      return jsonError(403, "Accès refusé.");
+    }
+
+    const { id: idParam } = await ctx.params;
+    const employeeId = Number.parseInt(idParam, 10);
+    if (!Number.isFinite(employeeId)) {
+      return jsonError(400, "Identifiant employé invalide.");
+    }
+
+    const supabase = createAdminSupabaseClient();
+    const { data, error } = await supabase
+      .from("chauffeurs")
+      .select("*")
+      .eq("id", employeeId)
+      .maybeSingle();
+
+    if (error) {
+      console.error("[employee-profile-load]", {
+        phase: "db_select",
+        route: ROUTE,
+        employeeId,
+        message: error.message,
+        code: error.code,
+      });
+      return jsonError(500, "Impossible de charger la fiche employé.");
+    }
+
+    if (!data) {
+      return jsonError(404, "Employé introuvable.");
+    }
+
+    const canManageConfidentialFinance = hasAdminFinanceAccess(user);
+    const profile = buildEmployeeProfileApiResponse(
+      data as Record<string, unknown>,
+      canManageConfidentialFinance
+    );
+
+    return NextResponse.json({
+      success: true,
+      profile,
+    });
+  } catch (error) {
+    console.error("[employee-profile-load]", error);
+    return jsonError(
+      500,
+      error instanceof Error && error.message
+        ? error.message
+        : "Impossible de charger la fiche employé."
+    );
+  }
 }
 
 export async function PATCH(
@@ -417,9 +482,10 @@ export async function PATCH(
           }
         }
 
-        const profileResponse = canManageConfidentialFinance
-          ? data
-          : stripConfidentialFinanceFields(data as Record<string, unknown>);
+        const profileResponse = buildEmployeeProfileApiResponse(
+          data as Record<string, unknown>,
+          canManageConfidentialFinance
+        );
         return NextResponse.json({
           success: true,
           profile: profileResponse,
