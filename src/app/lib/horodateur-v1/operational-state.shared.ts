@@ -4,7 +4,6 @@ import {
   isApprovedHorodateurEventStatus,
   shouldTreatApprovedEventAsShiftStart,
   toCanonicalEventType,
-  HORODATEUR_PHASE1_TIMEZONE,
 } from "./rules";
 import type {
   HorodateurPhase1EventRecord,
@@ -223,17 +222,8 @@ export function filterEventsForPayrollRecompute(
   return events.filter((event) => isApprovedHorodateurEventStatus(event.status));
 }
 
-export function formatPendingPunchOutSubmittedMessage(
-  occurredAt: string,
-  timeZone = HORODATEUR_PHASE1_TIMEZONE
-): string {
-  const label = new Date(occurredAt).toLocaleTimeString("fr-CA", {
-    timeZone,
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  });
-  return `Votre sortie a deja ete soumise a ${label} et attend la validation de la direction.`;
+export function formatPendingPunchOutSubmittedMessage(_occurredAt: string): string {
+  return "Votre sortie a ete soumise a validation. Vous pouvez continuer a utiliser l'horodateur normalement.";
 }
 
 export function compareHorodateurExceptionReviewPriority(

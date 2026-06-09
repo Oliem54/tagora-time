@@ -117,10 +117,11 @@ describe("operational-state.shared — Vincent", () => {
     ).toBe("out-pending");
   });
 
-  it("formatte le message alreadySubmitted avec l heure locale", () => {
+  it("formatte le message alreadySubmitted pour Vincent", () => {
     const message = formatPendingPunchOutSubmittedMessage("2026-06-05T10:40:26.034+00:00");
-    expect(message).toContain("06 h 40");
-    expect(message).toContain("validation de la direction");
+    expect(message).toContain("soumise a validation");
+    expect(message).toContain("continuer a utiliser l'horodateur normalement");
+    expect(message.toLowerCase()).not.toContain("refus");
   });
 });
 
