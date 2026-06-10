@@ -12,9 +12,9 @@ import {
  * Un employé est planifié seulement si actif, `schedule_active`, jour actif avec
  * start/end valides, ou exception d'horaire approuvée pour la date.
  *
- * Données legacy incohérentes connues (ex. Martin #9, Yves #10, Dominic #11) :
- * horaire hebdo inactif mais legacy 07:00–15:30 encore rempli — nettoyage Supabase
- * ultérieur possible, hors scope de ce hotfix.
+ * Si `weekly_schedule_config` est présent, il devient la source de vérité :
+ * aucun fallback legacy. Données legacy incohérentes (ex. Martin #9, Yves #10) :
+ * jours hebdo inactifs mais `schedule_start` / lun–ven encore remplis → hors horaire.
  */
 
 export type HorodateurAlertScheduleDaySlice = {
@@ -68,6 +68,27 @@ export function isValidHorodateurShiftWindow(start: string, end: string): boolea
   return startMinutes != null && endMinutes != null && endMinutes > startMinutes;
 }
 
+/** `weekly_schedule_config` présent en base : le legacy ne doit jamais planifier. */
+export function isWeeklyScheduleHorodateurSourceOfTruth(
+  employee: Pick<HorodateurAlertScheduleEmployee, "weeklyScheduleConfig">
+): boolean {
+  return employee.weeklyScheduleConfig != null;
+}
+
+export function hasAnyActiveHorodateurWeeklyScheduleDay(
+  weeklyScheduleConfig: WeeklyScheduleConfig
+): boolean {
+  return WEEKLY_SCHEDULE_DAY_KEYS.some((dayKey) => {
+    const day = weeklyScheduleConfig.days[dayKey];
+    return (
+      day.active &&
+      isValidHorodateurScheduleTime(day.start) &&
+      isValidHorodateurScheduleTime(day.end) &&
+      isValidHorodateurShiftWindow(day.start, day.end)
+    );
+  });
+}
+
 export function getHabitualHorodateurDaySliceForWeekdayIndex(
   employee: Pick<
     HorodateurAlertScheduleEmployee,
@@ -90,6 +111,7 @@ export function getHabitualHorodateurDaySliceForWeekdayIndex(
     };
   }
 
+  // Fallback legacy uniquement si weekly_schedule_config est absent/null côté profil.
   const legacy = createWeeklyScheduleFromLegacy({
     schedule_start: employee.scheduleStart,
     schedule_end: employee.scheduleEnd,
@@ -127,6 +149,14 @@ export function resolveHorodateurAlertScheduleFromEffective(
   }
 
   if (effective.kind === "off") {
+    return { scheduled: false, shiftStart: null, shiftEnd: null };
+  }
+
+  if (
+    effective.kind === "habitual" &&
+    employee.weeklyScheduleConfig &&
+    !hasAnyActiveHorodateurWeeklyScheduleDay(employee.weeklyScheduleConfig)
+  ) {
     return { scheduled: false, shiftStart: null, shiftEnd: null };
   }
 
