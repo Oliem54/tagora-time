@@ -41,7 +41,7 @@ export default function DirectionTempsTitanOperationalPage() {
     setErrorMessage("");
 
     const { data, error, count } = await supabase
-      .from("temps_titan")
+      .from("direction_temps_titan_operational")
       .select("duree_heures", { count: "exact" })
       .gte("date_travail", dateFrom)
       .lte("date_travail", dateTo);
@@ -70,7 +70,7 @@ export default function DirectionTempsTitanOperationalPage() {
   if (accessLoading || (!blocked && loading)) {
     return (
       <DirectionFinanceRestrictedScreen
-        title="Temps Titan — vue Direction"
+        title="Suivi des heures — vue Direction"
         adminHref="/admin/temps-titan-finance"
       >
         <AccessNotice description="Chargement du resume operationnel..." />
@@ -81,7 +81,7 @@ export default function DirectionTempsTitanOperationalPage() {
   if (blocked) {
     return (
       <DirectionFinanceRestrictedScreen
-        title="Temps Titan — vue Direction"
+        title="Suivi des heures — vue Direction"
         adminHref="/admin/temps-titan-finance"
       >
         <AccessNotice description="La permission terrain est requise." />
@@ -91,7 +91,7 @@ export default function DirectionTempsTitanOperationalPage() {
 
   return (
     <DirectionFinanceRestrictedScreen
-      title="Temps Titan — vue Direction"
+      title="Suivi des heures — vue Direction"
       adminHref="/admin/temps-titan-finance"
       operationalTitle="Resume operationnel (heures et volumes uniquement)"
     >
@@ -155,7 +155,8 @@ export default function DirectionTempsTitanOperationalPage() {
           <div className="tagora-panel" style={{ padding: 16 }}>
             <p style={{ margin: 0, lineHeight: 1.55, color: "#334155" }}>
               Pour le detail des punchs, corrections et registre horaire, utilisez l&apos;horodateur
-              direction. Les couts salariaux, taux et refacturation financiere sont dans Admin.
+              direction. Les couts salariaux, taux et refacturation intercompagnies sont dans Admin
+              (donnees financieres reservees a l administration).
             </p>
             <div style={{ marginTop: 14, display: "flex", flexWrap: "wrap", gap: 10 }}>
               <Link href="/direction/horodateur/registre" className="tagora-dark-action">

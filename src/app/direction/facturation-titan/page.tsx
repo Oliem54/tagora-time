@@ -59,7 +59,7 @@ export default function DirectionFacturationTitanOperationalPage() {
     setRowCapReached(false);
 
     const { data, error: queryError } = await supabase
-      .from("temps_titan")
+      .from("direction_intercompany_operational")
       .select("id, employe_nom, date_travail, duree_heures, type_travail, statut_paiement_titan")
       .gte("date_travail", dateDebut)
       .lte("date_travail", dateFin)
@@ -106,7 +106,7 @@ export default function DirectionFacturationTitanOperationalPage() {
   if (accessLoading || (!blocked && loading)) {
     return (
       <DirectionFinanceRestrictedScreen
-        title="Facturation Titan — vue Direction"
+        title="Refacturation intercompagnies — vue Direction"
         adminHref="/admin/facturation-titan"
       >
         <AccessNotice description="Chargement..." />
@@ -117,7 +117,7 @@ export default function DirectionFacturationTitanOperationalPage() {
   if (blocked) {
     return (
       <DirectionFinanceRestrictedScreen
-        title="Facturation Titan — vue Direction"
+        title="Refacturation intercompagnies — vue Direction"
         adminHref="/admin/facturation-titan"
       >
         <AccessNotice description="La permission terrain est requise." />
@@ -127,9 +127,9 @@ export default function DirectionFacturationTitanOperationalPage() {
 
   return (
     <DirectionFinanceRestrictedScreen
-      title="Facturation Titan — vue Direction"
+      title="Refacturation intercompagnies — vue Direction"
       adminHref="/admin/facturation-titan"
-      operationalTitle="Suivi operationnel (heures et statuts de paiement Titan, sans montants)"
+      operationalTitle="Suivi operationnel (heures et statuts de refacturation intercompagnies, sans montants)"
     >
       {error ? (
         <AccessNotice title="Chargement limite" description={error} />
@@ -194,7 +194,7 @@ export default function DirectionFacturationTitanOperationalPage() {
                   <th style={{ padding: "10px 12px" }}>Employe</th>
                   <th style={{ padding: "10px 12px" }}>Type</th>
                   <th style={{ padding: "10px 12px" }}>Heures</th>
-                  <th style={{ padding: "10px 12px" }}>Statut Titan</th>
+                  <th style={{ padding: "10px 12px" }}>Statut refacturation</th>
                 </tr>
               </thead>
               <tbody>

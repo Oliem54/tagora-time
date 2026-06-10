@@ -1,17 +1,21 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
-  computeProgressPercent,
-  deriveObjectiveStatus,
   normalizeTargetType,
 } from "@/app/lib/commissions/calculate.server";
 import { todayIsoLocal } from "@/app/lib/commissions/commissions.shared";
 import {
+  computeProgressPercent,
+  deriveObjectiveStatus,
+} from "@/app/lib/commissions/calculate.server";
+import {
   getUserDisplayName,
   loadChauffeurLabels,
+  mapDirectionObjectiveOperationalRow,
   mapObjectiveRow,
-  mapRuleRow,
+  requireAdminFinanceCommissionsAccess,
   requireCommissionsAccess,
 } from "@/app/api/direction/commissions/_lib";
+import { hasAdminFinanceAccess } from "@/app/lib/auth/admin-finance";
 
 function asText(value: unknown) {
   if (typeof value !== "string") return null;
@@ -45,11 +49,44 @@ export async function GET(req: NextRequest) {
   try {
     const auth = await requireCommissionsAccess(req);
     if (!auth.ok) return auth.response;
-    const { supabase } = auth;
+    const { supabase, user } = auth;
     const todayIso = todayIsoLocal();
 
+    if (hasAdminFinanceAccess(user)) {
+      const { data, error } = await supabase
+        .from("sales_objectives")
+        .select("*")
+        .order("period_end", { ascending: false })
+        .order("created_at", { ascending: false });
+
+      if (error) {
+        return NextResponse.json({ error: error.message }, { status: 400 });
+      }
+
+      const chauffeurIds = (data ?? [])
+        .map((row) => Number((row as Record<string, unknown>).chauffeur_id))
+        .filter((id) => Number.isFinite(id) && id > 0);
+      const labelMap = await loadChauffeurLabels(supabase, chauffeurIds);
+
+      const objectives = (data ?? []).map((row) => {
+        const record = row as Record<string, unknown>;
+        const chauffeurId = Number(record.chauffeur_id);
+        const mapped = mapObjectiveRow(
+          record,
+          Number.isFinite(chauffeurId) ? labelMap.get(chauffeurId) ?? null : null
+        );
+        return {
+          ...mapped,
+          computed_status: deriveObjectiveStatus(mapped, todayIso),
+          progress_percent: computeProgressPercent(mapped),
+        };
+      });
+
+      return NextResponse.json({ objectives, todayIso });
+    }
+
     const { data, error } = await supabase
-      .from("sales_objectives")
+      .from("direction_objectives_operational_view")
       .select("*")
       .order("period_end", { ascending: false })
       .order("created_at", { ascending: false });
@@ -58,22 +95,9 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
 
-    const chauffeurIds = (data ?? [])
-      .map((row) => Number((row as Record<string, unknown>).chauffeur_id))
-      .filter((id) => Number.isFinite(id) && id > 0);
-    const labelMap = await loadChauffeurLabels(supabase, chauffeurIds);
-
-    const objectives = (data ?? []).map((row) => {
-      const mapped = mapObjectiveRow(
-        row as Record<string, unknown>,
-        row.chauffeur_id ? labelMap.get(Number(row.chauffeur_id)) ?? null : null
-      );
-      return {
-        ...mapped,
-        computed_status: deriveObjectiveStatus(mapped, todayIso),
-        progress_percent: computeProgressPercent(mapped),
-      };
-    });
+    const objectives = (data ?? []).map((row) =>
+      mapDirectionObjectiveOperationalRow(row as Record<string, unknown>)
+    );
 
     return NextResponse.json({ objectives, todayIso });
   } catch (error) {
@@ -86,7 +110,7 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    const auth = await requireCommissionsAccess(req);
+    const auth = await requireAdminFinanceCommissionsAccess(req);
     if (!auth.ok) return auth.response;
     const { supabase, user } = auth;
 
@@ -176,14 +200,23 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    const rulesFetch = await supabase
-      .from("commission_rules")
+    const objectiveOperational = await supabase
+      .from("direction_objectives_operational_view")
       .select("*")
-      .eq("objective_id", objectiveId);
+      .eq("id", objectiveId)
+      .maybeSingle();
+
+    if (objectiveOperational.error || !objectiveOperational.data) {
+      return NextResponse.json(
+        { error: objectiveOperational.error?.message ?? "Objectif cree mais vue operationnelle inaccessible." },
+        { status: 400 }
+      );
+    }
 
     return NextResponse.json({
-      objective: mapObjectiveRow(insertRes.data as Record<string, unknown>),
-      rules: (rulesFetch.data ?? []).map((row) => mapRuleRow(row as Record<string, unknown>)),
+      objective: mapDirectionObjectiveOperationalRow(
+        objectiveOperational.data as Record<string, unknown>
+      ),
     });
   } catch (error) {
     return NextResponse.json(

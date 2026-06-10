@@ -19,6 +19,10 @@ import {
   verifyMfaWithChallenge,
 } from "@/app/lib/auth/mfa.client";
 import { describeSupabaseMfaPhoneError } from "@/app/lib/auth/mfa-phone.shared";
+import {
+  isSafeInternalReturnPath,
+  loginPathForMissingMfaSession,
+} from "@/app/lib/auth/password-mfa.client";
 import { getHomePathForRole, getUserRole } from "@/app/lib/auth/roles";
 import { supabase } from "@/app/lib/supabase/client";
 import {
@@ -30,6 +34,7 @@ export default function MfaVerifyPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const nextPathRaw = searchParams.get("next");
+  const reason = searchParams.get("reason");
 
   const [loading, setLoading] = useState(true);
   const [mode, setMode] = useState<"phone" | "totp">("phone");
@@ -87,7 +92,7 @@ export default function MfaVerifyPage() {
       const { data } = await supabase.auth.getUser();
       if (cancelled) return;
       if (!data.user) {
-        router.replace("/direction/login");
+        router.replace(loginPathForMissingMfaSession(nextPathRaw));
         return;
       }
 
@@ -114,7 +119,7 @@ export default function MfaVerifyPage() {
     return () => {
       cancelled = true;
     };
-  }, [router]);
+  }, [nextPathRaw, router]);
 
   useEffect(() => {
     if (loading || mode !== "phone" || !phoneFactorId || autoSmsAttemptedRef.current) {
@@ -149,15 +154,18 @@ export default function MfaVerifyPage() {
   }
 
   function resolveNextHref(role: ReturnType<typeof getUserRole>): string {
-    if (
-      typeof nextPathRaw === "string" &&
-      nextPathRaw.startsWith("/") &&
-      !nextPathRaw.startsWith("//")
-    ) {
+    if (isSafeInternalReturnPath(nextPathRaw)) {
       return nextPathRaw;
     }
     return role ? getHomePathForRole(role) : "/direction/dashboard";
   }
+
+  const pageSubtitle =
+    reason === "password"
+      ? "Confirmez votre identité pour modifier votre mot de passe."
+      : mode === "phone"
+        ? "Confirmez votre identité avec un code envoyé par texto."
+        : "Entrez le code affiché dans votre application Authenticator.";
 
   async function sendPhoneChallenge() {
     if (!phoneFactorId) return;
@@ -264,15 +272,7 @@ export default function MfaVerifyPage() {
   return (
     <main className="ui-auth-shell mfa-verify-page">
       <div className="ui-auth-content ui-stack-lg">
-        <PageHeader
-          title="Vérification en deux étapes"
-          subtitle={
-            mode === "phone"
-              ? "Confirmez votre identité avec un code envoyé par texto."
-              : "Entrez le code affiché dans votre application Authenticator."
-          }
-          compact
-        />
+        <PageHeader title="Vérification en deux étapes" subtitle={pageSubtitle} compact />
 
         {mode === "phone" && phoneFactorId ? (
           <SectionCard title="Code par texto">

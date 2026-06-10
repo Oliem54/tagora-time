@@ -17,7 +17,9 @@ import {
 import {
   evaluateEmployeeWebPunchGps,
   formatHorodateurGpsJournalSuffix,
+  HORODATEUR_RETRO_CORRECTION_GPS_UNAVAILABLE_NOTE,
 } from "@/app/lib/horodateur-gps-punch.server";
+import { parseNumericCoordinate } from "@/app/lib/timeclock-api.shared";
 import {
   evaluateQrPunchAttempt,
   insertQrPunchAppAlert,
@@ -30,6 +32,28 @@ import {
   getEmployeeDashboardSnapshotByAuthUserId,
 } from "@/app/lib/horodateur-v1/service";
 import { createAdminSupabaseClient } from "@/app/lib/supabase/admin";
+
+function buildPunchApiResponse(
+  result: Awaited<ReturnType<typeof createEmployeePunch>>,
+  snapshot: Awaited<ReturnType<typeof getEmployeeDashboardSnapshotByAuthUserId>>
+) {
+  return {
+    success: true,
+    alreadySubmitted: result.alreadySubmitted === true,
+    alreadySubmittedMessage: result.alreadySubmittedMessage ?? null,
+    code: result.alreadySubmitted ? "punch_out_already_pending" : undefined,
+    insertedEvent: normalizeEventForApi(result.event),
+    exception: result.exception,
+    employee: snapshot.employee,
+    currentState: snapshot.currentState,
+    shift: snapshot.todayShift,
+    weeklyProjection: snapshot.weeklyProjection,
+    pendingExceptions: snapshot.pendingExceptions,
+    pendingPunchOut: snapshot.pendingPunchOut,
+    latenessContext: snapshot.latenessContext,
+    todayTimeDisplay: snapshot.todayTimeDisplay,
+  };
+}
 
 export async function GET(req: NextRequest) {
   try {
@@ -48,7 +72,9 @@ export async function GET(req: NextRequest) {
       shift: snapshot.todayShift,
       weeklyProjection: snapshot.weeklyProjection,
       pendingExceptions: snapshot.pendingExceptions,
+      pendingPunchOut: snapshot.pendingPunchOut,
       latenessContext: snapshot.latenessContext,
+      todayTimeDisplay: snapshot.todayTimeDisplay,
     });
   } catch (error) {
     return buildHorodateurErrorResponse(error, {
@@ -328,17 +354,7 @@ export async function POST(req: NextRequest) {
           });
         }
 
-        return NextResponse.json({
-          success: true,
-          insertedEvent: normalizeEventForApi(result.event),
-          exception: result.exception,
-          employee: snapshot.employee,
-          currentState: snapshot.currentState,
-          shift: snapshot.todayShift,
-          weeklyProjection: snapshot.weeklyProjection,
-          pendingExceptions: snapshot.pendingExceptions,
-          latenessContext: snapshot.latenessContext,
-        });
+        return NextResponse.json(buildPunchApiResponse(result, snapshot));
       } catch (punchErr) {
         await insertQrPunchAppAlert(admin, {
           alertType: "qr_punch_save_failed",
@@ -396,7 +412,9 @@ export async function POST(req: NextRequest) {
     const canonicalPunchType = toCanonicalEventType(normalizedEventType);
     const isRetroactivePunch = canonicalPunchType === "retroactive_entry";
     const requiresWebGps =
-      canonicalPunchType === "punch_in" || isRetroactivePunch;
+      canonicalPunchType === "punch_in" ||
+      canonicalPunchType === "punch_out" ||
+      isRetroactivePunch;
 
     let webGps:
       | {
@@ -410,51 +428,66 @@ export async function POST(req: NextRequest) {
     let punchNote = normalizeNonEmptyString(body.note);
 
     if (requiresWebGps) {
-      const gpsEval = await evaluateEmployeeWebPunchGps({
-        latitude: body.latitude,
-        longitude: body.longitude,
-        companyContext: punchCompany,
-        punchGpsMode: isRetroactivePunch ? "retroactive_request" : "strict_punch",
-      });
+      const requestLatitude = parseNumericCoordinate(body.latitude);
+      const requestLongitude = parseNumericCoordinate(body.longitude);
+      const hasRequestGps =
+        requestLatitude != null && requestLongitude != null;
 
-      if (!gpsEval.ok) {
-        const status =
-          gpsEval.code === "GPS_OUT_OF_ZONE"
-            ? 403
-            : gpsEval.code === "GPS_NOT_CONFIGURED"
-              ? 503
-              : 400;
-        return NextResponse.json(
-          {
-            success: false,
-            ok: false,
-            error: gpsEval.message,
-            code: gpsEval.code,
-            route: "/api/horodateur/punch",
-          },
-          { status }
-        );
+      if (
+        isRetroactivePunch &&
+        !hasRequestGps &&
+        !punchNote?.includes(HORODATEUR_RETRO_CORRECTION_GPS_UNAVAILABLE_NOTE)
+      ) {
+        punchNote = punchNote
+          ? `${punchNote}\n${HORODATEUR_RETRO_CORRECTION_GPS_UNAVAILABLE_NOTE}`
+          : HORODATEUR_RETRO_CORRECTION_GPS_UNAVAILABLE_NOTE;
+      } else {
+        const gpsEval = await evaluateEmployeeWebPunchGps({
+          latitude: body.latitude,
+          longitude: body.longitude,
+          companyContext: punchCompany,
+          punchGpsMode: isRetroactivePunch ? "retroactive_request" : "strict_punch",
+        });
+
+        if (!gpsEval.ok) {
+          const status =
+            gpsEval.code === "GPS_OUT_OF_ZONE"
+              ? 403
+              : gpsEval.code === "GPS_NOT_CONFIGURED"
+                ? 503
+                : 400;
+          return NextResponse.json(
+            {
+              success: false,
+              ok: false,
+              error: gpsEval.message,
+              code: gpsEval.code,
+              route: "/api/horodateur/punch",
+            },
+            { status }
+          );
+        }
+
+        webGps = {
+          latitude: gpsEval.latitude,
+          longitude: gpsEval.longitude,
+          zoneValidated: gpsEval.zoneValidated,
+          matchedBaseName: gpsEval.matchedBaseName,
+        };
+
+        const gpsSuffix = formatHorodateurGpsJournalSuffix({
+          latitude: gpsEval.latitude,
+          longitude: gpsEval.longitude,
+          zoneValidated: gpsEval.zoneValidated,
+          matchedBaseName: gpsEval.matchedBaseName,
+          matchedBaseAddress: gpsEval.matchedBaseAddress,
+          requestedAtIso: new Date().toISOString(),
+          basesConfigured: isRetroactivePunch
+            ? gpsEval.gpsBasesConfigured
+            : undefined,
+        });
+        punchNote = punchNote ? `${punchNote}\n${gpsSuffix}` : gpsSuffix;
       }
-
-      webGps = {
-        latitude: gpsEval.latitude,
-        longitude: gpsEval.longitude,
-        zoneValidated: gpsEval.zoneValidated,
-        matchedBaseName: gpsEval.matchedBaseName,
-      };
-
-      const gpsSuffix = formatHorodateurGpsJournalSuffix({
-        latitude: gpsEval.latitude,
-        longitude: gpsEval.longitude,
-        zoneValidated: gpsEval.zoneValidated,
-        matchedBaseName: gpsEval.matchedBaseName,
-        matchedBaseAddress: gpsEval.matchedBaseAddress,
-        requestedAtIso: new Date().toISOString(),
-        basesConfigured: isRetroactivePunch
-          ? gpsEval.gpsBasesConfigured
-          : undefined,
-      });
-      punchNote = punchNote ? `${punchNote}\n${gpsSuffix}` : gpsSuffix;
     }
 
     const result = await createEmployeePunch({
@@ -479,17 +512,7 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    return NextResponse.json({
-      success: true,
-      insertedEvent: normalizeEventForApi(result.event),
-      exception: result.exception,
-      employee: snapshot.employee,
-      currentState: snapshot.currentState,
-      shift: snapshot.todayShift,
-      weeklyProjection: snapshot.weeklyProjection,
-      pendingExceptions: snapshot.pendingExceptions,
-      latenessContext: snapshot.latenessContext,
-    });
+    return NextResponse.json(buildPunchApiResponse(result, snapshot));
   } catch (error) {
     return buildHorodateurErrorResponse(error, {
       route: "/api/horodateur/punch",

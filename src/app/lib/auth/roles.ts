@@ -32,6 +32,11 @@ export function getUserRole(user: User | null | undefined): AppRole | null {
 }
 
 export function getHomePathForRole(role: AppRole): string {
+  return getDashboardPathForRole(role);
+}
+
+/** Tableau de bord principal selon le role JWT (admin, direction, employe). */
+export function getDashboardPathForRole(role: AppRole): string {
   if (role === "employe") {
     return "/employe/dashboard";
   }
@@ -41,6 +46,18 @@ export function getHomePathForRole(role: AppRole): string {
   }
 
   return "/direction/dashboard";
+}
+
+export function getDashboardLabelForRole(role: AppRole): string {
+  if (role === "employe") {
+    return "Tableau de bord employe";
+  }
+
+  if (role === "admin") {
+    return "Tableau de bord admin";
+  }
+
+  return "Tableau de bord direction";
 }
 
 export function getLoginPathForRole(role: AppRole): string {

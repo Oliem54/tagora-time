@@ -195,7 +195,11 @@ export default function EmployeeProfilePageClient({
     setLoading(true);
 
     const { data, error } = await supabase
-      .from("chauffeurs")
+      .from(
+        canManageConfidentialFinance
+          ? "chauffeurs"
+          : "direction_employee_operational_profile"
+      )
       .select(
         canManageConfidentialFinance ? "*" : CHAUFFEUR_OPERATIONAL_PROFILE_SELECT
       )
@@ -899,7 +903,7 @@ export default function EmployeeProfilePageClient({
                     value={isCreating ? "Nouvelle fiche" : `#${String(employeeId)}`}
                   />
                   <SummaryItem
-                    label="Compagnie principale"
+                    label="Compagnie d appartenance"
                     value={getCompanyLabel(form.primary_company)}
                   />
                   <SummaryItem
@@ -997,7 +1001,7 @@ export default function EmployeeProfilePageClient({
                     </label>
 
                     <label className="tagora-field">
-                      <span className="tagora-label">Compagnie principale</span>
+                      <span className="tagora-label">Compagnie d appartenance</span>
                       <select
                         className="tagora-input"
                         style={readOnlyFieldStyle}
@@ -1938,14 +1942,14 @@ export default function EmployeeProfilePageClient({
             <aside className="tagora-stack">
               {canManageConfidentialFinance ? (
                 <TagoraCollapsibleSection
-                  title="Remuneration et refacturation"
-                  subtitle="Taux, avantages sociaux et refacturation Titan (administration)."
+                  title="Finance & remuneration"
+                  subtitle="Taux horaire, avantages sociaux et refacturation intercompagnies — donnees financieres reservees a l administration."
                   open={openSection === "facturation"}
                   onOpenChange={(v) => setOpenSection(v ? "facturation" : null)}
                 >
                   <div className="tagora-form-grid">
                     <label className="tagora-field">
-                      <span className="tagora-label">Taux de base Titan</span>
+                      <span className="tagora-label">Taux horaire de base</span>
                       <input
                         className="tagora-input"
                         style={readOnlyFieldStyle}
@@ -1994,7 +1998,7 @@ export default function EmployeeProfilePageClient({
                           }))
                         }
                       />
-                      <span>Refacturable a Titan</span>
+                      <span>Eligible a la refacturation intercompagnies</span>
                     </label>
                   </div>
                 </TagoraCollapsibleSection>

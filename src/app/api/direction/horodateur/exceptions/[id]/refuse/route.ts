@@ -10,6 +10,7 @@ import {
   normalizeNonEmptyString,
   requireDirectionHorodateurAccess,
 } from "@/app/api/horodateur/_shared";
+import { getAuthenticatedRequestUser } from "@/app/lib/account-requests.server";
 
 export async function POST(
   req: NextRequest,
@@ -37,6 +38,7 @@ export async function POST(
 
     const result = await refuseHorodateurException({
       actorUserId: auth.user.id,
+      approverRole: (await getAuthenticatedRequestUser(req)).role,
       exceptionId: id,
       reviewNote,
     });

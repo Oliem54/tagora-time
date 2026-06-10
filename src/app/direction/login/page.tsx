@@ -25,11 +25,68 @@ import {
 } from "../../lib/supabase/client";
 
 const isDev = process.env.NODE_ENV === "development";
+const DEV_PROBE_TIMEOUT_MS = 5000;
+const SIGN_IN_TIMEOUT_MS = 20000;
 
 type LoginDebugEnv = ReturnType<typeof getSupabaseBrowserLoginDebug> & {
   localOrigin: string;
   localPort: string;
 };
+
+type ProbeResult = Awaited<ReturnType<typeof probeSupabaseAuthSettingsReachable>> & {
+  timedOut?: boolean;
+};
+
+async function probeSupabaseAuthSettingsWithTimeout(): Promise<ProbeResult> {
+  const settingsUrl =
+    getSupabaseBrowserLoginDebug().settingsUrl ??
+    `${getSupabaseBrowserLoginDebug().host ?? "supabase"}/auth/v1/settings`;
+
+  try {
+    const result = await Promise.race([
+      probeSupabaseAuthSettingsReachable(),
+      new Promise<never>((_, reject) => {
+        setTimeout(() => reject(new Error("PROBE_TIMEOUT")), DEV_PROBE_TIMEOUT_MS);
+      }),
+    ]);
+    return result;
+  } catch (caught) {
+    if (caught instanceof Error && caught.message === "PROBE_TIMEOUT") {
+      return {
+        url: settingsUrl,
+        ok: false,
+        fetchErrorName: "ProbeTimeout",
+        fetchErrorMessage: `Timeout apres ${DEV_PROBE_TIMEOUT_MS / 1000}s — probe ignore, login continue.`,
+        timedOut: true,
+      };
+    }
+
+    const err = caught instanceof Error ? caught : new Error(String(caught));
+    return {
+      url: settingsUrl,
+      ok: false,
+      fetchErrorName: err.name,
+      fetchErrorMessage: err.message,
+    };
+  }
+}
+
+async function signInWithPasswordWithTimeout(email: string, password: string) {
+  return Promise.race([
+    supabase.auth.signInWithPassword({ email, password }),
+    new Promise<never>((_, reject) => {
+      setTimeout(
+        () =>
+          reject(
+            new Error(
+              `Supabase Auth ne repond pas (timeout ${SIGN_IN_TIMEOUT_MS / 1000}s). Verifiez le reseau ou le statut Supabase, puis reessayez.`
+            )
+          ),
+        SIGN_IN_TIMEOUT_MS
+      );
+    }),
+  ]);
+}
 
 export default function DirectionLoginPage() {
   const router = useRouter();
@@ -45,9 +102,7 @@ export default function DirectionLoginPage() {
   );
 
   const [debugEnv, setDebugEnv] = useState<LoginDebugEnv | null>(null);
-  const [probeResult, setProbeResult] = useState<Awaited<
-    ReturnType<typeof probeSupabaseAuthSettingsReachable>
-  > | null>(null);
+  const [probeResult, setProbeResult] = useState<ProbeResult | null>(null);
   const [signInThrow, setSignInThrow] = useState<{ name: string; message: string } | null>(null);
   const [authApiErr, setAuthApiErr] = useState<{ name: string; message: string } | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -66,7 +121,7 @@ export default function DirectionLoginPage() {
         localOrigin: window.location.origin,
         localPort: window.location.port || "(port par defaut)",
       });
-      const p = await probeSupabaseAuthSettingsReachable();
+      const p = await probeSupabaseAuthSettingsWithTimeout();
       if (!cancelled) {
         setProbeResult(p);
       }
@@ -97,7 +152,7 @@ export default function DirectionLoginPage() {
           localOrigin: window.location.origin,
           localPort: window.location.port || "(port par defaut)",
         });
-        const probe = await probeSupabaseAuthSettingsReachable();
+        const probe = await probeSupabaseAuthSettingsWithTimeout();
         setProbeResult(probe);
       }
       let signInResult: Awaited<
@@ -105,10 +160,7 @@ export default function DirectionLoginPage() {
       >;
 
       try {
-        signInResult = await supabase.auth.signInWithPassword({
-          email,
-          password,
-        });
+        signInResult = await signInWithPasswordWithTimeout(email, password);
       } catch (caught) {
         const err = caught instanceof Error ? caught : new Error(String(caught));
         if (isDev) {
@@ -340,9 +392,21 @@ export default function DirectionLoginPage() {
                           status: {probeResult.status} {probeResult.statusText ?? ""}
                         </div>
                       ) : null}
+                      {probeResult.timedOut ? (
+                        <div style={{ color: "#b45309", marginTop: 6 }}>
+                          Probe dev coupe apres {DEV_PROBE_TIMEOUT_MS / 1000}s pour ne pas bloquer
+                          le bouton. signInWithPassword est lance quand meme.
+                        </div>
+                      ) : null}
                       {probeResult.fetchErrorName ? (
                         <div style={{ color: "#b91c1c" }}>
                           Erreur fetch: {probeResult.fetchErrorName}: {probeResult.fetchErrorMessage}
+                        </div>
+                      ) : null}
+                      {probeResult.fetchErrorMessage == null && probeResult.status === 504 ? (
+                        <div style={{ color: "#b45309" }}>
+                          HTTP 504 — Supabase Auth injoignable ou en surcharge. Le login tente quand
+                          meme signInWithPassword.
                         </div>
                       ) : null}
                       {probeResult.fetchErrorMessage == null && probeResult.status === 401 ? (

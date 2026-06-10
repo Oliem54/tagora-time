@@ -15,6 +15,12 @@ import {
 
 export const HORODATEUR_PHASE1_TIMEZONE = "America/Toronto";
 export const HORODATEUR_PHASE1_WEEKLY_TARGET_HOURS = 40;
+/** Entree jusqu'a N minutes avant schedule_start : auto-acceptee si GPS OK (Phase A hotfix). */
+export const HORODATEUR_EARLY_PUNCH_IN_GRACE_MINUTES = 10;
+/** Entree jusqu'a N minutes avant schedule_start : acceptee sans exception Direction (Phase 0). */
+export const HORODATEUR_EARLY_PUNCH_SILENT_MAX_MINUTES = 45;
+/** Duree maximale d un quart ouvert (horloge murale depuis le debut) avant plafond live et sortie a approuver. */
+export const HORODATEUR_OPEN_SHIFT_SAFETY_MAX_ELAPSED_MINUTES = 840;
 const PHASE1_DEFAULT_MAX_BREAK_MINUTES = 120;
 const PHASE1_DEFAULT_MAX_MEAL_MINUTES = 180;
 
@@ -183,6 +189,126 @@ function isWithinScheduledWindow(
   return currentMinutes >= windowStart && currentMinutes <= windowEnd;
 }
 
+function formatTorontoOffsetFromReference(reference: string | Date): string {
+  const date = reference instanceof Date ? reference : new Date(reference);
+  const formatter = new Intl.DateTimeFormat("en-CA", {
+    timeZone: HORODATEUR_PHASE1_TIMEZONE,
+    timeZoneName: "shortOffset",
+  });
+  const raw =
+    formatter.formatToParts(date).find((part) => part.type === "timeZoneName")?.value ??
+    "GMT-5";
+  const match = raw.match(/GMT([+-])(\d{1,2})(?::(\d{2}))?/i);
+  if (!match) {
+    return "-05:00";
+  }
+  const sign = match[1];
+  const hours = match[2]?.padStart(2, "0") ?? "05";
+  const minutes = match[3]?.padStart(2, "0") ?? "00";
+  return `${sign}${hours}:${minutes}`;
+}
+
+export function buildScheduledStartIsoForWorkDate(
+  workDate: string,
+  scheduleStart: string,
+  referenceOccurredAt: string
+): string {
+  const trimmed = scheduleStart.trim();
+  const normalizedTime =
+    trimmed.length <= 5 ? `${trimmed}:00` : trimmed.slice(0, 8);
+  const offset = formatTorontoOffsetFromReference(referenceOccurredAt);
+  return `${workDate}T${normalizedTime}${offset}`;
+}
+
+/**
+ * Début d'accrual payable : horaire prévu si punch avant schedule_start, sinon heure réelle.
+ * L'état opérationnel conserve l'heure réelle du punch.
+ */
+export function resolvePayableWorkSegmentStartAt(options: {
+  punchInOccurredAt: string;
+  workDate: string;
+  scheduleStart: string | null | undefined;
+}): string {
+  const { punchInOccurredAt, workDate, scheduleStart } = options;
+  if (!scheduleStart?.trim()) {
+    return punchInOccurredAt;
+  }
+
+  if (getLocalWorkDate(punchInOccurredAt) !== workDate) {
+    return punchInOccurredAt;
+  }
+
+  const scheduleStartMinutes = parseTimeToMinutes(scheduleStart);
+  if (scheduleStartMinutes == null) {
+    return punchInOccurredAt;
+  }
+
+  const punchMinutes = getMinutesSinceLocalMidnight(punchInOccurredAt);
+  if (punchMinutes >= scheduleStartMinutes) {
+    return punchInOccurredAt;
+  }
+
+  return buildScheduledStartIsoForWorkDate(
+    workDate,
+    scheduleStart,
+    punchInOccurredAt
+  );
+}
+
+export function isEarlyPunchInWithinSilentWindow(
+  employee: HorodateurPhase1EmployeeProfile,
+  occurredAt: string,
+  maxEarlyMinutes = HORODATEUR_EARLY_PUNCH_SILENT_MAX_MINUTES
+) {
+  if (!employee.scheduleStart?.trim()) {
+    return false;
+  }
+
+  if (!isValidScheduledWorkDay(employee, occurredAt)) {
+    return false;
+  }
+
+  const scheduleStartMinutes = parseTimeToMinutes(employee.scheduleStart);
+  if (scheduleStartMinutes == null) {
+    return false;
+  }
+
+  const currentMinutes = getMinutesSinceLocalMidnight(occurredAt);
+  const silentEarliestMinutes = scheduleStartMinutes - Math.max(0, maxEarlyMinutes);
+
+  return (
+    currentMinutes >= silentEarliestMinutes && currentMinutes < scheduleStartMinutes
+  );
+}
+
+export function isWithinEarlyPunchInGraceWindow(
+  employee: HorodateurPhase1EmployeeProfile,
+  occurredAt: string,
+  graceMinutes = HORODATEUR_EARLY_PUNCH_IN_GRACE_MINUTES
+) {
+  if (!employee.scheduleStart?.trim()) {
+    return false;
+  }
+
+  if (!isValidScheduledWorkDay(employee, occurredAt)) {
+    return false;
+  }
+
+  const scheduleStartMinutes = parseTimeToMinutes(employee.scheduleStart);
+  if (scheduleStartMinutes == null) {
+    return false;
+  }
+
+  const currentMinutes = getMinutesSinceLocalMidnight(occurredAt);
+  const graceStartMinutes = scheduleStartMinutes - Math.max(0, graceMinutes);
+  const windowStart =
+    scheduleStartMinutes - employee.toleranceBeforeStartMinutes;
+
+  return (
+    currentMinutes >= graceStartMinutes && currentMinutes < windowStart
+  );
+}
+
 export function isValidScheduledWorkDayForEmployee(
   employee: HorodateurPhase1EmployeeProfile,
   occurredAt: string
@@ -300,7 +426,7 @@ function isAllowedTransition(
   }
 
   if (canonicalEventType === "punch_out") {
-    return state === "en_quart";
+    return state === "en_quart" || state === "en_pause" || state === "en_diner";
   }
 
   if (canonicalEventType === "break_start") {
@@ -350,25 +476,94 @@ function buildApprovedClassification(): HorodateurPhase1Classification {
   };
 }
 
-function getActiveShiftStartEvent(
-  events: HorodateurPhase1EventRecord[]
+function sortApprovedEventsByOccurredAt(events: HorodateurPhase1EventRecord[]) {
+  return [...events].sort((left, right) => {
+    const leftAt = getEventOccurredAt(left);
+    const rightAt = getEventOccurredAt(right);
+    if (!leftAt && !rightAt) {
+      return String(left.id).localeCompare(String(right.id));
+    }
+    if (!leftAt) {
+      return -1;
+    }
+    if (!rightAt) {
+      return 1;
+    }
+    const delta = new Date(leftAt).getTime() - new Date(rightAt).getTime();
+    if (delta !== 0) {
+      return delta;
+    }
+    return String(left.id).localeCompare(String(right.id));
+  });
+}
+
+/** Debut de quart ouvert approuve (punch_in explicite ou entree retroactive approuvee). */
+export function resolveOpenShiftStartEvent(
+  approvedEvents: HorodateurPhase1EventRecord[]
 ): HorodateurPhase1EventRecord | null {
+  const sorted = sortApprovedEventsByOccurredAt(approvedEvents);
   let activeStart: HorodateurPhase1EventRecord | null = null;
 
-  for (const event of events) {
-    const canonicalEventType = toCanonicalEventType(event.event_type);
-
-    if (canonicalEventType === "punch_in") {
+  for (const event of sorted) {
+    if (shouldTreatApprovedEventAsShiftStart(event, sorted)) {
       activeStart = event;
       continue;
     }
-
-    if (canonicalEventType === "punch_out") {
+    if (toCanonicalEventType(event.event_type) === "punch_out") {
       activeStart = null;
     }
   }
 
   return activeStart;
+}
+
+export function resolveOpenShiftStartAt(
+  approvedEvents: HorodateurPhase1EventRecord[]
+): string | null {
+  const activeStart = resolveOpenShiftStartEvent(approvedEvents);
+  return activeStart ? getEventOccurredAt(activeStart) : null;
+}
+
+export function computeOpenShiftSafetyCapAt(openShiftStartAt: string): string {
+  const capMs =
+    new Date(openShiftStartAt).getTime() +
+    HORODATEUR_OPEN_SHIFT_SAFETY_MAX_ELAPSED_MINUTES * 60_000;
+  return new Date(capMs).toISOString();
+}
+
+export function computeOpenShiftElapsedMinutes(
+  openShiftStartAt: string,
+  atIso: string
+): number {
+  return diffMinutes(openShiftStartAt, atIso);
+}
+
+export function isOpenShiftBeyondSafetyLimit(
+  openShiftStartAt: string,
+  atIso: string
+): boolean {
+  return (
+    computeOpenShiftElapsedMinutes(openShiftStartAt, atIso) >=
+    HORODATEUR_OPEN_SHIFT_SAFETY_MAX_ELAPSED_MINUTES
+  );
+}
+
+export function resolveLiveAccrualEndIso(options: {
+  nowIso: string;
+  openShiftStartAt: string | null;
+  pendingCapAt?: string | null;
+}): string {
+  let endMs = new Date(options.nowIso).getTime();
+  if (options.pendingCapAt) {
+    endMs = Math.min(endMs, new Date(options.pendingCapAt).getTime());
+  }
+  if (options.openShiftStartAt) {
+    endMs = Math.min(
+      endMs,
+      new Date(computeOpenShiftSafetyCapAt(options.openShiftStartAt)).getTime()
+    );
+  }
+  return new Date(endMs).toISOString();
 }
 
 function hasRequiredExceptionType(
@@ -417,6 +612,48 @@ function resolveMealLimitMinutes(employee: HorodateurPhase1EmployeeProfile) {
   );
 }
 
+function classifyPunchOutAfterOpenShiftSafetyLimit(options: {
+  canonicalEventType: HorodateurCanonicalEventType;
+  occurredAt: string;
+  note?: string | null;
+  allApprovedEvents: HorodateurPhase1EventRecord[];
+  pendingPunchOutEvents?: HorodateurPhase1EventRecord[];
+}): HorodateurPhase1Classification | null {
+  if (options.canonicalEventType !== "punch_out") {
+    return null;
+  }
+
+  const openShiftTimeline = [
+    ...options.allApprovedEvents,
+    ...(options.pendingPunchOutEvents ?? []).filter(
+      (event) =>
+        event.status === "en_attente" &&
+        toCanonicalEventType(event.event_type) === "punch_out"
+    ),
+  ];
+  const activeShiftStart = resolveOpenShiftStartEvent(openShiftTimeline);
+  if (!activeShiftStart) {
+    return null;
+  }
+
+  const activeShiftStartAt = getEventOccurredAt(activeShiftStart);
+  if (!activeShiftStartAt) {
+    return null;
+  }
+
+  const elapsedMinutes = diffMinutes(activeShiftStartAt, options.occurredAt);
+  if (elapsedMinutes < HORODATEUR_OPEN_SHIFT_SAFETY_MAX_ELAPSED_MINUTES) {
+    return null;
+  }
+
+  return buildPendingClassification(
+    "shift_too_long",
+    "Quart ouvert plus de 14 h — fermeture a approuver",
+    options.note ??
+      "Le quart depasse 14 heures depuis le debut. La sortie requiert une approbation direction."
+  );
+}
+
 export function classifyEventPhase1(
   input: HorodateurPhase1ClassifyInput
 ): HorodateurPhase1Classification {
@@ -424,6 +661,8 @@ export function classifyEventPhase1(
     employee,
     currentState,
     latestApprovedEvents,
+    allApprovedEvents,
+    pendingPunchOutEvents,
     eventType,
     occurredAt,
     actorRole,
@@ -511,10 +750,26 @@ export function classifyEventPhase1(
     );
   }
 
-  if (
-    !isValidScheduledWorkDay(employee, occurredAt) ||
-    !isWithinScheduledWindow(employee, occurredAt)
-  ) {
+  const openShiftApprovedEvents = allApprovedEvents ?? latestApprovedEvents;
+  const punchOutSafetyClassification = classifyPunchOutAfterOpenShiftSafetyLimit({
+    canonicalEventType,
+    occurredAt,
+    note,
+    allApprovedEvents: openShiftApprovedEvents,
+    pendingPunchOutEvents,
+  });
+  if (punchOutSafetyClassification) {
+    return punchOutSafetyClassification;
+  }
+
+  const withinScheduleOrEarlyGrace =
+    isWithinScheduledWindow(employee, occurredAt) ||
+    (canonicalEventType === "punch_in" &&
+      isWithinEarlyPunchInGraceWindow(employee, occurredAt)) ||
+    (canonicalEventType === "punch_in" &&
+      isEarlyPunchInWithinSilentWindow(employee, occurredAt));
+
+  if (!isValidScheduledWorkDay(employee, occurredAt) || !withinScheduleOrEarlyGrace) {
     return buildPendingClassification(
       "outside_schedule",
       "Pointage hors horaire prevu",
@@ -522,7 +777,7 @@ export function classifyEventPhase1(
     );
   }
 
-  const activeShiftStart = getActiveShiftStartEvent(latestApprovedEvents);
+  const activeShiftStart = resolveOpenShiftStartEvent(openShiftApprovedEvents);
 
   if (activeShiftStart) {
     const activeShiftStartAt = getEventOccurredAt(activeShiftStart);
@@ -585,6 +840,98 @@ export function classifyEventPhase1(
   }
 
   return buildApprovedClassification();
+}
+
+export function isApprovedHorodateurEventStatus(
+  status: HorodateurPhase1EventRecord["status"] | string | null | undefined
+): boolean {
+  return status === "normal" || status === "approuve";
+}
+
+export function isExplicitApprovedPunchInEvent(
+  event: Pick<HorodateurPhase1EventRecord, "event_type" | "status">
+): boolean {
+  return (
+    isApprovedHorodateurEventStatus(event.status) &&
+    toCanonicalEventType(event.event_type) === "punch_in"
+  );
+}
+
+/** Entree retroactive approuvee (correction employe) — pas une sortie ni manual_correction. */
+export function isApprovedRetroactiveShiftStartEvent(
+  event: Pick<
+    HorodateurPhase1EventRecord,
+    "event_type" | "status" | "exception_code"
+  >
+): boolean {
+  if (!isApprovedHorodateurEventStatus(event.status)) {
+    return false;
+  }
+  if (toCanonicalEventType(event.event_type) !== "retroactive_entry") {
+    return false;
+  }
+  if (
+    event.exception_code &&
+    event.exception_code !== "missing_punch_adjustment"
+  ) {
+    return false;
+  }
+  return true;
+}
+
+function resolveEventWorkDate(event: HorodateurPhase1EventRecord): string | null {
+  const workDate = event.work_date?.trim();
+  if (workDate) {
+    return workDate;
+  }
+  const occurredAt = getEventOccurredAt(event);
+  return occurredAt ? getLocalWorkDate(occurredAt) : null;
+}
+
+/** punch_in explicite approuve le meme jour de travail, avant l'evenement cible. */
+export function hasExplicitApprovedPunchInBeforeEvent(
+  orderedApprovedEvents: HorodateurPhase1EventRecord[],
+  targetEventId: string
+): boolean {
+  let targetWorkDate: string | null = null;
+
+  for (const event of orderedApprovedEvents) {
+    if (event.id === targetEventId) {
+      targetWorkDate = resolveEventWorkDate(event);
+      break;
+    }
+  }
+
+  if (!targetWorkDate) {
+    return false;
+  }
+
+  for (const event of orderedApprovedEvents) {
+    if (event.id === targetEventId) {
+      return false;
+    }
+    if (resolveEventWorkDate(event) !== targetWorkDate) {
+      continue;
+    }
+    if (isExplicitApprovedPunchInEvent(event)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/** punch_in explicite ou entree retroactive approuvee sans punch_in anterieur. */
+export function shouldTreatApprovedEventAsShiftStart(
+  event: HorodateurPhase1EventRecord,
+  orderedApprovedEvents: HorodateurPhase1EventRecord[]
+): boolean {
+  if (isExplicitApprovedPunchInEvent(event)) {
+    return true;
+  }
+  if (!isApprovedRetroactiveShiftStartEvent(event)) {
+    return false;
+  }
+  return !hasExplicitApprovedPunchInBeforeEvent(orderedApprovedEvents, event.id);
 }
 
 export function resolveShiftStatus(options: {

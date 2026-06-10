@@ -1,16 +1,27 @@
 "use client";
 
-import { useState } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import FeedbackMessage from "@/app/components/FeedbackMessage";
 import FormField from "@/app/components/ui/FormField";
 import PrimaryButton from "@/app/components/ui/PrimaryButton";
+import SecondaryButton from "@/app/components/ui/SecondaryButton";
 import SectionCard from "@/app/components/ui/SectionCard";
-import { supabase } from "@/app/lib/supabase/client";
+import {
+  assessPasswordUpdateMfaStepUp,
+  getDefaultPasswordMfaReturnPath,
+  isAal2PasswordUpdateError,
+  PASSWORD_MFA_RECONNECT_HINT,
+  PASSWORD_MFA_STEP_UP_AFTER_ERROR_MESSAGE,
+  PASSWORD_MFA_STEP_UP_MESSAGE,
+} from "@/app/lib/auth/password-mfa.client";
 import {
   buildCompletedPasswordMetadata,
   getPasswordPolicyMessage,
   validatePasswordChangeInput,
 } from "@/app/lib/auth/passwords";
+import { supabase } from "@/app/lib/supabase/client";
 
 type PasswordUpdateSectionProps = {
   title: string;
@@ -19,8 +30,32 @@ type PasswordUpdateSectionProps = {
   successMessage: string;
   requireCurrentPassword?: boolean;
   showPolicyHint?: boolean;
+  mfaReturnPath?: string;
+  reconnectHref?: string;
   onSuccess?: () => Promise<void> | void;
 };
+
+function resolveReconnectHref(explicit?: string): string {
+  if (explicit) {
+    return explicit;
+  }
+
+  if (typeof window === "undefined") {
+    return "/employe/login";
+  }
+
+  const pathname = window.location.pathname;
+  if (pathname.startsWith("/employe")) {
+    return "/employe/login";
+  }
+
+  if (pathname.startsWith("/auth/nouveau-mot-de-passe")) {
+    const role = new URLSearchParams(window.location.search).get("role");
+    return role === "direction" ? "/direction/login" : "/employe/login";
+  }
+
+  return "/direction/login";
+}
 
 export default function PasswordUpdateSection({
   title,
@@ -29,14 +64,60 @@ export default function PasswordUpdateSection({
   successMessage,
   requireCurrentPassword = true,
   showPolicyHint = true,
+  mfaReturnPath,
+  reconnectHref,
   onSuccess,
 }: PasswordUpdateSectionProps) {
+  const router = useRouter();
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [message, setMessage] = useState("");
   const [messageType, setMessageType] = useState<"success" | "error" | null>(null);
   const [saving, setSaving] = useState(false);
+  const [mfaBannerMessage, setMfaBannerMessage] = useState<string | null>(null);
+  const [mfaVerifyHref, setMfaVerifyHref] = useState<string | null>(null);
+
+  const resolvedMfaReturnPath = useMemo(
+    () => mfaReturnPath ?? getDefaultPasswordMfaReturnPath(),
+    [mfaReturnPath]
+  );
+
+  const resolvedReconnectHref = useMemo(
+    () => resolveReconnectHref(reconnectHref),
+    [reconnectHref]
+  );
+
+  const refreshMfaStepUpState = useCallback(async () => {
+    const assessment = await assessPasswordUpdateMfaStepUp(resolvedMfaReturnPath);
+    if (assessment.stepUpRequired && assessment.verifyHref) {
+      setMfaBannerMessage(PASSWORD_MFA_STEP_UP_MESSAGE);
+      setMfaVerifyHref(assessment.verifyHref);
+      return;
+    }
+
+    setMfaBannerMessage(null);
+    setMfaVerifyHref(null);
+  }, [resolvedMfaReturnPath]);
+
+  useEffect(() => {
+    void refreshMfaStepUpState();
+  }, [refreshMfaStepUpState]);
+
+  function showMfaStepUpRequired(useAfterErrorMessage: boolean) {
+    setMessage(
+      useAfterErrorMessage
+        ? PASSWORD_MFA_STEP_UP_AFTER_ERROR_MESSAGE
+        : PASSWORD_MFA_STEP_UP_MESSAGE
+    );
+    setMessageType("error");
+    void refreshMfaStepUpState();
+  }
+
+  async function handleReconnect() {
+    await supabase.auth.signOut();
+    router.replace(resolvedReconnectHref);
+  }
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -59,6 +140,12 @@ export default function PasswordUpdateSection({
     setSaving(true);
 
     try {
+      const stepUpAssessment = await assessPasswordUpdateMfaStepUp(resolvedMfaReturnPath);
+      if (stepUpAssessment.stepUpRequired) {
+        showMfaStepUpRequired(false);
+        return;
+      }
+
       const {
         data: { session },
       } = await supabase.auth.getSession();
@@ -115,6 +202,12 @@ export default function PasswordUpdateSection({
         }
       }
 
+      const postRefreshStepUp = await assessPasswordUpdateMfaStepUp(resolvedMfaReturnPath);
+      if (postRefreshStepUp.stepUpRequired) {
+        showMfaStepUpRequired(false);
+        return;
+      }
+
       const nextMetadata = buildCompletedPasswordMetadata(
         (userData.user?.user_metadata as Record<string, unknown> | null | undefined) ??
           null
@@ -126,8 +219,12 @@ export default function PasswordUpdateSection({
       });
 
       if (error) {
-        setMessage(error.message);
-        setMessageType("error");
+        if (isAal2PasswordUpdateError(error)) {
+          showMfaStepUpRequired(true);
+        } else {
+          setMessage(error.message);
+          setMessageType("error");
+        }
         return;
       }
 
@@ -143,6 +240,8 @@ export default function PasswordUpdateSection({
       setCurrentPassword("");
       setNewPassword("");
       setConfirmPassword("");
+      setMfaBannerMessage(null);
+      setMfaVerifyHref(null);
       setMessage(successMessage);
       setMessageType("success");
 
@@ -154,10 +253,48 @@ export default function PasswordUpdateSection({
     }
   }
 
+  const showMfaActions = Boolean(mfaVerifyHref);
+
   return (
     <SectionCard title={title} subtitle={subtitle}>
       <div className="ui-stack-md">
+        {mfaBannerMessage ? (
+          <FeedbackMessage message={mfaBannerMessage} type="error" />
+        ) : null}
+
         <FeedbackMessage message={message} type={messageType} />
+
+        {showMfaActions ? (
+          <div className="ui-stack-sm">
+            <div className="tagora-actions" style={{ flexWrap: "wrap" }}>
+              <SecondaryButton
+                type="button"
+                disabled={saving || !mfaVerifyHref}
+                onClick={() => {
+                  if (mfaVerifyHref) {
+                    router.push(mfaVerifyHref);
+                  }
+                }}
+              >
+                Vérifier en deux étapes
+              </SecondaryButton>
+            </div>
+            <p className="ui-text-muted" style={{ margin: 0 }}>
+              {PASSWORD_MFA_RECONNECT_HINT}
+            </p>
+            <Link
+              href={resolvedReconnectHref}
+              className="ui-text-muted"
+              style={{ fontSize: 14 }}
+              onClick={(event) => {
+                event.preventDefault();
+                void handleReconnect();
+              }}
+            >
+              Retour à la connexion
+            </Link>
+          </div>
+        ) : null}
 
         <form className="tagora-form-grid" onSubmit={handleSubmit}>
           {requireCurrentPassword ? (

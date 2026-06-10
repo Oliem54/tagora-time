@@ -1,27 +1,41 @@
 "use client";
 
 import Link from "next/link";
-import { ExternalLink, Settings2, Trash2 } from "lucide-react";
+import { ExternalLink, Settings2, ShieldOff, ShieldPlus, Trash2 } from "lucide-react";
 import type { AccountAccessRequestRecord } from "@/app/lib/account-access";
+import { isAccessDisabledRequest } from "@/app/lib/account-access";
 
 export default function AccountRequestRowActions({
   request,
   onManage,
   onDelete,
+  onDisableAccess,
+  onReactivateAccess,
   deleting,
+  disabling,
+  reactivating,
   canDelete,
   canManage,
+  canManageRoles,
   layout = "table",
 }: {
   request: AccountAccessRequestRecord;
   onManage: () => void;
   onDelete: () => void;
+  onDisableAccess?: () => void;
+  onReactivateAccess?: () => void;
   deleting?: boolean;
+  disabling?: boolean;
+  reactivating?: boolean;
   canDelete?: boolean;
   canManage?: boolean;
+  canManageRoles?: boolean;
   layout?: "table" | "mobile";
 }) {
   const isMobile = layout === "mobile";
+  const accessDisabled = isAccessDisabledRequest(request);
+  const hasEmployeeLink = Boolean(request.employee_link?.id);
+  const isExistingEmployee = request.employee_link?.status === "existing";
 
   return (
     <div
@@ -38,7 +52,53 @@ export default function AccountRequestRowActions({
           onClick={onManage}
         >
           <Settings2 size={13} strokeWidth={2} />
-          Gerer
+          Gérer
+        </button>
+      ) : null}
+      {canManageRoles && request.status === "active" && !accessDisabled && onDisableAccess ? (
+        <button
+          type="button"
+          className="account-requests-action-button account-requests-action-button-danger"
+          onClick={onDisableAccess}
+          disabled={Boolean(disabling)}
+        >
+          <ShieldOff size={13} strokeWidth={2} />
+          {disabling ? "Désactivation…" : "Désactiver l'accès"}
+        </button>
+      ) : null}
+      {canManageRoles && accessDisabled && onReactivateAccess ? (
+        <button
+          type="button"
+          className="account-requests-action-button account-requests-action-button-primary"
+          onClick={onReactivateAccess}
+          disabled={Boolean(reactivating)}
+        >
+          <ShieldPlus size={13} strokeWidth={2} />
+          {reactivating ? "Réactivation…" : "Réactiver l'accès"}
+        </button>
+      ) : null}
+      {hasEmployeeLink ? (
+        <Link
+          href={`/direction/ressources/employes/${request.employee_link!.id}`}
+          className="account-requests-action-button account-requests-action-button-secondary"
+        >
+          <ExternalLink size={13} strokeWidth={2} />
+          {isExistingEmployee ? "Voir / associer fiche employé" : "Fiche employé"}
+        </Link>
+      ) : isExistingEmployee ? (
+        <button
+          type="button"
+          className="account-requests-action-button account-requests-action-button-secondary"
+          onClick={onManage}
+          disabled={!canManage}
+          title={
+            canManage
+              ? "Ouvrir la gestion pour lier cette demande à la fiche employé existante."
+              : undefined
+          }
+        >
+          <ExternalLink size={13} strokeWidth={2} />
+          Lier à cet employé
         </button>
       ) : null}
       {canDelete ? (
@@ -47,19 +107,11 @@ export default function AccountRequestRowActions({
           className="account-requests-action-button account-requests-action-button-danger"
           onClick={onDelete}
           disabled={Boolean(deleting)}
+          title="Suppression définitive de la demande (administrateur uniquement)."
         >
           <Trash2 size={13} strokeWidth={2} />
-          {deleting ? "Suppression..." : "Supprimer"}
+          {deleting ? "Suppression…" : "Supprimer la demande"}
         </button>
-      ) : null}
-      {request.employee_link?.id ? (
-        <Link
-          href={`/direction/ressources/employes/${request.employee_link.id}`}
-          className="account-requests-action-button account-requests-action-button-secondary"
-        >
-          <ExternalLink size={13} strokeWidth={2} />
-          Fiche employe
-        </Link>
       ) : null}
     </div>
   );

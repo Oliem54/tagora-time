@@ -4,12 +4,12 @@ import {
   loadChauffeurLabels,
   mapEntryRow,
   mapObjectiveRow,
-  requireCommissionsAccess,
+  requireAdminFinanceCommissionsAccess,
 } from "@/app/api/direction/commissions/_lib";
 
 export async function GET(req: NextRequest) {
   try {
-    const auth = await requireCommissionsAccess(req);
+    const auth = await requireAdminFinanceCommissionsAccess(req);
     if (!auth.ok) return auth.response;
     const { supabase } = auth;
 

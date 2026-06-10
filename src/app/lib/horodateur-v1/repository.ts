@@ -3,6 +3,10 @@ import "server-only";
 import { createAdminSupabaseClient } from "@/app/lib/supabase/admin";
 import type { AccountRequestCompany } from "@/app/lib/account-requests.shared";
 import {
+  mapScheduleRequestRow,
+  type EffectifsScheduleRequest,
+} from "@/app/lib/effectifs-schedule-request.shared";
+import {
   sanitizeWeeklyScheduleConfig,
   type WeeklyScheduleConfig,
 } from "@/app/lib/weekly-schedule";
@@ -27,6 +31,7 @@ type ChauffeurProfileRow = {
   telephone?: string | null;
   phone_number?: string | null;
   actif: boolean | null;
+  schedule_active?: boolean | null;
   primary_company: HorodateurPhase1EmployeeProfile["primaryCompany"];
   can_work_for_oliem_solutions?: boolean | null;
   can_work_for_titan_produits_industriels?: boolean | null;
@@ -68,6 +73,7 @@ const CHAUFFEUR_PHASE1_SELECT_CANONICAL = `
   courriel,
   telephone,
   actif,
+  schedule_active,
   primary_company,
   can_work_for_oliem_solutions,
   can_work_for_titan_produits_industriels,
@@ -104,6 +110,7 @@ const CHAUFFEUR_PHASE1_SELECT_LEGACY_PHONE = `
   courriel,
   phone_number,
   actif,
+  schedule_active,
   primary_company,
   can_work_for_oliem_solutions,
   can_work_for_titan_produits_industriels,
@@ -225,6 +232,7 @@ function mapProfile(row: ChauffeurProfileRow): HorodateurPhase1EmployeeProfile {
     email: row.courriel,
     phoneNumber: row.telephone ?? row.phone_number ?? null,
     active: row.actif !== false,
+    scheduleActive: row.schedule_active !== false,
     primaryCompany: row.primary_company,
     canWorkForOliemSolutions: row.can_work_for_oliem_solutions !== false,
     canWorkForTitanProduitsIndustriels:
@@ -772,6 +780,26 @@ export async function listPendingExceptions(options?: { employeeId?: number }) {
   return data ?? [];
 }
 
+export async function listApprovedScheduleRequestsForEmployee(
+  employeeId: number
+): Promise<EffectifsScheduleRequest[]> {
+  const supabase = createAdminSupabaseClient();
+  const { data, error } = await supabase
+    .from("effectifs_employee_schedule_requests")
+    .select("*")
+    .eq("employee_id", employeeId)
+    .eq("status", "approved")
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    throw error;
+  }
+
+  return (data ?? [])
+    .map((row) => mapScheduleRequestRow(row as Record<string, unknown>, null))
+    .filter((row): row is EffectifsScheduleRequest => row != null);
+}
+
 export async function listExceptionsForEmployeeWorkDate(options: {
   employeeId: number;
   workDate: string;
@@ -868,6 +896,43 @@ export async function upsertLatenessNotification(input: {
     .upsert(payload, { onConflict: "employee_id,work_date" })
     .select("*")
     .single<HorodateurLatenessNotificationRecord>();
+
+  if (error) {
+    throw error;
+  }
+
+  return data;
+}
+
+export async function updateExceptionEscalationFields(input: {
+  exceptionId: string;
+  impactMinutes?: number;
+  reasonLabel?: string;
+  details?: string | null;
+}) {
+  const supabase = createAdminSupabaseClient();
+  const updatePayload: Record<string, unknown> = {
+    updated_at: new Date().toISOString(),
+  };
+
+  if (typeof input.impactMinutes === "number") {
+    updatePayload.impact_minutes = Math.max(0, Math.floor(input.impactMinutes));
+  }
+
+  if (typeof input.reasonLabel === "string") {
+    updatePayload.reason_label = input.reasonLabel;
+  }
+
+  if (input.details !== undefined) {
+    updatePayload.details = input.details;
+  }
+
+  const { data, error } = await supabase
+    .from("horodateur_exceptions")
+    .update(updatePayload)
+    .eq("id", input.exceptionId)
+    .select("*")
+    .single<HorodateurPhase1ExceptionRecord>();
 
   if (error) {
     throw error;

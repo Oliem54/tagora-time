@@ -542,7 +542,7 @@ export async function buildHorodateurRegistreEmployeeDetail(options: {
 
   const notes: string[] = [
     "Les heures normales et sup sont reparties par semaine civile selon votre cible horaire hebdomadaire (fiche employe ou 40 h par defaut).",
-    "Les minutes payables Titan refacturables correspondent aux quarts dont le contexte compagnie est Titan sur la journee.",
+    "Les minutes payables refacturables intercompagnies correspondent aux quarts dont la compagnie du travail differe de la compagnie d appartenance sur la journee.",
   ];
 
   return {

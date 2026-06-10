@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import type { ReactNode } from "react";
 
 export const metadata: Metadata = {
-  title: "Temps Titan — finance",
-  description: "Temps, couts salariaux et refacturation Titan (admin).",
+  title: "Journal des heures et couts",
+  description: "Heures, couts salariaux et refacturation intercompagnies Oliem / Titan (admin).",
 };
 
 export default function AdminTempsTitanFinanceLayout({ children }: { children: ReactNode }) {

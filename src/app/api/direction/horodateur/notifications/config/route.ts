@@ -4,7 +4,10 @@ import {
   requireDirectionHorodateurAccess,
 } from "@/app/api/horodateur/_shared";
 import { getDirectionAlertConfig } from "@/app/lib/horodateur-v1/repository";
-import { saveHorodateurDirectionAlertConfig } from "@/app/lib/horodateur-v1/service";
+import {
+  getHorodateurDirectionAlertConfig,
+  saveHorodateurDirectionAlertConfig,
+} from "@/app/lib/horodateur-v1/service";
 import type { HorodateurDirectionAlertConfigRecord } from "@/app/lib/horodateur-v1/types";
 
 const ROUTE = "/api/direction/horodateur/notifications/config";
@@ -33,18 +36,6 @@ function normalizeStringList(values: string[] | null | undefined): string[] {
   );
 }
 
-function defaultNotificationConfigPayload(): HorodateurNotificationConfigApiPayload {
-  return {
-    email_enabled: false,
-    sms_enabled: false,
-    reminder_delay_minutes: 60,
-    direction_emails: [],
-    direction_sms_numbers: [],
-    configured: false,
-    timezone: "America/Toronto",
-  };
-}
-
 function toApiPayloadFromRow(
   row: HorodateurDirectionAlertConfigRecord
 ): HorodateurNotificationConfigApiPayload {
@@ -53,7 +44,7 @@ function toApiPayloadFromRow(
     sms_enabled: row.sms_enabled !== false,
     reminder_delay_minutes: Math.max(
       5,
-      Math.floor(Number(row.reminder_delay_minutes) || 60)
+      Math.floor(Number(row.reminder_delay_minutes) || 5)
     ),
     direction_emails: normalizeStringList(row.direction_emails),
     direction_sms_numbers: normalizeStringList(row.direction_sms_numbers),
@@ -139,8 +130,20 @@ export async function GET(req: NextRequest) {
     }
 
     try {
-      const row = await getDirectionAlertConfig();
-      const config = row ? toApiPayloadFromRow(row) : defaultNotificationConfigPayload();
+      const storedRow = await getDirectionAlertConfig();
+      const resolved = await getHorodateurDirectionAlertConfig();
+      const config: HorodateurNotificationConfigApiPayload = {
+        email_enabled: resolved.email_enabled !== false,
+        sms_enabled: resolved.sms_enabled !== false,
+        reminder_delay_minutes: Math.max(
+          5,
+          Math.floor(Number(resolved.reminder_delay_minutes) || 5)
+        ),
+        direction_emails: normalizeStringList(resolved.direction_emails),
+        direction_sms_numbers: normalizeStringList(resolved.direction_sms_numbers),
+        configured: Boolean(storedRow),
+        timezone: "America/Toronto",
+      };
       return NextResponse.json({ success: true, config });
     } catch (dbError) {
       logNotificationConfigCaughtError({ phase: "GET.load", error: dbError });
@@ -182,7 +185,7 @@ export async function PUT(req: NextRequest) {
       email_enabled: body.emailEnabled !== false,
       sms_enabled: body.smsEnabled !== false,
       reminder_delay_minutes:
-        typeof body.reminderDelayMinutes === "number" ? body.reminderDelayMinutes : 60,
+        typeof body.reminderDelayMinutes === "number" ? body.reminderDelayMinutes : 5,
       directionEmails: Array.isArray(body.directionEmails) ? body.directionEmails : [],
       directionSmsNumbers: Array.isArray(body.directionSmsNumbers)
         ? body.directionSmsNumbers

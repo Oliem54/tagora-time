@@ -3,6 +3,7 @@ import { isHorodateurInternalJobAuthorized } from "@/app/lib/internal-horodateur
 import {
   processExpectedPunchSmsNotifications,
   processLateEmployeeNotifications,
+  processMissingExpectedPunchEscalation,
 } from "@/app/lib/horodateur-v1/service";
 
 async function run(req: NextRequest) {
@@ -14,10 +15,12 @@ async function run(req: NextRequest) {
   // (évite un double SMS employé quart_debut le même jour).
   const expectedPunchSms = await processExpectedPunchSmsNotifications();
   const lateness = await processLateEmployeeNotifications();
+  const missingExpectedPunch = await processMissingExpectedPunchEscalation();
   return NextResponse.json({
     success: true,
     lateness,
     expectedPunchSms,
+    missingExpectedPunch,
   });
 }
 

@@ -14,7 +14,6 @@ import { getCompanyLabel } from "@/app/lib/account-requests.shared";
 import {
   EMPLOYEE_PUNCH_GEOLOCATION_MAX_DURATION_MS,
   messageForHorodateurPunchGpsServerCode,
-  readEmployeePunchGeolocation,
   readEmployeePunchGeolocationWithDeadline,
 } from "@/app/lib/employee-punch-geolocation.client";
 
@@ -65,6 +64,29 @@ type EmployeeSnapshot = {
     status: string;
   }>;
   latenessContext?: LatenessContext | null;
+  todayTimeDisplay?: TodayTimeDisplay | null;
+  pendingPunchOut?: {
+    eventId: string;
+    occurredAt: string;
+    workDate: string | null;
+    exceptionType: string | null;
+    payrollValidationPending: true;
+  } | null;
+};
+
+type TodayTimeDisplay = {
+  officialPayableMinutes: number;
+  livePayableMinutes: number;
+  liveWorkedMinutes: number;
+  hasOpenShiftAccrual: boolean;
+  hasPendingOperationalPunchToday: boolean;
+  pendingPunchBlocksAccrual: boolean;
+  openShiftWorkDateMismatch: boolean;
+  openShiftWorkDate: string | null;
+  openShiftSafetyCapReached: boolean;
+  openShiftSafetyCapAt: string | null;
+  openShiftElapsedMinutes: number;
+  computedAt: string;
 };
 
 type LatenessContext = {
@@ -152,15 +174,44 @@ function formatMinutes(totalMinutes: number) {
   return `${hours}h ${String(minutes).padStart(2, "0")}m`;
 }
 
+function normalizeTodayTimeDisplay(raw: unknown): TodayTimeDisplay | null {
+  const source = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : null;
+  if (!source) {
+    return null;
+  }
+
+  return {
+    officialPayableMinutes:
+      typeof source.officialPayableMinutes === "number" ? source.officialPayableMinutes : 0,
+    livePayableMinutes:
+      typeof source.livePayableMinutes === "number" ? source.livePayableMinutes : 0,
+    liveWorkedMinutes:
+      typeof source.liveWorkedMinutes === "number" ? source.liveWorkedMinutes : 0,
+    hasOpenShiftAccrual: Boolean(source.hasOpenShiftAccrual),
+    hasPendingOperationalPunchToday: Boolean(source.hasPendingOperationalPunchToday),
+    pendingPunchBlocksAccrual: Boolean(source.pendingPunchBlocksAccrual),
+    openShiftWorkDateMismatch: Boolean(source.openShiftWorkDateMismatch),
+    openShiftWorkDate:
+      typeof source.openShiftWorkDate === "string" ? source.openShiftWorkDate : null,
+    openShiftSafetyCapReached: Boolean(source.openShiftSafetyCapReached),
+    openShiftSafetyCapAt:
+      typeof source.openShiftSafetyCapAt === "string" ? source.openShiftSafetyCapAt : null,
+    openShiftElapsedMinutes:
+      typeof source.openShiftElapsedMinutes === "number" ? source.openShiftElapsedMinutes : 0,
+    computedAt: typeof source.computedAt === "string" ? source.computedAt : new Date().toISOString(),
+  };
+}
+
 function exceptionStatusLabelFr(status: string) {
   switch (status) {
     case "en_attente":
       return "En attente";
     case "approuve":
+      return "Mise à jour";
     case "modifie":
-      return "Approuvée";
+      return "Ajustée";
     case "refuse":
-      return "Refusée";
+      return "À vérifier";
     default:
       return status;
   }
@@ -301,20 +352,91 @@ const PUNCH_GPS_UI_IDLE: PunchGpsUi = { phase: "idle", message: "" };
 const PUNCH_GPS_PUNCH_NOT_COMPLETED_MESSAGE =
   "Position obtenue, mais le pointage n'a pas pu être complété. Vérifiez le message ci-dessus et réessayez.";
 
+const PUNCH_OUT_PENDING_APPROVAL_MESSAGE =
+  "Sortie soumise. Votre quart est ferme cote horodateur; la paie reste en attente de validation direction.";
+
+const PUNCH_OUT_ALREADY_SUBMITTED_FALLBACK =
+  "Votre sortie a deja ete soumise et attend la validation de la direction.";
+
+const OPEN_SHIFT_SAFETY_CAP_MESSAGE =
+  "Quart ouvert depuis plus de 14 h — veuillez poinçonner votre sortie. La fermeture nécessitera une approbation.";
+
+const PUNCH_OUT_SUCCESS_MESSAGE =
+  "Sortie enregistrée. Votre temps a été recalculé.";
+
 const PUNCH_FETCH_TIMEOUT_MS = 60_000;
+const PUNCH_GPS_DEADLINE_MS = EMPLOYEE_PUNCH_GEOLOCATION_MAX_DURATION_MS;
 const CORRECTION_FETCH_TIMEOUT_MS = 30_000;
-const CORRECTION_GPS_DEADLINE_MS = EMPLOYEE_PUNCH_GEOLOCATION_MAX_DURATION_MS;
+const CORRECTION_OPERATION_MAX_MS = 90_000;
+const CORRECTION_MIN_PHASE_TIMEOUT_MS = 5_000;
+const CORRECTION_FETCH_RESERVE_MS = 3_000;
 const SESSION_READ_TIMEOUT_MS = 15_000;
+const SESSION_LOAD_FAILED_MESSAGE =
+  "Impossible de charger votre session. Rechargez la page ou reconnectez-vous.";
+const ACCESS_LOADING_STALL_MS = 22_000;
+const PAGE_LOADING_STALL_MS = 35_000;
+const HORODATEUR_POLL_INTERVAL_MS = 60_000;
 const HORODATEUR_DATA_FETCH_TIMEOUT_MS = 30_000;
 const CORRECTION_FETCH_TIMEOUT_MESSAGE =
   "La demande prend trop de temps. Vérifiez votre connexion et réessayez.";
+const CORRECTION_OPERATION_TIMEOUT_MESSAGE =
+  "L'envoi de la demande a pris trop de temps (90 secondes maximum). Vérifiez votre connexion et réessayez.";
 const CORRECTION_CANCELLED_MESSAGE =
   "Envoi annulé. Vous pouvez corriger et réessayer.";
+const CORRECTION_GPS_UNAVAILABLE_WARNING =
+  "GPS non disponible. Votre demande sera envoyée sans position et devra être approuvée par la direction.";
+const CORRECTION_GPS_UNAVAILABLE_NOTE_SUFFIX =
+  "GPS non disponible lors de la demande.";
 
 type CorrectionSubmitContext = {
   submitId: number;
   abortSignal: AbortSignal;
+  deadlineAt: number;
 };
+
+function remainingCorrectionBudgetMs(ctx: CorrectionSubmitContext | undefined): number {
+  if (!ctx) {
+    return CORRECTION_OPERATION_MAX_MS;
+  }
+  return Math.max(0, ctx.deadlineAt - Date.now());
+}
+
+function assertCorrectionBudgetRemaining(ctx: CorrectionSubmitContext | undefined): void {
+  if (!ctx) {
+    return;
+  }
+  if (ctx.abortSignal.aborted) {
+    throw new Error(CORRECTION_CANCELLED_MESSAGE);
+  }
+  if (remainingCorrectionBudgetMs(ctx) <= 0) {
+    throw new Error(CORRECTION_OPERATION_TIMEOUT_MESSAGE);
+  }
+}
+
+function resolveCorrectionGpsDeadlineMs(ctx: CorrectionSubmitContext | undefined): number {
+  if (!ctx) {
+    return Math.min(PUNCH_GPS_DEADLINE_MS, 55_000);
+  }
+  assertCorrectionBudgetRemaining(ctx);
+  return Math.max(
+    CORRECTION_MIN_PHASE_TIMEOUT_MS,
+    Math.min(
+      PUNCH_GPS_DEADLINE_MS,
+      remainingCorrectionBudgetMs(ctx) - CORRECTION_FETCH_RESERVE_MS
+    )
+  );
+}
+
+function resolveCorrectionFetchTimeoutMs(ctx: CorrectionSubmitContext | undefined): number {
+  if (!ctx) {
+    return CORRECTION_FETCH_TIMEOUT_MS;
+  }
+  assertCorrectionBudgetRemaining(ctx);
+  return Math.max(
+    CORRECTION_MIN_PHASE_TIMEOUT_MS,
+    Math.min(CORRECTION_FETCH_TIMEOUT_MS, remainingCorrectionBudgetMs(ctx))
+  );
+}
 
 function isCorrectionCancelledMessage(message: string): boolean {
   return message === CORRECTION_CANCELLED_MESSAGE;
@@ -343,6 +465,47 @@ function isStaleCorrectionSubmit(
 }
 const LOAD_DATA_AFTER_PUNCH_FAILED_MESSAGE =
   "Action enregistrée, mais l'actualisation des données a échoué. Rafraîchissez la page ou réessayez dans un instant.";
+
+function formatHorodateurApiError(
+  payload: Record<string, unknown>,
+  fallback: string
+): string {
+  const error =
+    typeof payload.error === "string" && payload.error.trim()
+      ? payload.error.trim()
+      : fallback;
+  const details =
+    typeof payload.details === "string" && payload.details.trim()
+      ? payload.details.trim()
+      : null;
+  return details ? `${error} (${details})` : error;
+}
+
+function HorodateurLoadingScreen({
+  description,
+  showRetry,
+  onRetry,
+  retryLabel = "Réessayer",
+}: {
+  description: string;
+  showRetry?: boolean;
+  onRetry?: () => void;
+  retryLabel?: string;
+}) {
+  return (
+    <main className="page-container">
+      <HeaderTagora title="Horodateur" subtitle="" />
+      <AccessNotice description={description} />
+      {showRetry && onRetry ? (
+        <div style={{ marginTop: 16 }}>
+          <button type="button" className="tagora-dark-action" onClick={onRetry}>
+            {retryLabel}
+          </button>
+        </div>
+      ) : null}
+    </main>
+  );
+}
 
 async function readAccessTokenWithTimeout(timeoutMs: number): Promise<string | null> {
   let timeoutId: ReturnType<typeof setTimeout> | undefined;
@@ -404,14 +567,6 @@ async function fetchWithTimeout(
       externalSignal.removeEventListener("abort", onExternalAbort);
     }
   }
-}
-
-function isGpsTimeoutMessage(message: string | null | undefined): boolean {
-  if (!message) {
-    return false;
-  }
-  const lower = message.toLowerCase();
-  return lower.includes("timeout") || lower.includes("delai") || lower.includes("délai");
 }
 
 function normalizeSnapshotPayload(payload: unknown): EmployeeSnapshot | null {
@@ -579,7 +734,72 @@ function normalizeSnapshotPayload(payload: unknown): EmployeeSnapshot | null {
       normalizeLatenessContext(
         raw && typeof raw === "object" ? (raw as Record<string, unknown>).latenessContext : null
       ),
+    todayTimeDisplay:
+      normalizeTodayTimeDisplay(source.todayTimeDisplay) ??
+      normalizeTodayTimeDisplay(
+        raw && typeof raw === "object" ? (raw as Record<string, unknown>).todayTimeDisplay : null
+      ),
+    pendingPunchOut: normalizePendingPunchOut(
+      source.pendingPunchOut ??
+        (raw?.snapshot && typeof raw.snapshot === "object"
+          ? (raw.snapshot as Record<string, unknown>).pendingPunchOut
+          : null) ??
+        (raw && typeof raw === "object"
+          ? (raw as Record<string, unknown>).pendingPunchOut
+          : null)
+    ),
   };
+}
+
+function normalizePendingPunchOut(raw: unknown): EmployeeSnapshot["pendingPunchOut"] {
+  const source = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : null;
+  if (!source) {
+    return null;
+  }
+  const occurredAt =
+    typeof source.occurredAt === "string"
+      ? source.occurredAt
+      : typeof source.occurred_at === "string"
+        ? source.occurred_at
+        : null;
+  const eventId =
+    typeof source.eventId === "string"
+      ? source.eventId
+      : typeof source.event_id === "string"
+        ? source.event_id
+        : null;
+  if (!occurredAt || !eventId) {
+    return null;
+  }
+  return {
+    eventId,
+    occurredAt,
+    workDate:
+      typeof source.workDate === "string"
+        ? source.workDate
+        : typeof source.work_date === "string"
+          ? source.work_date
+          : null,
+    exceptionType:
+      typeof source.exceptionType === "string"
+        ? source.exceptionType
+        : typeof source.exception_type === "string"
+          ? source.exception_type
+          : null,
+    payrollValidationPending: true,
+  };
+}
+
+function formatPendingPunchOutBannerMessage(
+  pendingPunchOut: NonNullable<EmployeeSnapshot["pendingPunchOut"]>
+) {
+  const label = new Date(pendingPunchOut.occurredAt).toLocaleTimeString("fr-CA", {
+    timeZone: "America/Toronto",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+  return `Votre sortie a deja ete soumise a ${label} et attend la validation de la direction. Votre quart est ferme; la paie reste a valider.`;
 }
 
 export default function EmployeHorodateurPage() {
@@ -609,13 +829,19 @@ export default function EmployeHorodateurPage() {
   const [retroactiveTime, setRetroactiveTime] = useState("");
   const [retroactiveReason, setRetroactiveReason] = useState("");
   const [correctionModalError, setCorrectionModalError] = useState("");
+  const [correctionGpsWarning, setCorrectionGpsWarning] = useState("");
   const [punchGpsUi, setPunchGpsUi] = useState<PunchGpsUi>(PUNCH_GPS_UI_IDLE);
   const [punchGpsRetrying, setPunchGpsRetrying] = useState(false);
+  const [loadBlockingError, setLoadBlockingError] = useState<string | null>(null);
+  const [accessStalled, setAccessStalled] = useState(false);
+  const [loadingStalled, setLoadingStalled] = useState(false);
+  const lastDataLoadAtRef = useRef(0);
 
   const gpsReport = useEmployeeGpsReporting({
     enabled: Boolean(user && canUseTerrain && !accessLoading),
     companyContext: snapshot?.employee.primaryCompany ?? null,
     pageSource: "employe_horodateur",
+    continuousTracking: false,
   });
 
   const currentStateLabel = useMemo(() => {
@@ -631,28 +857,42 @@ export default function EmployeHorodateurPage() {
     return "Hors quart";
   }, [snapshot?.currentState.current_state, snapshot?.currentState.status]);
 
+  const todayTimeDisplay = snapshot?.todayTimeDisplay ?? null;
+  const officialPayableMinutesToday =
+    todayTimeDisplay?.officialPayableMinutes ??
+    snapshot?.todayShift?.payable_minutes ??
+    0;
+  const displayedPayableMinutesToday = todayTimeDisplay?.hasOpenShiftAccrual
+    ? todayTimeDisplay.livePayableMinutes
+    : officialPayableMinutesToday;
+  const todayTimeLabel = todayTimeDisplay?.hasOpenShiftAccrual
+    ? "Temps en cours aujourd hui"
+    : "Temps paye aujourd hui";
+
   const loadData = useCallback(async (options?: {
     preserveMessage?: boolean;
     background?: boolean;
   }): Promise<boolean> => {
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
-
-    if (!session?.access_token) {
-      if (!options?.background) {
-        setLoading(false);
-      }
-      return false;
-    }
-
     const background = options?.background === true;
     if (!background) {
       setLoading(true);
+      setLoadBlockingError(null);
+      setLoadingStalled(false);
     }
 
     try {
-      const authHeaders = { Authorization: `Bearer ${session.access_token}` };
+      let accessToken: string | null;
+      try {
+        accessToken = await readAccessTokenWithTimeout(SESSION_READ_TIMEOUT_MS);
+      } catch {
+        throw new Error(SESSION_LOAD_FAILED_MESSAGE);
+      }
+
+      if (!accessToken) {
+        throw new Error(SESSION_LOAD_FAILED_MESSAGE);
+      }
+
+      const authHeaders = { Authorization: `Bearer ${accessToken}` };
       const [snapshotResponse, historyResponse] = await Promise.all([
         fetchWithTimeout(
           "/api/horodateur/me",
@@ -672,11 +912,21 @@ export default function EmployeHorodateurPage() {
       const historyPayload = await historyResponse.json();
 
       if (!snapshotResponse.ok) {
-        throw new Error(snapshotPayload.error ?? "Impossible de charger l horodateur.");
+        throw new Error(
+          formatHorodateurApiError(
+            snapshotPayload as Record<string, unknown>,
+            "Impossible de charger l horodateur."
+          )
+        );
       }
 
       if (!historyResponse.ok) {
-        throw new Error(historyPayload.error ?? "Impossible de charger l historique.");
+        throw new Error(
+          formatHorodateurApiError(
+            historyPayload as Record<string, unknown>,
+            "Impossible de charger l historique."
+          )
+        );
       }
 
       const ll = (snapshotPayload as { longLeave?: unknown }).longLeave;
@@ -726,12 +976,15 @@ export default function EmployeHorodateurPage() {
       if (!options?.preserveMessage) {
         setMessage("");
       }
+      setLoadBlockingError(null);
+      lastDataLoadAtRef.current = Date.now();
       return true;
     } catch (error) {
       const msg = error instanceof Error ? error.message : "Erreur de chargement.";
       if (background && options?.preserveMessage) {
         setMessage((current) => current || msg);
       } else {
+        setLoadBlockingError(msg);
         setMessage(msg);
       }
       return false;
@@ -741,6 +994,35 @@ export default function EmployeHorodateurPage() {
       }
     }
   }, [setRetroactiveTime]);
+
+  const refreshDataIfStale = useCallback(() => {
+    if (Date.now() - lastDataLoadAtRef.current < HORODATEUR_POLL_INTERVAL_MS) {
+      return;
+    }
+    void loadData({ preserveMessage: true, background: true });
+  }, [loadData]);
+
+  useEffect(() => {
+    if (!accessLoading) {
+      setAccessStalled(false);
+      return;
+    }
+    const timerId = window.setTimeout(() => {
+      setAccessStalled(true);
+    }, ACCESS_LOADING_STALL_MS);
+    return () => window.clearTimeout(timerId);
+  }, [accessLoading]);
+
+  useEffect(() => {
+    if (!loading) {
+      setLoadingStalled(false);
+      return;
+    }
+    const timerId = window.setTimeout(() => {
+      setLoadingStalled(true);
+    }, PAGE_LOADING_STALL_MS);
+    return () => window.clearTimeout(timerId);
+  }, [loading]);
 
   useEffect(() => {
     if (accessLoading) {
@@ -767,36 +1049,78 @@ export default function EmployeHorodateurPage() {
     }
 
     const intervalId = window.setInterval(() => {
-      void loadData({ preserveMessage: true });
-    }, 15000);
+      refreshDataIfStale();
+    }, HORODATEUR_POLL_INTERVAL_MS);
 
     const handleVisibilityChange = () => {
       if (document.visibilityState === "visible") {
-        void loadData({ preserveMessage: true });
+        refreshDataIfStale();
       }
     };
 
-    window.addEventListener("focus", handleVisibilityChange);
+    const handleWindowFocus = () => {
+      refreshDataIfStale();
+    };
+
+    window.addEventListener("focus", handleWindowFocus);
     document.addEventListener("visibilitychange", handleVisibilityChange);
 
     return () => {
       window.clearInterval(intervalId);
-      window.removeEventListener("focus", handleVisibilityChange);
+      window.removeEventListener("focus", handleWindowFocus);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [canUseTerrain, loadData, user]);
+  }, [canUseTerrain, refreshDataIfStale, user]);
 
   const latenessContext = snapshot?.latenessContext ?? null;
 
   const canStartShiftPunch = latenessContext?.canPunchNow === true;
+  const currentStateValue =
+    snapshot?.currentState.current_state ??
+    snapshot?.currentState.status ??
+    "hors_quart";
+  const isHorsQuart = currentStateValue === "hors_quart";
+  const isShiftCompleted = currentStateValue === "termine";
+  const pendingPunchOut = snapshot?.pendingPunchOut ?? null;
+  const punchOutBlockedReason = pendingPunchOut
+    ? formatPendingPunchOutBannerMessage(pendingPunchOut)
+    : null;
+  const punchInBlockedReason = useMemo(() => {
+    if (isHorsQuart || isShiftCompleted) {
+      if (canStartShiftPunch) {
+        return null;
+      }
+      if ((snapshot?.pendingExceptions.length ?? 0) > 0) {
+        return "Une demande de correction est deja en attente pour aujourd hui. Attendez la decision de la direction ou contactez-la.";
+      }
+      if (isHorsQuart && latenessContext && !latenessContext.isWithinScheduleWindow) {
+        return "Vous etes hors fenetre horaire prevue. Utilisez « Demander une correction » si vous devez enregistrer une entree.";
+      }
+      return "Entree indisponible pour le moment. Utilisez « Demander une correction » ou contactez la direction.";
+    }
+    return "Vous etes deja en quart. Utilisez Sortie ou les actions de pause.";
+  }, [
+    canStartShiftPunch,
+    isHorsQuart,
+    isShiftCompleted,
+    latenessContext,
+    snapshot?.pendingExceptions.length,
+  ]);
   const showPunchGpsPanel =
-    canStartShiftPunch || punchGpsUi.phase !== "idle" || isGpsTimeoutMessage(gpsReport.lastError);
+    isHorsQuart ||
+    isShiftCompleted ||
+    canStartShiftPunch ||
+    punchGpsUi.phase !== "idle";
 
   async function handleRetryPunchLocation() {
     setPunchGpsRetrying(true);
     setPunchGpsUi({ phase: "loading", message: "Obtention de la position en cours..." });
     try {
-      const gpsResult = await readEmployeePunchGeolocation();
+      const gpsResult = await readEmployeePunchGeolocationWithDeadline(
+        PUNCH_GPS_DEADLINE_MS,
+        undefined,
+        { skipCache: true }
+      );
       if (gpsResult.ok) {
         setPunchGpsUi({
           phase: "ready",
@@ -835,6 +1159,7 @@ export default function EmployeHorodateurPage() {
     options?: {
       retroactive?: boolean;
       requireGps?: boolean;
+      tryGps?: boolean;
       correctionSubmit?: CorrectionSubmitContext;
     }
   ) {
@@ -872,6 +1197,7 @@ export default function EmployeHorodateurPage() {
       occurredAt?: string;
       noteOverride?: string;
       requireGps?: boolean;
+      tryGps?: boolean;
       correctionSubmit?: CorrectionSubmitContext;
     }
   ) {
@@ -879,11 +1205,21 @@ export default function EmployeHorodateurPage() {
 
     let accessToken: string | null;
     try {
-      accessToken = await readAccessTokenWithTimeout(SESSION_READ_TIMEOUT_MS);
+      const sessionTimeoutMs = correctionCtx
+        ? Math.max(
+            CORRECTION_MIN_PHASE_TIMEOUT_MS,
+            Math.min(
+              SESSION_READ_TIMEOUT_MS,
+              remainingCorrectionBudgetMs(correctionCtx)
+            )
+          )
+        : SESSION_READ_TIMEOUT_MS;
+      accessToken = await readAccessTokenWithTimeout(sessionTimeoutMs);
       assertActiveCorrectionSubmit(
         correctionCtx,
         activeCorrectionSubmitIdRef.current
       );
+      assertCorrectionBudgetRemaining(correctionCtx);
     } catch (error) {
       const msg =
         error instanceof Error
@@ -897,8 +1233,6 @@ export default function EmployeHorodateurPage() {
       reportPunchFailure("Session expirée. Reconnectez-vous et réessayez.", options);
       return;
     }
-
-    assertActiveCorrectionSubmit(correctionCtx, activeCorrectionSubmitIdRef.current);
 
     if (options?.retroactive && !correctionCtx) {
       setCorrectionSubmitting(true);
@@ -914,43 +1248,80 @@ export default function EmployeHorodateurPage() {
 
     try {
       assertActiveCorrectionSubmit(correctionCtx, activeCorrectionSubmitIdRef.current);
+      assertCorrectionBudgetRemaining(correctionCtx);
 
       let latitude: number | undefined;
       let longitude: number | undefined;
+      let retroGpsUnavailable = false;
 
-      if (options?.requireGps) {
+      if (options?.requireGps || options?.tryGps) {
         setPunchGpsUi({
           phase: "loading",
           message: options.retroactive
             ? "Obtention de la position pour la demande de correction..."
             : "Obtention de la position en cours (peut prendre jusqu’à une minute)...",
         });
-        const gpsResult = options.retroactive
-          ? await readEmployeePunchGeolocationWithDeadline(CORRECTION_GPS_DEADLINE_MS)
-          : await readEmployeePunchGeolocation();
+        const gpsDeadlineMs = options.retroactive
+          ? resolveCorrectionGpsDeadlineMs(correctionCtx)
+          : PUNCH_GPS_DEADLINE_MS;
+        const gpsResult = await readEmployeePunchGeolocationWithDeadline(
+          gpsDeadlineMs,
+          correctionCtx?.abortSignal
+        );
         assertActiveCorrectionSubmit(correctionCtx, activeCorrectionSubmitIdRef.current);
+        assertCorrectionBudgetRemaining(correctionCtx);
         if (!gpsResult.ok) {
+          if (options?.requireGps) {
+            setPunchGpsUi({
+              phase:
+                gpsResult.code === "permission_denied"
+                  ? "denied"
+                  : gpsResult.code === "timeout"
+                    ? "timeout"
+                    : gpsResult.code === "position_unavailable"
+                      ? "unavailable"
+                      : gpsResult.code === "unsupported"
+                        ? "unsupported"
+                        : "unknown",
+              message: gpsResult.message,
+            });
+            throw new Error(gpsResult.message);
+          }
+          retroGpsUnavailable = true;
+          setCorrectionGpsWarning(CORRECTION_GPS_UNAVAILABLE_WARNING);
           setPunchGpsUi({
-            phase:
-              gpsResult.code === "permission_denied"
-                ? "denied"
-                : gpsResult.code === "timeout"
-                  ? "timeout"
-                  : gpsResult.code === "position_unavailable"
-                    ? "unavailable"
-                    : gpsResult.code === "unsupported"
-                      ? "unsupported"
-                      : "unknown",
-            message: gpsResult.message,
+            phase: "unknown",
+            message: CORRECTION_GPS_UNAVAILABLE_WARNING,
           });
-          throw new Error(gpsResult.message);
+        } else {
+          setPunchGpsUi({
+            phase: "ready",
+            message: "Position obtenue. Validation de la zone en cours...",
+          });
+          latitude = gpsResult.latitude;
+          longitude = gpsResult.longitude;
         }
-        setPunchGpsUi({
-          phase: "ready",
-          message: "Position obtenue. Validation de la zone en cours...",
-        });
-        latitude = gpsResult.latitude;
-        longitude = gpsResult.longitude;
+      }
+
+      assertActiveCorrectionSubmit(correctionCtx, activeCorrectionSubmitIdRef.current);
+      assertCorrectionBudgetRemaining(correctionCtx);
+
+      const fetchTimeoutMs = options?.retroactive
+        ? resolveCorrectionFetchTimeoutMs(correctionCtx)
+        : PUNCH_FETCH_TIMEOUT_MS;
+      const fetchTimeoutMessage = options?.retroactive
+        ? remainingCorrectionBudgetMs(correctionCtx) <= CORRECTION_MIN_PHASE_TIMEOUT_MS
+          ? CORRECTION_OPERATION_TIMEOUT_MESSAGE
+          : CORRECTION_FETCH_TIMEOUT_MESSAGE
+        : options?.requireGps
+          ? "Le pointage a pris trop de temps (localisation ou serveur). Verifiez votre connexion et reessayez."
+          : "La requête de pointage a pris trop de temps. Vérifiez votre connexion et réessayez.";
+
+      let punchNote = (options?.noteOverride ?? note).trim();
+      if (retroGpsUnavailable) {
+        punchNote = punchNote
+          ? `${punchNote}\n${CORRECTION_GPS_UNAVAILABLE_NOTE_SUFFIX}`
+          : CORRECTION_GPS_UNAVAILABLE_NOTE_SUFFIX;
       }
 
       const response = await fetchWithTimeout(
@@ -965,17 +1336,15 @@ export default function EmployeHorodateurPage() {
             eventType: options?.retroactive ? undefined : eventType,
             retroactive: options?.retroactive === true ? true : undefined,
             occurredAt: options?.occurredAt ?? undefined,
-            note: (options?.noteOverride ?? note).trim() || null,
+            note: punchNote || null,
             companyContext: snapshot?.employee.primaryCompany ?? null,
             acknowledgeLongLeavePunch: options?.acknowledgeLongLeave === true,
             latitude,
             longitude,
           }),
         },
-        options?.retroactive ? CORRECTION_FETCH_TIMEOUT_MS : PUNCH_FETCH_TIMEOUT_MS,
-        options?.retroactive
-          ? CORRECTION_FETCH_TIMEOUT_MESSAGE
-          : "La requête de pointage a pris trop de temps. Vérifiez votre connexion et réessayez.",
+        fetchTimeoutMs,
+        fetchTimeoutMessage,
         correctionCtx?.abortSignal
       );
       assertActiveCorrectionSubmit(correctionCtx, activeCorrectionSubmitIdRef.current);
@@ -1028,6 +1397,16 @@ export default function EmployeHorodateurPage() {
         throw new Error(serverMessage);
       }
 
+      if (payload.alreadySubmitted === true) {
+        const alreadySubmittedMessage =
+          typeof payload.alreadySubmittedMessage === "string"
+            ? payload.alreadySubmittedMessage
+            : PUNCH_OUT_ALREADY_SUBMITTED_FALLBACK;
+        setMessage(alreadySubmittedMessage);
+        punchSucceeded = true;
+        return;
+      }
+
       assertActiveCorrectionSubmit(correctionCtx, activeCorrectionSubmitIdRef.current);
 
       if (options?.requireGps && !correctionCtx) {
@@ -1044,17 +1423,24 @@ export default function EmployeHorodateurPage() {
       punchSucceeded = true;
       setNote("");
       setCorrectionModalError("");
+      const isPunchOut =
+        !options?.retroactive && eventType === "punch_out";
       setMessage(
         options?.retroactive
           ? "Demande envoyée à la direction pour approbation."
-          : payload.exception
-            ? "Pointage enregistre avec exception en attente d approbation."
-            : "Pointage enregistre."
+          : isPunchOut && payload.exception
+            ? PUNCH_OUT_PENDING_APPROVAL_MESSAGE
+            : isPunchOut
+              ? PUNCH_OUT_SUCCESS_MESSAGE
+              : payload.exception
+                ? "Pointage enregistre avec exception en attente d approbation."
+                : "Pointage enregistre."
       );
       if (options?.retroactive) {
         assertActiveCorrectionSubmit(correctionCtx, activeCorrectionSubmitIdRef.current);
         setRetroactiveModalOpen(false);
         setRetroactiveReason("");
+        setCorrectionGpsWarning("");
         setCorrectionType("entry");
       }
     } catch (error) {
@@ -1074,6 +1460,9 @@ export default function EmployeHorodateurPage() {
       !isStaleCorrectionSubmit(correctionCtx, activeCorrectionSubmitIdRef.current)
     ) {
       void (async () => {
+        if (!options?.retroactive && eventType === "punch_out") {
+          lastDataLoadAtRef.current = 0;
+        }
         const refreshed = await loadData({ preserveMessage: true, background: true });
         if (!refreshed) {
           setMessage((current) => current || LOAD_DATA_AFTER_PUNCH_FAILED_MESSAGE);
@@ -1086,6 +1475,26 @@ export default function EmployeHorodateurPage() {
     await handlePunch("punch_in", { requireGps: true });
   }
 
+  async function handlePrimaryPunch(eventType: string) {
+    if (eventType === "punch_in") {
+      if (punchInBlockedReason) {
+        setMessage(punchInBlockedReason);
+        return;
+      }
+      await handleLatePunchNow();
+      return;
+    }
+    if (eventType === "punch_out") {
+      if (punchOutBlockedReason) {
+        setMessage(punchOutBlockedReason);
+        return;
+      }
+      await handlePunch("punch_out", { requireGps: true });
+      return;
+    }
+    await handlePunch(eventType);
+  }
+
   function openCorrectionModal(options?: { type?: CorrectionRequestType }) {
     if (
       latenessContext?.scheduledStartLabel &&
@@ -1095,6 +1504,7 @@ export default function EmployeHorodateurPage() {
     }
     setCorrectionType(options?.type ?? "entry");
     setCorrectionModalError("");
+    setCorrectionGpsWarning("");
     setRetroactiveModalOpen(true);
   }
 
@@ -1103,6 +1513,7 @@ export default function EmployeHorodateurPage() {
     correctionAbortRef.current?.abort();
     correctionAbortRef.current = null;
     correctionSubmittingRef.current = false;
+    correctionInFlightRef.current = false;
     setCorrectionSubmitting(false);
     reportCorrectionCancellation();
   }
@@ -1115,6 +1526,7 @@ export default function EmployeHorodateurPage() {
     setRetroactiveModalOpen(false);
     setCorrectionType("entry");
     setCorrectionModalError("");
+    setCorrectionGpsWarning("");
   }
 
   async function handleCorrectionSubmit() {
@@ -1123,6 +1535,7 @@ export default function EmployeHorodateurPage() {
     }
 
     setCorrectionModalError("");
+    setCorrectionGpsWarning("");
 
     if (correctionType === "other") {
       const msg =
@@ -1171,6 +1584,7 @@ export default function EmployeHorodateurPage() {
     const correctionSubmit: CorrectionSubmitContext = {
       submitId,
       abortSignal: abortController.signal,
+      deadlineAt: Date.now() + CORRECTION_OPERATION_MAX_MS,
     };
 
     try {
@@ -1178,7 +1592,7 @@ export default function EmployeHorodateurPage() {
         retroactive: true,
         occurredAt,
         noteOverride: reason,
-        requireGps: true,
+        tryGps: true,
         correctionSubmit,
       });
     } finally {
@@ -1217,12 +1631,39 @@ export default function EmployeHorodateurPage() {
     }
   }
 
-  if (accessLoading || loading) {
+  if (accessLoading && !accessStalled) {
+    return <HorodateurLoadingScreen description="Chargement en cours." />;
+  }
+
+  if (accessStalled) {
     return (
-      <main className="page-container">
-        <HeaderTagora title="Horodateur" subtitle="" />
-        <AccessNotice description="Chargement en cours." />
-      </main>
+      <HorodateurLoadingScreen
+        description={SESSION_LOAD_FAILED_MESSAGE}
+        showRetry
+        retryLabel="Recharger la page"
+        onRetry={() => window.location.reload()}
+      />
+    );
+  }
+
+  if (loading && !loadBlockingError && !loadingStalled) {
+    return <HorodateurLoadingScreen description="Chargement en cours." />;
+  }
+
+  if (loadBlockingError || (loading && loadingStalled)) {
+    return (
+      <HorodateurLoadingScreen
+        description={
+          loadBlockingError ??
+          "Le chargement de l'horodateur prend trop de temps. Réessayez."
+        }
+        showRetry
+        onRetry={() => {
+          setLoadBlockingError(null);
+          setLoadingStalled(false);
+          void loadData();
+        }}
+      />
     );
   }
 
@@ -1240,6 +1681,20 @@ export default function EmployeHorodateurPage() {
       <HeaderTagora title="Horodateur" subtitle="" />
 
       {message ? <AccessNotice title="Information" description={message} /> : null}
+
+      {pendingPunchOut ? (
+        <section
+          className="tagora-panel"
+          style={{ marginTop: 24, borderColor: "rgba(245,158,11,0.55)" }}
+        >
+          <h2 className="section-title" style={{ marginBottom: 8 }}>
+            Sortie soumise — validation en cours
+          </h2>
+          <p style={{ margin: 0, lineHeight: 1.55, color: "#0f172a" }}>
+            {formatPendingPunchOutBannerMessage(pendingPunchOut)}
+          </p>
+        </section>
+      ) : null}
 
       {longLeaveBanner ? (
         <section className="tagora-panel" style={{ marginTop: 24, borderColor: "rgba(245,158,11,0.5)" }}>
@@ -1264,19 +1719,17 @@ export default function EmployeHorodateurPage() {
         <AccessNotice
           title="Localisation"
           description={
-            gpsReport.status === "active"
-              ? "GPS actif : la position est envoyee au tableau direction tant que cette page reste ouverte."
-              : gpsReport.status === "denied"
-                ? "GPS bloque : autorisez la localisation pour ce site dans les reglages du navigateur."
+            punchGpsUi.phase === "loading"
+              ? "Localisation en cours..."
+              : punchGpsUi.phase === "timeout" ||
+                  punchGpsUi.phase === "denied" ||
+                  punchGpsUi.phase === "unavailable" ||
+                  punchGpsUi.phase === "unknown"
+                ? punchGpsUi.message ||
+                  "Impossible d'obtenir la localisation, réessayez."
                 : gpsReport.status === "unsupported"
                   ? "La geolocalisation n est pas disponible sur cet appareil."
-                  : gpsReport.status === "error"
-                    ? isGpsTimeoutMessage(gpsReport.lastError)
-                      ? "La localisation est autorisée, mais la position n a pas ete obtenue a temps. Utilisez « Réessayer la localisation » dans la section Pointage."
-                      : `GPS : ${gpsReport.lastError ?? "erreur d envoi ou de position."}`
-                    : gpsReport.status === "requesting"
-                      ? "Demande d acces a la localisation en cours..."
-                      : "En attente de la localisation..."
+                  : "La localisation est demandee uniquement lors d un pointage ou d une demande de correction."
           }
         />
       ) : null}
@@ -1294,10 +1747,48 @@ export default function EmployeHorodateurPage() {
             </div>
           </div>
           <div className="tagora-panel-muted">
-            <div className="tagora-label">Temps paye aujourd hui</div>
+            <div className="tagora-label">{todayTimeLabel}</div>
             <div style={{ marginTop: 8, fontSize: 24, fontWeight: 800 }}>
-              {formatMinutes(snapshot?.todayShift?.payable_minutes ?? 0)}
+              {formatMinutes(displayedPayableMinutesToday)}
             </div>
+            {todayTimeDisplay?.hasOpenShiftAccrual ? (
+              <p className="tagora-note" style={{ marginTop: 8, marginBottom: 0, lineHeight: 1.45 }}>
+                Temps officiel (quart ouvert) : {formatMinutes(officialPayableMinutesToday)} — finalise
+                a la sortie.
+              </p>
+            ) : null}
+            {todayTimeDisplay?.pendingPunchBlocksAccrual ? (
+              <p className="tagora-note" style={{ marginTop: 8, marginBottom: 0, lineHeight: 1.45 }}>
+                Punch en attente d approbation — le temps affiche ne progresse plus jusqu a validation.
+              </p>
+            ) : null}
+            {todayTimeDisplay?.openShiftWorkDateMismatch ? (
+              <p className="tagora-note" style={{ marginTop: 8, marginBottom: 0, lineHeight: 1.45 }}>
+                Quart ouvert depuis{" "}
+                {todayTimeDisplay.openShiftWorkDate ?? "un jour precedent"}. Pointez votre sortie ou
+                contactez la direction.
+              </p>
+            ) : null}
+            {todayTimeDisplay?.openShiftSafetyCapReached ? (
+              <p
+                className="tagora-note"
+                style={{
+                  marginTop: 8,
+                  marginBottom: 0,
+                  lineHeight: 1.45,
+                  color: "#b45309",
+                  fontWeight: 600,
+                }}
+              >
+                {OPEN_SHIFT_SAFETY_CAP_MESSAGE}
+              </p>
+            ) : null}
+            {todayTimeDisplay?.hasPendingOperationalPunchToday &&
+            !todayTimeDisplay.pendingPunchBlocksAccrual ? (
+              <p className="tagora-note" style={{ marginTop: 8, marginBottom: 0, lineHeight: 1.45 }}>
+                Un pointage est en attente d approbation direction.
+              </p>
+            ) : null}
           </div>
           <div className="tagora-panel-muted">
             <div className="tagora-label">Progression semaine</div>
@@ -1340,24 +1831,33 @@ export default function EmployeHorodateurPage() {
 
         <div style={{ display: "grid", gap: 18 }}>
           <div style={punchPrimaryGridStyle}>
-            {PRIMARY_PUNCH_ACTIONS.map((action) => (
+            {PRIMARY_PUNCH_ACTIONS.map((action) => {
+              const isPunchInBlocked =
+                action.eventType === "punch_in" && Boolean(punchInBlockedReason);
+              const isPunchOutBlocked =
+                action.eventType === "punch_out" && Boolean(punchOutBlockedReason);
+              const actionLabel =
+                isPunchOutBlocked ? "Sortie soumise" : action.label;
+              return (
               <button
                 key={action.eventType}
                 type="button"
                 className="tagora-dark-action"
                 style={punchPrimaryButtonStyle}
-                disabled={saving}
-                onClick={() => {
-                  if (action.eventType === "punch_in" && canStartShiftPunch) {
-                    void handleLatePunchNow();
-                    return;
-                  }
-                  void handlePunch(action.eventType);
-                }}
+                disabled={saving || isPunchInBlocked || isPunchOutBlocked}
+                title={
+                  isPunchInBlocked
+                    ? punchInBlockedReason ?? undefined
+                    : isPunchOutBlocked
+                      ? punchOutBlockedReason ?? undefined
+                      : undefined
+                }
+                onClick={() => void handlePrimaryPunch(action.eventType)}
               >
-                {action.label}
+                {actionLabel}
               </button>
-            ))}
+            );
+            })}
           </div>
 
           {showPunchGpsPanel ? (
@@ -1370,7 +1870,7 @@ export default function EmployeHorodateurPage() {
                     ? "1px solid rgba(34,197,94,0.45)"
                     : punchGpsUi.phase === "out_of_zone"
                       ? "1px solid rgba(239,68,68,0.45)"
-                      : punchGpsUi.phase === "timeout" || isGpsTimeoutMessage(gpsReport.lastError)
+                      : punchGpsUi.phase === "timeout"
                         ? "1px solid rgba(245,158,11,0.5)"
                         : "1px solid #dbeafe",
                 background:
@@ -1386,11 +1886,7 @@ export default function EmployeHorodateurPage() {
               <div className="tagora-label">Géolocalisation pour le punch</div>
               <p style={{ margin: 0, lineHeight: 1.55, color: "#0f172a" }}>
                 {punchGpsUi.phase === "idle"
-                  ? canStartShiftPunch
-                    ? "La géolocalisation est requise pour valider votre présence sur site."
-                    : isGpsTimeoutMessage(gpsReport.lastError)
-                      ? "La localisation est autorisée, mais votre appareil n’a pas retourné la position à temps. Cliquez sur Réessayer la localisation."
-                      : "La géolocalisation est requise pour valider votre présence sur site."
+                  ? "La géolocalisation est requise pour valider votre présence sur site."
                   : punchGpsUi.message}
               </p>
               <button
@@ -1508,6 +2004,7 @@ export default function EmployeHorodateurPage() {
         open={retroactiveModalOpen}
         saving={correctionSubmitting}
         submitError={correctionModalError || null}
+        gpsWarning={correctionGpsWarning || null}
         correctionType={correctionType}
         time={retroactiveTime}
         reason={retroactiveReason}

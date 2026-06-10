@@ -5,7 +5,7 @@ import FacturationTitanPage from "@/app/direction/facturation-titan/DirectionFac
 
 export default function AdminFacturationTitanPage() {
   return (
-    <AdminFinanceGate moduleLabel="Facturation Titan">
+    <AdminFinanceGate moduleLabel="Refacturation intercompagnies">
       <FacturationTitanPage />
     </AdminFinanceGate>
   );
