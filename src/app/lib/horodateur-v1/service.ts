@@ -81,6 +81,7 @@ import {
   type HorodateurEffectiveScheduleForDate,
 } from "./effective-schedule.server";
 import { resolveHorodateurAlertScheduleContext } from "./horodateur-alert-schedule.server";
+import { hasAnyActiveHorodateurWeeklyScheduleDay } from "./horodateur-alert-schedule.shared";
 import {
   buildOperationalStateEvents,
   compareHorodateurExceptionReviewPriority,
@@ -659,6 +660,10 @@ export function resolveExpectedPunchScheduleItems(options: {
 
   const weekly = options.employee.weeklyScheduleConfig;
   const weekdayKey = weekdayFrToWeeklyDayKey(options.weekdayFr);
+
+  if (weekly && !hasAnyActiveHorodateurWeeklyScheduleDay(weekly)) {
+    return expected;
+  }
 
   if (weekly && weekdayKey) {
     const day = weekly.days[weekdayKey];
