@@ -6,7 +6,9 @@ import {
 } from "@/app/lib/weekly-schedule";
 
 import {
+  hasAnyActiveHorodateurWeeklyScheduleDay,
   isEmployeeScheduledForHorodateurAlerts,
+  isWeeklyScheduleHorodateurSourceOfTruth,
   resolveHorodateurAlertScheduleFromEffective,
   type HorodateurAlertScheduleEmployee,
 } from "./horodateur-alert-schedule.shared";
@@ -32,6 +34,35 @@ function inactiveWeeklyVariableConfig(): WeeklyScheduleConfig {
     };
   }
 
+  return config;
+}
+
+/** Production Martin #9 / Yves #10 : jours inactifs mais legacy times encore copiés dans le JSON. */
+function martinYvesProductionWeeklyConfig(): WeeklyScheduleConfig {
+  const config = inactiveWeeklyVariableConfig();
+
+  for (const dayKey of Object.keys(config.days) as Array<keyof WeeklyScheduleConfig["days"]>) {
+    config.days[dayKey] = {
+      ...config.days[dayKey],
+      active: false,
+      start: "07:00",
+      end: "15:30",
+      plannedHours: 0,
+    };
+  }
+
+  return config;
+}
+
+function inactiveMondayActiveLegacyWeeklyConfig(): WeeklyScheduleConfig {
+  const config = createEmptyWeeklyScheduleConfig("fixed");
+  config.days.monday = {
+    ...config.days.monday,
+    active: false,
+    start: "07:00",
+    end: "15:30",
+    plannedHours: 0,
+  };
   return config;
 }
 
@@ -147,6 +178,67 @@ describe("horodateur alert schedule filter", () => {
     expect(
       isEmployeeScheduledForHorodateurAlerts(employee, WORK_DATE_MONDAY)
     ).toBe(false);
+  });
+
+  it("Martin #9 / Yves #10 fixture: weekly inactive with legacy times in JSON + legacy lun–ven → scheduled false", () => {
+    const employee = baseEmployee({
+      scheduleActive: true,
+      scheduleStart: "07:00:00",
+      scheduleEnd: "15:30:00",
+      scheduledWorkDays: ["lundi", "mardi", "mercredi", "jeudi", "vendredi"],
+      weeklyScheduleConfig: martinYvesProductionWeeklyConfig(),
+    });
+
+    expect(isWeeklyScheduleHorodateurSourceOfTruth(employee)).toBe(true);
+    expect(
+      hasAnyActiveHorodateurWeeklyScheduleDay(employee.weeklyScheduleConfig!)
+    ).toBe(false);
+    expect(
+      resolveHorodateurAlertScheduleFromEffective(employee, WORK_DATE_MONDAY)
+    ).toEqual({
+      scheduled: false,
+      shiftStart: null,
+      shiftEnd: null,
+    });
+  });
+
+  it("weekly present with all days inactive and legacy lun–ven filled → scheduled false (strict weekly truth)", () => {
+    const employee = baseEmployee({
+      scheduleActive: true,
+      weeklyScheduleConfig: inactiveWeeklyVariableConfig(),
+    });
+
+    expect(
+      isEmployeeScheduledForHorodateurAlerts(employee, WORK_DATE_MONDAY)
+    ).toBe(false);
+  });
+
+  it("weekly present with monday inactive but legacy monday filled → scheduled false", () => {
+    const employee = baseEmployee({
+      scheduleActive: true,
+      scheduleStart: "07:00:00",
+      scheduleEnd: "15:30:00",
+      scheduledWorkDays: ["lundi"],
+      weeklyScheduleConfig: inactiveMondayActiveLegacyWeeklyConfig(),
+    });
+
+    expect(
+      isEmployeeScheduledForHorodateurAlerts(employee, WORK_DATE_MONDAY)
+    ).toBe(false);
+  });
+
+  it("weekly absent/null with legacy lun–ven filled → legacy fallback still schedules monday", () => {
+    const employee = baseEmployee({
+      scheduleActive: true,
+      scheduleStart: "07:00",
+      scheduleEnd: "15:30",
+      scheduledWorkDays: ["lundi", "mardi", "mercredi", "jeudi", "vendredi"],
+      weeklyScheduleConfig: null,
+    });
+
+    expect(
+      isEmployeeScheduledForHorodateurAlerts(employee, WORK_DATE_MONDAY)
+    ).toBe(true);
   });
 
   it("approved schedule exception off day produces no alert schedule", () => {
