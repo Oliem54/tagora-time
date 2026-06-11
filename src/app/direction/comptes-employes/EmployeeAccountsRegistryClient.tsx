@@ -2,15 +2,21 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   AlertTriangle,
+  Archive,
   ArrowLeft,
+  Clock3,
   ExternalLink,
   Search,
+  UserCheck,
+  UserX,
   Users,
 } from "lucide-react";
 import FeedbackMessage from "@/app/components/FeedbackMessage";
+import TagoraStatCard from "@/app/components/TagoraStatCard";
+import type { TagoraStatTone } from "@/app/components/tagora-stat-tone";
 import StatusBadge from "@/app/components/ui/StatusBadge";
 import UserIdentityBadge from "@/app/components/ui/UserIdentityBadge";
 import { useCurrentAccess } from "@/app/hooks/useCurrentAccess";
@@ -21,18 +27,42 @@ import {
 } from "@/app/lib/employee-accounts-registry.shared";
 import { supabase } from "@/app/lib/supabase/client";
 
-const TAB_OPTIONS: Array<{ value: EmployeeAccountsRegistryTab; label: string }> = [
-  { value: "active", label: "Actifs" },
-  { value: "pending", label: "En attente" },
-  { value: "archived", label: "Archivés" },
-  { value: "orphan", label: "Orphelins" },
-  { value: "conflict", label: "Conflits" },
+const TAB_OPTIONS: Array<{
+  value: EmployeeAccountsRegistryTab;
+  label: string;
+  tone: TagoraStatTone;
+}> = [
+  { value: "active", label: "Actifs", tone: "green" },
+  { value: "pending", label: "En attente", tone: "blue" },
+  { value: "archived", label: "Archivés", tone: "slate" },
+  { value: "orphan", label: "Orphelins", tone: "orange" },
+  { value: "conflict", label: "Conflits", tone: "red" },
 ];
+
+const TAB_ICONS: Record<EmployeeAccountsRegistryTab, ReactNode> = {
+  active: <UserCheck strokeWidth={1.9} aria-hidden />,
+  pending: <Clock3 strokeWidth={1.9} aria-hidden />,
+  archived: <Archive strokeWidth={1.9} aria-hidden />,
+  orphan: <UserX strokeWidth={1.9} aria-hidden />,
+  conflict: <AlertTriangle strokeWidth={1.9} aria-hidden />,
+};
 
 function boolLabel(value: boolean | null | undefined) {
   if (value === true) return "Oui";
   if (value === false) return "Non";
   return "—";
+}
+
+function BoolCell({ value }: { value: boolean | null | undefined }) {
+  const label = boolLabel(value);
+  const tone =
+    value === true ? "employee-accounts-registry-bool--yes" : value === false ? "employee-accounts-registry-bool--no" : "employee-accounts-registry-bool--na";
+
+  return (
+    <span className={`employee-accounts-registry-bool ${tone}`} aria-label={label}>
+      {label}
+    </span>
+  );
 }
 
 function getDerivedStatusTone(status: string) {
@@ -54,106 +84,107 @@ function RegistryDiagnosticPanel({
   const diagnostic = entry.diagnostic;
 
   return (
-    <div
-      className="tagora-panel"
-      style={{ marginTop: 16, padding: 16 }}
-      role="dialog"
-      aria-label="Diagnostic compte employé"
-    >
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "flex-start",
-          gap: 12,
-          marginBottom: 12,
-        }}
-      >
+    <div className="employee-accounts-registry-diagnostic-panel" role="region" aria-label="Diagnostic compte employé">
+      <div className="employee-accounts-registry-diagnostic-panel__head">
         <div>
-          <h2 style={{ margin: 0, fontSize: 18 }}>Diagnostic — {entry.displayName}</h2>
-          <p className="tagora-note" style={{ margin: "6px 0 0" }}>
+          <h2 className="employee-accounts-registry-diagnostic-panel__title">
+            Diagnostic — {entry.displayName}
+          </h2>
+          <p className="employee-accounts-registry-diagnostic-panel__subtitle">
             {entry.email ?? "Courriel non disponible"}
           </p>
         </div>
-        <button type="button" className="account-requests-toolbar-button" onClick={onClose}>
+        <button
+          type="button"
+          className="employee-accounts-registry-action-btn employee-accounts-registry-action-btn--ghost"
+          onClick={onClose}
+        >
           Fermer
         </button>
       </div>
 
-      <dl
-        style={{
-          marginBottom: 12,
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
-          gap: 10,
-        }}
-      >
+      <dl className="employee-accounts-registry-diagnostic-grid">
         <div>
-          <dt style={{ fontWeight: 600, fontSize: 12 }}>Statut dérivé</dt>
-          <dd style={{ margin: "4px 0 0" }}>{entry.derivedStatus}</dd>
+          <dt>Statut dérivé</dt>
+          <dd>{entry.derivedStatus}</dd>
         </div>
         <div>
-          <dt style={{ fontWeight: 600, fontSize: 12 }}>Demande compte</dt>
-          <dd style={{ margin: "4px 0 0" }}>{diagnostic.accountRequestStatus ?? "Aucune"}</dd>
+          <dt>Courriel</dt>
+          <dd>{entry.email ?? "—"}</dd>
         </div>
         <div>
-          <dt style={{ fontWeight: 600, fontSize: 12 }}>Accès désactivé</dt>
-          <dd style={{ margin: "4px 0 0" }}>{boolLabel(diagnostic.accessDisabled)}</dd>
+          <dt>Fiche RH active</dt>
+          <dd>{boolLabel(entry.employeeProfileActive)}</dd>
         </div>
         <div>
-          <dt style={{ fontWeight: 600, fontSize: 12 }}>Fiche RH inactive</dt>
-          <dd style={{ margin: "4px 0 0" }}>{boolLabel(diagnostic.employeeProfileInactive)}</dd>
+          <dt>Auth lié</dt>
+          <dd>{boolLabel(entry.authLinked)}</dd>
         </div>
         <div>
-          <dt style={{ fontWeight: 600, fontSize: 12 }}>Auth sans chauffeur</dt>
-          <dd style={{ margin: "4px 0 0" }}>{boolLabel(diagnostic.authUserWithoutChauffeur)}</dd>
+          <dt>Demande compte</dt>
+          <dd>{diagnostic.accountRequestStatus ?? "Aucune"}</dd>
         </div>
         <div>
-          <dt style={{ fontWeight: 600, fontSize: 12 }}>Chauffeur sans auth</dt>
-          <dd style={{ margin: "4px 0 0" }}>{boolLabel(diagnostic.chauffeurWithoutAuthUser)}</dd>
+          <dt>Accès désactivé</dt>
+          <dd>{boolLabel(diagnostic.accessDisabled)}</dd>
         </div>
         <div>
-          <dt style={{ fontWeight: 600, fontSize: 12 }}>Courriel divergent</dt>
-          <dd style={{ margin: "4px 0 0" }}>{boolLabel(diagnostic.emailDivergent)}</dd>
+          <dt>Fiche RH inactive</dt>
+          <dd>{boolLabel(diagnostic.employeeProfileInactive)}</dd>
         </div>
         <div>
-          <dt style={{ fontWeight: 600, fontSize: 12 }}>Téléphone divergent</dt>
-          <dd style={{ margin: "4px 0 0" }}>{boolLabel(diagnostic.phoneDivergent)}</dd>
+          <dt>Auth sans chauffeur</dt>
+          <dd>{boolLabel(diagnostic.authUserWithoutChauffeur)}</dd>
         </div>
         <div>
-          <dt style={{ fontWeight: 600, fontSize: 12 }}>MFA (phase future)</dt>
-          <dd style={{ margin: "4px 0 0" }}>{diagnostic.futureMfaStatus}</dd>
+          <dt>Chauffeur sans auth</dt>
+          <dd>{boolLabel(diagnostic.chauffeurWithoutAuthUser)}</dd>
+        </div>
+        <div>
+          <dt>Courriel divergent</dt>
+          <dd>{boolLabel(diagnostic.emailDivergent)}</dd>
+        </div>
+        <div>
+          <dt>Téléphone divergent</dt>
+          <dd>{boolLabel(diagnostic.phoneDivergent)}</dd>
+        </div>
+        <div>
+          <dt>MFA (phase future)</dt>
+          <dd>{diagnostic.futureMfaStatus}</dd>
         </div>
       </dl>
 
       {diagnostic.inconsistencies.length > 0 ? (
-        <div>
-          <h3 style={{ margin: "0 0 8px", fontSize: 15 }}>Incohérences détectées</h3>
-          <ul style={{ margin: 0, paddingLeft: 20 }}>
+        <div className="employee-accounts-registry-diagnostic-conflicts">
+          <h3>Incohérences détectées</h3>
+          <ul>
             {diagnostic.inconsistencies.map((item) => (
               <li key={item}>{item}</li>
             ))}
           </ul>
         </div>
       ) : (
-        <p className="tagora-note" style={{ margin: 0 }}>
+        <p className="tagora-note employee-accounts-registry-diagnostic-empty">
           Aucune incohérence détectée pour cette entrée.
         </p>
       )}
 
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 16 }}>
+      <div className="employee-accounts-registry-diagnostic-links">
         {entry.chauffeurId ? (
           <Link
             href={`/direction/ressources/employes/${entry.chauffeurId}`}
-            className="account-requests-toolbar-button"
+            className="employee-accounts-registry-action-btn employee-accounts-registry-action-btn--secondary"
           >
-            <ExternalLink size={14} />
+            <ExternalLink size={14} aria-hidden />
             Ouvrir fiche employé
           </Link>
         ) : null}
         {entry.accountRequestId ? (
-          <Link href="/direction/demandes-comptes" className="account-requests-toolbar-button">
-            <ExternalLink size={14} />
+          <Link
+            href="/direction/demandes-comptes"
+            className="employee-accounts-registry-action-btn employee-accounts-registry-action-btn--secondary"
+          >
+            <ExternalLink size={14} aria-hidden />
             Ouvrir demandes de comptes
           </Link>
         ) : null}
@@ -234,6 +265,15 @@ export default function EmployeeAccountsRegistryClient() {
     void fetchRegistry();
   }, [fetchRegistry]);
 
+  useEffect(() => {
+    if (!diagnosticEntryKey) {
+      return;
+    }
+
+    const row = document.getElementById(`registry-diagnostic-${diagnosticEntryKey}`);
+    row?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }, [diagnosticEntryKey]);
+
   const tabCounts = useMemo(() => {
     const counts: Record<EmployeeAccountsRegistryTab, number> = {
       active: 0,
@@ -274,14 +314,13 @@ export default function EmployeeAccountsRegistryClient() {
     });
   }, [activeTab, entries, search]);
 
-  const diagnosticEntry = useMemo(
-    () => entries.find((entry) => entry.registryKey === diagnosticEntryKey) ?? null,
-    [diagnosticEntryKey, entries]
-  );
+  const toggleDiagnostic = useCallback((registryKey: string) => {
+    setDiagnosticEntryKey((current) => (current === registryKey ? null : registryKey));
+  }, []);
 
   if (!canView) {
     return (
-      <main className="tagora-app-shell account-requests-page">
+      <main className="tagora-app-shell account-requests-page employee-accounts-registry-page">
         <div className="tagora-app-content">
           <p className="tagora-note">Accès réservé à la direction et aux administrateurs.</p>
         </div>
@@ -290,15 +329,15 @@ export default function EmployeeAccountsRegistryClient() {
   }
 
   return (
-    <main className="tagora-app-shell account-requests-page">
+    <main className="tagora-app-shell account-requests-page employee-accounts-registry-page">
       <div className="tagora-app-content account-requests-premium-layout">
-        <section className="account-requests-premium-hero">
-          <div className="account-requests-premium-logo-card">
+        <section className="account-requests-premium-hero employee-accounts-registry-hero">
+          <div className="account-requests-premium-logo-card employee-accounts-registry-logo-card">
             <Image
               src="/logo.png"
               alt="Logo TAGORA"
-              width={220}
-              height={110}
+              width={180}
+              height={90}
               priority
               className="account-requests-premium-logo"
             />
@@ -307,7 +346,7 @@ export default function EmployeeAccountsRegistryClient() {
           <div className="account-requests-premium-hero-copy">
             <h1 className="account-requests-premium-title">Comptes employés</h1>
             <p className="account-requests-premium-description">
-              Registre global des accès portail, fiches employés et diagnostics
+              Registre global des accès portail, fiches employés et diagnostics de cohérence.
             </p>
           </div>
 
@@ -339,42 +378,35 @@ export default function EmployeeAccountsRegistryClient() {
           </div>
         </section>
 
+        <div className="tagora-stat-grid tagora-stat-grid--five employee-accounts-registry-stat-grid">
+          {TAB_OPTIONS.map((tab) => (
+            <button
+              key={tab.value}
+              type="button"
+              className={`employee-accounts-registry-stat-button${activeTab === tab.value ? " employee-accounts-registry-stat-button--active" : ""}`}
+              onClick={() => setActiveTab(tab.value)}
+            >
+              <TagoraStatCard
+                title={tab.label}
+                value={tabCounts[tab.value]}
+                tone={tab.tone}
+                icon={TAB_ICONS[tab.value]}
+                iconSize="sm"
+              />
+            </button>
+          ))}
+        </div>
+
         <FeedbackMessage message={message} type={messageType} />
 
-        <section className="account-requests-premium-shell">
-          <div
-            className="account-requests-premium-toolbar"
-            style={{ flexWrap: "wrap", gap: 8 }}
-          >
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-              {TAB_OPTIONS.map((tab) => (
-                <button
-                  key={tab.value}
-                  type="button"
-                  className="account-requests-toolbar-button"
-                  style={
-                    activeTab === tab.value
-                      ? { borderColor: "#0f2948", background: "#eef4fb" }
-                      : undefined
-                  }
-                  onClick={() => setActiveTab(tab.value)}
-                >
-                  {tab.label} ({tabCounts[tab.value]})
-                </button>
-              ))}
-            </div>
-
-            <label className="tagora-field" style={{ marginBottom: 0, minWidth: 220 }}>
+        <section className="account-requests-premium-shell employee-accounts-registry-shell">
+          <div className="employee-accounts-registry-toolbar">
+            <label className="tagora-field employee-accounts-registry-search">
               <span className="tagora-label">Rechercher</span>
-              <div style={{ position: "relative" }}>
-                <Search
-                  size={14}
-                  style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)" }}
-                  aria-hidden
-                />
+              <div className="employee-accounts-registry-search__field">
+                <Search size={14} aria-hidden />
                 <input
                   className="tagora-input"
-                  style={{ paddingLeft: 32 }}
                   value={search}
                   onChange={(event) => setSearch(event.target.value)}
                   placeholder="Nom, courriel, statut…"
@@ -384,7 +416,7 @@ export default function EmployeeAccountsRegistryClient() {
 
             <button
               type="button"
-              className="account-requests-toolbar-button"
+              className="employee-accounts-registry-action-btn employee-accounts-registry-action-btn--secondary"
               onClick={() => void fetchRegistry()}
               disabled={loading}
             >
@@ -406,90 +438,142 @@ export default function EmployeeAccountsRegistryClient() {
             </div>
           ) : (
             <div className="account-requests-premium-table-wrap account-requests-premium-table-wrap--desktop">
-              <table className="account-requests-premium-table">
+              <table className="account-requests-premium-table account-requests-premium-table--registry">
+                <colgroup>
+                  <col style={{ width: "22%" }} />
+                  <col style={{ width: "12%" }} />
+                  <col style={{ width: "8%" }} />
+                  <col style={{ width: "7%" }} />
+                  <col style={{ width: "8%" }} />
+                  <col style={{ width: "9%" }} />
+                  <col style={{ width: "7%" }} />
+                  <col style={{ width: "7%" }} />
+                  <col style={{ width: "20%" }} />
+                </colgroup>
                 <thead>
                   <tr>
                     <th>Employé / courriel</th>
                     <th>Statut dérivé</th>
-                    <th>Fiche RH active</th>
-                    <th>Auth lié</th>
-                    <th>Demande compte</th>
-                    <th>Accès désactivé</th>
-                    <th>Tél. fiche</th>
-                    <th>Conflits</th>
-                    <th>Actions</th>
+                    <th className="employee-accounts-registry-cell--center">Fiche RH</th>
+                    <th className="employee-accounts-registry-cell--center">Auth</th>
+                    <th className="employee-accounts-registry-cell--center">Demande</th>
+                    <th className="employee-accounts-registry-cell--center">Désactivé</th>
+                    <th className="employee-accounts-registry-cell--center">Tél.</th>
+                    <th className="employee-accounts-registry-cell--center">Conflits</th>
+                    <th className="employee-accounts-registry-cell--center">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredEntries.map((entry) => (
-                    <tr key={entry.registryKey}>
-                      <td>
-                        <div style={{ fontWeight: 600 }}>{entry.displayName}</div>
-                        <div className="tagora-note">{entry.email ?? "—"}</div>
-                      </td>
-                      <td>
-                        <StatusBadge
-                          label={entry.derivedStatus}
-                          tone={getDerivedStatusTone(entry.derivedStatus)}
-                        />
-                      </td>
-                      <td>{boolLabel(entry.employeeProfileActive)}</td>
-                      <td>{boolLabel(entry.authLinked)}</td>
-                      <td>{boolLabel(entry.hasAccountRequest)}</td>
-                      <td>{boolLabel(entry.accessDisabled)}</td>
-                      <td>{boolLabel(entry.profilePhonePresent)}</td>
-                      <td>
-                        {entry.conflictIndicators.length > 0 ? (
-                          <span title={entry.conflictIndicators.join(" · ")}>
-                            <AlertTriangle size={16} aria-hidden /> {entry.conflictIndicators.length}
-                          </span>
-                        ) : (
-                          "—"
-                        )}
-                      </td>
-                      <td>
-                        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                          <button
-                            type="button"
-                            className="account-requests-toolbar-button"
-                            onClick={() => setDiagnosticEntryKey(entry.registryKey)}
+                  {filteredEntries.map((entry) => {
+                    const isExpanded = diagnosticEntryKey === entry.registryKey;
+
+                    return (
+                      <Fragment key={entry.registryKey}>
+                        <tr
+                          className={
+                            isExpanded ? "employee-accounts-registry-row--selected" : undefined
+                          }
+                        >
+                          <td>
+                            <div className="account-requests-requester">
+                              <div className="account-requests-requester-name">{entry.displayName}</div>
+                              <div className="account-requests-requester-meta">
+                                {entry.email ?? "—"}
+                              </div>
+                            </div>
+                          </td>
+                          <td>
+                            <StatusBadge
+                              label={entry.derivedStatus}
+                              tone={getDerivedStatusTone(entry.derivedStatus)}
+                            />
+                          </td>
+                          <td className="employee-accounts-registry-cell--center">
+                            <BoolCell value={entry.employeeProfileActive} />
+                          </td>
+                          <td className="employee-accounts-registry-cell--center">
+                            <BoolCell value={entry.authLinked} />
+                          </td>
+                          <td className="employee-accounts-registry-cell--center">
+                            <BoolCell value={entry.hasAccountRequest} />
+                          </td>
+                          <td className="employee-accounts-registry-cell--center">
+                            <BoolCell value={entry.accessDisabled} />
+                          </td>
+                          <td className="employee-accounts-registry-cell--center">
+                            <BoolCell value={entry.profilePhonePresent} />
+                          </td>
+                          <td className="employee-accounts-registry-cell--center">
+                            {entry.conflictIndicators.length > 0 ? (
+                              <span
+                                className="employee-accounts-registry-conflict-badge"
+                                title={entry.conflictIndicators.join(" · ")}
+                              >
+                                <AlertTriangle size={14} aria-hidden />
+                                {entry.conflictIndicators.length}
+                              </span>
+                            ) : (
+                              <span className="employee-accounts-registry-bool employee-accounts-registry-bool--na">
+                                —
+                              </span>
+                            )}
+                          </td>
+                          <td className="employee-accounts-registry-cell--center">
+                            <div className="employee-accounts-registry-actions">
+                              <button
+                                type="button"
+                                className={`employee-accounts-registry-action-btn${
+                                  isExpanded
+                                    ? " employee-accounts-registry-action-btn--primary"
+                                    : " employee-accounts-registry-action-btn--secondary"
+                                }`}
+                                onClick={() => toggleDiagnostic(entry.registryKey)}
+                                aria-expanded={isExpanded}
+                              >
+                                {isExpanded ? "Masquer" : "Diagnostic"}
+                              </button>
+                              {entry.chauffeurId ? (
+                                <Link
+                                  href={`/direction/ressources/employes/${entry.chauffeurId}`}
+                                  className="employee-accounts-registry-action-btn employee-accounts-registry-action-btn--ghost"
+                                >
+                                  Fiche
+                                </Link>
+                              ) : null}
+                              {entry.accountRequestId ? (
+                                <Link
+                                  href="/direction/demandes-comptes"
+                                  className="employee-accounts-registry-action-btn employee-accounts-registry-action-btn--ghost"
+                                >
+                                  Demande
+                                </Link>
+                              ) : null}
+                            </div>
+                          </td>
+                        </tr>
+                        {isExpanded ? (
+                          <tr
+                            id={`registry-diagnostic-${entry.registryKey}`}
+                            className="employee-accounts-registry-diagnostic-row"
                           >
-                            Voir diagnostic
-                          </button>
-                          {entry.chauffeurId ? (
-                            <Link
-                              href={`/direction/ressources/employes/${entry.chauffeurId}`}
-                              className="account-requests-toolbar-button"
-                            >
-                              Fiche employé
-                            </Link>
-                          ) : null}
-                          {entry.accountRequestId ? (
-                            <Link
-                              href="/direction/demandes-comptes"
-                              className="account-requests-toolbar-button"
-                            >
-                              Demande compte
-                            </Link>
-                          ) : null}
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
+                            <td colSpan={9}>
+                              <RegistryDiagnosticPanel
+                                entry={entry}
+                                onClose={() => setDiagnosticEntryKey(null)}
+                              />
+                            </td>
+                          </tr>
+                        ) : null}
+                      </Fragment>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
           )}
-
-          {diagnosticEntry ? (
-            <RegistryDiagnosticPanel
-              entry={diagnosticEntry}
-              onClose={() => setDiagnosticEntryKey(null)}
-            />
-          ) : null}
         </section>
 
-        <p className="tagora-note" style={{ display: "flex", alignItems: "center", gap: 6 }}>
+        <p className="tagora-note employee-accounts-registry-footnote">
           <Users size={14} aria-hidden />
           Phase 1 — lecture seule. Aucune action destructive sur cette page.
         </p>
