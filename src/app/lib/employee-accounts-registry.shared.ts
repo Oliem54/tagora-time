@@ -17,6 +17,7 @@ export type EmployeeAccountsRegistryTab =
 export type EmployeeAccountsRegistryDiagnostic = {
   authUserWithoutChauffeur: boolean;
   chauffeurWithoutAuthUser: boolean;
+  staleChauffeurMetadata: boolean;
   accountRequestStatus: AccountAccessStatus | null;
   accessDisabled: boolean;
   employeeProfileInactive: boolean;
@@ -25,6 +26,13 @@ export type EmployeeAccountsRegistryDiagnostic = {
   futureMfaStatus: "unknown";
   inconsistencies: string[];
 };
+
+function readMetadataChauffeurId(authUser: User | null | undefined) {
+  const raw =
+    authUser?.app_metadata?.chauffeur_id ?? authUser?.user_metadata?.chauffeur_id ?? null;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
 
 export type EmployeeAccountsRegistryEntry = {
   registryKey: string;
@@ -125,12 +133,12 @@ export function buildEmployeeAccountsRegistryDiagnostic(options: {
   const authLinkedOnProfile = Boolean(authUserIdOnProfile);
   const accessDisabled = resolveAccessDisabled({ authUser, request: accountRequest });
 
+  const metadataChauffeurId = readMetadataChauffeurId(authUser);
+  const staleChauffeurMetadata =
+    authAccountExists && metadataChauffeurId !== null && !chauffeur?.id;
+
   const authUserWithoutChauffeur =
-    authAccountExists &&
-    !chauffeur?.id &&
-    !Number(
-      authUser?.app_metadata?.chauffeur_id ?? authUser?.user_metadata?.chauffeur_id ?? NaN
-    );
+    authAccountExists && !chauffeur?.id && !staleChauffeurMetadata;
 
   const chauffeurWithoutAuthUser =
     Boolean(chauffeur?.id) &&
@@ -177,6 +185,11 @@ export function buildEmployeeAccountsRegistryDiagnostic(options: {
   ) {
     inconsistencies.push("invited_user_id de la demande différent du compte auth actuel.");
   }
+  if (staleChauffeurMetadata) {
+    inconsistencies.push(
+      `Métadonnées auth avec chauffeur_id obsolète (#${metadataChauffeurId}) — fiche employé introuvable.`
+    );
+  }
   if (authUserWithoutChauffeur) {
     inconsistencies.push("Compte auth sans fiche employé liée.");
   }
@@ -187,6 +200,7 @@ export function buildEmployeeAccountsRegistryDiagnostic(options: {
   return {
     authUserWithoutChauffeur,
     chauffeurWithoutAuthUser,
+    staleChauffeurMetadata,
     accountRequestStatus: (accountRequest?.status as AccountAccessStatus | undefined) ?? null,
     accessDisabled,
     employeeProfileInactive: chauffeur?.actif === false,
@@ -210,11 +224,17 @@ export function deriveRegistryTabs(
     tabs.push("conflict");
   }
 
-  if (diagnostic.authUserWithoutChauffeur || diagnostic.chauffeurWithoutAuthUser) {
-    tabs.push("orphan");
+  if (
+    diagnostic.authUserWithoutChauffeur ||
+    diagnostic.chauffeurWithoutAuthUser ||
+    diagnostic.staleChauffeurMetadata
+  ) {
+    if (diagnostic.accountRequestStatus !== "refused") {
+      tabs.push("orphan");
+    }
   }
 
-  if (diagnostic.accessDisabled) {
+  if (diagnostic.accessDisabled || diagnostic.accountRequestStatus === "refused") {
     tabs.push("archived");
   }
 
@@ -230,6 +250,7 @@ export function deriveRegistryTabs(
   if (
     options.authLinked &&
     !diagnostic.accessDisabled &&
+    diagnostic.accountRequestStatus !== "refused" &&
     (diagnostic.accountRequestStatus === "active" ||
       diagnostic.accountRequestStatus === "invited" ||
       (!options.hasAccountRequest && options.authLinked))
@@ -252,6 +273,10 @@ export function deriveRegistryStatusLabel(
   if (diagnostic.accessDisabled) {
     return "Accès désactivé";
   }
+  if (diagnostic.accountRequestStatus === "refused") return "Refusé";
+  if (diagnostic.staleChauffeurMetadata) {
+    return "Metadata chauffeur obsolète";
+  }
   if (diagnostic.authUserWithoutChauffeur) {
     return "Orphelin auth";
   }
@@ -264,7 +289,6 @@ export function deriveRegistryStatusLabel(
   if (diagnostic.accountRequestStatus === "pending") return "En attente";
   if (diagnostic.accountRequestStatus === "invited") return "Invité";
   if (diagnostic.accountRequestStatus === "error") return "Erreur";
-  if (diagnostic.accountRequestStatus === "refused") return "Refusé";
   if (diagnostic.accountRequestStatus === "active") return "Actif";
   if (diagnostic.employeeProfileInactive) return "Fiche RH inactive";
   return "À classer";
@@ -298,9 +322,10 @@ export function buildRegistryEntryFromParts(options: {
   const authLinked = Boolean(
     authUserId &&
       options.authUser?.id &&
+      !diagnostic.staleChauffeurMetadata &&
       (options.chauffeur?.auth_user_id
         ? options.chauffeur.auth_user_id === options.authUser.id
-        : true)
+        : Boolean(options.chauffeur?.id))
   );
 
   const hasAccountRequest = Boolean(options.accountRequest?.id);

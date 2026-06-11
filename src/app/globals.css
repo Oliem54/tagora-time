@@ -3751,6 +3751,10 @@ select {
   gap: 12px;
 }
 
+.employee-accounts-registry-mobile-diagnostic {
+  margin-top: 14px;
+}
+
 .employee-accounts-registry-toolbar {
   display: flex;
   align-items: flex-end;
