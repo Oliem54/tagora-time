@@ -137,6 +137,10 @@ function RegistryDiagnosticPanel({
           <dd>{boolLabel(diagnostic.authUserWithoutChauffeur)}</dd>
         </div>
         <div>
+          <dt>Metadata chauffeur obsolète</dt>
+          <dd>{boolLabel(diagnostic.staleChauffeurMetadata)}</dd>
+        </div>
+        <div>
           <dt>Chauffeur sans auth</dt>
           <dd>{boolLabel(diagnostic.chauffeurWithoutAuthUser)}</dd>
         </div>
@@ -193,12 +197,280 @@ function RegistryDiagnosticPanel({
   );
 }
 
+const TAB_LABELS: Record<EmployeeAccountsRegistryTab, string> = {
+  active: "Actifs",
+  pending: "En attente",
+  archived: "Archivés",
+  orphan: "Orphelins",
+  conflict: "Conflits",
+};
+
+function RegistryMobileField({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="account-requests-mobile-card__field">
+      <span className="account-requests-mobile-card__field-label">{label}</span>
+      <div className="account-requests-mobile-card__field-value">{children}</div>
+    </div>
+  );
+}
+
+function RegistryEntryMobileCard({
+  entry,
+  activeTab,
+  isExpanded,
+  onToggleDiagnostic,
+}: {
+  entry: EmployeeAccountsRegistryEntry;
+  activeTab: EmployeeAccountsRegistryTab;
+  isExpanded: boolean;
+  onToggleDiagnostic: () => void;
+}) {
+  const diagnosticSummary =
+    entry.conflictIndicators.length > 0
+      ? entry.conflictIndicators.slice(0, 2).join(" · ")
+      : "Aucune incohérence détectée";
+
+  return (
+    <article className="account-requests-mobile-card">
+      <header className="account-requests-mobile-card__head">
+        <h3 className="account-requests-mobile-card__name">{entry.displayName}</h3>
+        <StatusBadge
+          label={entry.derivedStatus}
+          tone={getDerivedStatusTone(entry.derivedStatus)}
+        />
+      </header>
+
+      <div className="account-requests-mobile-card__fields">
+        <RegistryMobileField label="Courriel">{entry.email ?? "—"}</RegistryMobileField>
+        <RegistryMobileField label="Onglet">{TAB_LABELS[activeTab]}</RegistryMobileField>
+        <RegistryMobileField label="Fiche RH">
+          {boolLabel(entry.employeeProfileActive)}
+        </RegistryMobileField>
+        <RegistryMobileField label="Auth lié">{boolLabel(entry.authLinked)}</RegistryMobileField>
+        <RegistryMobileField label="Demande">{boolLabel(entry.hasAccountRequest)}</RegistryMobileField>
+        <RegistryMobileField label="Diagnostics">
+          {diagnosticSummary}
+          {entry.conflictIndicators.length > 2 ? (
+            <span className="account-requests-mobile-card__sub">
+              +{entry.conflictIndicators.length - 2} autre(s)
+            </span>
+          ) : null}
+        </RegistryMobileField>
+      </div>
+
+      <div className="account-requests-mobile-actions">
+        <button
+          type="button"
+          className={`employee-accounts-registry-action-btn${
+            isExpanded
+              ? " employee-accounts-registry-action-btn--primary"
+              : " employee-accounts-registry-action-btn--secondary"
+          }`}
+          onClick={onToggleDiagnostic}
+          aria-expanded={isExpanded}
+        >
+          {isExpanded ? "Masquer le diagnostic" : "Diagnostic"}
+        </button>
+        {entry.chauffeurId ? (
+          <Link
+            href={`/direction/ressources/employes/${entry.chauffeurId}`}
+            className="employee-accounts-registry-action-btn employee-accounts-registry-action-btn--ghost"
+          >
+            Fiche
+          </Link>
+        ) : null}
+        {entry.accountRequestId ? (
+          <Link
+            href="/direction/demandes-comptes"
+            className="employee-accounts-registry-action-btn employee-accounts-registry-action-btn--ghost"
+          >
+            Demande
+          </Link>
+        ) : null}
+      </div>
+
+      {isExpanded ? (
+        <div
+          id={`registry-diagnostic-${entry.registryKey}`}
+          className="employee-accounts-registry-mobile-diagnostic"
+        >
+          <RegistryDiagnosticPanel entry={entry} onClose={onToggleDiagnostic} />
+        </div>
+      ) : null}
+    </article>
+  );
+}
+
+function RegistryEntryRows({
+  filteredEntries,
+  activeTab,
+  diagnosticEntryKey,
+  toggleDiagnostic,
+}: {
+  filteredEntries: EmployeeAccountsRegistryEntry[];
+  activeTab: EmployeeAccountsRegistryTab;
+  diagnosticEntryKey: string | null;
+  toggleDiagnostic: (registryKey: string) => void;
+}) {
+  return (
+    <>
+      <div className="account-requests-premium-table-wrap account-requests-premium-table-wrap--desktop">
+        <table className="account-requests-premium-table account-requests-premium-table--registry">
+          <colgroup>
+            <col style={{ width: "22%" }} />
+            <col style={{ width: "12%" }} />
+            <col style={{ width: "8%" }} />
+            <col style={{ width: "7%" }} />
+            <col style={{ width: "8%" }} />
+            <col style={{ width: "9%" }} />
+            <col style={{ width: "7%" }} />
+            <col style={{ width: "7%" }} />
+            <col style={{ width: "20%" }} />
+          </colgroup>
+          <thead>
+            <tr>
+              <th>Employé / courriel</th>
+              <th>Statut dérivé</th>
+              <th className="employee-accounts-registry-cell--center">Fiche RH</th>
+              <th className="employee-accounts-registry-cell--center">Auth</th>
+              <th className="employee-accounts-registry-cell--center">Demande</th>
+              <th className="employee-accounts-registry-cell--center">Désactivé</th>
+              <th className="employee-accounts-registry-cell--center">Tél.</th>
+              <th className="employee-accounts-registry-cell--center">Conflits</th>
+              <th className="employee-accounts-registry-cell--center">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filteredEntries.map((entry) => {
+              const isExpanded = diagnosticEntryKey === entry.registryKey;
+
+              return (
+                <Fragment key={entry.registryKey}>
+                  <tr
+                    className={
+                      isExpanded ? "employee-accounts-registry-row--selected" : undefined
+                    }
+                  >
+                    <td>
+                      <div className="account-requests-requester">
+                        <div className="account-requests-requester-name">{entry.displayName}</div>
+                        <div className="account-requests-requester-meta">
+                          {entry.email ?? "—"}
+                        </div>
+                      </div>
+                    </td>
+                    <td>
+                      <StatusBadge
+                        label={entry.derivedStatus}
+                        tone={getDerivedStatusTone(entry.derivedStatus)}
+                      />
+                    </td>
+                    <td className="employee-accounts-registry-cell--center">
+                      <BoolCell value={entry.employeeProfileActive} />
+                    </td>
+                    <td className="employee-accounts-registry-cell--center">
+                      <BoolCell value={entry.authLinked} />
+                    </td>
+                    <td className="employee-accounts-registry-cell--center">
+                      <BoolCell value={entry.hasAccountRequest} />
+                    </td>
+                    <td className="employee-accounts-registry-cell--center">
+                      <BoolCell value={entry.accessDisabled} />
+                    </td>
+                    <td className="employee-accounts-registry-cell--center">
+                      <BoolCell value={entry.profilePhonePresent} />
+                    </td>
+                    <td className="employee-accounts-registry-cell--center">
+                      {entry.conflictIndicators.length > 0 ? (
+                        <span
+                          className="employee-accounts-registry-conflict-badge"
+                          title={entry.conflictIndicators.join(" · ")}
+                        >
+                          <AlertTriangle size={14} aria-hidden />
+                          {entry.conflictIndicators.length}
+                        </span>
+                      ) : (
+                        <span className="employee-accounts-registry-bool employee-accounts-registry-bool--na">
+                          —
+                        </span>
+                      )}
+                    </td>
+                    <td className="employee-accounts-registry-cell--center">
+                      <div className="employee-accounts-registry-actions">
+                        <button
+                          type="button"
+                          className={`employee-accounts-registry-action-btn${
+                            isExpanded
+                              ? " employee-accounts-registry-action-btn--primary"
+                              : " employee-accounts-registry-action-btn--secondary"
+                          }`}
+                          onClick={() => toggleDiagnostic(entry.registryKey)}
+                          aria-expanded={isExpanded}
+                        >
+                          {isExpanded ? "Masquer" : "Diagnostic"}
+                        </button>
+                        {entry.chauffeurId ? (
+                          <Link
+                            href={`/direction/ressources/employes/${entry.chauffeurId}`}
+                            className="employee-accounts-registry-action-btn employee-accounts-registry-action-btn--ghost"
+                          >
+                            Fiche
+                          </Link>
+                        ) : null}
+                        {entry.accountRequestId ? (
+                          <Link
+                            href="/direction/demandes-comptes"
+                            className="employee-accounts-registry-action-btn employee-accounts-registry-action-btn--ghost"
+                          >
+                            Demande
+                          </Link>
+                        ) : null}
+                      </div>
+                    </td>
+                  </tr>
+                  {isExpanded ? (
+                    <tr
+                      id={`registry-diagnostic-${entry.registryKey}`}
+                      className="employee-accounts-registry-diagnostic-row"
+                    >
+                      <td colSpan={9}>
+                        <RegistryDiagnosticPanel
+                          entry={entry}
+                          onClose={() => toggleDiagnostic(entry.registryKey)}
+                        />
+                      </td>
+                    </tr>
+                  ) : null}
+                </Fragment>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="account-requests-mobile-list" aria-label="Liste du registre comptes employés">
+        {filteredEntries.map((entry) => (
+          <RegistryEntryMobileCard
+            key={entry.registryKey}
+            entry={entry}
+            activeTab={activeTab}
+            isExpanded={diagnosticEntryKey === entry.registryKey}
+            onToggleDiagnostic={() => toggleDiagnostic(entry.registryKey)}
+          />
+        ))}
+      </div>
+    </>
+  );
+}
+
 export default function EmployeeAccountsRegistryClient() {
-  const { user, role } = useCurrentAccess();
+  const { user, role, loading: accessLoading } = useCurrentAccess();
   const canView = role === "direction" || role === "admin";
   const [entries, setEntries] = useState<EmployeeAccountsRegistryEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [accessToken, setAccessToken] = useState<string | null>(null);
+  const [sessionReady, setSessionReady] = useState(false);
+  const [fetchAttempted, setFetchAttempted] = useState(false);
   const [activeTab, setActiveTab] = useState<EmployeeAccountsRegistryTab>("active");
   const [search, setSearch] = useState("");
   const [message, setMessage] = useState("");
@@ -211,6 +483,7 @@ export default function EmployeeAccountsRegistryClient() {
     void supabase.auth.getSession().then(({ data }) => {
       if (!cancelled) {
         setAccessToken(data.session?.access_token ?? null);
+        setSessionReady(true);
       }
     });
 
@@ -220,7 +493,18 @@ export default function EmployeeAccountsRegistryClient() {
   }, []);
 
   const fetchRegistry = useCallback(async () => {
-    if (!accessToken || !canView) {
+    if (accessLoading || !sessionReady) {
+      return;
+    }
+
+    if (!canView) {
+      setFetchAttempted(true);
+      setLoading(false);
+      return;
+    }
+
+    if (!accessToken) {
+      setFetchAttempted(true);
       setLoading(false);
       return;
     }
@@ -257,9 +541,10 @@ export default function EmployeeAccountsRegistryClient() {
       setMessage("Impossible de charger le registre pour le moment.");
       setMessageType("error");
     } finally {
+      setFetchAttempted(true);
       setLoading(false);
     }
-  }, [accessToken, canView]);
+  }, [accessLoading, accessToken, canView, sessionReady]);
 
   useEffect(() => {
     void fetchRegistry();
@@ -317,6 +602,20 @@ export default function EmployeeAccountsRegistryClient() {
   const toggleDiagnostic = useCallback((registryKey: string) => {
     setDiagnosticEntryKey((current) => (current === registryKey ? null : registryKey));
   }, []);
+
+  const sessionOrAccessLoading = accessLoading || !sessionReady;
+  const registryLoading = sessionOrAccessLoading || loading;
+  const showEmptyState = fetchAttempted && !registryLoading && filteredEntries.length === 0;
+
+  if (sessionOrAccessLoading) {
+    return (
+      <main className="tagora-app-shell account-requests-page employee-accounts-registry-page">
+        <div className="tagora-app-content">
+          <p className="tagora-note">Chargement de la session…</p>
+        </div>
+      </main>
+    );
+  }
 
   if (!canView) {
     return (
@@ -418,158 +717,31 @@ export default function EmployeeAccountsRegistryClient() {
               type="button"
               className="employee-accounts-registry-action-btn employee-accounts-registry-action-btn--secondary"
               onClick={() => void fetchRegistry()}
-              disabled={loading}
+              disabled={registryLoading}
             >
-              {loading ? "Actualisation…" : "Actualiser"}
+              {registryLoading ? "Actualisation…" : "Actualiser"}
             </button>
           </div>
 
-          {loading ? (
+          {registryLoading ? (
             <div className="tagora-panel-muted">
               <p className="tagora-note" style={{ margin: 0 }}>
                 Chargement du registre…
               </p>
             </div>
-          ) : filteredEntries.length === 0 ? (
+          ) : showEmptyState ? (
             <div className="tagora-panel-muted">
               <p className="tagora-note" style={{ margin: 0 }}>
                 Aucune entrée ne correspond à cet onglet.
               </p>
             </div>
           ) : (
-            <div className="account-requests-premium-table-wrap account-requests-premium-table-wrap--desktop">
-              <table className="account-requests-premium-table account-requests-premium-table--registry">
-                <colgroup>
-                  <col style={{ width: "22%" }} />
-                  <col style={{ width: "12%" }} />
-                  <col style={{ width: "8%" }} />
-                  <col style={{ width: "7%" }} />
-                  <col style={{ width: "8%" }} />
-                  <col style={{ width: "9%" }} />
-                  <col style={{ width: "7%" }} />
-                  <col style={{ width: "7%" }} />
-                  <col style={{ width: "20%" }} />
-                </colgroup>
-                <thead>
-                  <tr>
-                    <th>Employé / courriel</th>
-                    <th>Statut dérivé</th>
-                    <th className="employee-accounts-registry-cell--center">Fiche RH</th>
-                    <th className="employee-accounts-registry-cell--center">Auth</th>
-                    <th className="employee-accounts-registry-cell--center">Demande</th>
-                    <th className="employee-accounts-registry-cell--center">Désactivé</th>
-                    <th className="employee-accounts-registry-cell--center">Tél.</th>
-                    <th className="employee-accounts-registry-cell--center">Conflits</th>
-                    <th className="employee-accounts-registry-cell--center">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredEntries.map((entry) => {
-                    const isExpanded = diagnosticEntryKey === entry.registryKey;
-
-                    return (
-                      <Fragment key={entry.registryKey}>
-                        <tr
-                          className={
-                            isExpanded ? "employee-accounts-registry-row--selected" : undefined
-                          }
-                        >
-                          <td>
-                            <div className="account-requests-requester">
-                              <div className="account-requests-requester-name">{entry.displayName}</div>
-                              <div className="account-requests-requester-meta">
-                                {entry.email ?? "—"}
-                              </div>
-                            </div>
-                          </td>
-                          <td>
-                            <StatusBadge
-                              label={entry.derivedStatus}
-                              tone={getDerivedStatusTone(entry.derivedStatus)}
-                            />
-                          </td>
-                          <td className="employee-accounts-registry-cell--center">
-                            <BoolCell value={entry.employeeProfileActive} />
-                          </td>
-                          <td className="employee-accounts-registry-cell--center">
-                            <BoolCell value={entry.authLinked} />
-                          </td>
-                          <td className="employee-accounts-registry-cell--center">
-                            <BoolCell value={entry.hasAccountRequest} />
-                          </td>
-                          <td className="employee-accounts-registry-cell--center">
-                            <BoolCell value={entry.accessDisabled} />
-                          </td>
-                          <td className="employee-accounts-registry-cell--center">
-                            <BoolCell value={entry.profilePhonePresent} />
-                          </td>
-                          <td className="employee-accounts-registry-cell--center">
-                            {entry.conflictIndicators.length > 0 ? (
-                              <span
-                                className="employee-accounts-registry-conflict-badge"
-                                title={entry.conflictIndicators.join(" · ")}
-                              >
-                                <AlertTriangle size={14} aria-hidden />
-                                {entry.conflictIndicators.length}
-                              </span>
-                            ) : (
-                              <span className="employee-accounts-registry-bool employee-accounts-registry-bool--na">
-                                —
-                              </span>
-                            )}
-                          </td>
-                          <td className="employee-accounts-registry-cell--center">
-                            <div className="employee-accounts-registry-actions">
-                              <button
-                                type="button"
-                                className={`employee-accounts-registry-action-btn${
-                                  isExpanded
-                                    ? " employee-accounts-registry-action-btn--primary"
-                                    : " employee-accounts-registry-action-btn--secondary"
-                                }`}
-                                onClick={() => toggleDiagnostic(entry.registryKey)}
-                                aria-expanded={isExpanded}
-                              >
-                                {isExpanded ? "Masquer" : "Diagnostic"}
-                              </button>
-                              {entry.chauffeurId ? (
-                                <Link
-                                  href={`/direction/ressources/employes/${entry.chauffeurId}`}
-                                  className="employee-accounts-registry-action-btn employee-accounts-registry-action-btn--ghost"
-                                >
-                                  Fiche
-                                </Link>
-                              ) : null}
-                              {entry.accountRequestId ? (
-                                <Link
-                                  href="/direction/demandes-comptes"
-                                  className="employee-accounts-registry-action-btn employee-accounts-registry-action-btn--ghost"
-                                >
-                                  Demande
-                                </Link>
-                              ) : null}
-                            </div>
-                          </td>
-                        </tr>
-                        {isExpanded ? (
-                          <tr
-                            id={`registry-diagnostic-${entry.registryKey}`}
-                            className="employee-accounts-registry-diagnostic-row"
-                          >
-                            <td colSpan={9}>
-                              <RegistryDiagnosticPanel
-                                entry={entry}
-                                onClose={() => setDiagnosticEntryKey(null)}
-                              />
-                            </td>
-                          </tr>
-                        ) : null}
-                      </Fragment>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+            <RegistryEntryRows
+              filteredEntries={filteredEntries}
+              activeTab={activeTab}
+              diagnosticEntryKey={diagnosticEntryKey}
+              toggleDiagnostic={toggleDiagnostic}
+            />
           )}
         </section>
 
