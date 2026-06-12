@@ -509,7 +509,7 @@ function RegistryEntryRows({
                         </span>
                       )}
                     </td>
-                    <td className="employee-accounts-registry-cell--center employee-accounts-registry-cell--actions">
+                    <td className="employee-accounts-registry-cell--center employee-accounts-registry-cell--actions employee-accounts-registry-actions-cell">
                       <RegistryRowActions
                         entry={entry}
                         isExpanded={isExpanded}

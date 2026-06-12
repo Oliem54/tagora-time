@@ -3751,6 +3751,28 @@ select {
   gap: 12px;
 }
 
+.employee-accounts-registry-page .account-requests-premium-table-wrap--desktop {
+  overflow: visible;
+}
+
+.account-requests-premium-table--registry td.employee-accounts-registry-actions-cell,
+.account-requests-premium-table--registry td.employee-accounts-registry-cell--actions {
+  overflow: visible;
+  position: relative;
+}
+
+.account-requests-premium-table--registry
+  tr:has(.employee-accounts-registry-action-btn--menu[aria-expanded="true"]) {
+  position: relative;
+  z-index: 5;
+}
+
+.account-requests-premium-table--registry
+  tr:has(.employee-accounts-registry-action-btn--menu[aria-expanded="true"])
+  td {
+  overflow: visible;
+}
+
 .employee-accounts-registry-mobile-diagnostic {
   margin-top: 14px;
 }
@@ -3984,7 +4006,7 @@ select {
   position: absolute;
   top: calc(100% + 6px);
   right: 0;
-  z-index: 24;
+  z-index: 40;
   min-width: 184px;
   padding: 6px;
   border-radius: 12px;
