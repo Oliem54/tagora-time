@@ -2,15 +2,27 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { Fragment, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import {
   AlertTriangle,
   Archive,
   ArrowLeft,
+  ChevronDown,
   Clock3,
   ExternalLink,
+  FileText,
   Search,
   UserCheck,
+  UserRound,
   UserX,
   Users,
 } from "lucide-react";
@@ -214,6 +226,130 @@ function RegistryMobileField({ label, children }: { label: string; children: Rea
   );
 }
 
+function RegistryRowActions({
+  entry,
+  isExpanded,
+  onToggleDiagnostic,
+  layout = "table",
+}: {
+  entry: EmployeeAccountsRegistryEntry;
+  isExpanded: boolean;
+  onToggleDiagnostic: () => void;
+  layout?: "table" | "mobile";
+}) {
+  const menuId = useId();
+  const menuRef = useRef<HTMLDivElement>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const hasFicheLink = Boolean(entry.chauffeurId);
+  const hasDemandeLink = Boolean(entry.accountRequestId);
+  const hasOpenMenu = hasFicheLink || hasDemandeLink;
+  const isMobile = layout === "mobile";
+
+  useEffect(() => {
+    if (!menuOpen) {
+      return;
+    }
+
+    function handlePointerDown(event: MouseEvent) {
+      if (!menuRef.current?.contains(event.target as Node)) {
+        setMenuOpen(false);
+      }
+    }
+
+    function handleEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setMenuOpen(false);
+      }
+    }
+
+    document.addEventListener("mousedown", handlePointerDown);
+    document.addEventListener("keydown", handleEscape);
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+      document.removeEventListener("keydown", handleEscape);
+    };
+  }, [menuOpen]);
+
+  return (
+    <div
+      ref={menuRef}
+      className={`employee-accounts-registry-actions${
+        isMobile ? " employee-accounts-registry-actions--mobile" : ""
+      }`}
+    >
+      <button
+        type="button"
+        className={`employee-accounts-registry-action-btn${
+          isExpanded
+            ? " employee-accounts-registry-action-btn--primary"
+            : " employee-accounts-registry-action-btn--secondary"
+        }`}
+        onClick={onToggleDiagnostic}
+        aria-expanded={isExpanded}
+      >
+        {isExpanded
+          ? isMobile
+            ? "Masquer le diagnostic"
+            : "Masquer"
+          : "Diagnostic"}
+      </button>
+
+      {hasOpenMenu ? (
+        <div className="employee-accounts-registry-actions-menu-wrap">
+          <button
+            type="button"
+            className="employee-accounts-registry-action-btn employee-accounts-registry-action-btn--ghost employee-accounts-registry-action-btn--menu"
+            aria-expanded={menuOpen}
+            aria-haspopup="menu"
+            aria-controls={menuId}
+            onClick={() => setMenuOpen((current) => !current)}
+          >
+            Ouvrir
+            <ChevronDown
+              size={14}
+              strokeWidth={2.2}
+              aria-hidden
+              className="employee-accounts-registry-action-btn__chevron"
+            />
+          </button>
+
+          {menuOpen ? (
+            <div
+              id={menuId}
+              role="menu"
+              className="employee-accounts-registry-actions-menu"
+              aria-label="Liens registre compte employé"
+            >
+              {hasFicheLink ? (
+                <Link
+                  role="menuitem"
+                  href={`/direction/ressources/employes/${entry.chauffeurId}`}
+                  className="employee-accounts-registry-actions-menu-item"
+                  onClick={() => setMenuOpen(false)}
+                >
+                  <UserRound size={15} strokeWidth={2} aria-hidden />
+                  Fiche employé
+                </Link>
+              ) : null}
+              {hasDemandeLink ? (
+                <Link
+                  role="menuitem"
+                  href="/direction/demandes-comptes"
+                  className="employee-accounts-registry-actions-menu-item"
+                  onClick={() => setMenuOpen(false)}
+                >
+                  <FileText size={15} strokeWidth={2} aria-hidden />
+                  Demande compte
+                </Link>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function RegistryEntryMobileCard({
   entry,
   activeTab,
@@ -259,34 +395,12 @@ function RegistryEntryMobileCard({
       </div>
 
       <div className="account-requests-mobile-actions">
-        <button
-          type="button"
-          className={`employee-accounts-registry-action-btn${
-            isExpanded
-              ? " employee-accounts-registry-action-btn--primary"
-              : " employee-accounts-registry-action-btn--secondary"
-          }`}
-          onClick={onToggleDiagnostic}
-          aria-expanded={isExpanded}
-        >
-          {isExpanded ? "Masquer le diagnostic" : "Diagnostic"}
-        </button>
-        {entry.chauffeurId ? (
-          <Link
-            href={`/direction/ressources/employes/${entry.chauffeurId}`}
-            className="employee-accounts-registry-action-btn employee-accounts-registry-action-btn--ghost"
-          >
-            Fiche
-          </Link>
-        ) : null}
-        {entry.accountRequestId ? (
-          <Link
-            href="/direction/demandes-comptes"
-            className="employee-accounts-registry-action-btn employee-accounts-registry-action-btn--ghost"
-          >
-            Demande
-          </Link>
-        ) : null}
+        <RegistryRowActions
+          entry={entry}
+          isExpanded={isExpanded}
+          onToggleDiagnostic={onToggleDiagnostic}
+          layout="mobile"
+        />
       </div>
 
       {isExpanded ? (
@@ -325,7 +439,7 @@ function RegistryEntryRows({
             <col style={{ width: "9%" }} />
             <col style={{ width: "7%" }} />
             <col style={{ width: "7%" }} />
-            <col style={{ width: "20%" }} />
+            <col style={{ width: "14%" }} />
           </colgroup>
           <thead>
             <tr>
@@ -395,37 +509,12 @@ function RegistryEntryRows({
                         </span>
                       )}
                     </td>
-                    <td className="employee-accounts-registry-cell--center">
-                      <div className="employee-accounts-registry-actions">
-                        <button
-                          type="button"
-                          className={`employee-accounts-registry-action-btn${
-                            isExpanded
-                              ? " employee-accounts-registry-action-btn--primary"
-                              : " employee-accounts-registry-action-btn--secondary"
-                          }`}
-                          onClick={() => toggleDiagnostic(entry.registryKey)}
-                          aria-expanded={isExpanded}
-                        >
-                          {isExpanded ? "Masquer" : "Diagnostic"}
-                        </button>
-                        {entry.chauffeurId ? (
-                          <Link
-                            href={`/direction/ressources/employes/${entry.chauffeurId}`}
-                            className="employee-accounts-registry-action-btn employee-accounts-registry-action-btn--ghost"
-                          >
-                            Fiche
-                          </Link>
-                        ) : null}
-                        {entry.accountRequestId ? (
-                          <Link
-                            href="/direction/demandes-comptes"
-                            className="employee-accounts-registry-action-btn employee-accounts-registry-action-btn--ghost"
-                          >
-                            Demande
-                          </Link>
-                        ) : null}
-                      </div>
+                    <td className="employee-accounts-registry-cell--center employee-accounts-registry-cell--actions">
+                      <RegistryRowActions
+                        entry={entry}
+                        isExpanded={isExpanded}
+                        onToggleDiagnostic={() => toggleDiagnostic(entry.registryKey)}
+                      />
                     </td>
                   </tr>
                   {isExpanded ? (
