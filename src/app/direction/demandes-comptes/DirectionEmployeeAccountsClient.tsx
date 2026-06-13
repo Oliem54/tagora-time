@@ -841,6 +841,12 @@ export default function DirectionEmployeeAccountsClient() {
           <div className="account-requests-premium-hero-actions">
             {user?.email ? <UserIdentityBadge value={user.email} roleLabel={viewerRoleLabel} /> : null}
             <Link
+              href="/direction/comptes-employes"
+              className="account-requests-hero-button account-requests-hero-button-secondary"
+            >
+              Registre comptes employés
+            </Link>
+            <Link
               href="/direction/ressources/employes"
               className="account-requests-hero-button account-requests-hero-button-secondary"
             >

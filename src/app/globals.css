@@ -3834,9 +3834,330 @@ select {
   }
 }
 
+/* Employee accounts registry — /direction/comptes-employes */
+.employee-accounts-registry-page .employee-accounts-registry-hero {
+  grid-template-columns: 188px minmax(0, 1fr) auto;
+  padding: 18px 22px;
+}
+
+.employee-accounts-registry-page .employee-accounts-registry-logo-card {
+  min-height: 112px;
+  padding: 14px 16px;
+}
+
+.employee-accounts-registry-stat-grid {
+  margin-bottom: 0;
+}
+
+.employee-accounts-registry-stat-button {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  border-radius: 18px;
+}
+
+.employee-accounts-registry-stat-button--active .tagora-stat-card {
+  outline: 2px solid #173868;
+  outline-offset: 2px;
+}
+
+.employee-accounts-registry-shell {
+  gap: 12px;
+}
+
+.employee-accounts-registry-page .account-requests-premium-table-wrap--desktop {
+  overflow-x: auto;
+}
+
+.account-requests-premium-table--registry th:nth-child(6),
+.account-requests-premium-table--registry td:nth-child(6),
+.account-requests-premium-table--registry th:nth-child(7),
+.account-requests-premium-table--registry td:nth-child(7) {
+  min-width: 0;
+}
+
+.account-requests-premium-table--registry th:nth-child(8),
+.account-requests-premium-table--registry td:nth-child(8) {
+  min-width: 72px;
+}
+
+.account-requests-premium-table--registry th.employee-accounts-registry-cell--actions,
+.account-requests-premium-table--registry td.employee-accounts-registry-cell--actions {
+  min-width: 232px;
+  width: 18%;
+  overflow: visible;
+  text-align: center;
+}
+
+.employee-accounts-registry-mobile-diagnostic {
+  margin-top: 14px;
+}
+
+.employee-accounts-registry-toolbar {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.employee-accounts-registry-search {
+  flex: 1 1 280px;
+  margin-bottom: 0;
+}
+
+.employee-accounts-registry-search__field {
+  position: relative;
+}
+
+.employee-accounts-registry-search__field svg {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #72829a;
+  pointer-events: none;
+}
+
+.employee-accounts-registry-search__field .tagora-input {
+  padding-left: 36px;
+}
+
+.account-requests-premium-table--registry th.employee-accounts-registry-cell--center,
+.account-requests-premium-table--registry td.employee-accounts-registry-cell--center {
+  text-align: center;
+}
+
+.account-requests-premium-table--registry td {
+  padding: 10px 12px;
+  vertical-align: middle;
+}
+
+.account-requests-premium-table--registry th {
+  padding: 9px 12px;
+}
+
+.employee-accounts-registry-row--selected {
+  background: #eef4fb !important;
+}
+
+.employee-accounts-registry-diagnostic-row td {
+  padding: 0 !important;
+  border-bottom: 1px solid #dfe6f0;
+  background: linear-gradient(180deg, #f8fbff 0%, #f4f8fd 100%);
+}
+
+.employee-accounts-registry-diagnostic-panel {
+  padding: 16px 18px 18px;
+}
+
+.employee-accounts-registry-diagnostic-panel__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.employee-accounts-registry-diagnostic-panel__title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 800;
+  color: #13294a;
+}
+
+.employee-accounts-registry-diagnostic-panel__subtitle {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: #72829a;
+}
+
+.employee-accounts-registry-diagnostic-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 10px 14px;
+  margin: 0 0 14px;
+}
+
+.employee-accounts-registry-diagnostic-grid dt {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #8a98b0;
+}
+
+.employee-accounts-registry-diagnostic-grid dd {
+  margin: 4px 0 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: #162946;
+}
+
+.employee-accounts-registry-diagnostic-conflicts h3 {
+  margin: 0 0 8px;
+  font-size: 14px;
+  font-weight: 800;
+  color: #13294a;
+}
+
+.employee-accounts-registry-diagnostic-conflicts ul {
+  margin: 0;
+  padding-left: 18px;
+  color: #334155;
+  font-size: 13px;
+}
+
+.employee-accounts-registry-diagnostic-empty {
+  margin: 0 0 12px;
+}
+
+.employee-accounts-registry-diagnostic-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.employee-accounts-registry-bool {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 42px;
+  height: 26px;
+  padding: 0 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.employee-accounts-registry-bool--yes {
+  background: #ecfdf3;
+  color: #166534;
+}
+
+.employee-accounts-registry-bool--no {
+  background: #fef2f2;
+  color: #991b1b;
+}
+
+.employee-accounts-registry-bool--na {
+  background: #f1f5f9;
+  color: #64748b;
+}
+
+.employee-accounts-registry-conflict-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-width: 42px;
+  height: 26px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: #fff7ed;
+  color: #c2410c;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.employee-accounts-registry-actions {
+  display: inline-flex;
+  flex-wrap: nowrap;
+  gap: 5px;
+  justify-content: center;
+  align-items: center;
+}
+
+.employee-accounts-registry-actions--mobile {
+  width: 100%;
+  justify-content: flex-start;
+  flex-wrap: nowrap;
+}
+
+.employee-accounts-registry-cell--actions {
+  padding-inline: 8px;
+  white-space: nowrap;
+}
+
+.employee-accounts-registry-action-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  height: 30px;
+  padding: 0 10px;
+  border-radius: 9px;
+  border: 1px solid transparent;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  text-decoration: none;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 140ms ease, border-color 140ms ease, color 140ms ease, box-shadow 140ms ease;
+}
+
+.employee-accounts-registry-action-btn--compact {
+  height: 26px;
+  padding: 0 8px;
+  font-size: 11px;
+  border-radius: 7px;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.employee-accounts-registry-action-btn--primary {
+  background: linear-gradient(135deg, #173d75 0%, #153665 100%);
+  color: #ffffff;
+  border-color: #12305a;
+}
+
+.employee-accounts-registry-action-btn--secondary {
+  background: #ffffff;
+  color: #173d75;
+  border-color: #b9c7db;
+}
+
+.employee-accounts-registry-action-btn--ghost {
+  background: #f8fafc;
+  color: #475569;
+  border-color: #dbe3ee;
+}
+
+.employee-accounts-registry-action-btn--link {
+  background: #f8fafc;
+  color: #173d75;
+  border-color: #c9d5e6;
+}
+
+.employee-accounts-registry-action-btn--link:hover {
+  background: #eef4fb;
+  border-color: #b9c7db;
+  color: #12305a;
+}
+
+.employee-accounts-registry-footnote {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+}
+
 @media (max-width: 900px) {
   .account-requests-premium-table-wrap--desktop {
     display: none;
+  }
+
+  .employee-accounts-registry-page .account-requests-premium-table-wrap--desktop {
+    display: none;
+  }
+
+  .employee-accounts-registry-stat-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .account-requests-mobile-list {

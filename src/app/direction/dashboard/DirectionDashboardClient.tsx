@@ -18,6 +18,7 @@ import {
   ClipboardList,
   Bell,
   Waypoints,
+  Users,
   type LucideIcon,
 } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -71,6 +72,7 @@ const MODULE_GROUPS: ModuleGroup[] = [
 
 const EFFECTIFS_MODULE_HREF = "/direction/effectifs";
 const ALERT_CENTER_HREF = "/direction/alertes";
+const EMPLOYEE_REGISTRY_MODULE_HREF = "/direction/comptes-employes";
 
 const MODULES: ModuleDefinition[] = [
   {
@@ -179,6 +181,15 @@ const MODULES: ModuleDefinition[] = [
     permission: "ressources",
     group: "gestion",
     icon: FileStack,
+    tone: "purple",
+  },
+  {
+    href: EMPLOYEE_REGISTRY_MODULE_HREF,
+    label: "Registre comptes employés",
+    description: "Vue lecture seule des accès portail, fiches RH et incohérences.",
+    permission: null,
+    group: "gestion",
+    icon: Users,
     tone: "purple",
   },
   {
@@ -340,6 +351,7 @@ export default function DirectionDashboardClient() {
     const showEffectifsTile = role === "admin" || role === "direction";
     const fromConfig = MODULES.filter((item) => {
       if (item.href === ALERT_CENTER_HREF && !isDirectionCoreRole) return false;
+      if (item.href === EMPLOYEE_REGISTRY_MODULE_HREF && !isDirectionCoreRole) return false;
       if (item.href === EFFECTIFS_MODULE_HREF) return false;
       return item.permission ? hasPermission(item.permission) : true;
     });
