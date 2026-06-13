@@ -357,15 +357,15 @@ function RegistryEntryRows({
       <div className="account-requests-premium-table-wrap account-requests-premium-table-wrap--desktop">
         <table className="account-requests-premium-table account-requests-premium-table--registry">
           <colgroup>
-            <col style={{ width: "22%" }} />
-            <col style={{ width: "12%" }} />
-            <col style={{ width: "8%" }} />
+            <col style={{ width: "20%" }} />
+            <col style={{ width: "11%" }} />
+            <col style={{ width: "7%" }} />
+            <col style={{ width: "7%" }} />
             <col style={{ width: "7%" }} />
             <col style={{ width: "8%" }} />
-            <col style={{ width: "9%" }} />
             <col style={{ width: "7%" }} />
             <col style={{ width: "7%" }} />
-            <col style={{ width: "14%" }} />
+            <col style={{ width: "18%" }} />
           </colgroup>
           <thead>
             <tr>
@@ -377,7 +377,7 @@ function RegistryEntryRows({
               <th className="employee-accounts-registry-cell--center">Désactivé</th>
               <th className="employee-accounts-registry-cell--center">Tél.</th>
               <th className="employee-accounts-registry-cell--center">Conflits</th>
-              <th className="employee-accounts-registry-cell--center">Actions</th>
+              <th className="employee-accounts-registry-cell--center employee-accounts-registry-cell--actions">Actions</th>
             </tr>
           </thead>
           <tbody>

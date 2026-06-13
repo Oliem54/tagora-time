@@ -3751,6 +3751,30 @@ select {
   gap: 12px;
 }
 
+.employee-accounts-registry-page .account-requests-premium-table-wrap--desktop {
+  overflow-x: auto;
+}
+
+.account-requests-premium-table--registry th:nth-child(6),
+.account-requests-premium-table--registry td:nth-child(6),
+.account-requests-premium-table--registry th:nth-child(7),
+.account-requests-premium-table--registry td:nth-child(7) {
+  min-width: 0;
+}
+
+.account-requests-premium-table--registry th:nth-child(8),
+.account-requests-premium-table--registry td:nth-child(8) {
+  min-width: 72px;
+}
+
+.account-requests-premium-table--registry th.employee-accounts-registry-cell--actions,
+.account-requests-premium-table--registry td.employee-accounts-registry-cell--actions {
+  min-width: 232px;
+  width: 18%;
+  overflow: visible;
+  text-align: center;
+}
+
 .employee-accounts-registry-mobile-diagnostic {
   margin-top: 14px;
 }
@@ -3925,10 +3949,9 @@ select {
 .employee-accounts-registry-actions {
   display: inline-flex;
   flex-wrap: nowrap;
-  gap: 6px;
-  justify-content: flex-end;
+  gap: 5px;
+  justify-content: center;
   align-items: center;
-  max-width: 100%;
 }
 
 .employee-accounts-registry-actions--mobile {
@@ -3938,7 +3961,7 @@ select {
 }
 
 .employee-accounts-registry-cell--actions {
-  padding-inline: 10px;
+  padding-inline: 8px;
   white-space: nowrap;
 }
 
@@ -3962,7 +3985,7 @@ select {
 
 .employee-accounts-registry-action-btn--compact {
   height: 26px;
-  padding: 0 7px;
+  padding: 0 8px;
   font-size: 11px;
   border-radius: 7px;
   gap: 4px;
