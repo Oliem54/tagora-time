@@ -6,9 +6,7 @@ import {
   Fragment,
   useCallback,
   useEffect,
-  useId,
   useMemo,
-  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -16,13 +14,10 @@ import {
   AlertTriangle,
   Archive,
   ArrowLeft,
-  ChevronDown,
   Clock3,
   ExternalLink,
-  FileText,
   Search,
   UserCheck,
-  UserRound,
   UserX,
   Users,
 } from "lucide-react";
@@ -237,49 +232,19 @@ function RegistryRowActions({
   onToggleDiagnostic: () => void;
   layout?: "table" | "mobile";
 }) {
-  const menuId = useId();
-  const menuRef = useRef<HTMLDivElement>(null);
-  const [menuOpen, setMenuOpen] = useState(false);
   const hasFicheLink = Boolean(entry.chauffeurId);
   const hasDemandeLink = Boolean(entry.accountRequestId);
-  const hasOpenMenu = hasFicheLink || hasDemandeLink;
   const isMobile = layout === "mobile";
-
-  useEffect(() => {
-    if (!menuOpen) {
-      return;
-    }
-
-    function handlePointerDown(event: MouseEvent) {
-      if (!menuRef.current?.contains(event.target as Node)) {
-        setMenuOpen(false);
-      }
-    }
-
-    function handleEscape(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        setMenuOpen(false);
-      }
-    }
-
-    document.addEventListener("mousedown", handlePointerDown);
-    document.addEventListener("keydown", handleEscape);
-    return () => {
-      document.removeEventListener("mousedown", handlePointerDown);
-      document.removeEventListener("keydown", handleEscape);
-    };
-  }, [menuOpen]);
 
   return (
     <div
-      ref={menuRef}
       className={`employee-accounts-registry-actions${
         isMobile ? " employee-accounts-registry-actions--mobile" : ""
       }`}
     >
       <button
         type="button"
-        className={`employee-accounts-registry-action-btn${
+        className={`employee-accounts-registry-action-btn employee-accounts-registry-action-btn--compact${
           isExpanded
             ? " employee-accounts-registry-action-btn--primary"
             : " employee-accounts-registry-action-btn--secondary"
@@ -287,64 +252,25 @@ function RegistryRowActions({
         onClick={onToggleDiagnostic}
         aria-expanded={isExpanded}
       >
-        {isExpanded
-          ? isMobile
-            ? "Masquer le diagnostic"
-            : "Masquer"
-          : "Diagnostic"}
+        {isExpanded ? "Masquer" : "Diagnostic"}
       </button>
 
-      {hasOpenMenu ? (
-        <div className="employee-accounts-registry-actions-menu-wrap">
-          <button
-            type="button"
-            className="employee-accounts-registry-action-btn employee-accounts-registry-action-btn--ghost employee-accounts-registry-action-btn--menu"
-            aria-expanded={menuOpen}
-            aria-haspopup="menu"
-            aria-controls={menuId}
-            onClick={() => setMenuOpen((current) => !current)}
-          >
-            Ouvrir
-            <ChevronDown
-              size={14}
-              strokeWidth={2.2}
-              aria-hidden
-              className="employee-accounts-registry-action-btn__chevron"
-            />
-          </button>
+      {hasFicheLink ? (
+        <Link
+          href={`/direction/ressources/employes/${entry.chauffeurId}`}
+          className="employee-accounts-registry-action-btn employee-accounts-registry-action-btn--compact employee-accounts-registry-action-btn--link"
+        >
+          Fiche
+        </Link>
+      ) : null}
 
-          {menuOpen ? (
-            <div
-              id={menuId}
-              role="menu"
-              className="employee-accounts-registry-actions-menu"
-              aria-label="Liens registre compte employé"
-            >
-              {hasFicheLink ? (
-                <Link
-                  role="menuitem"
-                  href={`/direction/ressources/employes/${entry.chauffeurId}`}
-                  className="employee-accounts-registry-actions-menu-item"
-                  onClick={() => setMenuOpen(false)}
-                >
-                  <UserRound size={15} strokeWidth={2} aria-hidden />
-                  Fiche employé
-                </Link>
-              ) : null}
-              {hasDemandeLink ? (
-                <Link
-                  role="menuitem"
-                  href="/direction/demandes-comptes"
-                  className="employee-accounts-registry-actions-menu-item"
-                  onClick={() => setMenuOpen(false)}
-                >
-                  <FileText size={15} strokeWidth={2} aria-hidden />
-                  Demande compte
-                </Link>
-              ) : null}
-            </div>
-          ) : null}
-        </div>
+      {hasDemandeLink ? (
+        <Link
+          href="/direction/demandes-comptes"
+          className="employee-accounts-registry-action-btn employee-accounts-registry-action-btn--compact employee-accounts-registry-action-btn--link"
+        >
+          Demande
+        </Link>
       ) : null}
     </div>
   );
@@ -509,7 +435,7 @@ function RegistryEntryRows({
                         </span>
                       )}
                     </td>
-                    <td className="employee-accounts-registry-cell--center employee-accounts-registry-cell--actions employee-accounts-registry-actions-cell">
+                    <td className="employee-accounts-registry-cell--center employee-accounts-registry-cell--actions">
                       <RegistryRowActions
                         entry={entry}
                         isExpanded={isExpanded}

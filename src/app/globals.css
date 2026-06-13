@@ -3751,28 +3751,6 @@ select {
   gap: 12px;
 }
 
-.employee-accounts-registry-page .account-requests-premium-table-wrap--desktop {
-  overflow: visible;
-}
-
-.account-requests-premium-table--registry td.employee-accounts-registry-actions-cell,
-.account-requests-premium-table--registry td.employee-accounts-registry-cell--actions {
-  overflow: visible;
-  position: relative;
-}
-
-.account-requests-premium-table--registry
-  tr:has(.employee-accounts-registry-action-btn--menu[aria-expanded="true"]) {
-  position: relative;
-  z-index: 5;
-}
-
-.account-requests-premium-table--registry
-  tr:has(.employee-accounts-registry-action-btn--menu[aria-expanded="true"])
-  td {
-  overflow: visible;
-}
-
 .employee-accounts-registry-mobile-diagnostic {
   margin-top: 14px;
 }
@@ -3955,21 +3933,13 @@ select {
 
 .employee-accounts-registry-actions--mobile {
   width: 100%;
-  justify-content: stretch;
-}
-
-.employee-accounts-registry-actions--mobile .employee-accounts-registry-action-btn--secondary,
-.employee-accounts-registry-actions--mobile .employee-accounts-registry-action-btn--primary {
-  flex: 1 1 auto;
-}
-
-.employee-accounts-registry-actions-menu-wrap {
-  position: relative;
-  flex-shrink: 0;
+  justify-content: flex-start;
+  flex-wrap: nowrap;
 }
 
 .employee-accounts-registry-cell--actions {
   padding-inline: 10px;
+  white-space: nowrap;
 }
 
 .employee-accounts-registry-action-btn {
@@ -3990,48 +3960,13 @@ select {
   transition: background 140ms ease, border-color 140ms ease, color 140ms ease, box-shadow 140ms ease;
 }
 
-.employee-accounts-registry-action-btn--menu {
-  padding-right: 8px;
-}
-
-.employee-accounts-registry-action-btn__chevron {
-  transition: transform 140ms ease;
-}
-
-.employee-accounts-registry-action-btn--menu[aria-expanded="true"] .employee-accounts-registry-action-btn__chevron {
-  transform: rotate(180deg);
-}
-
-.employee-accounts-registry-actions-menu {
-  position: absolute;
-  top: calc(100% + 6px);
-  right: 0;
-  z-index: 40;
-  min-width: 184px;
-  padding: 6px;
-  border-radius: 12px;
-  border: 1px solid rgba(15, 41, 72, 0.1);
-  background: #ffffff;
-  box-shadow: 0 14px 32px rgba(15, 41, 72, 0.14);
-}
-
-.employee-accounts-registry-actions-menu-item {
-  display: flex;
-  width: 100%;
-  align-items: center;
-  gap: 8px;
-  padding: 9px 10px;
-  border-radius: 8px;
-  color: #0f2948;
-  font-size: 12px;
-  font-weight: 600;
-  line-height: 1.2;
-  text-decoration: none;
-}
-
-.employee-accounts-registry-actions-menu-item:hover {
-  background: rgba(240, 247, 255, 0.96);
-  color: #173d75;
+.employee-accounts-registry-action-btn--compact {
+  height: 26px;
+  padding: 0 7px;
+  font-size: 11px;
+  border-radius: 7px;
+  gap: 4px;
+  flex-shrink: 0;
 }
 
 .employee-accounts-registry-action-btn--primary {
@@ -4050,6 +3985,18 @@ select {
   background: #f8fafc;
   color: #475569;
   border-color: #dbe3ee;
+}
+
+.employee-accounts-registry-action-btn--link {
+  background: #f8fafc;
+  color: #173d75;
+  border-color: #c9d5e6;
+}
+
+.employee-accounts-registry-action-btn--link:hover {
+  background: #eef4fb;
+  border-color: #b9c7db;
+  color: #12305a;
 }
 
 .employee-accounts-registry-footnote {
