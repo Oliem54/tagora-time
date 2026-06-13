@@ -24,6 +24,7 @@ import {
   type AccountAccessListFilter,
   type AccountAccessRequestRecord,
   type AccountAccessStatus,
+  getAccountRequestPortalSummaryLabel,
   isAccessDisabledRequest,
   matchesAccountAccessFilter,
 } from "@/app/lib/account-access";
@@ -43,7 +44,9 @@ import AccountRequestManageModal, {
 } from "./AccountRequestManageModal";
 import AccountRequestMobileCard from "./AccountRequestMobileCard";
 import AccountRequestRowActions from "./AccountRequestRowActions";
-import EmployeeLinkStatusBadge from "./EmployeeLinkStatusBadge";
+import EmployeeLinkCellContent from "./EmployeeLinkCellContent";
+import { isReconciliationCandidate } from "@/app/lib/account-reconcile.shared";
+import { RECONCILE_EXISTING_ACCOUNT_CONFIRM_MESSAGE } from "@/app/lib/account-reconcile.shared";
 
 type RequestRole = "employe" | "direction" | "admin";
 
@@ -92,8 +95,20 @@ function buildApiErrorMessage(payload: unknown, fallback: string) {
     return fallback;
   }
 
+  const rawError =
+    "error" in payload && typeof payload.error === "string" ? payload.error : null;
+
+  if (
+    rawError &&
+    (rawError.includes("ecrasement") ||
+      rawError.includes("écrasement") ||
+      rawError.includes("compte existe deja"))
+  ) {
+    return "Ce compte portail existe déjà et est lié à cette demande. Utilisez « Gérer » pour consulter l'accès actuel. Pour modifier le rôle ou les permissions, cochez « Autoriser le remplacement des accès existants » en comprenant que cela écrasera les droits actuels du compte.";
+  }
+
   const parts = [
-    "error" in payload && typeof payload.error === "string" ? payload.error : null,
+    rawError,
     "details" in payload && typeof payload.details === "string" ? payload.details : null,
     "hint" in payload && typeof payload.hint === "string" ? payload.hint : null,
   ].filter((item): item is string => Boolean(item));
@@ -167,6 +182,7 @@ export default function DirectionEmployeeAccountsClient() {
   const [deletingRequestId, setDeletingRequestId] = useState<string | null>(null);
   const [disablingRequestId, setDisablingRequestId] = useState<string | null>(null);
   const [reactivatingRequestId, setReactivatingRequestId] = useState<string | null>(null);
+  const [reconcilingRequestId, setReconcilingRequestId] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<AccountAccessListFilter>("all");
   const [permissionOptions, setPermissionOptions] = useState<
     Array<{ value: string; label: string }>
@@ -273,6 +289,18 @@ export default function DirectionEmployeeAccountsClient() {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void fetchRequests();
   }, [accessToken, fetchRequests, isReady]);
+
+  useEffect(() => {
+    setMessage("");
+    setMessageType(null);
+  }, [statusFilter]);
+
+  useEffect(() => {
+    if (managingRequestId) {
+      setMessage("");
+      setMessageType(null);
+    }
+  }, [managingRequestId]);
 
   useEffect(() => {
     if (searchParams.get("create") === "1" && canEditRequestDetails) {
@@ -530,6 +558,7 @@ export default function DirectionEmployeeAccountsClient() {
           requestedRole: payload.requestedRole,
           requestedPermissions: payload.requestedPermissions,
           message: payload.message || null,
+          creationSource: "direction_manual",
         }),
       });
 
@@ -556,6 +585,62 @@ export default function DirectionEmployeeAccountsClient() {
       setMessageType("error");
     } finally {
       setCreating(false);
+    }
+  }
+
+  async function reconcileExistingAccount(request: AccountAccessRequestRecord) {
+    if (!accessToken || !canManageRoles) {
+      setMessage("Action réservée aux administrateurs.");
+      setMessageType("error");
+      return;
+    }
+
+    const confirmed = window.confirm(RECONCILE_EXISTING_ACCOUNT_CONFIRM_MESSAGE);
+    if (!confirmed) {
+      return;
+    }
+
+    setReconcilingRequestId(request.id);
+    setMessage("");
+    setMessageType(null);
+
+    try {
+      const response = await window.fetch(
+        `/api/account-requests/${request.id}/reconcile-existing-account`,
+        {
+          method: "POST",
+          cache: "no-store",
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            "Content-Type": "application/json",
+            "x-account-requests-client": "browser-authenticated",
+            "x-account-requests-page": "direction-demandes-comptes",
+          },
+          body: JSON.stringify({
+            employeeId: request.employee_link?.id ?? null,
+            reviewNote: reviewNote.trim() || null,
+          }),
+        }
+      );
+
+      const payload = await response.json();
+
+      if (!response.ok) {
+        setMessage(
+          buildApiErrorMessage(payload, "La réconciliation du compte existant a échoué.")
+        );
+        setMessageType("error");
+        return;
+      }
+
+      setMessage("Demande réconciliée avec le compte portail existant.");
+      setMessageType("success");
+      await fetchRequests();
+    } catch {
+      setMessage("La réconciliation du compte existant a échoué.");
+      setMessageType("error");
+    } finally {
+      setReconcilingRequestId(null);
     }
   }
 
@@ -868,14 +953,14 @@ export default function DirectionEmployeeAccountsClient() {
             <div className="account-requests-premium-table-wrap account-requests-premium-table-wrap--desktop">
               <table className="account-requests-premium-table">
                 <colgroup>
-                  <col style={{ width: "20%" }} />
-                  <col style={{ width: "12%" }} />
-                  <col style={{ width: "16%" }} />
+                  <col style={{ width: "17%" }} />
+                  <col style={{ width: "9%" }} />
+                  <col style={{ width: "13%" }} />
                   <col style={{ width: "10%" }} />
-                  <col style={{ width: "12%" }} />
-                  <col style={{ width: "11%" }} />
-                  <col style={{ width: "11%" }} />
                   <col style={{ width: "18%" }} />
+                  <col style={{ width: "10%" }} />
+                  <col style={{ width: "10%" }} />
+                  <col style={{ width: "23%" }} />
                 </colgroup>
                 <thead>
                   <tr>
@@ -923,22 +1008,25 @@ export default function DirectionEmployeeAccountsClient() {
                       </td>
                       <td>
                         <div className="account-requests-cell-stack">
-                          <StatusBadge
-                            label={getStatusLabel(request.status, request)}
-                            tone={getStatusTone(request.status, request)}
-                          />
+                          <div className="account-requests-cell-badge-row">
+                            <StatusBadge
+                              label={getStatusLabel(request.status, request)}
+                              tone={getStatusTone(request.status, request)}
+                            />
+                            {isReconciliationCandidate(request) ? (
+                              <StatusBadge label="À réconcilier" tone="warning" />
+                            ) : null}
+                          </div>
                           <span className="account-requests-cell-sub">
-                            {request.existing_account?.exists ? "Compte detecte" : "Compte a creer"}
+                            {getAccountRequestPortalSummaryLabel(request) ??
+                              (request.existing_account?.exists
+                                ? "Compte detecte"
+                                : "Compte a creer")}
                           </span>
                         </div>
                       </td>
-                      <td>
-                        <div className="account-requests-cell-stack">
-                          <EmployeeLinkStatusBadge employeeLink={request.employee_link} />
-                          {request.employee_link?.id ? (
-                            <span className="account-requests-cell-sub">#{request.employee_link.id}</span>
-                          ) : null}
-                        </div>
+                      <td className="account-requests-cell-employee">
+                        <EmployeeLinkCellContent request={request} />
                       </td>
                       <td className="account-requests-cell-date">
                         {formatDate(request.existing_account?.lastSignInAt)}
@@ -954,9 +1042,11 @@ export default function DirectionEmployeeAccountsClient() {
                             onDelete={() => void deleteRequest(request)}
                             onDisableAccess={() => void disableRequestAccess(request)}
                             onReactivateAccess={() => void reactivateRequestAccess(request)}
+                            onReconcile={() => void reconcileExistingAccount(request)}
                             deleting={deletingRequestId === request.id}
                             disabling={disablingRequestId === request.id}
                             reactivating={reactivatingRequestId === request.id}
+                            reconciling={reconcilingRequestId === request.id}
                             canDelete={canManageRoles}
                             canManage={canOpenManage}
                             canManageRoles={canManageRoles}
@@ -978,9 +1068,11 @@ export default function DirectionEmployeeAccountsClient() {
                   onDelete={() => void deleteRequest(request)}
                   onDisableAccess={() => void disableRequestAccess(request)}
                   onReactivateAccess={() => void reactivateRequestAccess(request)}
+                  onReconcile={() => void reconcileExistingAccount(request)}
                   deleting={deletingRequestId === request.id}
                   disabling={disablingRequestId === request.id}
                   reactivating={reactivatingRequestId === request.id}
+                  reconciling={reconcilingRequestId === request.id}
                   canDelete={canManageRoles}
                   canManage={canOpenManage}
                   canManageRoles={canManageRoles}
@@ -1025,8 +1117,12 @@ export default function DirectionEmployeeAccountsClient() {
         onReactivateAccess={() => {
           if (managingRequest) void reactivateRequestAccess(managingRequest);
         }}
+        onReconcileExistingAccount={() => {
+          if (managingRequest) void reconcileExistingAccount(managingRequest);
+        }}
         deleting={Boolean(managingRequest && deletingRequestId === managingRequest.id)}
         reactivating={Boolean(managingRequest && reactivatingRequestId === managingRequest.id)}
+        reconciling={Boolean(managingRequest && reconcilingRequestId === managingRequest.id)}
       />
 
       <AccountRequestCreateModal

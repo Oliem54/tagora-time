@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   ArrowUpRight,
+  BookOpen,
   CalendarDays,
   Clock3,
   FileStack,
@@ -387,6 +388,21 @@ export default function EmployeDashboardPage() {
               action={
                 <SecondaryButton onClick={() => router.push("/employe/profil")} style={{ width: "100%", justifyContent: "space-between" }}>
                   <span>Gerer</span>
+                  <ArrowUpRight size={16} />
+                </SecondaryButton>
+              }
+            />
+            <ModuleTile
+              title="Mon livre"
+              description="Objectifs et commissions personnels."
+              icon={<BookOpen size={24} strokeWidth={2.1} />}
+              tone="purple"
+              action={
+                <SecondaryButton
+                  onClick={() => router.push("/employe/mon-livre")}
+                  style={{ width: "100%", justifyContent: "space-between" }}
+                >
+                  <span>Ouvrir</span>
                   <ArrowUpRight size={16} />
                 </SecondaryButton>
               }

@@ -7,13 +7,13 @@ import {
   PenLine,
   RefreshCw,
   ShieldCheck,
-  TimerReset,
 } from "lucide-react";
 import HorodateurRetroCorrectionModal from "@/app/components/horodateur/HorodateurRetroCorrectionModal";
 import HorodateurLiveRowActions from "@/app/direction/horodateur/HorodateurLiveRowActions";
 import HorodateurDirectionPageShell from "@/app/direction/horodateur/HorodateurDirectionPageShell";
 import HorodateurDirectionPrimaryActions from "@/app/direction/horodateur/HorodateurDirectionPrimaryActions";
 import HorodateurDirectionAlertConfigPanel from "@/app/direction/horodateur/HorodateurDirectionAlertConfigPanel";
+import HorodateurPendingExceptionCard from "@/app/direction/horodateur/HorodateurPendingExceptionCard";
 import AppCard from "@/app/components/ui/AppCard";
 import TagoraIconBadge from "@/app/components/TagoraIconBadge";
 import PrimaryButton from "@/app/components/ui/PrimaryButton";
@@ -23,14 +23,10 @@ import StatusBadge from "@/app/components/ui/StatusBadge";
 import { useCurrentAccess } from "@/app/hooks/useCurrentAccess";
 import {
   isStaffRetroCorrectionException,
-  STAFF_RETRO_CORRECTION_REASON_LABEL,
   type StaffRetroForgottenEventType,
 } from "@/app/lib/horodateur-retro-correction.shared";
-import {
-  isAutoMissingExpectedPunchException,
-  MISSING_EXPECTED_PUNCH_PRIORITY_REASON_LABEL,
-  MISSING_EXPECTED_PUNCH_REASON_LABEL,
-} from "@/app/lib/horodateur-expected-punch-missing.shared";
+import { MISSING_EXPECTED_PUNCH_PRIORITY_REASON_LABEL } from "@/app/lib/horodateur-expected-punch-missing.shared";
+import { resolveHorodateurPendingExceptionDisplay } from "@/app/lib/horodateur-exception-display.shared";
 import { getLocalWorkDate } from "@/app/lib/horodateur-v1/rules";
 import { supabase } from "@/app/lib/supabase/client";
 import { getCompanyLabel } from "@/app/lib/account-requests.shared";
@@ -352,42 +348,6 @@ function resolveOccurredAt(value: {
   event_time?: string | null;
 }) {
   return value.occurredAt ?? value.occurred_at ?? value.event_time ?? null;
-}
-
-function truncateEmployeeNote(value: string | null | undefined, maxLen = 160) {
-  const trimmed = (value ?? "").trim();
-  if (!trimmed) {
-    return "Aucune note fournie.";
-  }
-  if (trimmed.length <= maxLen) {
-    return trimmed;
-  }
-  return `${trimmed.slice(0, maxLen - 1)}…`;
-}
-
-function exceptionSummaryRow(label: string, value: string) {
-  return (
-    <div
-      key={label}
-      style={{
-        display: "grid",
-        gridTemplateColumns: "minmax(88px, 120px) 1fr",
-        gap: 8,
-        fontSize: 14,
-        lineHeight: 1.45,
-      }}
-    >
-      <span style={{ fontWeight: 600, color: "#475569" }}>{label}</span>
-      <span style={{ color: "#0f172a" }}>{value}</span>
-    </div>
-  );
-}
-
-function formatHorodateurExceptionTypeLabel(item: Pick<PendingException, "exception_type" | "reason_label">) {
-  if (item.exception_type === "shift_too_long") {
-    return item.reason_label?.trim() || "Quart > 14 h — fermeture à approuver";
-  }
-  return item.reason_label || item.exception_type;
 }
 
 function getRowState(row: LiveRow) {
@@ -1256,6 +1216,18 @@ export default function DirectionHorodateurPage() {
     });
   }
 
+  function focusEmployeeOnLiveBoard(employeeId: number) {
+    if (!employeeId) return;
+    setHighlightedExceptionEmployeeId(null);
+    setLiveDetailEmployeeId(employeeId);
+    window.requestAnimationFrame(() => {
+      const target = document.querySelector(
+        `[data-horodateur-live-employee="${employeeId}"]`
+      );
+      target?.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+  }
+
   async function handleRetroCorrectionSubmit() {
     setRetroSaving(true);
     setRetroError(null);
@@ -1730,323 +1702,62 @@ export default function DirectionHorodateurPage() {
         <div ref={exceptionsSectionRef} id="horodateur-exceptions-section">
         <SectionCard
           title="Exceptions à approuver"
-          subtitle="Validation rapide des demandes en attente."
+          subtitle="Décisions horodateur — cas métier, employé et action attendue en un coup d'œil."
           actions={
-            <TagoraIconBadge tone="orange" size="lg">
+            <TagoraIconBadge tone="blue" size="lg">
               <ShieldCheck size={24} strokeWidth={2.1} />
             </TagoraIconBadge>
           }
         >
           {hasExceptions ? (
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))",
-                gap: "var(--ui-space-3)",
-              }}
-            >
+            <div className="horo-pending-grid">
               {exceptions.map((item) => {
-                const occurredAt = item.event ? resolveOccurredAt(item.event) : null;
-                const employeeName =
-                  item.employee?.fullName || item.employee?.email || item.id;
+                const display = resolveHorodateurPendingExceptionDisplay(item);
+                if (!display) return null;
+
                 const isRefusing = refusingExceptionId === item.id;
                 const correction = timeCorrectionById[item.id] ?? { main: "", related: "" };
                 const isStaffRetro = isStaffRetroCorrectionException(item);
-                const isAutoMissing = isAutoMissingExpectedPunchException({
-                  reasonLabel: item.reason_label,
-                  details: item.details,
-                });
                 const isAutoMissingPriority =
                   item.reason_label === MISSING_EXPECTED_PUNCH_PRIORITY_REASON_LABEL;
                 const canReviewException = !isStaffRetro || isAdmin;
-
                 const isHighlighted =
                   highlightedExceptionEmployeeId !== null &&
                   item.employee_id === highlightedExceptionEmployeeId;
 
                 return (
-                <AppCard
-                  key={item.id}
-                  data-horodateur-exception-employee={item.employee_id}
-                  className={`ui-stack-sm${isHighlighted ? " horodateur-direction-exception-card--highlighted" : ""}`}
-                  style={{
-                    border: isAutoMissingPriority
-                      ? "1px solid rgba(220, 38, 38, 0.28)"
-                      : "1px solid rgba(245, 158, 11, 0.32)",
-                    background: isAutoMissingPriority
-                      ? "linear-gradient(180deg, rgba(254,242,242,0.98) 0%, rgba(255,255,255,0.98) 100%)"
-                      : "linear-gradient(180deg, rgba(255,251,235,0.98) 0%, rgba(255,255,255,0.98) 100%)",
-                    boxShadow: isAutoMissingPriority
-                      ? "0 14px 28px rgba(127, 29, 29, 0.1)"
-                      : "0 14px 28px rgba(120, 53, 15, 0.08)",
-                  }}
-                >
-                  <div
-                    style={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      gap: 10,
-                      alignItems: "flex-start",
-                    }}
-                  >
-                    <h3
-                      style={{
-                        margin: 0,
-                        fontSize: 17,
-                        fontWeight: 800,
-                        color: isAutoMissingPriority ? "#991b1b" : "#92400e",
-                        lineHeight: 1.35,
-                      }}
-                    >
-                      {isStaffRetro
-                        ? "Correction rétroactive à traiter"
-                        : isAutoMissing
-                          ? MISSING_EXPECTED_PUNCH_REASON_LABEL
-                          : "Exception horodateur à traiter"}
-                    </h3>
-                    <StatusBadge
-                      label={
-                        isStaffRetro
-                          ? STAFF_RETRO_CORRECTION_REASON_LABEL
-                          : isAutoMissingPriority
-                            ? "Priorité"
-                            : "En attente"
-                      }
-                      tone={isAutoMissingPriority ? "danger" : "warning"}
-                    />
-                  </div>
-
-                  <div className="ui-stack-xs" style={{ gap: 10 }}>
-                    {exceptionSummaryRow("Employé", employeeName)}
-                    {exceptionSummaryRow("Type", formatHorodateurExceptionTypeLabel(item))}
-                    {exceptionSummaryRow(
-                      "Heure",
-                      occurredAt ? formatDateTime(occurredAt) : "—"
-                    )}
-                    {exceptionSummaryRow(
-                      isStaffRetro ? "Raison" : "Note employé",
-                      truncateEmployeeNote(item.details)
-                    )}
-                  </div>
-
-                  {!canReviewException ? (
-                    <AppCard tone="muted" className="ui-stack-xs">
-                      <p className="ui-text-muted" style={{ margin: 0 }}>
-                        Approbation admin requise pour cette demande de correction
-                        rétroactive.
-                      </p>
-                    </AppCard>
-                  ) : !isRefusing ? (
-                    <div
-                      style={{
-                        display: "flex",
-                        flexDirection: "column",
-                        gap: "var(--ui-space-2)",
-                      }}
-                    >
-                      <PrimaryButton
-                        onClick={() => void handleApprove(item.id)}
-                        disabled={isBusy}
-                        style={{
-                          width: "100%",
-                          minHeight: 52,
-                          fontSize: 16,
-                          fontWeight: 700,
-                          justifyContent: "center",
-                        }}
-                      >
-                        <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
-                          <ShieldCheck size={18} />
-                          {activeActionKey === `approve:${item.id}`
-                            ? "Approbation..."
-                            : "Approuver"}
-                        </span>
-                      </PrimaryButton>
-                      <SecondaryButton
-                        onClick={() => handleStartRefuse(item.id)}
-                        disabled={isBusy}
-                        style={{
-                          width: "100%",
-                          minHeight: 52,
-                          fontSize: 16,
-                          fontWeight: 600,
-                          justifyContent: "center",
-                        }}
-                      >
-                        <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
-                          <TimerReset size={18} />
-                          Refuser
-                        </span>
-                      </SecondaryButton>
-                    </div>
-                  ) : (
-                    <div className="ui-stack-sm">
-                      <label className="ui-stack-xs" style={{ width: "100%" }}>
-                        <span className="ui-eyebrow">Raison du refus (obligatoire)</span>
-                        <textarea
-                          className="tagora-textarea"
-                          value={refuseNoteById[item.id] ?? ""}
-                          onChange={(event) =>
-                            setRefuseNoteById((current) => ({
-                              ...current,
-                              [item.id]: event.target.value,
-                            }))
-                          }
-                          placeholder="Expliquez brièvement le motif du refus..."
-                          rows={4}
-                          disabled={isBusy}
-                          style={{ width: "100%" }}
-                        />
-                      </label>
-                      <PrimaryButton
-                        onClick={() => void handleConfirmRefuse(item.id)}
-                        disabled={isBusy}
-                        style={{
-                          width: "100%",
-                          minHeight: 48,
-                          fontWeight: 700,
-                          justifyContent: "center",
-                          background: "#b91c1c",
-                          borderColor: "#b91c1c",
-                        }}
-                      >
-                        {activeActionKey === `refuse:${item.id}`
-                          ? "Refus en cours..."
-                          : "Confirmer le refus"}
-                      </PrimaryButton>
-                      <SecondaryButton
-                        type="button"
-                        onClick={handleCancelRefuse}
-                        disabled={isBusy}
-                        style={{ width: "100%", minHeight: 44, justifyContent: "center" }}
-                      >
-                        Annuler
-                      </SecondaryButton>
-                    </div>
-                  )}
-
-                  <details>
-                    <summary
-                      style={{
-                        cursor: "pointer",
-                        fontWeight: 600,
-                        color: "#0d9488",
-                        fontSize: 14,
-                      }}
-                    >
-                      Voir les détails
-                    </summary>
-                    <div
-                      className="ui-stack-sm"
-                      style={{
-                        marginTop: 12,
-                        paddingTop: 12,
-                        borderTop: "1px solid #e2e8f0",
-                      }}
-                    >
-                      <AppCard tone="default" className="ui-stack-xs">
-                        <span className="ui-eyebrow">Type technique</span>
-                        <span className="ui-text-muted">{item.exception_type}</span>
-                      </AppCard>
-                      <AppCard tone="default" className="ui-stack-xs">
-                        <span className="ui-eyebrow">Impact</span>
-                        <strong>{formatMinutes(item.impact_minutes)}</strong>
-                        <span className="ui-text-muted">{item.status}</span>
-                      </AppCard>
-                      {item.event ? (
-                        <AppCard tone="default" className="ui-stack-xs">
-                          <span className="ui-eyebrow">Événement lié</span>
-                          <span className="ui-text-muted">
-                            {item.event.event_type}
-                            {occurredAt ? ` — ${formatDateTime(occurredAt)}` : ""}
-                          </span>
-                        </AppCard>
-                      ) : null}
-                      <AppCard tone="default" className="ui-stack-xs">
-                        <span className="ui-eyebrow">Journal des notifications</span>
-                        <span className="ui-text-muted">
-                          Email initial:{" "}
-                          {formatDateTime(item.direction_email_notified_at ?? null)}
-                        </span>
-                        <span className="ui-text-muted">
-                          SMS initial: {formatDateTime(item.direction_sms_notified_at ?? null)}
-                        </span>
-                        <span className="ui-text-muted">
-                          Rappel email:{" "}
-                          {formatDateTime(item.direction_reminder_email_notified_at ?? null)}
-                        </span>
-                        <span className="ui-text-muted">
-                          Rappel SMS:{" "}
-                          {formatDateTime(item.direction_reminder_sms_notified_at ?? null)}
-                        </span>
-                      </AppCard>
-                      <AppCard tone="default" className="ui-stack-xs">
-                        <span className="ui-eyebrow">Correction d&apos;heure (avancée)</span>
-                        <p className="ui-text-muted" style={{ margin: "0 0 8px" }}>
-                          Optionnel — laisser vide pour approuver tel quel depuis le bouton
-                          Approuver.
-                        </p>
-                        <label className="ui-stack-xs">
-                          <span className="ui-text-muted" style={{ fontSize: 13 }}>
-                            Heure corrigée événement principal (HH:MM)
-                          </span>
-                          <input
-                            type="text"
-                            className="tagora-input"
-                            placeholder="Ex. 08:30"
-                            value={correction.main}
-                            disabled={isBusy}
-                            onChange={(event) =>
-                              setTimeCorrectionById((current) => ({
-                                ...current,
-                                [item.id]: {
-                                  main: event.target.value,
-                                  related: current[item.id]?.related ?? "",
-                                },
-                              }))
-                            }
-                          />
-                        </label>
-                        <label className="ui-stack-xs">
-                          <span className="ui-text-muted" style={{ fontSize: 13 }}>
-                            Heure corrigée événement lié (HH:MM)
-                          </span>
-                          <input
-                            type="text"
-                            className="tagora-input"
-                            placeholder="Optionnel"
-                            value={correction.related}
-                            disabled={isBusy}
-                            onChange={(event) =>
-                              setTimeCorrectionById((current) => ({
-                                ...current,
-                                [item.id]: {
-                                  main: current[item.id]?.main ?? "",
-                                  related: event.target.value,
-                                },
-                              }))
-                            }
-                          />
-                        </label>
-                      </AppCard>
-                    </div>
-                  </details>
-
-                  {item.employee?.employeeId ? (
-                    <Link
-                      href={`/direction/ressources/employes/${item.employee.employeeId}`}
-                      className="tagora-dark-outline-action"
-                      style={{
-                        textDecoration: "none",
-                        alignSelf: "flex-start",
-                        fontSize: 13,
-                        padding: "8px 14px",
-                      }}
-                    >
-                      Voir l&apos;employé
-                    </Link>
-                  ) : null}
-                </AppCard>
+                  <HorodateurPendingExceptionCard
+                    key={item.id}
+                    item={item}
+                    display={display}
+                    isHighlighted={isHighlighted}
+                    isPriority={isAutoMissingPriority}
+                    isBusy={isBusy}
+                    activeActionKey={activeActionKey}
+                    isRefusing={isRefusing}
+                    canReviewException={canReviewException}
+                    refuseNote={refuseNoteById[item.id] ?? ""}
+                    correction={correction}
+                    formatDateTime={formatDateTime}
+                    formatMinutes={formatMinutes}
+                    onApprove={() => void handleApprove(item.id)}
+                    onStartRefuse={() => handleStartRefuse(item.id)}
+                    onConfirmRefuse={() => void handleConfirmRefuse(item.id)}
+                    onCancelRefuse={handleCancelRefuse}
+                    onRefuseNoteChange={(value) =>
+                      setRefuseNoteById((current) => ({
+                        ...current,
+                        [item.id]: value,
+                      }))
+                    }
+                    onCorrectionChange={(value) =>
+                      setTimeCorrectionById((current) => ({
+                        ...current,
+                        [item.id]: value,
+                      }))
+                    }
+                    onFocusEmployee={focusEmployeeOnLiveBoard}
+                  />
                 );
               })}
             </div>
@@ -2128,6 +1839,7 @@ export default function DirectionHorodateurPage() {
                   return (
                     <article
                       key={row.employeeId}
+                      data-horodateur-live-employee={row.employeeId}
                       className={`horodateur-live-board-row${
                         needsAttention ? " horodateur-live-board-row--attention" : ""
                       }${isDetailOpen ? " horodateur-live-board-row--focused" : ""}`}

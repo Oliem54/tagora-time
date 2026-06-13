@@ -58,6 +58,65 @@ export function normalizePhoneToE164(raw: string): NormalizePhoneResult {
   };
 }
 
+/** Chiffres E.164 comparables (sans « + »), ex. 14188701784. */
+export function normalizeMfaPhoneForCompare(phone: string | null | undefined): string | null {
+  if (phone == null || !String(phone).trim()) {
+    return null;
+  }
+
+  const t = String(phone).trim();
+  const digitsOnly = (s: string) => s.replace(/\D/g, "");
+
+  let body: string;
+  if (t.startsWith("+")) {
+    body = digitsOnly(t.slice(1));
+  } else {
+    body = digitsOnly(t);
+    if (body.length === 10) {
+      body = `1${body}`;
+    }
+  }
+
+  if (body.length < 8 || body.length > 15 || !/^[1-9]/.test(body)) {
+    return null;
+  }
+
+  return body;
+}
+
+export function mfaPhonesMatch(
+  requestedE164: string,
+  factorPhone: string | null | undefined
+): boolean {
+  const requested = normalizeMfaPhoneForCompare(requestedE164);
+  const factor = normalizeMfaPhoneForCompare(factorPhone);
+  if (!requested || !factor) {
+    return false;
+  }
+  return requested === factor;
+}
+
+export function mfaPhoneLast4(phone: string | null | undefined): string | null {
+  const digits = normalizeMfaPhoneForCompare(phone);
+  if (!digits || digits.length < 4) {
+    return null;
+  }
+  return digits.slice(-4);
+}
+
+export function buildMfaPhoneFactorMismatchMessage(
+  requestedE164: string,
+  factorPhone: string | null | undefined
+): string {
+  const newLast4 = mfaPhoneLast4(requestedE164) ?? "????";
+  const oldLast4 = mfaPhoneLast4(factorPhone) ?? "????";
+  return [
+    "Le numéro affiché ne correspond pas au numéro MFA en attente. Pour votre sécurité, aucun SMS n’a été envoyé.",
+    `Numéro saisi (fin ····${newLast4}) ≠ numéro MFA en attente (fin ····${oldLast4}).`,
+    "Un ancien numéro MFA est encore en attente sur ce compte. Veuillez demander à un administrateur de réinitialiser la vérification en deux étapes.",
+  ].join(" ");
+}
+
 export function describeSupabaseMfaPhoneError(code: string | undefined, fallbackMessage: string): string {
   switch (code) {
     case "mfa_phone_enroll_not_enabled":

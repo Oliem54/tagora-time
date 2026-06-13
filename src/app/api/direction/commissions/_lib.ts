@@ -8,10 +8,11 @@ import { hasUserPermission } from "@/app/lib/auth/permissions";
 import { isJwtExplicitlyAal1Only } from "@/app/lib/auth/jwt-access-token";
 import { createAdminSupabaseClient } from "@/app/lib/supabase/admin";
 import { parseTierConfig } from "@/app/lib/commissions/calculate.server";
-import type {
-  CommissionEntryRow,
-  CommissionRuleRow,
-  SalesObjectiveRow,
+import {
+  formatChauffeurDisplayLabel,
+  type CommissionEntryRow,
+  type CommissionRuleRow,
+  type SalesObjectiveRow,
 } from "@/app/lib/commissions/commissions.shared";
 
 export const dynamic = "force-dynamic";
@@ -156,28 +157,48 @@ export function mapEntryRow(
   };
 }
 
-export async function loadChauffeurLabels(
+export type ChauffeurProfileSummary = {
+  label: string;
+  nom: string | null;
+  courriel: string | null;
+};
+
+export async function loadChauffeurProfiles(
   supabase: ReturnType<typeof createAdminSupabaseClient>,
   ids: number[]
 ) {
   const unique = Array.from(new Set(ids.filter((id) => Number.isFinite(id) && id > 0)));
-  if (unique.length === 0) return new Map<number, string>();
+  if (unique.length === 0) return new Map<number, ChauffeurProfileSummary>();
 
   const { data } = await supabase
     .from("chauffeurs")
-    .select("id, nom, prenom, nom_complet")
+    .select("id, nom, courriel")
     .in("id", unique);
 
-  const map = new Map<number, string>();
+  const map = new Map<number, ChauffeurProfileSummary>();
   for (const row of data ?? []) {
-    const id = Number((row as Record<string, unknown>).id);
     const record = row as Record<string, unknown>;
-    const label = String(
-      record.nom_complet ||
-        [record.prenom, record.nom].filter(Boolean).join(" ") ||
-        `#${id}`
-    ).trim();
-    if (Number.isFinite(id)) map.set(id, label);
+    const id = Number(record.id);
+    if (!Number.isFinite(id)) continue;
+    const nom = typeof record.nom === "string" ? record.nom.trim() : "";
+    const courriel = typeof record.courriel === "string" ? record.courriel.trim() : "";
+    map.set(id, {
+      label: formatChauffeurDisplayLabel(record),
+      nom: nom || null,
+      courriel: courriel || null,
+    });
+  }
+  return map;
+}
+
+export async function loadChauffeurLabels(
+  supabase: ReturnType<typeof createAdminSupabaseClient>,
+  ids: number[]
+) {
+  const profiles = await loadChauffeurProfiles(supabase, ids);
+  const map = new Map<number, string>();
+  for (const [id, profile] of profiles) {
+    map.set(id, profile.label);
   }
   return map;
 }

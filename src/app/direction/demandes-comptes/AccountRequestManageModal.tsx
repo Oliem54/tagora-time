@@ -8,7 +8,10 @@ import {
   type AccountAccessAction,
   type AccountAccessRequestRecord,
   type AccountAccessStatus,
+  getAccountRequestPortalSummaryLabel,
   isAccessDisabledRequest,
+  isPortalAccountLinked,
+  isPortalActiveWithInactiveEmployeeProfile,
 } from "@/app/lib/account-access";
 import {
   ACCOUNT_REQUEST_COMPANIES,
@@ -16,6 +19,12 @@ import {
   type AccountRequestCompany,
 } from "@/app/lib/account-requests.shared";
 import { getPasswordPolicyMessage } from "@/app/lib/auth/passwords";
+import {
+  canReconcileExistingAccountRequest,
+  getReconcileUnavailableReasons,
+  isReconciliationCandidate,
+} from "@/app/lib/account-reconcile.shared";
+import AccountRequestReconcileDiagnostic from "./AccountRequestReconcileDiagnostic";
 import EmployeeLinkStatusBadge from "./EmployeeLinkStatusBadge";
 
 type RequestRole = "employe" | "direction" | "admin";
@@ -168,8 +177,10 @@ export default function AccountRequestManageModal({
   onRunSecurityAction,
   onDelete,
   onReactivateAccess,
+  onReconcileExistingAccount,
   deleting,
   reactivating,
+  reconciling,
 }: {
   request: AccountAccessRequestRecord | null;
   open: boolean;
@@ -193,8 +204,10 @@ export default function AccountRequestManageModal({
   onRunSecurityAction: (action: AccountSecurityAction, temporaryPassword?: string) => void;
   onDelete: () => void;
   onReactivateAccess?: () => void;
+  onReconcileExistingAccount?: () => void;
   deleting?: boolean;
   reactivating?: boolean;
+  reconciling?: boolean;
 }) {
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
@@ -232,7 +245,18 @@ export default function AccountRequestManageModal({
   const canUsePasswordActions = canManageRoles && hasAuthAccount;
   const permissionChoices =
     permissionOptions.length > 0 ? permissionOptions : accountRequestPermissionOptions;
-  const busy = Boolean(savingAction || savingDetails || securityAction);
+  const busy = Boolean(savingAction || savingDetails || securityAction || reconciling);
+  const showReconcile =
+    canManageRoles && canReconcileExistingAccountRequest(request);
+  const reconcileCandidate = isReconciliationCandidate(request);
+  const reconcileUnavailableReasons = getReconcileUnavailableReasons(request, {
+    canManageRoles,
+  });
+  const portalSummary = getAccountRequestPortalSummaryLabel(request);
+  const linkedPortal = isPortalAccountLinked(request);
+  const inactiveRhWithActivePortal = isPortalActiveWithInactiveEmployeeProfile(request);
+  const showReconcileUi =
+    request.status === "pending" || request.status === "error";
 
   function toggleRequestedPermission(slug: string) {
     setRequestedPermissions((prev) =>
@@ -265,7 +289,7 @@ export default function AccountRequestManageModal({
         className="tagora-panel ui-stack-md"
         style={{
           position: "relative",
-          width: "min(720px, 100%)",
+          width: "min(820px, 100%)",
           maxHeight: "92vh",
           overflowY: "auto",
           padding: 22,
@@ -303,6 +327,65 @@ export default function AccountRequestManageModal({
           {request.email} · Statut : {getStatusLabel(request.status, request)} · Portail :{" "}
           {formatRole(request.portal_source as RequestRole)} · {getCompanyLabel(request.company)}
         </p>
+
+        {portalSummary ? (
+          <div className="account-requests-portal-summary-banner">
+            <strong>{portalSummary}</strong>
+            {inactiveRhWithActivePortal ? (
+              <p>
+                Le portail est actif, mais la fiche employé est inactive. Prochaine action
+                manuelle suggérée :{" "}
+                {request.employee_link?.id ? (
+                  <Link href={`/direction/ressources/employes/${request.employee_link.id}`}>
+                    réactiver la fiche employé
+                  </Link>
+                ) : (
+                  "réactiver la fiche employé depuis Ressources."
+                )}
+              </p>
+            ) : linkedPortal ? (
+              <p>
+                Le compte portail est déjà lié à cette demande. Utilisez la fiche employé pour
+                les ajustements RH ; modifiez rôle et permissions ici seulement si nécessaire.
+              </p>
+            ) : null}
+          </div>
+        ) : null}
+
+        {showReconcileUi ? (
+          <>
+            <AccountRequestReconcileDiagnostic request={request} />
+
+            {showReconcile && onReconcileExistingAccount ? (
+              <div className="account-requests-reconcile-banner">
+                <div className="account-requests-reconcile-banner__copy">
+                  <strong>Compte portail déjà existant</strong>
+                  <p>
+                    Cette demande peut être clôturée en la liant au compte et à la fiche employé
+                    déjà présents, sans recréer d&apos;accès ni modifier le rôle ou les permissions.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  className="account-requests-action-button account-requests-action-button-reconcile"
+                  onClick={onReconcileExistingAccount}
+                  disabled={Boolean(savingAction || reconciling)}
+                >
+                  {reconciling ? "Réconciliation…" : "Réconcilier compte existant"}
+                </button>
+              </div>
+            ) : reconcileCandidate && !showReconcile ? (
+              <div className="account-requests-reconcile-unavailable">
+                <strong>Réconciliation non disponible</strong>
+                <ul>
+                  {reconcileUnavailableReasons.map((reason) => (
+                    <li key={reason}>{reason}</li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+          </>
+        ) : null}
 
         <form onSubmit={(e) => void handleIdentitySubmit(e)} className="ui-stack-md">
           <ManageSection title="Identite" icon={<UserRound size={16} />}>
@@ -453,15 +536,32 @@ export default function AccountRequestManageModal({
                 ))}
               </div>
               {request.existing_account?.exists ? (
-                <label className="account-requests-permission-option">
-                  <input
-                    type="checkbox"
-                    checked={confirmOverwriteExistingAccount}
-                    onChange={onConfirmOverwriteChange}
-                    disabled={Boolean(savingAction)}
-                  />
-                  <span>Autoriser le remplacement des acces existants</span>
-                </label>
+                <div className="ui-stack-xs">
+                  {linkedPortal ? (
+                    <p className="tagora-note" style={{ margin: 0 }}>
+                      Le compte portail est déjà lié. « Enregistrer les accès » n&apos;écrasera
+                      rien sans confirmation explicite ci-dessous.
+                    </p>
+                  ) : (
+                    <p className="tagora-note" style={{ margin: 0 }}>
+                      Un compte portail existe déjà pour ce courriel. Cochez la confirmation
+                      ci-dessous uniquement si vous voulez remplacer le rôle et les permissions
+                      actuels.
+                    </p>
+                  )}
+                  <label className="account-requests-permission-option">
+                    <input
+                      type="checkbox"
+                      checked={confirmOverwriteExistingAccount}
+                      onChange={onConfirmOverwriteChange}
+                      disabled={Boolean(savingAction)}
+                    />
+                    <span>
+                      J&apos;autorise le remplacement du rôle et des permissions du compte
+                      portail existant
+                    </span>
+                  </label>
+                </div>
               ) : null}
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
                 {primaryAction ? (
@@ -480,11 +580,21 @@ export default function AccountRequestManageModal({
                     type="button"
                     className={getButtonClassName(item.tone)}
                     onClick={() => onRunAction(item.action)}
-                    disabled={Boolean(savingAction)}
+                    disabled={Boolean(savingAction || reconciling)}
                   >
                     {savingAction === item.action ? "Traitement..." : item.label}
                   </button>
                 ))}
+                {showReconcile && onReconcileExistingAccount ? (
+                  <button
+                    type="button"
+                    className="tagora-dark-action"
+                    onClick={onReconcileExistingAccount}
+                    disabled={Boolean(savingAction || reconciling)}
+                  >
+                    {reconciling ? "Réconciliation…" : "Réconcilier compte existant"}
+                  </button>
+                ) : null}
                 {accessDisabled ? (
                   onReactivateAccess && hasAuthAccount ? (
                     <button
@@ -513,6 +623,12 @@ export default function AccountRequestManageModal({
 
         <ManageSection title="Fiche employe" icon={<ExternalLink size={16} />}>
           <EmployeeLinkStatusBadge employeeLink={request.employee_link} />
+          {inactiveRhWithActivePortal ? (
+            <p className="tagora-note" style={{ margin: "8px 0 0" }}>
+              Le portail est actif, mais la fiche employé est inactive. La réactivation RH se
+              fait depuis la fiche employé, pas depuis cette page.
+            </p>
+          ) : null}
           <p className="tagora-note" style={{ margin: "8px 0 0" }}>
             Derniere connexion : {formatDate(request.existing_account?.lastSignInAt)}
           </p>
