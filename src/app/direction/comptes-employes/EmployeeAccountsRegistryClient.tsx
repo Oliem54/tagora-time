@@ -2,7 +2,14 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { Fragment, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react";
 import {
   AlertTriangle,
   Archive,
@@ -214,6 +221,61 @@ function RegistryMobileField({ label, children }: { label: string; children: Rea
   );
 }
 
+function RegistryRowActions({
+  entry,
+  isExpanded,
+  onToggleDiagnostic,
+  layout = "table",
+}: {
+  entry: EmployeeAccountsRegistryEntry;
+  isExpanded: boolean;
+  onToggleDiagnostic: () => void;
+  layout?: "table" | "mobile";
+}) {
+  const hasFicheLink = Boolean(entry.chauffeurId);
+  const hasDemandeLink = Boolean(entry.accountRequestId);
+  const isMobile = layout === "mobile";
+
+  return (
+    <div
+      className={`employee-accounts-registry-actions${
+        isMobile ? " employee-accounts-registry-actions--mobile" : ""
+      }`}
+    >
+      <button
+        type="button"
+        className={`employee-accounts-registry-action-btn employee-accounts-registry-action-btn--compact${
+          isExpanded
+            ? " employee-accounts-registry-action-btn--primary"
+            : " employee-accounts-registry-action-btn--secondary"
+        }`}
+        onClick={onToggleDiagnostic}
+        aria-expanded={isExpanded}
+      >
+        {isExpanded ? "Masquer" : "Diagnostic"}
+      </button>
+
+      {hasFicheLink ? (
+        <Link
+          href={`/direction/ressources/employes/${entry.chauffeurId}`}
+          className="employee-accounts-registry-action-btn employee-accounts-registry-action-btn--compact employee-accounts-registry-action-btn--link"
+        >
+          Fiche
+        </Link>
+      ) : null}
+
+      {hasDemandeLink ? (
+        <Link
+          href="/direction/demandes-comptes"
+          className="employee-accounts-registry-action-btn employee-accounts-registry-action-btn--compact employee-accounts-registry-action-btn--link"
+        >
+          Demande
+        </Link>
+      ) : null}
+    </div>
+  );
+}
+
 function RegistryEntryMobileCard({
   entry,
   activeTab,
@@ -259,34 +321,12 @@ function RegistryEntryMobileCard({
       </div>
 
       <div className="account-requests-mobile-actions">
-        <button
-          type="button"
-          className={`employee-accounts-registry-action-btn${
-            isExpanded
-              ? " employee-accounts-registry-action-btn--primary"
-              : " employee-accounts-registry-action-btn--secondary"
-          }`}
-          onClick={onToggleDiagnostic}
-          aria-expanded={isExpanded}
-        >
-          {isExpanded ? "Masquer le diagnostic" : "Diagnostic"}
-        </button>
-        {entry.chauffeurId ? (
-          <Link
-            href={`/direction/ressources/employes/${entry.chauffeurId}`}
-            className="employee-accounts-registry-action-btn employee-accounts-registry-action-btn--ghost"
-          >
-            Fiche
-          </Link>
-        ) : null}
-        {entry.accountRequestId ? (
-          <Link
-            href="/direction/demandes-comptes"
-            className="employee-accounts-registry-action-btn employee-accounts-registry-action-btn--ghost"
-          >
-            Demande
-          </Link>
-        ) : null}
+        <RegistryRowActions
+          entry={entry}
+          isExpanded={isExpanded}
+          onToggleDiagnostic={onToggleDiagnostic}
+          layout="mobile"
+        />
       </div>
 
       {isExpanded ? (
@@ -317,15 +357,15 @@ function RegistryEntryRows({
       <div className="account-requests-premium-table-wrap account-requests-premium-table-wrap--desktop">
         <table className="account-requests-premium-table account-requests-premium-table--registry">
           <colgroup>
-            <col style={{ width: "22%" }} />
-            <col style={{ width: "12%" }} />
-            <col style={{ width: "8%" }} />
-            <col style={{ width: "7%" }} />
-            <col style={{ width: "8%" }} />
-            <col style={{ width: "9%" }} />
-            <col style={{ width: "7%" }} />
-            <col style={{ width: "7%" }} />
             <col style={{ width: "20%" }} />
+            <col style={{ width: "11%" }} />
+            <col style={{ width: "7%" }} />
+            <col style={{ width: "7%" }} />
+            <col style={{ width: "7%" }} />
+            <col style={{ width: "8%" }} />
+            <col style={{ width: "7%" }} />
+            <col style={{ width: "7%" }} />
+            <col style={{ width: "18%" }} />
           </colgroup>
           <thead>
             <tr>
@@ -337,7 +377,7 @@ function RegistryEntryRows({
               <th className="employee-accounts-registry-cell--center">Désactivé</th>
               <th className="employee-accounts-registry-cell--center">Tél.</th>
               <th className="employee-accounts-registry-cell--center">Conflits</th>
-              <th className="employee-accounts-registry-cell--center">Actions</th>
+              <th className="employee-accounts-registry-cell--center employee-accounts-registry-cell--actions">Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -395,37 +435,12 @@ function RegistryEntryRows({
                         </span>
                       )}
                     </td>
-                    <td className="employee-accounts-registry-cell--center">
-                      <div className="employee-accounts-registry-actions">
-                        <button
-                          type="button"
-                          className={`employee-accounts-registry-action-btn${
-                            isExpanded
-                              ? " employee-accounts-registry-action-btn--primary"
-                              : " employee-accounts-registry-action-btn--secondary"
-                          }`}
-                          onClick={() => toggleDiagnostic(entry.registryKey)}
-                          aria-expanded={isExpanded}
-                        >
-                          {isExpanded ? "Masquer" : "Diagnostic"}
-                        </button>
-                        {entry.chauffeurId ? (
-                          <Link
-                            href={`/direction/ressources/employes/${entry.chauffeurId}`}
-                            className="employee-accounts-registry-action-btn employee-accounts-registry-action-btn--ghost"
-                          >
-                            Fiche
-                          </Link>
-                        ) : null}
-                        {entry.accountRequestId ? (
-                          <Link
-                            href="/direction/demandes-comptes"
-                            className="employee-accounts-registry-action-btn employee-accounts-registry-action-btn--ghost"
-                          >
-                            Demande
-                          </Link>
-                        ) : null}
-                      </div>
+                    <td className="employee-accounts-registry-cell--center employee-accounts-registry-cell--actions">
+                      <RegistryRowActions
+                        entry={entry}
+                        isExpanded={isExpanded}
+                        onToggleDiagnostic={() => toggleDiagnostic(entry.registryKey)}
+                      />
                     </td>
                   </tr>
                   {isExpanded ? (

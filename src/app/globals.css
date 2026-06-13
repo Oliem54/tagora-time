@@ -3751,6 +3751,30 @@ select {
   gap: 12px;
 }
 
+.employee-accounts-registry-page .account-requests-premium-table-wrap--desktop {
+  overflow-x: auto;
+}
+
+.account-requests-premium-table--registry th:nth-child(6),
+.account-requests-premium-table--registry td:nth-child(6),
+.account-requests-premium-table--registry th:nth-child(7),
+.account-requests-premium-table--registry td:nth-child(7) {
+  min-width: 0;
+}
+
+.account-requests-premium-table--registry th:nth-child(8),
+.account-requests-premium-table--registry td:nth-child(8) {
+  min-width: 72px;
+}
+
+.account-requests-premium-table--registry th.employee-accounts-registry-cell--actions,
+.account-requests-premium-table--registry td.employee-accounts-registry-cell--actions {
+  min-width: 232px;
+  width: 18%;
+  overflow: visible;
+  text-align: center;
+}
+
 .employee-accounts-registry-mobile-diagnostic {
   margin-top: 14px;
 }
@@ -3923,21 +3947,32 @@ select {
 }
 
 .employee-accounts-registry-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  justify-content: flex-end;
+  display: inline-flex;
+  flex-wrap: nowrap;
+  gap: 5px;
+  justify-content: center;
   align-items: center;
+}
+
+.employee-accounts-registry-actions--mobile {
+  width: 100%;
+  justify-content: flex-start;
+  flex-wrap: nowrap;
+}
+
+.employee-accounts-registry-cell--actions {
+  padding-inline: 8px;
+  white-space: nowrap;
 }
 
 .employee-accounts-registry-action-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
-  height: 32px;
-  padding: 0 12px;
-  border-radius: 10px;
+  gap: 5px;
+  height: 30px;
+  padding: 0 10px;
+  border-radius: 9px;
   border: 1px solid transparent;
   font-size: 12px;
   font-weight: 700;
@@ -3945,7 +3980,16 @@ select {
   text-decoration: none;
   cursor: pointer;
   white-space: nowrap;
-  transition: background 140ms ease, border-color 140ms ease, color 140ms ease;
+  transition: background 140ms ease, border-color 140ms ease, color 140ms ease, box-shadow 140ms ease;
+}
+
+.employee-accounts-registry-action-btn--compact {
+  height: 26px;
+  padding: 0 8px;
+  font-size: 11px;
+  border-radius: 7px;
+  gap: 4px;
+  flex-shrink: 0;
 }
 
 .employee-accounts-registry-action-btn--primary {
@@ -3964,6 +4008,18 @@ select {
   background: #f8fafc;
   color: #475569;
   border-color: #dbe3ee;
+}
+
+.employee-accounts-registry-action-btn--link {
+  background: #f8fafc;
+  color: #173d75;
+  border-color: #c9d5e6;
+}
+
+.employee-accounts-registry-action-btn--link:hover {
+  background: #eef4fb;
+  border-color: #b9c7db;
+  color: #12305a;
 }
 
 .employee-accounts-registry-footnote {
