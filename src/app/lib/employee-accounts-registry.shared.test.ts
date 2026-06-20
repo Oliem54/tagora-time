@@ -127,6 +127,46 @@ describe("employee-accounts-registry.shared", () => {
     expect(entry.derivedStatus).toBe("Refusé");
   });
 
+  it("detects mismatched chauffeur metadata as conflict instead of orphan", () => {
+    const entry = buildRegistryEntryFromParts({
+      registryKey: "auth:mismatched-meta",
+      displayName: "Mismatch Meta",
+      email: "operation@oliem.ca",
+      chauffeur: {
+        id: 11,
+        nom: "Mismatch Meta",
+        courriel: "operation@oliem.ca",
+        telephone: null,
+        actif: true,
+        auth_user_id: "auth-mismatch",
+      },
+      authUser: {
+        id: "auth-mismatch",
+        email: "operation@oliem.ca",
+        app_metadata: { role: "employe", chauffeur_id: 10 },
+        user_metadata: {},
+        aud: "authenticated",
+        created_at: "",
+      },
+      accountRequest: null,
+      authUserFoundForProfile: true,
+    });
+
+    expect(entry.diagnostic.staleChauffeurMetadata).toBe(true);
+    expect(entry.authLinked).toBe(false);
+    expect(entry.derivedStatus).toBe("Metadata chauffeur obsolète");
+    expect(entry.tabs).toContain("conflict");
+    expect(entry.tabs).not.toContain("orphan");
+    expect(matchesRegistryTab(entry, "conflict")).toBe(true);
+    expect(matchesRegistryTab(entry, "orphan")).toBe(false);
+    expect(matchesRegistryTab(entry, "active")).toBe(false);
+    expect(
+      entry.diagnostic.inconsistencies.some((item) =>
+        item.includes("ne correspond pas au profil résolu")
+      )
+    ).toBe(true);
+  });
+
   it("detects stale chauffeur metadata and avoids healthy active classification", () => {
     const entry = buildRegistryEntryFromParts({
       registryKey: "auth:stale-meta",

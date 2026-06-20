@@ -134,11 +134,14 @@ export function buildEmployeeAccountsRegistryDiagnostic(options: {
   const accessDisabled = resolveAccessDisabled({ authUser, request: accountRequest });
 
   const metadataChauffeurId = readMetadataChauffeurId(authUser);
+  const resolvedChauffeurId = chauffeur?.id != null ? Number(chauffeur.id) : null;
   const staleChauffeurMetadata =
-    authAccountExists && metadataChauffeurId !== null && !chauffeur?.id;
+    authAccountExists &&
+    metadataChauffeurId !== null &&
+    resolvedChauffeurId !== metadataChauffeurId;
 
   const authUserWithoutChauffeur =
-    authAccountExists && !chauffeur?.id && !staleChauffeurMetadata;
+    authAccountExists && resolvedChauffeurId === null && !staleChauffeurMetadata;
 
   const chauffeurWithoutAuthUser =
     Boolean(chauffeur?.id) &&
@@ -186,9 +189,15 @@ export function buildEmployeeAccountsRegistryDiagnostic(options: {
     inconsistencies.push("invited_user_id de la demande différent du compte auth actuel.");
   }
   if (staleChauffeurMetadata) {
-    inconsistencies.push(
-      `Métadonnées auth avec chauffeur_id obsolète (#${metadataChauffeurId}) — fiche employé introuvable.`
-    );
+    if (resolvedChauffeurId === null) {
+      inconsistencies.push(
+        `Métadonnées auth avec chauffeur_id obsolète (#${metadataChauffeurId}) — fiche employé introuvable.`
+      );
+    } else {
+      inconsistencies.push(
+        `Métadonnées auth chauffeur_id (#${metadataChauffeurId}) ne correspond pas au profil résolu (#${resolvedChauffeurId}).`
+      );
+    }
   }
   if (authUserWithoutChauffeur) {
     inconsistencies.push("Compte auth sans fiche employé liée.");
@@ -227,7 +236,8 @@ export function deriveRegistryTabs(
   if (
     diagnostic.authUserWithoutChauffeur ||
     diagnostic.chauffeurWithoutAuthUser ||
-    diagnostic.staleChauffeurMetadata
+    (diagnostic.staleChauffeurMetadata &&
+      diagnostic.inconsistencies.some((item) => item.includes("introuvable")))
   ) {
     if (diagnostic.accountRequestStatus !== "refused") {
       tabs.push("orphan");
