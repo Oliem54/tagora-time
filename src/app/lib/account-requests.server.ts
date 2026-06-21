@@ -11,6 +11,10 @@ import {
   getJwtAal,
   isJwtExplicitlyAal1Only,
 } from "@/app/lib/auth/jwt-access-token";
+import {
+  readRequestHostname,
+  shouldBlockJwtAal1ForMandatoryMfaRole,
+} from "@/app/lib/auth/mfa.shared";
 
 export { getJwtAal };
 
@@ -306,8 +310,11 @@ export async function getStrictDirectionRequestUser(req: NextRequest) {
   if (
     result.user &&
     result.role &&
-    (result.role === "direction" || result.role === "admin") &&
-    isJwtExplicitlyAal1Only(token)
+    shouldBlockJwtAal1ForMandatoryMfaRole({
+      role: result.role,
+      isExplicitlyAal1Only: isJwtExplicitlyAal1Only(token),
+      hostname: readRequestHostname(req.headers, req.nextUrl.hostname),
+    })
   ) {
     return {
       user: result.user,

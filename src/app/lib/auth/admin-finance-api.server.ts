@@ -7,6 +7,10 @@ import {
 } from "@/app/lib/account-requests.server";
 import { hasAdminFinanceAccess } from "@/app/lib/auth/admin-finance";
 import { isJwtExplicitlyAal1Only } from "@/app/lib/auth/jwt-access-token";
+import {
+  readRequestHostname,
+  shouldBlockJwtAal1ForMandatoryMfaRole,
+} from "@/app/lib/auth/mfa.shared";
 
 /**
  * Garde serveur pour routes paie / remuneration / confidentiel (phase 2B-1).
@@ -37,7 +41,13 @@ export async function requireAdminFinanceUser(req: NextRequest) {
   }
 
   const token = getRequestAccessToken(req).token;
-  if (isJwtExplicitlyAal1Only(token)) {
+  if (
+    shouldBlockJwtAal1ForMandatoryMfaRole({
+      role,
+      isExplicitlyAal1Only: isJwtExplicitlyAal1Only(token),
+      hostname: readRequestHostname(req.headers, req.nextUrl.hostname),
+    })
+  ) {
     return {
       ok: false as const,
       response: {

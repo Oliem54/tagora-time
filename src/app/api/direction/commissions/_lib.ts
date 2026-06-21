@@ -6,6 +6,10 @@ import {
 import { hasAdminFinanceAccess } from "@/app/lib/auth/admin-finance";
 import { hasUserPermission } from "@/app/lib/auth/permissions";
 import { isJwtExplicitlyAal1Only } from "@/app/lib/auth/jwt-access-token";
+import {
+  readRequestHostname,
+  shouldBlockJwtAal1ForMandatoryMfaRole,
+} from "@/app/lib/auth/mfa.shared";
 import { createAdminSupabaseClient } from "@/app/lib/supabase/admin";
 import { parseTierConfig } from "@/app/lib/commissions/calculate.server";
 import {
@@ -41,7 +45,13 @@ export async function requireCommissionsAccess(req: NextRequest) {
     };
   }
   const token = getRequestAccessToken(req).token;
-  if (isJwtExplicitlyAal1Only(token)) {
+  if (
+    shouldBlockJwtAal1ForMandatoryMfaRole({
+      role,
+      isExplicitlyAal1Only: isJwtExplicitlyAal1Only(token),
+      hostname: readRequestHostname(req.headers, req.nextUrl.hostname),
+    })
+  ) {
     return {
       ok: false as const,
       response: NextResponse.json(

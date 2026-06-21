@@ -3,6 +3,8 @@ import {
   isProductionTagoraHostname,
   isStagingPreviewHostname,
   isStagingQaMfaBypassAllowed,
+  readRequestHostname,
+  shouldBlockJwtAal1ForMandatoryMfaRole,
   STAGING_QA_SUPABASE_PROJECT_REF,
 } from "@/app/lib/auth/mfa.shared";
 
@@ -86,6 +88,65 @@ describe("isStagingQaMfaBypassAllowed", () => {
         role: "admin",
         supabaseUrl: STAGING_SUPABASE_URL,
         hostname: "random.example.com",
+      })
+    ).toBe(false);
+  });
+});
+
+describe("readRequestHostname", () => {
+  it("priorise x-forwarded-host puis host", () => {
+    const forwarded = new Headers({
+      "x-forwarded-host": "tagora-time-git-feature.vercel.app",
+      host: "localhost:3000",
+    });
+    expect(readRequestHostname(forwarded)).toBe("tagora-time-git-feature.vercel.app");
+
+    const hostOnly = new Headers({ host: "127.0.0.1:3000" });
+    expect(readRequestHostname(hostOnly)).toBe("127.0.0.1");
+  });
+});
+
+describe("shouldBlockJwtAal1ForMandatoryMfaRole", () => {
+  it("ne bloque pas admin preview staging en aal1", () => {
+    expect(
+      shouldBlockJwtAal1ForMandatoryMfaRole({
+        role: "admin",
+        isExplicitlyAal1Only: true,
+        hostname: PREVIEW_HOST,
+        supabaseUrl: STAGING_SUPABASE_URL,
+      })
+    ).toBe(false);
+  });
+
+  it("bloque admin sur tagora.ca en aal1", () => {
+    expect(
+      shouldBlockJwtAal1ForMandatoryMfaRole({
+        role: "admin",
+        isExplicitlyAal1Only: true,
+        hostname: "tagora.ca",
+        supabaseUrl: STAGING_SUPABASE_URL,
+      })
+    ).toBe(true);
+  });
+
+  it("bloque admin preview si autre projet Supabase", () => {
+    expect(
+      shouldBlockJwtAal1ForMandatoryMfaRole({
+        role: "admin",
+        isExplicitlyAal1Only: true,
+        hostname: PREVIEW_HOST,
+        supabaseUrl: "https://other-project.supabase.co",
+      })
+    ).toBe(true);
+  });
+
+  it("ne bloque pas employé en aal1", () => {
+    expect(
+      shouldBlockJwtAal1ForMandatoryMfaRole({
+        role: "employe",
+        isExplicitlyAal1Only: true,
+        hostname: PREVIEW_HOST,
+        supabaseUrl: STAGING_SUPABASE_URL,
       })
     ).toBe(false);
   });
