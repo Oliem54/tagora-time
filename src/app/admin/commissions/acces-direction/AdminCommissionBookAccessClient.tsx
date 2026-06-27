@@ -152,6 +152,25 @@ function formatDateTime(value: string | null) {
   }).format(parsed);
 }
 
+function grantsEmptyStateMessage(filter: "all" | "active" | "revoked") {
+  if (filter === "active") {
+    return {
+      title: "Aucun accès actif pour le moment.",
+      note: "Ajoutez une personne autorisée pour commencer.",
+    };
+  }
+  if (filter === "revoked") {
+    return {
+      title: "Aucun accès révoqué pour le moment.",
+      note: "Les accès révoqués apparaîtront ici.",
+    };
+  }
+  return {
+    title: "Aucun partage configuré pour le moment.",
+    note: "Ajoutez une personne autorisée pour commencer.",
+  };
+}
+
 function viewerRoleBadgeTone(role: AuthorizedViewerProfile["role"] | undefined) {
   return role === "admin" ? ("info" as const) : ("default" as const);
 }
@@ -214,7 +233,7 @@ export default function AdminCommissionBookAccessClient() {
   >([]);
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [createForm, setCreateForm] = useState<CreateGrantForm>(() => emptyCreateForm());
-  const [activeFilter, setActiveFilter] = useState<"all" | "active" | "revoked">("all");
+  const [activeFilter, setActiveFilter] = useState<"all" | "active" | "revoked">("active");
 
   const canGrantAccess = useMemo(() => {
     return (
@@ -239,6 +258,11 @@ export default function AdminCommissionBookAccessClient() {
       activeShares: activeGrants.length,
     };
   }, [chauffeurs.length, grants]);
+
+  const grantsEmptyState = useMemo(
+    () => grantsEmptyStateMessage(activeFilter),
+    [activeFilter]
+  );
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -632,8 +656,8 @@ export default function AdminCommissionBookAccessClient() {
         {grants.length === 0 ? (
           <div className="admin-grants-empty-state">
             <BookOpen size={28} aria-hidden />
-            <div className="admin-grants-empty-title">Aucun partage configuré pour le moment.</div>
-            <p className="tagora-note">Ajoutez une personne autorisée pour commencer.</p>
+            <div className="admin-grants-empty-title">{grantsEmptyState.title}</div>
+            <p className="tagora-note">{grantsEmptyState.note}</p>
           </div>
         ) : (
           <>
