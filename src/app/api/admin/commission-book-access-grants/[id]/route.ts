@@ -13,6 +13,10 @@ function asText(value: unknown) {
   return trimmed.length > 0 ? trimmed : null;
 }
 
+function isRevokeRequested(body: Record<string, unknown>) {
+  return body.revoke === true || body.revoke === "true";
+}
+
 export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -35,8 +39,9 @@ export async function PATCH(
     }
 
     const patch: Record<string, unknown> = {};
+    const revokeRequested = isRevokeRequested(body);
 
-    if (body.revoke === true) {
+    if (revokeRequested) {
       patch.revoked_at = new Date().toISOString();
     } else if (body.revoked_at !== undefined) {
       patch.revoked_at = body.revoked_at === null ? null : asText(String(body.revoked_at));
@@ -71,12 +76,23 @@ export async function PATCH(
     if (updateRes.error || !updateRes.data) {
       return NextResponse.json(
         { error: updateRes.error?.message ?? "Mise a jour du grant impossible." },
-        { status: 400 }
+        { status: updateRes.error ? 400 : 404 }
       );
     }
 
+    const updatedRow = updateRes.data as Record<string, unknown>;
+    if (revokeRequested) {
+      const revokedAt = updatedRow.revoked_at;
+      if (typeof revokedAt !== "string" || revokedAt.trim().length === 0) {
+        return NextResponse.json(
+          { error: "Révocation non confirmée en base." },
+          { status: 409 }
+        );
+      }
+    }
+
     const ownerId = Math.trunc(
-      Number((updateRes.data as { owner_chauffeur_id?: unknown }).owner_chauffeur_id)
+      Number(updatedRow.owner_chauffeur_id)
     );
     const labelMap = await loadChauffeurLabels(
       supabase,
@@ -84,10 +100,7 @@ export async function PATCH(
     );
 
     return NextResponse.json({
-      grant: mapCommissionBookAccessGrantRecord(
-        updateRes.data as Record<string, unknown>,
-        labelMap.get(ownerId) ?? null
-      ),
+      grant: mapCommissionBookAccessGrantRecord(updatedRow, labelMap.get(ownerId) ?? null),
     });
   } catch (error) {
     return NextResponse.json(

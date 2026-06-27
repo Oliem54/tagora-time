@@ -361,11 +361,22 @@ export default function AdminCommissionBookAccessClient() {
       body: JSON.stringify({ revoke: true }),
     });
 
-    const payload = (await response.json().catch(() => ({}))) as { error?: string };
+    const payload = (await response.json().catch(() => ({}))) as {
+      error?: string;
+      grant?: GrantRecord;
+    };
     setActionKey(null);
 
     if (!response.ok) {
       setMessage(payload.error ?? "Révocation impossible.");
+      setMessageType("error");
+      return;
+    }
+
+    const revokedAt = payload.grant?.revoked_at?.trim() ?? "";
+    const revokeConfirmed = Boolean(revokedAt) || payload.grant?.is_active === false;
+    if (!revokeConfirmed) {
+      setMessage("Révocation non confirmée en base.");
       setMessageType("error");
       return;
     }
