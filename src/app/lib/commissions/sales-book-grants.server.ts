@@ -5,6 +5,10 @@ import { NextResponse } from "next/server";
 import { getAuthenticatedRequestUser } from "@/app/lib/account-requests.server";
 import { mapDirectionObjectiveOperationalRow } from "@/app/api/direction/commissions/_lib";
 import { createAdminSupabaseClient } from "@/app/lib/supabase/admin";
+import {
+  isCommissionGrantActiveRow,
+  normalizeCommissionTimestamp,
+} from "@/app/lib/commissions/sales-book-grants.shared";
 
 export const EMPLOYEE_PROFILE_NOT_LINKED_MESSAGE =
   "Aucun profil employé lié à ce compte.";
@@ -54,19 +58,6 @@ function asNumber(value: unknown): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-function isGrantExpired(expiresAt: string | null | undefined) {
-  if (!expiresAt) return false;
-  const parsed = Date.parse(expiresAt);
-  return !Number.isFinite(parsed) || parsed <= Date.now();
-}
-
-function isActiveGrantRow(row: {
-  revoked_at?: string | null;
-  expires_at?: string | null;
-  can_view?: boolean | null;
-}) {
-  return row.can_view !== false && row.revoked_at == null && !isGrantExpired(row.expires_at ?? null);
-}
 
 export async function requireEmployeSalesBookAccess(req: NextRequest) {
   const { user, role } = await getAuthenticatedRequestUser(req);
@@ -133,7 +124,7 @@ export async function loadActiveGrantOwnerChauffeurIds(
   return Array.from(
     new Set(
       (data ?? [])
-        .filter((row) => isActiveGrantRow(row as Record<string, unknown>))
+        .filter((row) => isCommissionGrantActiveRow(row as Record<string, unknown>))
         .map((row) => Math.trunc(Number((row as { owner_chauffeur_id: unknown }).owner_chauffeur_id)))
         .filter((id) => Number.isFinite(id) && id > 0)
     )
@@ -321,10 +312,10 @@ export function mapCommissionBookAccessGrantRecord(
     can_view: row.can_view !== false,
     can_edit: row.can_edit === true,
     created_at: String(row.created_at ?? ""),
-    revoked_at: typeof row.revoked_at === "string" ? row.revoked_at : null,
-    expires_at: typeof row.expires_at === "string" ? row.expires_at : null,
+    revoked_at: normalizeCommissionTimestamp(row.revoked_at),
+    expires_at: normalizeCommissionTimestamp(row.expires_at),
     notes: typeof row.notes === "string" ? row.notes : null,
-    is_active: isActiveGrantRow(row),
+    is_active: isCommissionGrantActiveRow(row),
     owner_chauffeur_label: ownerLabel ?? null,
   };
 }

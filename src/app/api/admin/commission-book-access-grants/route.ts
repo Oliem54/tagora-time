@@ -79,7 +79,9 @@ export async function GET(req: NextRequest) {
     const ownerIds = Array.from(
       new Set(
         (data ?? [])
-          .map((row) => Math.trunc(Number((row as { owner_chauffeur_id?: unknown }).owner_chauffeur_id)))
+          .map((row) =>
+            Math.trunc(Number((row as { owner_chauffeur_id?: unknown }).owner_chauffeur_id))
+          )
           .filter((id) => Number.isFinite(id) && id > 0)
       )
     );
@@ -101,6 +103,16 @@ export async function GET(req: NextRequest) {
       { status: 500 }
     );
   }
+}
+
+export async function PATCH() {
+  return NextResponse.json(
+    {
+      error:
+        "Révocation via PATCH sans identifiant interdite. Utilisez PATCH /api/admin/commission-book-access-grants/{grantId} avec { revoke: true }.",
+    },
+    { status: 405 }
+  );
 }
 
 export async function POST(req: NextRequest) {

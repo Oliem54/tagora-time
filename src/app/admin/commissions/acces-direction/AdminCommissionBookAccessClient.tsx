@@ -27,6 +27,10 @@ import {
 } from "@/app/lib/commissions/commission-book-authorized-viewers.shared";
 import { commissionsFetch } from "@/app/lib/commissions/commissions-api.client";
 import {
+  isCommissionBookGrantId,
+  isCommissionBookGrantRevoked,
+} from "@/app/lib/commissions/sales-book-grants.shared";
+import {
   buildEmployeeResourceSelectLabel,
   hasLinkedPortalAccount,
 } from "@/app/lib/employee-resource-select.shared";
@@ -307,6 +311,25 @@ export default function AdminCommissionBookAccessClient() {
     setLoading(false);
   }, [activeFilter]);
 
+  const refreshGrantsOnly = useCallback(async () => {
+    const grantsRes = await commissionsFetch(
+      `/api/admin/commission-book-access-grants?active=${activeFilter}`
+    );
+    const grantsPayload = (await grantsRes.json().catch(() => ({}))) as {
+      error?: string;
+      grants?: GrantRecord[];
+    };
+
+    if (!grantsRes.ok) {
+      setMessage(grantsPayload.error ?? "Impossible de recharger les accès au partage des livres.");
+      setMessageType("error");
+      return false;
+    }
+
+    setGrants(Array.isArray(grantsPayload.grants) ? grantsPayload.grants : []);
+    return true;
+  }, [activeFilter]);
+
   useEffect(() => {
     if (accessLoading || !user) return;
     void loadData();
@@ -352,14 +375,23 @@ export default function AdminCommissionBookAccessClient() {
   }
 
   async function handleRevokeGrant(grantId: string) {
+    if (!isCommissionBookGrantId(grantId)) {
+      setMessage("Identifiant de grant invalide.");
+      setMessageType("error");
+      return;
+    }
+
     setActionKey(grantId);
     setMessage("");
     setMessageType(null);
 
-    const response = await commissionsFetch(`/api/admin/commission-book-access-grants/${grantId}`, {
-      method: "PATCH",
-      body: JSON.stringify({ revoke: true }),
-    });
+    const response = await commissionsFetch(
+      `/api/admin/commission-book-access-grants/${encodeURIComponent(grantId)}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ revoke: true }),
+      }
+    );
 
     const payload = (await response.json().catch(() => ({}))) as {
       error?: string;
@@ -373,9 +405,7 @@ export default function AdminCommissionBookAccessClient() {
       return;
     }
 
-    const revokedAt = payload.grant?.revoked_at?.trim() ?? "";
-    const revokeConfirmed = Boolean(revokedAt) || payload.grant?.is_active === false;
-    if (!revokeConfirmed) {
+    if (!isCommissionBookGrantRevoked(payload.grant ?? {})) {
       setMessage("Révocation non confirmée en base.");
       setMessageType("error");
       return;
@@ -383,7 +413,7 @@ export default function AdminCommissionBookAccessClient() {
 
     setMessage("Accès révoqué.");
     setMessageType("success");
-    await loadData();
+    await refreshGrantsOnly();
   }
 
   if (accessLoading || loading) {

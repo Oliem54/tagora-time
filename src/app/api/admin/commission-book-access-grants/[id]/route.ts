@@ -4,6 +4,11 @@ import {
   requireAdminFinanceCommissionsAccess,
 } from "@/app/api/direction/commissions/_lib";
 import { mapCommissionBookAccessGrantRecord } from "@/app/lib/commissions/sales-book-grants.server";
+import {
+  isCommissionBookGrantId,
+  isRevokeRequestedInBody,
+  normalizeCommissionTimestamp,
+} from "@/app/lib/commissions/sales-book-grants.shared";
 
 export const dynamic = "force-dynamic";
 
@@ -11,10 +16,6 @@ function asText(value: unknown) {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
-}
-
-function isRevokeRequested(body: Record<string, unknown>) {
-  return body.revoke === true || body.revoke === "true";
 }
 
 export async function PATCH(
@@ -25,8 +26,15 @@ export async function PATCH(
     const auth = await requireAdminFinanceCommissionsAccess(req);
     if (!auth.ok) return auth.response;
     const { supabase } = auth;
-    const { id } = await params;
+    const { id: rawId } = await params;
+    const id = rawId.trim();
+
+    if (!isCommissionBookGrantId(id)) {
+      return NextResponse.json({ error: "Identifiant de grant invalide." }, { status: 400 });
+    }
+
     const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
+    const revokeRequested = isRevokeRequestedInBody(body);
 
     const existingRes = await supabase
       .from("commission_book_access_grants")
@@ -38,13 +46,85 @@ export async function PATCH(
       return NextResponse.json({ error: "Grant introuvable." }, { status: 404 });
     }
 
-    const patch: Record<string, unknown> = {};
-    const revokeRequested = isRevokeRequested(body);
+    const existingRow = existingRes.data as Record<string, unknown>;
+    const existingRevokedAt = normalizeCommissionTimestamp(existingRow.revoked_at);
 
     if (revokeRequested) {
-      patch.revoked_at = new Date().toISOString();
-    } else if (body.revoked_at !== undefined) {
-      patch.revoked_at = body.revoked_at === null ? null : asText(String(body.revoked_at));
+      if (existingRevokedAt) {
+        const ownerId = Math.trunc(Number(existingRow.owner_chauffeur_id));
+        const labelMap = await loadChauffeurLabels(
+          supabase,
+          Number.isFinite(ownerId) && ownerId > 0 ? [ownerId] : []
+        );
+        return NextResponse.json({
+          grant: mapCommissionBookAccessGrantRecord(
+            existingRow,
+            labelMap.get(ownerId) ?? null
+          ),
+        });
+      }
+
+      const revokedAtIso = new Date().toISOString();
+      const updateRes = await supabase
+        .from("commission_book_access_grants")
+        .update({ revoked_at: revokedAtIso })
+        .eq("id", id)
+        .is("revoked_at", null)
+        .select("id")
+        .maybeSingle();
+
+      if (updateRes.error) {
+        return NextResponse.json({ error: updateRes.error.message }, { status: 400 });
+      }
+
+      if (!updateRes.data) {
+        return NextResponse.json(
+          { error: "Révocation non confirmée en base." },
+          { status: 409 }
+        );
+      }
+
+      const verifyRes = await supabase
+        .from("commission_book_access_grants")
+        .select("*")
+        .eq("id", id)
+        .maybeSingle();
+
+      if (verifyRes.error || !verifyRes.data) {
+        return NextResponse.json(
+          { error: "Grant introuvable après révocation." },
+          { status: 404 }
+        );
+      }
+
+      const verifiedRow = verifyRes.data as Record<string, unknown>;
+      const verifiedRevokedAt = normalizeCommissionTimestamp(verifiedRow.revoked_at);
+      if (!verifiedRevokedAt) {
+        return NextResponse.json(
+          { error: "Révocation non confirmée en base." },
+          { status: 409 }
+        );
+      }
+
+      const ownerId = Math.trunc(Number(verifiedRow.owner_chauffeur_id));
+      const labelMap = await loadChauffeurLabels(
+        supabase,
+        Number.isFinite(ownerId) && ownerId > 0 ? [ownerId] : []
+      );
+
+      return NextResponse.json({
+        grant: mapCommissionBookAccessGrantRecord(
+          verifiedRow,
+          labelMap.get(ownerId) ?? null
+        ),
+      });
+    }
+
+    const patch: Record<string, unknown> = {};
+
+    if (body.revoked_at !== undefined) {
+      patch.revoked_at =
+        body.revoked_at === null ? null : asText(String(body.revoked_at));
     }
 
     if (body.notes !== undefined) {
@@ -81,19 +161,7 @@ export async function PATCH(
     }
 
     const updatedRow = updateRes.data as Record<string, unknown>;
-    if (revokeRequested) {
-      const revokedAt = updatedRow.revoked_at;
-      if (typeof revokedAt !== "string" || revokedAt.trim().length === 0) {
-        return NextResponse.json(
-          { error: "Révocation non confirmée en base." },
-          { status: 409 }
-        );
-      }
-    }
-
-    const ownerId = Math.trunc(
-      Number(updatedRow.owner_chauffeur_id)
-    );
+    const ownerId = Math.trunc(Number(updatedRow.owner_chauffeur_id));
     const labelMap = await loadChauffeurLabels(
       supabase,
       Number.isFinite(ownerId) && ownerId > 0 ? [ownerId] : []
