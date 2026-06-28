@@ -4,13 +4,13 @@ import {
   deriveObjectiveStatus,
 } from "@/app/lib/commissions/calculate.server";
 import {
-  mapDirectionObjectiveOperationalRow,
   loadChauffeurLabels,
   mapEntryRow,
   mapObjectiveRow,
   requireCommissionsAccess,
 } from "@/app/api/direction/commissions/_lib";
 import { hasAdminFinanceAccess } from "@/app/lib/auth/admin-finance";
+import { loadDirectionGrantedOperationalObjectives } from "@/app/lib/commissions/sales-book-grants.server";
 import {
   todayIsoLocal,
   type CommissionsSummary,
@@ -83,17 +83,9 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ summary, todayIso });
     }
 
-    const objectivesRes = await supabase
-      .from("direction_objectives_operational_view")
-      .select("*")
-      .neq("status", "cancelled")
-      .order("period_end", { ascending: false });
-
-    if (objectivesRes.error) {
-      return NextResponse.json({ error: objectivesRes.error.message }, { status: 400 });
-    }
-    const objectives = (objectivesRes.data ?? []).map((row) =>
-      mapDirectionObjectiveOperationalRow(row as Record<string, unknown>)
+    const objectivesResult = await loadDirectionGrantedOperationalObjectives(supabase, user.id);
+    const objectives = (objectivesResult === "forbidden" ? [] : objectivesResult).filter(
+      (item) => item.status !== "cancelled"
     );
 
     const summary = {

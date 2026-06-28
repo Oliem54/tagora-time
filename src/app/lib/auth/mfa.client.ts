@@ -4,7 +4,10 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/app/lib/supabase/client";
 import type { AppRole } from "@/app/lib/auth/roles";
 import { getHomePathForRole } from "@/app/lib/auth/roles";
-import { roleRequiresMandatoryMfa } from "@/app/lib/auth/mfa.shared";
+import {
+  isStagingQaMfaBypassAllowed,
+  roleRequiresMandatoryMfa,
+} from "@/app/lib/auth/mfa.shared";
 
 export type MandatoryMfaGate =
   | { kind: "none" }
@@ -24,6 +27,7 @@ type ListedFactor = {
   factor_type: string;
   status: string;
   friendly_name?: string | null;
+  phone?: string | null;
 };
 
 function readListedFactors(data: unknown): ListedFactor[] {
@@ -70,6 +74,17 @@ export function resetMfaVerifyFailureTracking() {
 
 export async function getMandatoryMfaGate(role: AppRole | null): Promise<MandatoryMfaGate> {
   if (!roleRequiresMandatoryMfa(role)) {
+    return { kind: "none" };
+  }
+
+  if (
+    typeof window !== "undefined" &&
+    isStagingQaMfaBypassAllowed({
+      role,
+      supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL,
+      hostname: window.location.hostname,
+    })
+  ) {
     return { kind: "none" };
   }
 

@@ -32,7 +32,8 @@ function getBackHref(
   area: AppRole,
   pathname: string,
   livraisonId: string | null,
-  roleDashboardHref: string
+  roleDashboardHref: string,
+  userRole: AppRole | null
 ) {
   const dashboardHref = roleDashboardHref;
 
@@ -41,6 +42,17 @@ function getBackHref(
   }
 
   if (area === "direction") {
+    if (pathname.startsWith("/direction/commissions/livres/")) {
+      return "/direction/commissions";
+    }
+
+    if (pathname === "/direction/commissions") {
+      if (userRole === "admin") {
+        return "/admin/commissions";
+      }
+      return "/direction/dashboard";
+    }
+
     if (
       pathname.startsWith("/direction/ressources/employes/") ||
       pathname === "/direction/ressources/employes/nouveau"
@@ -100,7 +112,34 @@ function getBackHref(
     return "/employe/dashboard";
   }
 
+  if (pathname === "/employe/mon-livre") {
+    return "/employe/dashboard";
+  }
+
   return pathname === dashboardHref ? "/employe" : dashboardHref;
+}
+
+function getDashboardLink(
+  pathname: string,
+  userRole: AppRole | null,
+  area: AppRole
+): { href: string; label: string } {
+  const role = userRole ?? area;
+
+  if (
+    area === "direction" &&
+    (pathname === "/direction/commissions" || pathname.startsWith("/direction/commissions/livres/"))
+  ) {
+    if (role === "admin") {
+      return { href: "/admin/dashboard", label: "Administration" };
+    }
+    return { href: "/direction/dashboard", label: "Tableau de bord direction" };
+  }
+
+  return {
+    href: getDashboardPathForRole(role),
+    label: getDashboardLabelForRole(role),
+  };
 }
 
 export default function TagoraPageNavigation() {
@@ -118,9 +157,16 @@ export default function TagoraPageNavigation() {
     return null;
   }
 
-  const dashboardHref = userRole ? getDashboardPathForRole(userRole) : getDashboardPathForRole(area);
-  const dashboardLabel = userRole ? getDashboardLabelForRole(userRole) : getDashboardLabelForRole(area);
-  const backHref = getBackHref(area, pathname, searchParams.get("livraison_id"), dashboardHref);
+  const dashboardLink = getDashboardLink(pathname, userRole, area);
+  const dashboardHref = dashboardLink.href;
+  const dashboardLabel = dashboardLink.label;
+  const backHref = getBackHref(
+    area,
+    pathname,
+    searchParams.get("livraison_id"),
+    userRole ? getDashboardPathForRole(userRole) : getDashboardPathForRole(area),
+    userRole
+  );
   const dashboardIsCurrent = pathname === dashboardHref;
 
   return (

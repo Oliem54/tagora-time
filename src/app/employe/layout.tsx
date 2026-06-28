@@ -15,7 +15,11 @@ export default function EmployeLayout({
   children: React.ReactNode;
 }) {
   return (
-    <AuthGate areaRole="employe" publicPaths={["/employe", "/employe/login"]}>
+    <AuthGate
+      areaRole="employe"
+      publicPaths={["/employe", "/employe/login"]}
+      wrongRoleRenderPaths={["/employe/mon-livre"]}
+    >
       {children}
     </AuthGate>
   );

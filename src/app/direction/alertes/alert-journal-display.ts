@@ -1,6 +1,10 @@
 /**
  * Présentation lisible du journal des alertes (résumés humains, détails techniques repliables).
  */
+import {
+  resolveHorodateurExceptionDisplay,
+  type HorodateurExceptionDisplay,
+} from "@/app/lib/horodateur-exception-display.shared";
 
 export type JournalRowForDisplay = {
   id: string;
@@ -17,6 +21,7 @@ export type JournalRowForDisplay = {
   smsDelivery: string;
   sourceModule: string;
   linkHref?: string | null;
+  dedupeKey?: string | null;
 };
 
 /** Textes affichés lorsqu’aucune heuristique ne permet d’expliquer précisément l’alerte. */
@@ -44,6 +49,7 @@ export type JournalHumanView = {
   recommendedAction: string;
   technicalDetails: TechnicalDetailEntry[];
   rawMessage: string | null;
+  horodateurDisplay: HorodateurExceptionDisplay | null;
 };
 
 const STATUS_LABEL: Record<string, string> = {
@@ -341,8 +347,23 @@ function buildSummaryAndGuidance(
 }
 
 export function buildJournalHumanView(row: JournalRowForDisplay): JournalHumanView {
-  const alertTypeLabel = inferAlertTypeLabel(row);
-  const simpleTitle = simplifyTitle(row, alertTypeLabel);
+  const horodateurDisplay = resolveHorodateurExceptionDisplay({
+    category: row.category,
+    status: row.status,
+    title: row.title,
+    message: row.message,
+    employeeName: row.employeeLabel,
+    employeeLabel: row.employeeLabel,
+    employeeId: row.employeeId,
+    priority: row.priority,
+    dedupeKey: row.dedupeKey,
+    createdAt: row.createdAt,
+  });
+
+  const alertTypeLabel = horodateurDisplay
+    ? horodateurDisplay.caseLabel
+    : inferAlertTypeLabel(row);
+  const simpleTitle = horodateurDisplay?.humanTitle ?? simplifyTitle(row, alertTypeLabel);
   const { prose, jsonStrings } = extractJsonBlocks(row.message ?? "");
 
   const technicalDetails: TechnicalDetailEntry[] = [];
@@ -367,7 +388,7 @@ export function buildJournalHumanView(row: JournalRowForDisplay): JournalHumanVi
     }
   }
 
-  if (row.message) {
+  if (row.message && !horodateurDisplay) {
     const alreadyHasMessage = technicalDetails.some((e) => e.label === "Message technique");
     if (!alreadyHasMessage && proseForSummary.length > 0) {
       technicalDetails.unshift({
@@ -377,31 +398,43 @@ export function buildJournalHumanView(row: JournalRowForDisplay): JournalHumanVi
     }
   }
 
-  if (row.sourceModule) {
-    technicalDetails.push({ label: "Module source", value: row.sourceModule });
+  if (!horodateurDisplay) {
+    if (row.sourceModule) {
+      technicalDetails.push({ label: "Module source", value: row.sourceModule });
+    }
+    if (row.category) {
+      technicalDetails.push({ label: "Catégorie technique", value: row.category });
+    }
   }
-  if (row.category) {
-    technicalDetails.push({ label: "Catégorie technique", value: row.category });
-  }
-  if (row.emailDelivery !== "—") {
+  if (!horodateurDisplay && row.emailDelivery !== "—") {
     technicalDetails.push({ label: "Livraison courriel", value: row.emailDelivery });
   }
-  if (row.smsDelivery !== "—") {
+  if (!horodateurDisplay && row.smsDelivery !== "—") {
     technicalDetails.push({ label: "Livraison SMS", value: row.smsDelivery });
   }
+  if (horodateurDisplay) {
+    technicalDetails.push(...horodateurDisplay.technicalDetails);
+  }
 
-  const guidance = buildSummaryAndGuidance(row, alertTypeLabel, proseForSummary, technicalDetails);
+  const guidance = horodateurDisplay
+    ? {
+        summary: horodateurDisplay.humanSummary,
+        probableCause: horodateurDisplay.whyText,
+        recommendedAction: horodateurDisplay.recommendedActionText,
+      }
+    : buildSummaryAndGuidance(row, alertTypeLabel, proseForSummary, technicalDetails);
 
   return {
     alertTypeLabel,
     simpleTitle,
-    priorityLabel: priorityLabelFr(row.priority),
-    statusLabel: statusLabelFr(row.status),
+    priorityLabel: horodateurDisplay?.severityLabel ?? priorityLabelFr(row.priority),
+    statusLabel: horodateurDisplay?.decisionStatusLabel ?? statusLabelFr(row.status),
     targetLabel: inferTargetLabel(row),
     formattedDate: formatJournalDate(row.createdAt),
     ...guidance,
     technicalDetails,
     rawMessage: row.message,
+    horodateurDisplay,
   };
 }
 

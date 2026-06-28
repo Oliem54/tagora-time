@@ -2,6 +2,10 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { APP_SESSION_COOKIE_NAME } from "@/app/lib/auth/session-cookie";
 import { getJwtAppRole, isJwtExplicitlyAal1Only } from "@/app/lib/auth/jwt-access-token";
+import {
+  readRequestHostname,
+  shouldBlockJwtAal1ForMandatoryMfaRole,
+} from "@/app/lib/auth/mfa.shared";
 
 function readApiAccessToken(request: NextRequest): string | null {
   const authHeader = request.headers.get("authorization");
@@ -32,8 +36,11 @@ export function middleware(request: NextRequest) {
       let blockMfa = false;
       try {
         const jwtRole = getJwtAppRole(token);
-        blockMfa =
-          (jwtRole === "direction" || jwtRole === "admin") && isJwtExplicitlyAal1Only(token);
+        blockMfa = shouldBlockJwtAal1ForMandatoryMfaRole({
+          role: jwtRole,
+          isExplicitlyAal1Only: isJwtExplicitlyAal1Only(token),
+          hostname: readRequestHostname(request.headers, request.nextUrl.hostname),
+        });
       } catch {
         // Ne jamais bloquer tout le site si le décodage JWT échoue (Edge / jeton inattendu).
         blockMfa = false;

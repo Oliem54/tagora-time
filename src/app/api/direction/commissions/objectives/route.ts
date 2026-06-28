@@ -16,6 +16,7 @@ import {
   requireCommissionsAccess,
 } from "@/app/api/direction/commissions/_lib";
 import { hasAdminFinanceAccess } from "@/app/lib/auth/admin-finance";
+import { loadDirectionGrantedOperationalObjectives } from "@/app/lib/commissions/sales-book-grants.server";
 
 function asText(value: unknown) {
   if (typeof value !== "string") return null;
@@ -85,19 +86,8 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ objectives, todayIso });
     }
 
-    const { data, error } = await supabase
-      .from("direction_objectives_operational_view")
-      .select("*")
-      .order("period_end", { ascending: false })
-      .order("created_at", { ascending: false });
-
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 400 });
-    }
-
-    const objectives = (data ?? []).map((row) =>
-      mapDirectionObjectiveOperationalRow(row as Record<string, unknown>)
-    );
+    const objectivesResult = await loadDirectionGrantedOperationalObjectives(supabase, user.id);
+    const objectives = objectivesResult === "forbidden" ? [] : objectivesResult;
 
     return NextResponse.json({ objectives, todayIso });
   } catch (error) {

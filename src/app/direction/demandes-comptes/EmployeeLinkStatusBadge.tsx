@@ -13,9 +13,9 @@ export default function EmployeeLinkStatusBadge({
   }
 
   if (employeeLink.status === "created") {
-    return <StatusBadge label="Employe cree" tone="success" />;
+    return <StatusBadge label="Employé créé" tone="success" />;
   }
 
-  return <StatusBadge label="Employe deja existant" tone="info" />;
+  return <StatusBadge label="Employé déjà existant" tone="info" />;
 }
 

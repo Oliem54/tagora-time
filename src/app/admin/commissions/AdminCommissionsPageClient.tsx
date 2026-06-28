@@ -1,6 +1,8 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { KeyRound } from "lucide-react";
 import FeedbackMessage from "@/app/components/FeedbackMessage";
 import AuthenticatedPageHeader from "@/app/components/ui/AuthenticatedPageHeader";
 import SectionCard from "@/app/components/ui/SectionCard";
@@ -9,6 +11,7 @@ import StatusBadge from "@/app/components/ui/StatusBadge";
 import TagoraLoadingScreen from "@/app/components/ui/TagoraLoadingScreen";
 import { supabase } from "@/app/lib/supabase/client";
 import { useCurrentAccess } from "@/app/hooks/useCurrentAccess";
+import { commissionsFetch } from "@/app/lib/commissions/commissions-api.client";
 import {
   COMMISSION_STATUS_LABELS,
   OBJECTIVE_STATUS_LABELS,
@@ -60,20 +63,6 @@ function emptyForm(): CreateFormState {
     fixed_amount: "",
     percentage_rate: "5",
   };
-}
-
-async function commissionsFetch(input: string, init?: RequestInit) {
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
-  const headers = new Headers(init?.headers ?? {});
-  if (session?.access_token) {
-    headers.set("Authorization", `Bearer ${session.access_token}`);
-  }
-  if (init?.body && !headers.has("Content-Type")) {
-    headers.set("Content-Type", "application/json");
-  }
-  return fetch(input, { ...init, headers, cache: "no-store" });
 }
 
 function assigneeLabel(objective: SalesObjectiveRow) {
@@ -396,6 +385,21 @@ export default function AdminCommissionsPageClient() {
       />
 
       {message && messageType ? <FeedbackMessage message={message} type={messageType} /> : null}
+
+      <Link href="/admin/commissions/acces-direction" className="admin-commissions-access-link">
+        <AppCard tone="elevated" className="admin-commissions-access-card">
+          <div className="admin-commissions-access-icon" aria-hidden>
+            <KeyRound size={20} />
+          </div>
+          <div>
+            <div style={{ fontWeight: 800 }}>Partage des livres de ventes</div>
+            <p className="tagora-note" style={{ margin: "6px 0 0" }}>
+              Configurer les personnes autorisées à consulter un livre, sans montants confidentiels.
+            </p>
+          </div>
+          <span className="tagora-dark-action admin-commissions-access-cta">Ouvrir</span>
+        </AppCard>
+      </Link>
 
       <section className="commissions-kpi-grid">
         {kpiCards.map((card) => (
@@ -750,6 +754,32 @@ export default function AdminCommissionsPageClient() {
       </div>
 
       <style jsx>{`
+        :global(.admin-commissions-access-link) {
+          display: block;
+          text-decoration: none;
+          color: inherit;
+          margin-bottom: 20px;
+        }
+        :global(.admin-commissions-access-card) {
+          display: grid;
+          grid-template-columns: auto 1fr auto;
+          gap: 14px;
+          align-items: center;
+          padding: 18px;
+        }
+        :global(.admin-commissions-access-icon) {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          width: 42px;
+          height: 42px;
+          border-radius: 12px;
+          background: linear-gradient(135deg, #eff6ff, #dbeafe);
+          color: #1d4ed8;
+        }
+        :global(.admin-commissions-access-cta) {
+          white-space: nowrap;
+        }
         .commissions-kpi-grid {
           display: grid;
           grid-template-columns: repeat(6, minmax(0, 1fr));

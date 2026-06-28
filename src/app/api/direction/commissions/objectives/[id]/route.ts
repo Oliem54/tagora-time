@@ -16,6 +16,7 @@ import {
   requireCommissionsAccess,
 } from "@/app/api/direction/commissions/_lib";
 import { hasAdminFinanceAccess } from "@/app/lib/auth/admin-finance";
+import { loadDirectionGrantedOperationalObjectives } from "@/app/lib/commissions/sales-book-grants.server";
 
 function asText(value: unknown) {
   if (typeof value !== "string") return null;
@@ -29,35 +30,40 @@ function asNumber(value: unknown) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-type DirectionObjectiveSupabase = {
-  from: (table: "direction_objectives_operational_view") => {
-    select: (columns: "*") => {
-      eq: (column: "id", value: string) => {
-        maybeSingle: () => Promise<{ data: unknown; error: { message?: string } | null }>;
-      };
-    };
-  };
-};
-
-async function loadDirectionObjective(
-  supabase: DirectionObjectiveSupabase,
+async function loadGrantedDirectionObjective(
+  supabase: ReturnType<typeof import("@/app/lib/supabase/admin").createAdminSupabaseClient>,
+  viewerUserId: string,
   objectiveId: string
 ) {
   const objectiveRes = await supabase
-    .from("direction_objectives_operational_view")
-    .select("*")
+    .from("sales_objectives")
+    .select("id, chauffeur_id")
     .eq("id", objectiveId)
     .maybeSingle();
 
   if (objectiveRes.error || !objectiveRes.data) {
-    return { error: objectiveRes.error?.message ?? "Objectif introuvable." } as const;
+    return { error: "Objectif introuvable.", status: 404 as const };
   }
 
-  return {
-    objective: mapDirectionObjectiveOperationalRow(
-      objectiveRes.data as Record<string, unknown>
-    ),
-  } as const;
+  const chauffeurId = asNumber((objectiveRes.data as { chauffeur_id?: unknown }).chauffeur_id);
+  if (chauffeurId == null || chauffeurId <= 0) {
+    return { error: "Acces non autorise a ce livre de ventes.", status: 403 as const };
+  }
+
+  const objectives = await loadDirectionGrantedOperationalObjectives(supabase, viewerUserId, {
+    chauffeurId,
+  });
+
+  if (objectives === "forbidden") {
+    return { error: "Acces non autorise a ce livre de ventes.", status: 403 as const };
+  }
+
+  const objective = objectives.find((item) => item.id === objectiveId);
+  if (!objective) {
+    return { error: "Objectif introuvable.", status: 404 as const };
+  }
+
+  return { objective };
 }
 
 export async function GET(
@@ -105,12 +111,9 @@ export async function GET(
       });
     }
 
-    const bundle = await loadDirectionObjective(
-      supabase as unknown as DirectionObjectiveSupabase,
-      id
-    );
+    const bundle = await loadGrantedDirectionObjective(supabase, user.id, id);
     if ("error" in bundle) {
-      return NextResponse.json({ error: bundle.error }, { status: 404 });
+      return NextResponse.json({ error: bundle.error }, { status: bundle.status });
     }
 
     return NextResponse.json(bundle);

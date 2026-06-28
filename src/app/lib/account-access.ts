@@ -33,6 +33,10 @@ export type EmployeeLinkSummary = {
   status: EmployeeLinkStatus;
   label: string;
   source: EmployeeLinkSource;
+  actif?: boolean | null;
+  schedule_active?: boolean | null;
+  profile_telephone?: string | null;
+  auth_user_id?: string | null;
 };
 
 export type AccountAccessRequestRecord = {
@@ -115,6 +119,44 @@ export function isAccessDisabledRequest(request: AccountAccessRequestRecord) {
 
 export function isRefusedRequest(request: AccountAccessRequestRecord) {
   return request.status === "refused" && !isAccessDisabledRequest(request);
+}
+
+export function isPortalAccountLinked(request: AccountAccessRequestRecord) {
+  const authUserId = request.existing_account?.userId ?? null;
+  const invitedUserId = request.invited_user_id ?? null;
+  return Boolean(
+    request.existing_account?.exists &&
+      authUserId &&
+      invitedUserId &&
+      authUserId === invitedUserId
+  );
+}
+
+export function isPortalActiveWithInactiveEmployeeProfile(
+  request: AccountAccessRequestRecord
+) {
+  return (
+    request.status === "active" &&
+    !isAccessDisabledRequest(request) &&
+    Boolean(request.existing_account?.exists) &&
+    request.employee_link?.actif === false
+  );
+}
+
+export function getAccountRequestPortalSummaryLabel(
+  request: AccountAccessRequestRecord
+): string | null {
+  if (isPortalActiveWithInactiveEmployeeProfile(request)) {
+    return "Compte portail actif — fiche RH inactive";
+  }
+  if (
+    request.status === "active" &&
+    !isAccessDisabledRequest(request) &&
+    request.existing_account?.exists
+  ) {
+    return "Compte portail actif";
+  }
+  return null;
 }
 
 export function matchesAccountAccessFilter(

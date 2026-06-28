@@ -1,9 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { ExternalLink, Settings2, ShieldOff, ShieldPlus, Trash2 } from "lucide-react";
+import { ExternalLink, Link2, Settings2, ShieldOff, ShieldPlus, Trash2 } from "lucide-react";
 import type { AccountAccessRequestRecord } from "@/app/lib/account-access";
 import { isAccessDisabledRequest } from "@/app/lib/account-access";
+import { canReconcileExistingAccountRequest } from "@/app/lib/account-reconcile.shared";
 
 export default function AccountRequestRowActions({
   request,
@@ -11,9 +12,11 @@ export default function AccountRequestRowActions({
   onDelete,
   onDisableAccess,
   onReactivateAccess,
+  onReconcile,
   deleting,
   disabling,
   reactivating,
+  reconciling,
   canDelete,
   canManage,
   canManageRoles,
@@ -24,9 +27,11 @@ export default function AccountRequestRowActions({
   onDelete: () => void;
   onDisableAccess?: () => void;
   onReactivateAccess?: () => void;
+  onReconcile?: () => void;
   deleting?: boolean;
   disabling?: boolean;
   reactivating?: boolean;
+  reconciling?: boolean;
   canDelete?: boolean;
   canManage?: boolean;
   canManageRoles?: boolean;
@@ -36,6 +41,8 @@ export default function AccountRequestRowActions({
   const accessDisabled = isAccessDisabledRequest(request);
   const hasEmployeeLink = Boolean(request.employee_link?.id);
   const isExistingEmployee = request.employee_link?.status === "existing";
+  const showReconcile =
+    Boolean(canManageRoles && onReconcile) && canReconcileExistingAccountRequest(request);
 
   return (
     <div
@@ -53,6 +60,17 @@ export default function AccountRequestRowActions({
         >
           <Settings2 size={13} strokeWidth={2} />
           Gérer
+        </button>
+      ) : null}
+      {showReconcile ? (
+        <button
+          type="button"
+          className="account-requests-action-button account-requests-action-button-reconcile"
+          onClick={onReconcile}
+          disabled={Boolean(reconciling)}
+        >
+          <Link2 size={13} strokeWidth={2} />
+          {reconciling ? "Réconciliation…" : "Réconcilier compte"}
         </button>
       ) : null}
       {canManageRoles && request.status === "active" && !accessDisabled && onDisableAccess ? (

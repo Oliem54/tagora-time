@@ -22,7 +22,17 @@ import {
   trackMfaVerifyFailureForAlerts,
   verifyMfaWithChallenge,
 } from "@/app/lib/auth/mfa.client";
-import { describeSupabaseMfaPhoneError, normalizePhoneToE164 } from "@/app/lib/auth/mfa-phone.shared";
+import {
+  buildMfaPhoneFactorMismatchMessage,
+  describeSupabaseMfaPhoneError,
+  mfaPhonesMatch,
+  normalizePhoneToE164,
+} from "@/app/lib/auth/mfa-phone.shared";
+import {
+  buildMfaPhoneFactorMismatchLog,
+  resolveEnsureUnverifiedPhoneFactor,
+} from "@/app/lib/auth/mfa-setup.shared";
+import { signOutToSwitchAccount } from "@/app/lib/auth/password-mfa.client";
 import { getHomePathForRole, getUserRole } from "@/app/lib/auth/roles";
 import { supabase } from "@/app/lib/supabase/client";
 import {
@@ -46,6 +56,7 @@ export default function MfaSetupPage() {
   const [smsBusy, setSmsBusy] = useState(false);
   const [smsMessage, setSmsMessage] = useState("");
   const [smsMessageType, setSmsMessageType] = useState<"success" | "error" | null>(null);
+  const [smsBlockedByMismatch, setSmsBlockedByMismatch] = useState(false);
 
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [totpFactorId, setTotpFactorId] = useState<string | null>(null);
@@ -55,6 +66,7 @@ export default function MfaSetupPage() {
   const [totpBusy, setTotpBusy] = useState(false);
   const [totpMessage, setTotpMessage] = useState("");
   const [totpMessageType, setTotpMessageType] = useState<"success" | "error" | null>(null);
+  const [switchAccountBusy, setSwitchAccountBusy] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -85,6 +97,65 @@ export default function MfaSetupPage() {
     };
   }, [router]);
 
+  useEffect(() => {
+    if (checkingUser || !phoneInput.trim()) {
+      return;
+    }
+
+    let cancelled = false;
+    void (async () => {
+      const norm = normalizePhoneToE164(phoneInput);
+      if (!norm.ok) {
+        return;
+      }
+
+      const listed = await listMfaFactorsForUi();
+      if (cancelled) {
+        return;
+      }
+
+      const pending = listed.find((f) => f.factor_type === "phone" && f.status === "unverified");
+      if (!pending || mfaPhonesMatch(norm.e164, pending.phone)) {
+        setSmsBlockedByMismatch(false);
+        return;
+      }
+
+      const { data } = await supabase.auth.getUser();
+      console.warn(
+        "[mfa] mfa_phone_factor_mismatch",
+        buildMfaPhoneFactorMismatchLog({
+          requestedE164: norm.e164,
+          factorPhone: pending.phone,
+          factorId: pending.id,
+          userEmail: data.user?.email,
+        })
+      );
+
+      setSmsBlockedByMismatch(true);
+      setSmsMessage(buildMfaPhoneFactorMismatchMessage(norm.e164, pending.phone));
+      setSmsMessageType("error");
+      setSmsChallengeId(null);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [checkingUser, phoneInput]);
+
+  async function handleSwitchAccount() {
+    if (switchAccountBusy || smsBusy || totpBusy) {
+      return;
+    }
+    setSwitchAccountBusy(true);
+    try {
+      const loginPath = await signOutToSwitchAccount();
+      router.replace(loginPath);
+      router.refresh();
+    } finally {
+      setSwitchAccountBusy(false);
+    }
+  }
+
   async function syncCookie() {
     const {
       data: { session },
@@ -110,36 +181,53 @@ export default function MfaSetupPage() {
   }
 
   async function ensureUnverifiedPhoneFactor(e164: string): Promise<{ factorId: string } | { error: string }> {
-    if (smsFactorId && smsLockedE164 === e164) {
-      return { factorId: smsFactorId };
-    }
-
     const { data, error } = await enrollPhoneFactor(e164);
-    if (!error && data?.id) {
-      setSmsFactorId(data.id);
-      setSmsLockedE164(e164);
-      return { factorId: data.id };
-    }
-
     const listed = await listMfaFactorsForUi();
-    const pending = listed.find((f) => f.factor_type === "phone" && f.status === "unverified");
-    if (pending) {
-      setSmsFactorId(pending.id);
-      setSmsLockedE164(e164);
-      return { factorId: pending.id };
+    const resolution = resolveEnsureUnverifiedPhoneFactor({
+      requestedE164: e164,
+      cachedFactorId: smsFactorId,
+      cachedLockedE164: smsLockedE164,
+      enrolledFactorId: !error && data?.id ? data.id : null,
+      enrollErrorCode: readErrCode(error),
+      enrollErrorMessage:
+        typeof error === "object" && error !== null && "message" in error
+          ? String((error as { message?: unknown }).message ?? "")
+          : "",
+      listedFactors: listed,
+    });
+
+    if (resolution.kind === "mismatch") {
+      const { data: userData } = await supabase.auth.getUser();
+      console.warn(
+        "[mfa] mfa_phone_factor_mismatch",
+        buildMfaPhoneFactorMismatchLog({
+          requestedE164: e164,
+          factorPhone: resolution.pendingFactorPhone,
+          factorId: resolution.pendingFactorId,
+          userEmail: userData.user?.email,
+        })
+      );
+      setSmsBlockedByMismatch(true);
+      setSmsChallengeId(null);
+      return { error: resolution.error };
     }
 
-    const code = readErrCode(error);
-    const msg =
-      typeof error === "object" && error !== null && "message" in error
-        ? String((error as { message?: unknown }).message ?? "")
-        : "";
-    return {
-      error: describeSupabaseMfaPhoneError(code, msg || "Impossible d’enregistrer ce numéro pour le MFA."),
-    };
+    if (resolution.kind === "error") {
+      setSmsBlockedByMismatch(false);
+      return { error: resolution.error };
+    }
+
+    setSmsFactorId(resolution.factorId);
+    setSmsLockedE164(e164);
+    setSmsBlockedByMismatch(false);
+    return { factorId: resolution.factorId };
   }
 
   async function sendSmsCode() {
+    if (smsBlockedByMismatch) {
+      return;
+    }
+
     setSmsBusy(true);
     setSmsMessage("");
     setSmsMessageType(null);
@@ -353,10 +441,23 @@ export default function MfaSetupPage() {
 
         {required ? (
           <SectionCard title="Obligatoire">
-            <p style={{ margin: 0, fontSize: 14, color: "#92400e" }}>
-              Votre rôle exige la vérification en deux étapes avant d’accéder à la direction ou à
-              l’administration.
-            </p>
+            <div className="ui-stack-md">
+              <p style={{ margin: 0, fontSize: 14, color: "#92400e" }}>
+                Votre rôle exige la vérification en deux étapes avant d’accéder à la direction ou à
+                l’administration.
+              </p>
+              <p style={{ margin: 0, fontSize: 14, color: "#475569", lineHeight: 1.5 }}>
+                Vous n’êtes pas sur le bon compte ? Déconnectez-vous pour vous connecter avec un autre
+                utilisateur.
+              </p>
+              <SecondaryButton
+                type="button"
+                disabled={switchAccountBusy}
+                onClick={() => void handleSwitchAccount()}
+              >
+                Changer de compte
+              </SecondaryButton>
+            </div>
           </SectionCard>
         ) : null}
 
@@ -375,16 +476,31 @@ export default function MfaSetupPage() {
                   autoComplete="tel"
                   placeholder="+15819912047"
                   value={phoneInput}
-                  onChange={(e) => setPhoneInput(e.target.value)}
+                  onChange={(e) => {
+                    setPhoneInput(e.target.value);
+                    if (smsBlockedByMismatch) {
+                      setSmsBlockedByMismatch(false);
+                      setSmsMessage("");
+                      setSmsMessageType(null);
+                      setSmsChallengeId(null);
+                    }
+                  }}
                 />
               </FormField>
               <p style={{ margin: "8px 0 0", fontSize: 12, color: "#64748b" }}>
                 Indicatif pays requis (ex. +1 pour l’Amérique du Nord). Dix chiffres seuls : nous
                 ajoutons +1 automatiquement.
               </p>
+              {smsBlockedByMismatch ? (
+                <p style={{ margin: "12px 0 0", fontSize: 13, color: "#b91c1c", lineHeight: 1.5 }}>
+                  Le numéro affiché ne correspond pas au numéro MFA en attente. Pour votre sécurité,
+                  aucun SMS n’a été envoyé. Demandez à un administrateur de réinitialiser la
+                  vérification en deux étapes.
+                </p>
+              ) : null}
               <PrimaryButton
                 type="button"
-                disabled={smsBusy}
+                disabled={smsBusy || smsBlockedByMismatch}
                 onClick={() => void sendSmsCode()}
                 style={{ marginTop: 12 }}
               >
@@ -423,7 +539,20 @@ export default function MfaSetupPage() {
                   <SecondaryButton type="button" disabled={smsBusy} onClick={() => router.back()}>
                     Annuler
                   </SecondaryButton>
+                  <SecondaryButton
+                    type="button"
+                    disabled={smsBusy || switchAccountBusy}
+                    onClick={() => void handleSwitchAccount()}
+                  >
+                    Changer de compte
+                  </SecondaryButton>
                 </div>
+                {!required ? (
+                  <p style={{ margin: 0, fontSize: 13, color: "#64748b", lineHeight: 1.5 }}>
+                    Vous n’êtes pas sur le bon compte ? Utilisez « Changer de compte » pour vous
+                    déconnecter et vous reconnecter avec un autre utilisateur.
+                  </p>
+                ) : null}
               </form>
             </AppCard>
 

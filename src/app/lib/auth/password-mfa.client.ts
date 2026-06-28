@@ -1,7 +1,11 @@
 "use client";
 
 import { listMfaFactorsForUi } from "@/app/lib/auth/mfa.client";
+import { getLoginPathForRole, getUserRole } from "@/app/lib/auth/roles";
+import { writeBrowserSessionCookie } from "@/app/lib/auth/session-cookie";
 import { supabase } from "@/app/lib/supabase/client";
+
+export { isSafeInternalReturnPath, loginPathForMissingMfaSession } from "@/app/lib/auth/password-mfa.shared";
 
 export const PASSWORD_MFA_STEP_UP_MESSAGE =
   "Votre compte est protégé par la vérification en deux étapes. Confirmez votre identité avant de modifier le mot de passe.";
@@ -11,10 +15,6 @@ export const PASSWORD_MFA_STEP_UP_AFTER_ERROR_MESSAGE =
 
 export const PASSWORD_MFA_RECONNECT_HINT =
   "Si le problème persiste, déconnectez-vous et reconnectez-vous avec votre mot de passe actuel.";
-
-export function isSafeInternalReturnPath(path: string | null | undefined): path is string {
-  return typeof path === "string" && path.startsWith("/") && !path.startsWith("//");
-}
 
 export function isAal2PasswordUpdateError(error: { message?: string } | null | undefined): boolean {
   const message = (error?.message ?? "").toLowerCase();
@@ -40,15 +40,25 @@ export function buildMfaVerifyHref(returnPath: string, opts?: { reason?: "passwo
   return `/auth/mfa/verify?${params.toString()}`;
 }
 
-export function loginPathForMissingMfaSession(nextPath: string | null): string {
-  const safeNext = isSafeInternalReturnPath(nextPath) ? nextPath : null;
-  const nextQuery = safeNext ? `?next=${encodeURIComponent(safeNext)}` : "";
-
-  if (safeNext?.startsWith("/employe")) {
-    return `/employe/login${nextQuery}`;
+export function clearTagoraAuthBrowserSession(): void {
+  writeBrowserSessionCookie(null);
+  if (typeof window === "undefined") {
+    return;
   }
+  sessionStorage.removeItem("tagora_mfa_gate_audit");
+  sessionStorage.removeItem("tagora_auth_portal");
+  sessionStorage.removeItem("tagora_mfa_fail_count");
+  sessionStorage.removeItem("tagora_mfa_repeated_alert_sent");
+}
 
-  return `/direction/login${nextQuery}`;
+/** Déconnexion complète puis route login adaptée au rôle courant (employé vs direction/admin). */
+export async function signOutToSwitchAccount(): Promise<string> {
+  const { data } = await supabase.auth.getUser();
+  const role = getUserRole(data.user);
+  const loginPath = role ? getLoginPathForRole(role) : "/direction/login";
+  await supabase.auth.signOut();
+  clearTagoraAuthBrowserSession();
+  return loginPath;
 }
 
 export async function assessPasswordUpdateMfaStepUp(returnPath?: string): Promise<{
