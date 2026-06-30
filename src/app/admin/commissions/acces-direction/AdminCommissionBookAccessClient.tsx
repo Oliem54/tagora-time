@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { BookOpen, EyeOff, KeyRound, Shield, UserCheck, Users } from "lucide-react";
 import AdminCommissionsNavigation from "@/app/components/admin/AdminCommissionsNavigation";
+import AdminCommissionsMetricCard from "@/app/components/admin/AdminCommissionsMetricCard";
 import FeedbackMessage from "@/app/components/FeedbackMessage";
 import AuthenticatedPageHeader from "@/app/components/ui/AuthenticatedPageHeader";
 import AppCard from "@/app/components/ui/AppCard";
@@ -447,47 +448,46 @@ export default function AdminCommissionBookAccessClient() {
   return (
     <main className="page-container admin-grants-page">
       <AuthenticatedPageHeader
+        className="ui-page-header-premium-2027"
+        eyebrow="Administration · Commissions"
         title="Partage des livres de ventes"
-        subtitle="Configurez qui peut consulter les livres de ventes, sans exposer les montants confidentiels."
+        subtitle="Acces individuels de consultation, montants masques."
         showNavigation={false}
         navigation={<AdminCommissionsNavigation variant="acces-direction" />}
       />
 
       {message && messageType ? <FeedbackMessage message={message} type={messageType} /> : null}
 
-      <div className="admin-grants-kpi-grid">
-        <AppCard tone="muted" className="admin-grants-kpi-card">
-          <div className="admin-grants-kpi-icon admin-grants-kpi-icon-book" aria-hidden>
-            <BookOpen size={20} />
-          </div>
-          <div>
-            <div className="admin-grants-kpi-value">{summary.shareableBooks}</div>
-            <div className="admin-grants-kpi-label">Livres partageables</div>
-          </div>
-        </AppCard>
-        <AppCard tone="muted" className="admin-grants-kpi-card">
-          <div className="admin-grants-kpi-icon admin-grants-kpi-icon-users" aria-hidden>
-            <Users size={20} />
-          </div>
-          <div>
-            <div className="admin-grants-kpi-value">{summary.authorizedPeople}</div>
-            <div className="admin-grants-kpi-label">Personnes autorisées</div>
-            <div className="tagora-note admin-grants-kpi-note">
-              {summary.activeShares} partage{summary.activeShares > 1 ? "s" : ""} actif
-              {summary.activeShares === 1 ? "" : "s"}
+      <div className="admin-commissions-metric-grid">
+        <AdminCommissionsMetricCard
+          label="Livres partageables"
+          value={summary.shareableBooks}
+          icon={
+            <div className="admin-grants-kpi-icon admin-grants-kpi-icon-book">
+              <BookOpen size={20} />
             </div>
-          </div>
-        </AppCard>
-        <AppCard tone="muted" className="admin-grants-kpi-card">
-          <div className="admin-grants-kpi-icon admin-grants-kpi-icon-shield" aria-hidden>
-            <Shield size={20} />
-          </div>
-          <div>
-            <div className="admin-grants-kpi-value">Protégée</div>
-            <div className="admin-grants-kpi-label">Confidentialité</div>
-            <div className="tagora-note admin-grants-kpi-note">Montants masqués côté consultation</div>
-          </div>
-        </AppCard>
+          }
+        />
+        <AdminCommissionsMetricCard
+          label="Personnes autorisées"
+          value={summary.authorizedPeople}
+          note={`${summary.activeShares} partage${summary.activeShares > 1 ? "s" : ""} actif${summary.activeShares === 1 ? "" : "s"}`}
+          icon={
+            <div className="admin-grants-kpi-icon admin-grants-kpi-icon-users">
+              <Users size={20} />
+            </div>
+          }
+        />
+        <AdminCommissionsMetricCard
+          label="Confidentialité"
+          value="Protégée"
+          note="Montants masqués côté consultation"
+          icon={
+            <div className="admin-grants-kpi-icon admin-grants-kpi-icon-shield">
+              <Shield size={20} />
+            </div>
+          }
+        />
       </div>
 
       <AppCard tone="elevated" className="admin-grants-hero">
@@ -767,18 +767,6 @@ export default function AdminCommissionBookAccessClient() {
       </SectionCard>
 
       <style jsx>{`
-        .admin-grants-kpi-grid {
-          display: grid;
-          grid-template-columns: repeat(3, minmax(0, 1fr));
-          gap: 14px;
-          margin-top: 12px;
-        }
-        .admin-grants-kpi-card {
-          display: flex;
-          align-items: flex-start;
-          gap: 12px;
-          padding: 16px;
-        }
         .admin-grants-kpi-icon {
           display: inline-flex;
           align-items: center;
@@ -799,21 +787,6 @@ export default function AdminCommissionBookAccessClient() {
         .admin-grants-kpi-icon-shield {
           background: linear-gradient(135deg, #ecfdf5, #d1fae5);
           color: #047857;
-        }
-        .admin-grants-kpi-value {
-          font-size: 1.35rem;
-          font-weight: 800;
-          line-height: 1.1;
-          color: #0f172a;
-        }
-        .admin-grants-kpi-label {
-          font-weight: 700;
-          color: #334155;
-          margin-top: 4px;
-        }
-        .admin-grants-kpi-note {
-          margin: 4px 0 0;
-          font-size: 0.82rem;
         }
         .admin-grants-hero {
           display: flex;
@@ -1026,7 +999,6 @@ export default function AdminCommissionBookAccessClient() {
           align-self: center;
         }
         @media (max-width: 900px) {
-          .admin-grants-kpi-grid,
           .admin-grants-steps {
             grid-template-columns: 1fr;
           }

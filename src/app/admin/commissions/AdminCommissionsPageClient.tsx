@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { KeyRound } from "lucide-react";
 import FeedbackMessage from "@/app/components/FeedbackMessage";
 import AdminCommissionsNavigation from "@/app/components/admin/AdminCommissionsNavigation";
+import AdminCommissionsMetricCard from "@/app/components/admin/AdminCommissionsMetricCard";
 import AuthenticatedPageHeader from "@/app/components/ui/AuthenticatedPageHeader";
 import SectionCard from "@/app/components/ui/SectionCard";
 import AppCard from "@/app/components/ui/AppCard";
@@ -171,12 +172,24 @@ export default function AdminCommissionsPageClient() {
 
   const kpiCards = useMemo(
     () => [
-      { label: "Objectifs actifs", value: String(summary?.activeObjectives ?? 0) },
-      { label: "Objectifs atteints", value: String(summary?.achievedObjectives ?? 0) },
-      { label: "Objectifs en retard", value: String(summary?.behindObjectives ?? 0) },
-      { label: "Commissions estimees", value: formatCad(summary?.estimatedCommissions ?? 0) },
-      { label: "A valider", value: formatCad(summary?.pendingValidationCommissions ?? 0) },
-      { label: "Commissions payees", value: formatCad(summary?.paidCommissions ?? 0) },
+      { label: "Objectifs actifs", value: String(summary?.activeObjectives ?? 0), valueIsCurrency: false },
+      { label: "Objectifs atteints", value: String(summary?.achievedObjectives ?? 0), valueIsCurrency: false },
+      { label: "Objectifs en retard", value: String(summary?.behindObjectives ?? 0), valueIsCurrency: false },
+      {
+        label: "Commissions estimees",
+        value: formatCad(summary?.estimatedCommissions ?? 0),
+        valueIsCurrency: true,
+      },
+      {
+        label: "A valider",
+        value: formatCad(summary?.pendingValidationCommissions ?? 0),
+        valueIsCurrency: true,
+      },
+      {
+        label: "Commissions payees",
+        value: formatCad(summary?.paidCommissions ?? 0),
+        valueIsCurrency: true,
+      },
     ],
     [summary]
   );
@@ -380,8 +393,10 @@ export default function AdminCommissionsPageClient() {
   return (
     <main className="page-container commissions-page">
       <AuthenticatedPageHeader
+        className="ui-page-header-premium-2027"
+        eyebrow="Administration · Finance"
         title="Commissions & objectifs"
-        subtitle="Administration finance : montants, regles, validation et paiement."
+        subtitle="Pilotage finance : montants, regles, validation et paiement."
         showNavigation={false}
         navigation={<AdminCommissionsNavigation variant="commissions" />}
       />
@@ -403,12 +418,14 @@ export default function AdminCommissionsPageClient() {
         </AppCard>
       </Link>
 
-      <section className="commissions-kpi-grid">
+      <section className="admin-commissions-metric-grid">
         {kpiCards.map((card) => (
-          <AppCard key={card.label} className="commissions-kpi-card">
-            <span className="tagora-label">{card.label}</span>
-            <strong className="commissions-kpi-value">{card.value}</strong>
-          </AppCard>
+          <AdminCommissionsMetricCard
+            key={card.label}
+            label={card.label}
+            value={card.value}
+            valueIsCurrency={card.valueIsCurrency}
+          />
         ))}
       </section>
 
@@ -782,19 +799,6 @@ export default function AdminCommissionsPageClient() {
         :global(.admin-commissions-access-cta) {
           white-space: nowrap;
         }
-        .commissions-kpi-grid {
-          display: grid;
-          grid-template-columns: repeat(6, minmax(0, 1fr));
-          gap: 12px;
-          margin-bottom: 20px;
-        }
-        .commissions-kpi-card {
-          display: grid;
-          gap: 8px;
-        }
-        .commissions-kpi-value {
-          font-size: 1.35rem;
-        }
         .commissions-toolbar {
           display: flex;
           justify-content: flex-end;
@@ -842,9 +846,6 @@ export default function AdminCommissionsPageClient() {
           font-size: 0.92rem;
         }
         @media (max-width: 1100px) {
-          .commissions-kpi-grid {
-            grid-template-columns: repeat(2, minmax(0, 1fr));
-          }
           .commissions-panels,
           .commissions-form-grid {
             grid-template-columns: 1fr;
