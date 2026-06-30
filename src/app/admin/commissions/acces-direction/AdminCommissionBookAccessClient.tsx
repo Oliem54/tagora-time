@@ -1,16 +1,8 @@
 "use client";
 
-import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import {
-  ArrowLeft,
-  BookOpen,
-  EyeOff,
-  KeyRound,
-  Shield,
-  UserCheck,
-  Users,
-} from "lucide-react";
+import { BookOpen, EyeOff, KeyRound, Shield, UserCheck, Users } from "lucide-react";
+import AdminCommissionsNavigation from "@/app/components/admin/AdminCommissionsNavigation";
 import FeedbackMessage from "@/app/components/FeedbackMessage";
 import AuthenticatedPageHeader from "@/app/components/ui/AuthenticatedPageHeader";
 import AppCard from "@/app/components/ui/AppCard";
@@ -454,17 +446,11 @@ export default function AdminCommissionBookAccessClient() {
 
   return (
     <main className="page-container admin-grants-page">
-      <div className="admin-grants-nav">
-        <Link href="/admin/commissions" className="admin-grants-back">
-          <ArrowLeft size={16} aria-hidden />
-          Commissions & objectifs
-        </Link>
-      </div>
-
       <AuthenticatedPageHeader
         title="Partage des livres de ventes"
         subtitle="Configurez qui peut consulter les livres de ventes, sans exposer les montants confidentiels."
         showNavigation={false}
+        navigation={<AdminCommissionsNavigation variant="acces-direction" />}
       />
 
       {message && messageType ? <FeedbackMessage message={message} type={messageType} /> : null}
@@ -781,17 +767,6 @@ export default function AdminCommissionBookAccessClient() {
       </SectionCard>
 
       <style jsx>{`
-        .admin-grants-nav {
-          margin-bottom: 12px;
-        }
-        .admin-grants-back {
-          display: inline-flex;
-          align-items: center;
-          gap: 8px;
-          color: #334155;
-          text-decoration: none;
-          font-weight: 600;
-        }
         .admin-grants-kpi-grid {
           display: grid;
           grid-template-columns: repeat(3, minmax(0, 1fr));
