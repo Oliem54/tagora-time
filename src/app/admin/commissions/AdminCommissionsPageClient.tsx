@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { KeyRound } from "lucide-react";
 import FeedbackMessage from "@/app/components/FeedbackMessage";
+import AdminCommissionsNavigation from "@/app/components/admin/AdminCommissionsNavigation";
 import AuthenticatedPageHeader from "@/app/components/ui/AuthenticatedPageHeader";
 import SectionCard from "@/app/components/ui/SectionCard";
 import AppCard from "@/app/components/ui/AppCard";
@@ -382,6 +383,7 @@ export default function AdminCommissionsPageClient() {
         title="Commissions & objectifs"
         subtitle="Administration finance : montants, regles, validation et paiement."
         showNavigation={false}
+        navigation={<AdminCommissionsNavigation variant="commissions" />}
       />
 
       {message && messageType ? <FeedbackMessage message={message} type={messageType} /> : null}
