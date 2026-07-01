@@ -281,27 +281,56 @@ export function deriveRegistryStatusLabel(
   diagnostic: EmployeeAccountsRegistryDiagnostic
 ): string {
   if (diagnostic.accessDisabled) {
-    return "Accès désactivé";
+    return "Inactif (portail)";
   }
   if (diagnostic.accountRequestStatus === "refused") return "Refusé";
   if (diagnostic.staleChauffeurMetadata) {
-    return "Metadata chauffeur obsolète";
+    return "Conflit (metadata)";
   }
   if (diagnostic.authUserWithoutChauffeur) {
-    return "Orphelin auth";
+    return "Orphelin (portail)";
   }
   if (diagnostic.chauffeurWithoutAuthUser) {
-    return "Orphelin fiche";
+    return "Orphelin (fiche)";
   }
   if (diagnostic.inconsistencies.length > 0) {
     return "Conflit";
   }
-  if (diagnostic.accountRequestStatus === "pending") return "En attente";
+  if (diagnostic.accountRequestStatus === "pending") return "Demande en attente";
   if (diagnostic.accountRequestStatus === "invited") return "Invité";
   if (diagnostic.accountRequestStatus === "error") return "Erreur";
   if (diagnostic.accountRequestStatus === "active") return "Actif";
-  if (diagnostic.employeeProfileInactive) return "Fiche RH inactive";
+  if (diagnostic.employeeProfileInactive) return "Inactif (fiche)";
   return "À classer";
+}
+
+export function canDissociatePortalEntry(
+  entry: Pick<
+    EmployeeAccountsRegistryEntry,
+    "chauffeurId" | "authUserId" | "diagnostic" | "conflictIndicators"
+  >
+) {
+  if (entry.chauffeurId && entry.authUserId) {
+    return true;
+  }
+
+  if (entry.authUserId && entry.diagnostic.authUserWithoutChauffeur) {
+    return true;
+  }
+
+  if (entry.chauffeurId && entry.diagnostic.chauffeurWithoutAuthUser) {
+    return true;
+  }
+
+  if (entry.diagnostic.staleChauffeurMetadata && (entry.authUserId || entry.chauffeurId)) {
+    return true;
+  }
+
+  if (entry.conflictIndicators.length > 0 && (entry.authUserId || entry.chauffeurId)) {
+    return true;
+  }
+
+  return false;
 }
 
 export function matchesRegistryTab(

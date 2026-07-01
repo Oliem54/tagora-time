@@ -49,7 +49,7 @@ function formatPermissions(values: string[] | null | undefined) {
 }
 
 function getStatusLabel(status: AccountAccessStatus, request: AccountAccessRequestRecord) {
-  if (isAccessDisabledRequest(request)) return "Accès désactivé";
+  if (isAccessDisabledRequest(request)) return "Inactif (portail)";
   if (status === "active") return "Actif";
   if (status === "invited") return "Invité";
   if (status === "refused") return "Refusé";
