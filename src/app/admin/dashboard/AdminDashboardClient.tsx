@@ -399,6 +399,7 @@ export default function AdminDashboardClient() {
     <main className="tagora-app-shell">
       <div className="tagora-app-content ui-stack-lg">
         <AuthenticatedPageHeader
+          className="ui-page-header-premium-2027"
           title="Tableau de bord administrateur"
           subtitle=""
           showNavigation={false}

@@ -2444,6 +2444,185 @@ select {
   margin-top: 6px;
 }
 
+.ui-page-header-eyebrow {
+  margin: 0;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.58);
+  line-height: 1.35;
+}
+
+.ui-page-header-premium-2027 {
+  align-items: center;
+  min-height: auto;
+  padding: 14px 20px;
+  gap: 18px;
+  border-radius: 16px;
+  background: linear-gradient(135deg, #0f2748 0%, #17345f 48%, #1e4478 100%);
+  box-shadow:
+    0 12px 28px rgba(15, 39, 72, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.07);
+}
+
+.ui-page-header-premium-2027 .ui-page-header-logo {
+  width: 112px;
+  align-self: center;
+}
+
+.ui-page-header-premium-2027 .ui-page-header-logo-shell {
+  padding: 8px 10px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.045);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+.ui-page-header-premium-2027 .ui-page-header-copy {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0;
+  align-self: center;
+  min-height: 0;
+}
+
+.ui-page-header-title-premium-2027,
+.ui-page-header-premium-2027 .ui-page-header-title {
+  margin: 0;
+  font-size: 1.0625rem !important;
+  font-weight: 500 !important;
+  line-height: 1.32 !important;
+  letter-spacing: 0.012em !important;
+  max-width: none;
+}
+
+.ui-page-header-premium-2027 .ui-page-header-actions {
+  align-self: center;
+  margin-left: auto;
+}
+
+.ui-page-header-premium-2027 .ui-page-header-navigation {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.admin-commissions-metric-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  margin-bottom: 22px;
+}
+
+.ui-card.admin-metric-card {
+  padding: 16px 18px !important;
+  min-height: 0;
+}
+
+.admin-metric-card__layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+  width: 100%;
+}
+
+.ui-card.admin-metric-card--icon .admin-metric-card__layout {
+  grid-template-columns: auto minmax(0, 1fr);
+  column-gap: 14px;
+}
+
+.admin-metric-card__icon {
+  display: flex;
+  align-items: flex-start;
+  flex-shrink: 0;
+}
+
+.admin-metric-card__stack {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0;
+  width: 100%;
+  min-width: 0;
+}
+
+.admin-metric-card__label {
+  display: block;
+  width: 100%;
+  margin: 0 0 10px;
+  padding: 0;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.085em;
+  text-transform: uppercase;
+  color: #64748b;
+  line-height: 1.45;
+}
+
+.admin-metric-card__value {
+  display: block;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  font-size: clamp(1.3rem, 1.9vw, 1.55rem);
+  font-weight: 700;
+  line-height: 1.12;
+  letter-spacing: -0.015em;
+  color: #0f172a;
+}
+
+.admin-metric-card__value--currency {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+}
+
+.admin-metric-card__note {
+  display: block;
+  width: 100%;
+  margin: 8px 0 0;
+  padding: 0;
+  font-size: 0.78rem;
+  line-height: 1.48;
+  color: #64748b;
+}
+
+@media (max-width: 960px) {
+  .admin-commissions-metric-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .ui-page-header-premium-2027 {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+    padding: 12px 14px;
+  }
+
+  .ui-page-header-premium-2027 .ui-page-header-logo {
+    width: 96px;
+  }
+
+  .ui-page-header-premium-2027 .ui-page-header-actions {
+    align-self: stretch;
+    margin-left: 0;
+    justify-content: flex-start;
+  }
+
+  .ui-page-header-title-premium-2027,
+  .ui-page-header-premium-2027 .ui-page-header-title {
+    font-size: 1rem !important;
+    line-height: 1.35 !important;
+  }
+
+  .admin-commissions-metric-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 .tagora-page-navigation {
   display: block;
 }

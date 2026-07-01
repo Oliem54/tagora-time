@@ -69,7 +69,7 @@ export default function AdminCommissionsNavigation({
       <style jsx>{`
         .admin-commissions-navigation {
           display: grid;
-          gap: 10px;
+          gap: 12px;
         }
 
         .admin-commissions-breadcrumb {
@@ -77,9 +77,9 @@ export default function AdminCommissionsNavigation({
           flex-wrap: wrap;
           align-items: center;
           gap: 6px;
-          font-size: 0.82rem;
+          font-size: 0.78rem;
           line-height: 1.4;
-          color: rgba(255, 255, 255, 0.78);
+          color: rgba(255, 255, 255, 0.72);
         }
 
         .admin-commissions-breadcrumb :global(a) {
