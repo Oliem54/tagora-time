@@ -32,18 +32,20 @@ export default function AdminCommissionsMetricCard({
         className
       )}
     >
-      {icon ? <div className="admin-metric-card__icon">{icon}</div> : null}
-      <div className="admin-metric-card__content">
-        <span className="admin-metric-card__label">{label}</span>
-        <span
-          className={cn(
-            "admin-metric-card__value",
-            valueIsCurrency && "admin-metric-card__value--currency"
-          )}
-        >
-          {value}
-        </span>
-        {note ? <span className="admin-metric-card__note">{note}</span> : null}
+      <div className="admin-metric-card__layout">
+        {icon ? <div className="admin-metric-card__icon">{icon}</div> : null}
+        <div className="admin-metric-card__stack">
+          <div className="admin-metric-card__label">{label}</div>
+          <div
+            className={cn(
+              "admin-metric-card__value",
+              valueIsCurrency && "admin-metric-card__value--currency"
+            )}
+          >
+            {value}
+          </div>
+          {note ? <div className="admin-metric-card__note">{note}</div> : null}
+        </div>
       </div>
     </AppCard>
   );

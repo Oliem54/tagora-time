@@ -33,8 +33,10 @@ export default function PageHeader({
   className,
   compact = false,
 }: PageHeaderProps) {
-  const hasCopy = Boolean(eyebrow || title || subtitle || navigation);
   const isPremiumHeader = className?.includes("ui-page-header-premium-2027");
+  const showEyebrow = Boolean(eyebrow) && !isPremiumHeader;
+  const showSubtitle = Boolean(subtitle) && !isPremiumHeader;
+  const hasCopy = Boolean(showEyebrow || title || showSubtitle || navigation);
 
   return (
     <section
@@ -60,16 +62,7 @@ export default function PageHeader({
 
       {hasCopy ? (
         <div className="ui-page-header-copy">
-          {eyebrow ? (
-            <p
-              className={cn(
-                "ui-page-header-eyebrow",
-                isPremiumHeader && "ui-page-header-eyebrow-premium-2027"
-              )}
-            >
-              {eyebrow}
-            </p>
-          ) : null}
+          {showEyebrow ? <p className="ui-page-header-eyebrow">{eyebrow}</p> : null}
           {title ? (
             <h1
               className={cn(
@@ -80,16 +73,7 @@ export default function PageHeader({
               {title}
             </h1>
           ) : null}
-          {subtitle ? (
-            <p
-              className={cn(
-                "ui-page-header-subtitle",
-                isPremiumHeader && "ui-page-header-subtitle-premium-2027"
-              )}
-            >
-              {subtitle}
-            </p>
-          ) : null}
+          {showSubtitle ? <p className="ui-page-header-subtitle">{subtitle}</p> : null}
           {navigation ? (
             <div className="ui-page-header-navigation">{navigation}</div>
           ) : null}
