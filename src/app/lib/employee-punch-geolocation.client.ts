@@ -1,6 +1,7 @@
 "use client";
 
 export type EmployeePunchGeolocationFailureCode =
+  | "insecure_context"
   | "unsupported"
   | "permission_denied"
   | "timeout"
@@ -15,6 +16,18 @@ export type EmployeePunchGeolocationResult =
       message: string;
       attempts: number;
     };
+
+export const PUNCH_GEOLOCATION_TEST_BUTTON_LABEL = "Tester ma localisation";
+
+export const PUNCH_GEOLOCATION_HELP_TITLE = "Comment activer la localisation";
+
+export const PUNCH_GEOLOCATION_HELP_STEPS = [
+  "Vérifiez que vous utilisez l'adresse officielle TAGORA.",
+  "Autorisez la localisation lorsque votre navigateur le demande.",
+  "Vérifiez que la localisation Windows est activée.",
+  "Si vous utilisez un ordinateur de bureau, activez également le Wi-Fi.",
+  `Cliquez sur « ${PUNCH_GEOLOCATION_TEST_BUTTON_LABEL} ».`,
+] as const;
 
 const FIRST_ATTEMPT_TIMEOUT_MS = 30000;
 const RETRY_ATTEMPT_TIMEOUT_MS = 22000;
@@ -93,20 +106,45 @@ function mapGeolocationError(
   return "unknown";
 }
 
+export function getEmployeePunchGeolocationPreflightFailure():
+  | Extract<EmployeePunchGeolocationResult, { ok: false }>
+  | null {
+  if (typeof window !== "undefined" && !window.isSecureContext) {
+    return {
+      ok: false,
+      code: "insecure_context",
+      message: messageForPunchGeolocationFailure("insecure_context"),
+      attempts: 0,
+    };
+  }
+  if (typeof navigator === "undefined" || !navigator.geolocation) {
+    return {
+      ok: false,
+      code: "unsupported",
+      message: messageForPunchGeolocationFailure("unsupported"),
+      attempts: 0,
+    };
+  }
+  return null;
+}
+
 export function messageForPunchGeolocationFailure(
   code: EmployeePunchGeolocationFailureCode
 ): string {
+  const testLabel = PUNCH_GEOLOCATION_TEST_BUTTON_LABEL;
   switch (code) {
+    case "insecure_context":
+      return `Connexion non sécurisée. Utilisez l'adresse officielle TAGORA (cadenas dans la barre d'adresse), puis cliquez sur « ${testLabel} ».`;
     case "unsupported":
-      return "La géolocalisation n’est pas disponible sur cet appareil.";
+      return "La localisation n'est pas disponible dans ce navigateur. Utilisez Chrome ou Edge à jour.";
     case "permission_denied":
-      return "Permission GPS refusée. Autorisez la localisation pour ce site dans les réglages du navigateur, puis réessayez.";
+      return `Localisation refusée pour ce site. Autorisez la localisation dans votre navigateur, puis cliquez sur « ${testLabel} ».`;
     case "timeout":
-      return "La localisation est autorisée, mais votre appareil n’a pas retourné la position à temps. Cliquez sur Réessayer la localisation.";
+      return `La localisation n'a pas répondu à temps. Vérifiez que la localisation Windows est activée, autorisez les applications de bureau, activez le Wi-Fi sur un ordinateur de bureau, puis cliquez sur « ${testLabel} ».`;
     case "position_unavailable":
-      return "Impossible d’obtenir votre position pour le moment. Vérifiez le GPS de l’appareil ou réessayez.";
+      return `Impossible d'obtenir votre position pour le moment. Vérifiez que la localisation Windows est activée, puis cliquez sur « ${testLabel} ».`;
     default:
-      return "Impossible d’obtenir votre position. Réessayez la localisation.";
+      return `Impossible d'obtenir votre position. Cliquez sur « ${testLabel} ».`;
   }
 }
 
@@ -123,7 +161,7 @@ export function messageForHorodateurPunchGpsServerCode(
       return fallbackError?.trim() ||
         "Impossible de vérifier la zone GPS. Contactez la direction.";
     default:
-      return fallbackError?.trim() || "Impossible d’enregistrer ce pointage.";
+      return fallbackError?.trim() || "Impossible d'enregistrer ce pointage.";
   }
 }
 
@@ -132,13 +170,9 @@ function readGeolocationOnce(options: {
   timeoutMs: number;
 }): Promise<EmployeePunchGeolocationResult> {
   return new Promise((resolve) => {
-    if (typeof navigator === "undefined" || !navigator.geolocation) {
-      resolve({
-        ok: false,
-        code: "unsupported",
-        message: messageForPunchGeolocationFailure("unsupported"),
-        attempts: 0,
-      });
+    const preflight = getEmployeePunchGeolocationPreflightFailure();
+    if (preflight) {
+      resolve(preflight);
       return;
     }
 
@@ -174,13 +208,9 @@ function readGeolocationOnce(options: {
 export async function readEmployeePunchGeolocation(options?: {
   skipCache?: boolean;
 }): Promise<EmployeePunchGeolocationResult> {
-  if (typeof navigator === "undefined" || !navigator.geolocation) {
-    return {
-      ok: false,
-      code: "unsupported",
-      message: messageForPunchGeolocationFailure("unsupported"),
-      attempts: 0,
-    };
+  const preflight = getEmployeePunchGeolocationPreflightFailure();
+  if (preflight) {
+    return preflight;
   }
 
   if (!options?.skipCache) {
@@ -248,6 +278,11 @@ export async function readEmployeePunchGeolocationWithDeadline(
     };
   }
 
+  const preflight = getEmployeePunchGeolocationPreflightFailure();
+  if (preflight) {
+    return preflight;
+  }
+
   if (!options?.skipCache) {
     const cached = readCachedPunchPosition();
     if (cached) {
@@ -286,7 +321,7 @@ export async function readEmployeePunchGeolocationWithDeadline(
 
   try {
     const racers: Promise<EmployeePunchGeolocationResult>[] = [
-      readEmployeePunchGeolocation(),
+      readEmployeePunchGeolocation(options),
       deadlineResult,
     ];
     if (abortSignal) {
