@@ -12,6 +12,34 @@ export type CommissionEntryStatus =
   | "paid"
   | "cancelled";
 
+/** Types de lignes produites par le moteur Phase 1. */
+export type CompensationComponent = "commission" | "bonus" | "correction";
+
+/** Statuts workflow Accrual V3 — mapping explicite avec le MVP legacy Phase 1. */
+export type AccrualWorkflowStatus = CommissionEntryStatus;
+
+export const COMPENSATION_COMPONENT_LABELS: Record<CompensationComponent, string> = {
+  commission: "Commission",
+  bonus: "Bonus",
+  correction: "Correction",
+};
+
+export function mapAccrualWorkflowStatusToLegacyEntryStatus(
+  status: AccrualWorkflowStatus
+): CommissionEntryStatus {
+  return status;
+}
+
+export function mapLegacyEntryStatusToAccrualWorkflowStatus(
+  status: CommissionEntryStatus
+): AccrualWorkflowStatus {
+  return status;
+}
+
+export function isCompensationComponent(value: unknown): value is CompensationComponent {
+  return value === "commission" || value === "bonus" || value === "correction";
+}
+
 export type TargetType = "amount" | "sales_count";
 
 export type RuleType = "fixed" | "percentage" | "tier_bonus";
@@ -101,6 +129,9 @@ export const COMMISSION_STATUS_LABELS: Record<CommissionEntryStatus, string> = {
   paid: "Payée",
   cancelled: "Annulée",
 };
+
+export const ACCRUAL_WORKFLOW_STATUS_LABELS: Record<AccrualWorkflowStatus, string> =
+  COMMISSION_STATUS_LABELS;
 
 export const RULE_TYPE_LABELS: Record<RuleType, string> = {
   fixed: "Montant fixe",
