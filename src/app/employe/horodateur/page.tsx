@@ -1164,13 +1164,22 @@ export default function EmployeHorodateurPage() {
   const isShiftCompleted = currentStateValue === "termine";
   const pendingPunchOut = snapshot?.pendingPunchOut ?? null;
   const isShiftExitPendingValidation =
-    Boolean(pendingPunchOut) || isShiftCompleted;
+    Boolean(pendingPunchOut) ||
+    isShiftCompleted ||
+    Boolean(todayTimeDisplay?.pendingPunchBlocksAccrual) ||
+    Boolean(todayTimeDisplay?.hasPendingOperationalPunchToday);
   const showOpenShiftSafetyCapMessage =
     Boolean(todayTimeDisplay?.openShiftSafetyCapReached) &&
     !isShiftExitPendingValidation;
-  const punchOutBlockedReason = pendingPunchOut
-    ? formatPendingPunchOutBannerMessage(pendingPunchOut)
-    : null;
+  const shiftExitPendingCardMessage = pendingPunchOut
+    ? PUNCH_OUT_ALREADY_PENDING_LABEL
+    : SHIFT_CLOSED_PAYROLL_PENDING_MESSAGE;
+  const punchOutBlockedReason =
+    pendingPunchOut || isShiftExitPendingValidation
+      ? pendingPunchOut
+        ? formatPendingPunchOutBannerMessage(pendingPunchOut)
+        : shiftExitPendingCardMessage
+      : null;
   const punchInBlockedReason = useMemo(() => {
     if (isHorsQuart || isShiftCompleted) {
       if (canStartShiftPunch) {
@@ -1826,13 +1835,27 @@ export default function EmployeHorodateurPage() {
             <div style={{ marginTop: 8, fontSize: 24, fontWeight: 800 }}>
               {formatMinutes(displayedPayableMinutesToday)}
             </div>
-            {todayTimeDisplay?.hasOpenShiftAccrual ? (
+            {todayTimeDisplay?.hasOpenShiftAccrual && !isShiftExitPendingValidation ? (
               <p className="tagora-note" style={{ marginTop: 8, marginBottom: 0, lineHeight: 1.45 }}>
                 Temps officiel (quart ouvert) : {formatMinutes(officialPayableMinutesToday)} — finalise
                 a la sortie.
               </p>
             ) : null}
-            {todayTimeDisplay?.pendingPunchBlocksAccrual ? (
+            {isShiftExitPendingValidation ? (
+              <p
+                className="tagora-note"
+                style={{
+                  marginTop: 8,
+                  marginBottom: 0,
+                  lineHeight: 1.45,
+                  color: "#b45309",
+                  fontWeight: 600,
+                }}
+              >
+                {shiftExitPendingCardMessage}
+              </p>
+            ) : null}
+            {!isShiftExitPendingValidation && todayTimeDisplay?.pendingPunchBlocksAccrual ? (
               <p className="tagora-note" style={{ marginTop: 8, marginBottom: 0, lineHeight: 1.45 }}>
                 Punch en attente d approbation — le temps affiche ne progresse plus jusqu a validation.
               </p>
@@ -1859,7 +1882,8 @@ export default function EmployeHorodateurPage() {
                 {OPEN_SHIFT_SAFETY_CAP_MESSAGE}
               </p>
             ) : null}
-            {todayTimeDisplay?.hasPendingOperationalPunchToday &&
+            {!isShiftExitPendingValidation &&
+            todayTimeDisplay?.hasPendingOperationalPunchToday &&
             !todayTimeDisplay.pendingPunchBlocksAccrual ? (
               <p className="tagora-note" style={{ marginTop: 8, marginBottom: 0, lineHeight: 1.45 }}>
                 Un pointage est en attente d approbation direction.
@@ -1911,7 +1935,8 @@ export default function EmployeHorodateurPage() {
               const isPunchInBlocked =
                 action.eventType === "punch_in" && Boolean(punchInBlockedReason);
               const isPunchOutBlocked =
-                action.eventType === "punch_out" && Boolean(punchOutBlockedReason);
+                action.eventType === "punch_out" &&
+                (Boolean(punchOutBlockedReason) || isShiftExitPendingValidation);
               const actionLabel =
                 action.eventType === "punch_out"
                   ? isPunchOutBlocked
