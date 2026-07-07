@@ -423,6 +423,9 @@ const PUNCH_OUT_SUBMIT_LONG_SHIFT_LABEL = "Soumettre ma sortie";
 const PUNCH_OUT_ALREADY_PENDING_LABEL =
   "Sortie déjà soumise — en attente d'approbation.";
 
+const SHIFT_CLOSED_PAYROLL_PENDING_MESSAGE =
+  "Votre quart est fermé. La paie reste en attente de validation.";
+
 const OPEN_SHIFT_SAFETY_CAP_MESSAGE =
   "Quart ouvert depuis plus de 14 h — veuillez poinçonner votre sortie. La fermeture nécessitera une approbation.";
 
@@ -909,6 +912,8 @@ export default function EmployeHorodateurPage() {
     continuousTracking: false,
   });
 
+  const todayTimeDisplay = snapshot?.todayTimeDisplay ?? null;
+
   const currentStateLabel = useMemo(() => {
     const value =
       snapshot?.currentState.current_state ??
@@ -918,11 +923,22 @@ export default function EmployeHorodateurPage() {
     if (value === "en_quart") return "En quart";
     if (value === "en_pause") return "En pause";
     if (value === "en_diner") return "En diner";
-    if (value === "termine") return "Quart termine";
+    if (value === "termine") {
+      return snapshot?.pendingPunchOut ||
+        todayTimeDisplay?.pendingPunchBlocksAccrual ||
+        todayTimeDisplay?.hasPendingOperationalPunchToday
+        ? "Quart termine — validation en cours"
+        : "Quart termine";
+    }
     return "Hors quart";
-  }, [snapshot?.currentState.current_state, snapshot?.currentState.status]);
+  }, [
+    snapshot?.currentState.current_state,
+    snapshot?.currentState.status,
+    snapshot?.pendingPunchOut,
+    todayTimeDisplay?.hasPendingOperationalPunchToday,
+    todayTimeDisplay?.pendingPunchBlocksAccrual,
+  ]);
 
-  const todayTimeDisplay = snapshot?.todayTimeDisplay ?? null;
   const officialPayableMinutesToday =
     todayTimeDisplay?.officialPayableMinutes ??
     snapshot?.todayShift?.payable_minutes ??
@@ -1147,6 +1163,11 @@ export default function EmployeHorodateurPage() {
   const isHorsQuart = currentStateValue === "hors_quart";
   const isShiftCompleted = currentStateValue === "termine";
   const pendingPunchOut = snapshot?.pendingPunchOut ?? null;
+  const isShiftExitPendingValidation =
+    Boolean(pendingPunchOut) || isShiftCompleted;
+  const showOpenShiftSafetyCapMessage =
+    Boolean(todayTimeDisplay?.openShiftSafetyCapReached) &&
+    !isShiftExitPendingValidation;
   const punchOutBlockedReason = pendingPunchOut
     ? formatPendingPunchOutBannerMessage(pendingPunchOut)
     : null;
@@ -1730,17 +1751,21 @@ export default function EmployeHorodateurPage() {
 
       {message ? <AccessNotice title="Information" description={message} /> : null}
 
-      {pendingPunchOut ? (
+      {isShiftExitPendingValidation ? (
         <section
           className="tagora-panel"
           style={{ marginTop: 24, borderColor: "rgba(245,158,11,0.55)" }}
         >
           <h2 className="section-title" style={{ marginBottom: 8 }}>
-            {PUNCH_OUT_ALREADY_PENDING_LABEL}
+            {pendingPunchOut
+              ? PUNCH_OUT_ALREADY_PENDING_LABEL
+              : SHIFT_CLOSED_PAYROLL_PENDING_MESSAGE}
           </h2>
-          <p style={{ margin: 0, lineHeight: 1.55, color: "#0f172a" }}>
-            {formatPendingPunchOutBannerMessage(pendingPunchOut)}
-          </p>
+          {pendingPunchOut ? (
+            <p style={{ margin: 0, lineHeight: 1.55, color: "#0f172a" }}>
+              {formatPendingPunchOutBannerMessage(pendingPunchOut)}
+            </p>
+          ) : null}
         </section>
       ) : null}
 
@@ -1812,14 +1837,15 @@ export default function EmployeHorodateurPage() {
                 Punch en attente d approbation — le temps affiche ne progresse plus jusqu a validation.
               </p>
             ) : null}
-            {todayTimeDisplay?.openShiftWorkDateMismatch ? (
+            {todayTimeDisplay?.openShiftWorkDateMismatch &&
+            !isShiftExitPendingValidation ? (
               <p className="tagora-note" style={{ marginTop: 8, marginBottom: 0, lineHeight: 1.45 }}>
                 Quart ouvert depuis{" "}
                 {todayTimeDisplay.openShiftWorkDate ?? "un jour precedent"}. Pointez votre sortie ou
                 contactez la direction.
               </p>
             ) : null}
-            {todayTimeDisplay?.openShiftSafetyCapReached && !pendingPunchOut ? (
+            {showOpenShiftSafetyCapMessage ? (
               <p
                 className="tagora-note"
                 style={{
@@ -1890,7 +1916,7 @@ export default function EmployeHorodateurPage() {
                 action.eventType === "punch_out"
                   ? isPunchOutBlocked
                     ? PUNCH_OUT_ALREADY_PENDING_LABEL
-                    : todayTimeDisplay?.openShiftSafetyCapReached
+                    : showOpenShiftSafetyCapMessage
                       ? PUNCH_OUT_SUBMIT_LONG_SHIFT_LABEL
                       : action.label
                   : action.label;
