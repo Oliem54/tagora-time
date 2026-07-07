@@ -933,7 +933,11 @@ async function findActivePendingPunchOutForEmployee(employeeId: number) {
     listEventsForEmployee({ employeeId, statuses: ["normal", "approuve"] }),
   ]);
 
-  return findActivePendingPunchOutFromEvents(pendingEvents, approvedEvents);
+  const pendingPunchOutEvents = pendingEvents.filter(
+    (event) => toCanonicalEventType(event.event_type) === "punch_out"
+  );
+
+  return findActivePendingPunchOutFromEvents(pendingPunchOutEvents, approvedEvents);
 }
 
 async function buildPendingPunchOutSnapshot(

@@ -117,6 +117,63 @@ describe("operational-state.shared — Vincent", () => {
     ).toBe("out-pending");
   });
 
+  it("ignore une sortie pending anterieure au quart ouvert approuve courant", () => {
+    const approved = [
+      event({
+        id: "in-old",
+        event_type: "quart_debut",
+        status: "approuve",
+        occurred_at: "2026-06-04T11:00:00+00:00",
+      }),
+      event({
+        id: "out-old",
+        event_type: "quart_fin",
+        status: "approuve",
+        occurred_at: "2026-06-04T19:00:00+00:00",
+      }),
+      event({
+        id: "in-current",
+        event_type: "quart_debut",
+        status: "approuve",
+        occurred_at: "2026-06-05T11:00:00+00:00",
+      }),
+    ];
+    const stalePendingOut = event({
+      id: "out-stale",
+      event_type: "quart_fin",
+      status: "en_attente",
+      occurred_at: "2026-06-04T20:00:00+00:00",
+      work_date: "2026-06-04",
+    });
+
+    expect(findActivePendingPunchOutFromEvents([stalePendingOut], approved)).toBeNull();
+  });
+
+  it("ne bloque pas si aucun quart ouvert approuve", () => {
+    const approved = [
+      event({
+        id: "in-1",
+        event_type: "quart_debut",
+        status: "approuve",
+        occurred_at: "2026-06-05T11:00:00+00:00",
+      }),
+      event({
+        id: "out-1",
+        event_type: "quart_fin",
+        status: "approuve",
+        occurred_at: "2026-06-05T19:00:00+00:00",
+      }),
+    ];
+    const orphanPending = event({
+      id: "out-orphan",
+      event_type: "quart_fin",
+      status: "en_attente",
+      occurred_at: "2026-06-05T20:00:00+00:00",
+    });
+
+    expect(findActivePendingPunchOutFromEvents([orphanPending], approved)).toBeNull();
+  });
+
   it("formatte le message alreadySubmitted pour Vincent", () => {
     const message = formatPendingPunchOutSubmittedMessage("2026-06-05T10:40:26.034+00:00");
     expect(message).toContain("soumise a validation");

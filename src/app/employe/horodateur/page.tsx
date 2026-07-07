@@ -413,10 +413,15 @@ const PUNCH_GPS_PUNCH_NOT_COMPLETED_MESSAGE =
   "Position obtenue, mais le pointage n'a pas pu être complété. Vérifiez le message ci-dessus et réessayez.";
 
 const PUNCH_OUT_PENDING_APPROVAL_MESSAGE =
-  "Sortie soumise. Votre quart est ferme cote horodateur; la paie reste en attente de validation direction.";
+  "Sortie déjà soumise — en attente d'approbation. Votre quart est fermé côté horodateur; la paie reste en attente de validation direction.";
 
 const PUNCH_OUT_ALREADY_SUBMITTED_FALLBACK =
-  "Votre sortie a deja ete soumise et attend la validation de la direction.";
+  "Sortie déjà soumise — en attente d'approbation.";
+
+const PUNCH_OUT_SUBMIT_LONG_SHIFT_LABEL = "Soumettre ma sortie";
+
+const PUNCH_OUT_ALREADY_PENDING_LABEL =
+  "Sortie déjà soumise — en attente d'approbation.";
 
 const OPEN_SHIFT_SAFETY_CAP_MESSAGE =
   "Quart ouvert depuis plus de 14 h — veuillez poinçonner votre sortie. La fermeture nécessitera une approbation.";
@@ -859,7 +864,7 @@ function formatPendingPunchOutBannerMessage(
     minute: "2-digit",
     hour12: false,
   });
-  return `Votre sortie a deja ete soumise a ${label} et attend la validation de la direction. Votre quart est ferme; la paie reste a valider.`;
+  return `Votre sortie a déjà été soumise à ${label} et attend la validation de la direction. Votre quart est fermé; la paie reste à valider.`;
 }
 
 export default function EmployeHorodateurPage() {
@@ -1731,7 +1736,7 @@ export default function EmployeHorodateurPage() {
           style={{ marginTop: 24, borderColor: "rgba(245,158,11,0.55)" }}
         >
           <h2 className="section-title" style={{ marginBottom: 8 }}>
-            Sortie soumise — validation en cours
+            {PUNCH_OUT_ALREADY_PENDING_LABEL}
           </h2>
           <p style={{ margin: 0, lineHeight: 1.55, color: "#0f172a" }}>
             {formatPendingPunchOutBannerMessage(pendingPunchOut)}
@@ -1814,7 +1819,7 @@ export default function EmployeHorodateurPage() {
                 contactez la direction.
               </p>
             ) : null}
-            {todayTimeDisplay?.openShiftSafetyCapReached ? (
+            {todayTimeDisplay?.openShiftSafetyCapReached && !pendingPunchOut ? (
               <p
                 className="tagora-note"
                 style={{
@@ -1882,7 +1887,13 @@ export default function EmployeHorodateurPage() {
               const isPunchOutBlocked =
                 action.eventType === "punch_out" && Boolean(punchOutBlockedReason);
               const actionLabel =
-                isPunchOutBlocked ? "Sortie soumise" : action.label;
+                action.eventType === "punch_out"
+                  ? isPunchOutBlocked
+                    ? PUNCH_OUT_ALREADY_PENDING_LABEL
+                    : todayTimeDisplay?.openShiftSafetyCapReached
+                      ? PUNCH_OUT_SUBMIT_LONG_SHIFT_LABEL
+                      : action.label
+                  : action.label;
               return (
               <button
                 key={action.eventType}

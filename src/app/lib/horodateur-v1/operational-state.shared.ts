@@ -1,7 +1,7 @@
 import {
   getEventOccurredAt,
-  getLocalWorkDate,
   isApprovedHorodateurEventStatus,
+  resolveOpenShiftStartEvent,
   shouldTreatApprovedEventAsShiftStart,
   toCanonicalEventType,
 } from "./rules";
@@ -167,6 +167,21 @@ export function findActivePendingPunchOutFromEvents(
   pendingPunchOutEvents: HorodateurPhase1EventRecord[],
   approvedEvents: HorodateurPhase1EventRecord[]
 ): HorodateurPhase1EventRecord | null {
+  const openShiftStart = resolveOpenShiftStartEvent(approvedEvents);
+  if (!openShiftStart) {
+    return null;
+  }
+
+  const openShiftStartAt = getEventOccurredAt(openShiftStart);
+  if (!openShiftStartAt) {
+    return null;
+  }
+
+  const openShiftStartMs = new Date(openShiftStartAt).getTime();
+  if (!Number.isFinite(openShiftStartMs)) {
+    return null;
+  }
+
   const pendingPunchOuts = pendingPunchOutEvents.filter(
     (event) =>
       event.status === "en_attente" &&
@@ -185,11 +200,12 @@ export function findActivePendingPunchOutFromEvents(
       continue;
     }
 
-    const pendingWorkDate =
-      pending.work_date?.trim() || getLocalWorkDate(pendingAt);
     const pendingMs = new Date(pendingAt).getTime();
+    if (!Number.isFinite(pendingMs) || pendingMs < openShiftStartMs) {
+      continue;
+    }
 
-    const hasApprovedCloseOnSameDay = approvedEvents.some((event) => {
+    const hasApprovedCloseAtOrAfterPending = approvedEvents.some((event) => {
       if (toCanonicalEventType(event.event_type) !== "punch_out") {
         return false;
       }
@@ -200,15 +216,10 @@ export function findActivePendingPunchOutFromEvents(
       if (!approvedAt) {
         return false;
       }
-      const approvedWorkDate =
-        event.work_date?.trim() || getLocalWorkDate(approvedAt);
-      if (approvedWorkDate !== pendingWorkDate) {
-        return false;
-      }
       return new Date(approvedAt).getTime() >= pendingMs;
     });
 
-    if (!hasApprovedCloseOnSameDay) {
+    if (!hasApprovedCloseAtOrAfterPending) {
       return pending;
     }
   }
