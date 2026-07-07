@@ -24,6 +24,11 @@ const FINANCE_MODULE_LINKS = [
     description: "Montants a refacturer entre Oliem et Titan par entree.",
   },
   {
+    href: "/admin/compensation/ventes",
+    label: "Compensation",
+    description: "Ventes, accruals et validation finance du Compensation Engine.",
+  },
+  {
     href: "/admin/commissions",
     label: "Commissions & objectifs",
     description: "Objectifs de vente, regles et suivi des commissions.",

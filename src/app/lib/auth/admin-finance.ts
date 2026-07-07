@@ -19,6 +19,7 @@ export const ADMIN_FINANCE_ROUTE_PREFIXES = [
   "/admin/temps-titan-finance",
   "/admin/facturation-titan",
   "/admin/commissions",
+  "/admin/compensation",
   "/admin/remuneration",
 ] as const;
 

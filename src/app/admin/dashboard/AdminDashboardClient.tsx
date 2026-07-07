@@ -222,6 +222,15 @@ const MODULES: ModuleDefinition[] = [
     tone: "orange",
   },
   {
+    id: "compensation",
+    href: "/admin/compensation/ventes",
+    label: "Compensation",
+    description: "Ventes, accruals et validation finance du Compensation Engine.",
+    group: "finance",
+    icon: Wallet,
+    tone: "green",
+  },
+  {
     id: "commissions",
     href: "/admin/commissions",
     label: "Commissions & objectifs",
