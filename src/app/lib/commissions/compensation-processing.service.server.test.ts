@@ -225,7 +225,7 @@ describe("createCompensationProcessingService", () => {
     expect(mocks.accruals).toHaveLength(1);
   });
 
-  it("bloque le recalcul si des accruals sont en revue ou valides", async () => {
+  it("bloque le recalcul si un accrual est under_review", async () => {
     const row = buildEventRow();
     const protectedAccrual: Accrual = {
       id: "protected-1",
@@ -249,7 +249,51 @@ describe("createCompensationProcessingService", () => {
 
     expect(result.ok).toBe(false);
     if (result.ok) return;
-    expect(result.code).toBe("VALIDATION");
-    expect(result.errors[0]).toMatch(/revue|valides/i);
+    expect(result.code).toBe("ALREADY_PROCESSED");
+  });
+
+  it("bloque le recalcul si un accrual est validated (prioritaire)", async () => {
+    const row = buildEventRow();
+    const accruals: Accrual[] = [
+      {
+        id: "validated-1",
+        compensation_event_id: row.id,
+        component: "commission",
+        rule_name: "Commission",
+        label: "Commission",
+        sales_basis_amount: 10000,
+        calculated_amount: 500,
+        status: "validated",
+        period_start: null,
+        period_end: null,
+        created_at: "2026-07-07T12:00:00.000Z",
+        updated_at: "2026-07-07T12:00:00.000Z",
+        created_by: null,
+        updated_by: null,
+      },
+      {
+        id: "review-1",
+        compensation_event_id: row.id,
+        component: "commission",
+        rule_name: "Commission",
+        label: "Commission",
+        sales_basis_amount: 10000,
+        calculated_amount: 500,
+        status: "under_review",
+        period_start: null,
+        period_end: null,
+        created_at: "2026-07-07T12:00:00.000Z",
+        updated_at: "2026-07-07T12:00:00.000Z",
+        created_by: null,
+        updated_by: null,
+      },
+    ];
+    const { service } = createProcessingService([row], accruals);
+
+    const result = await service.processCompensationEventById(row.id, RULES);
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.code).toBe("ALREADY_VALIDATED");
   });
 });

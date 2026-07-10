@@ -1,10 +1,10 @@
 import { randomUUID } from "crypto";
 import { NextRequest, NextResponse } from "next/server";
 import {
-  parseProcessRequestBody,
-  processingServiceResultToResponse,
-  requireProcessRouteAuth,
-} from "@/app/api/direction/commissions/sales-events/[id]/process/_lib";
+  parseRecalculateRequestBody,
+  recalculateServiceResultToResponse,
+  requireRecalculateRouteAuth,
+} from "@/app/api/direction/commissions/sales-events/[id]/recalculate/_lib";
 import { DEFAULT_PROCESSING_RULES } from "@/app/lib/commissions/compensation-processing-api.shared";
 import { getCompensationProcessingService } from "@/app/lib/commissions/compensation-processing.service.factory.server";
 
@@ -20,11 +20,11 @@ export async function POST(
   const runId = randomUUID();
 
   try {
-    const auth = await requireProcessRouteAuth(req);
+    const auth = await requireRecalculateRouteAuth(req);
     if (!auth.ok) return auth.response;
 
     const { id } = await params;
-    await parseProcessRequestBody(req);
+    await parseRecalculateRequestBody(req);
 
     const service = getCompensationProcessingService();
     const result = await service.processCompensationEventById(
@@ -36,19 +36,19 @@ export async function POST(
 
     const finishedAt = new Date().toISOString();
 
-    return processingServiceResultToResponse(result, {
+    return recalculateServiceResultToResponse(result, {
       sessionId,
       runId,
       correlationId,
       startedAt,
       finishedAt,
       actorUserId: auth.user.id,
-      executionType: "initial",
     });
   } catch (error) {
     return NextResponse.json(
       {
-        error: error instanceof Error ? error.message : "Erreur serveur traitement compensation.",
+        error: error instanceof Error ? error.message : "Erreur serveur recalcul compensation.",
+        code: "PERSISTENCE_ERROR",
         correlation_id: correlationId,
       },
       { status: 500 }

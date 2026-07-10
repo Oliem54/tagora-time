@@ -76,19 +76,8 @@ export function processingServiceResultToResponse(
     );
   }
 
-  const code = mapDomainErrorToApiCode(result.code, result.errors);
+  const code = mapDomainErrorToApiCode(result.code);
   const status = mapDomainErrorToHttpStatus(code);
-
-  if (result.code === "PERSISTENCE") {
-    return NextResponse.json(
-      {
-        error: result.errors[0] ?? "Erreur serveur traitement compensation.",
-        errors: result.errors,
-        correlation_id: meta.correlationId,
-      },
-      { status: 500 }
-    );
-  }
 
   return NextResponse.json(
     {

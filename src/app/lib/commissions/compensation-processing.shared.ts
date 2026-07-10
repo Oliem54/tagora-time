@@ -16,6 +16,8 @@ export type CompensationProcessingErrorCode =
   | "NOT_FOUND"
   | "INELIGIBLE"
   | "VALIDATION"
+  | "ALREADY_PROCESSED"
+  | "ALREADY_VALIDATED"
   | "PERSISTENCE";
 
 export type CompensationProcessingResult =

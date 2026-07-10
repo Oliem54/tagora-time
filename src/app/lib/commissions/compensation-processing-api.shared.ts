@@ -35,9 +35,11 @@ export type ProcessingApiErrorCode =
   | "INELIGIBLE"
   | "VALIDATION_ERROR"
   | "ALREADY_PROCESSED"
+  | "ALREADY_VALIDATED"
   | "CONFLICT"
   | "UNAUTHORIZED"
-  | "FORBIDDEN";
+  | "FORBIDDEN"
+  | "PERSISTENCE_ERROR";
 
 export type CompensationEligibilityDto = EligibilityResult;
 
@@ -105,9 +107,8 @@ export type ProcessingResponseMeta = {
   startedAt: string;
   finishedAt: string;
   actorUserId: string | null;
+  executionType?: "initial" | "recalculate" | "retry";
 };
-
-const PROTECTED_ACCRUAL_MESSAGE_MARKERS = ["revue", "valides"];
 
 function toContractAmount(value: number): number {
   return value;
@@ -171,18 +172,14 @@ export function deriveFinanceStatus(
 }
 
 export function mapDomainErrorToApiCode(
-  code: CompensationProcessingErrorCode,
-  errors: string[]
+  code: CompensationProcessingErrorCode
 ): ProcessingApiErrorCode {
   if (code === "NOT_FOUND") return "NOT_FOUND";
   if (code === "INELIGIBLE") return "INELIGIBLE";
-  if (code === "VALIDATION") {
-    const message = errors.join(" ").toLowerCase();
-    if (PROTECTED_ACCRUAL_MESSAGE_MARKERS.some((marker) => message.includes(marker))) {
-      return "ALREADY_PROCESSED";
-    }
-    return "VALIDATION_ERROR";
-  }
+  if (code === "ALREADY_VALIDATED") return "ALREADY_VALIDATED";
+  if (code === "ALREADY_PROCESSED") return "ALREADY_PROCESSED";
+  if (code === "PERSISTENCE") return "PERSISTENCE_ERROR";
+  if (code === "VALIDATION") return "VALIDATION_ERROR";
   return "VALIDATION_ERROR";
 }
 
@@ -191,6 +188,7 @@ export function mapDomainErrorToHttpStatus(code: ProcessingApiErrorCode): number
   if (code === "CONFLICT") return 409;
   if (code === "UNAUTHORIZED") return 401;
   if (code === "FORBIDDEN") return 403;
+  if (code === "PERSISTENCE_ERROR") return 500;
   return 422;
 }
 
@@ -217,7 +215,7 @@ export function mapProcessingSuccessToDto(
     eligibility: mapEligibilityToDto(value.event.eligibility),
     summary: {
       run_id: meta.runId,
-      execution_type: "initial",
+      execution_type: meta.executionType ?? "initial",
       status: "succeeded",
       started_at: meta.startedAt,
       finished_at: meta.finishedAt,

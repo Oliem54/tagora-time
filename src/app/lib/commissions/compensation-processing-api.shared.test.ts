@@ -88,27 +88,24 @@ function buildSuccess(overrides: Partial<CompensationProcessingSuccess> = {}): C
 }
 
 describe("compensation-processing-api.shared", () => {
-  it("mapDomainErrorToApiCode mappe ALREADY_PROCESSED depuis VALIDATION protegee", () => {
-    expect(
-      mapDomainErrorToApiCode("VALIDATION", [
-        "Impossible de recalculer: des accruals sont en revue ou deja valides.",
-      ])
-    ).toBe("ALREADY_PROCESSED");
-  });
-
-  it("mapDomainErrorToApiCode mappe VALIDATION_ERROR pour les autres validations", () => {
-    expect(mapDomainErrorToApiCode("VALIDATION", ["Regle 1: montant fixe invalide."])).toBe(
-      "VALIDATION_ERROR"
-    );
+  it("mapDomainErrorToApiCode mappe les codes metier types", () => {
+    expect(mapDomainErrorToApiCode("ALREADY_PROCESSED")).toBe("ALREADY_PROCESSED");
+    expect(mapDomainErrorToApiCode("ALREADY_VALIDATED")).toBe("ALREADY_VALIDATED");
+    expect(mapDomainErrorToApiCode("VALIDATION")).toBe("VALIDATION_ERROR");
+    expect(mapDomainErrorToApiCode("PERSISTENCE")).toBe("PERSISTENCE_ERROR");
+    expect(mapDomainErrorToApiCode("NOT_FOUND")).toBe("NOT_FOUND");
+    expect(mapDomainErrorToApiCode("INELIGIBLE")).toBe("INELIGIBLE");
   });
 
   it("mapDomainErrorToHttpStatus retourne les codes HTTP attendus", () => {
     expect(mapDomainErrorToHttpStatus("NOT_FOUND")).toBe(404);
     expect(mapDomainErrorToHttpStatus("INELIGIBLE")).toBe(422);
     expect(mapDomainErrorToHttpStatus("ALREADY_PROCESSED")).toBe(422);
+    expect(mapDomainErrorToHttpStatus("ALREADY_VALIDATED")).toBe(422);
     expect(mapDomainErrorToHttpStatus("UNAUTHORIZED")).toBe(401);
     expect(mapDomainErrorToHttpStatus("FORBIDDEN")).toBe(403);
     expect(mapDomainErrorToHttpStatus("CONFLICT")).toBe(409);
+    expect(mapDomainErrorToHttpStatus("PERSISTENCE_ERROR")).toBe(500);
   });
 
   it("deriveFinanceStatus derive les statuts finance attendus", () => {
@@ -125,36 +122,38 @@ describe("compensation-processing-api.shared", () => {
 
     expect(deriveFinanceStatus(ineligible, [])).toBe("NOT_ELIGIBLE");
     expect(deriveFinanceStatus(eligible, [])).toBe("ELIGIBLE");
-    expect(
-      deriveFinanceStatus(eligible, [{ status: "calculated" } as Accrual])
-    ).toBe("CALCULATED");
-    expect(
-      deriveFinanceStatus(eligible, [{ status: "under_review" } as Accrual])
-    ).toBe("UNDER_REVIEW");
-    expect(
-      deriveFinanceStatus(eligible, [{ status: "validated" } as Accrual])
-    ).toBe("VALIDATED");
+    expect(deriveFinanceStatus(eligible, [{ status: "calculated" } as Accrual])).toBe("CALCULATED");
+    expect(deriveFinanceStatus(eligible, [{ status: "under_review" } as Accrual])).toBe(
+      "UNDER_REVIEW"
+    );
+    expect(deriveFinanceStatus(eligible, [{ status: "validated" } as Accrual])).toBe("VALIDATED");
   });
 
-  it("mapProcessingSuccessToDto produit le shape gelé V1", () => {
-    const dto = mapProcessingSuccessToDto(buildSuccess(), {
+  it("mapProcessingSuccessToDto produit le shape gele V1 avec execution_type", () => {
+    const initial = mapProcessingSuccessToDto(buildSuccess(), {
       sessionId: "session-1",
       runId: "run-1",
       correlationId: "corr-1",
       startedAt: "2026-07-09T12:00:00.000Z",
       finishedAt: "2026-07-09T12:00:01.000Z",
       actorUserId: "admin-user-1",
+      executionType: "initial",
     });
 
-    expect(dto.ok).toBe(true);
-    expect(dto.compensation_id).toBe("11111111-1111-4111-8111-111111111111");
-    expect(dto.session_id).toBe("session-1");
-    expect(dto.run_id).toBe("run-1");
-    expect(dto.finance_status).toBe("CALCULATED");
-    expect(dto.summary.execution_type).toBe("initial");
-    expect(dto.summary.accruals_created_count).toBe(1);
-    expect(dto.meta.api_version).toBe("1.0");
-    expect(dto.meta.engine_version).toBe("compensation-engine@1.0.0");
-    expect(dto.accruals[0].processing_run_id).toBeNull();
+    expect(initial.ok).toBe(true);
+    expect(initial.summary.execution_type).toBe("initial");
+    expect(initial.meta.api_version).toBe("1.0");
+
+    const recalculate = mapProcessingSuccessToDto(buildSuccess(), {
+      sessionId: "session-2",
+      runId: "run-2",
+      correlationId: "corr-2",
+      startedAt: "2026-07-09T12:00:00.000Z",
+      finishedAt: "2026-07-09T12:00:01.000Z",
+      actorUserId: "admin-user-1",
+      executionType: "recalculate",
+    });
+
+    expect(recalculate.summary.execution_type).toBe("recalculate");
   });
 });

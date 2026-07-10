@@ -21,11 +21,30 @@ export type CompensationProcessingServiceDeps = {
 };
 
 const REPLACEABLE_ACCRUAL_STATUSES: Accrual["status"][] = ["draft", "calculated"];
-const PROTECTED_ACCRUAL_STATUSES: Accrual["status"][] = ["under_review", "validated"];
 
 function persistenceError(error: unknown): CompensationProcessingResult {
   const message = error instanceof Error ? error.message : "Erreur traitement compensation.";
   return { ok: false, code: "PERSISTENCE", errors: [message] };
+}
+
+function protectedAccrualsBlock(
+  existing: Accrual[]
+): CompensationProcessingResult | null {
+  if (existing.some((row) => row.status === "validated")) {
+    return {
+      ok: false,
+      code: "ALREADY_VALIDATED",
+      errors: ["Recalcul impossible: au moins un accrual est deja valide."],
+    };
+  }
+  if (existing.some((row) => row.status === "under_review")) {
+    return {
+      ok: false,
+      code: "ALREADY_PROCESSED",
+      errors: ["Recalcul impossible: des accruals sont en revue."],
+    };
+  }
+  return null;
 }
 
 function mapEventLoadError(
@@ -88,17 +107,9 @@ export function createCompensationProcessingService(deps: CompensationProcessing
 
       try {
         const existing = await accrualsRepository.listByEventId(eventId);
-        const hasProtectedAccruals = existing.some((row) =>
-          PROTECTED_ACCRUAL_STATUSES.includes(row.status)
-        );
-        if (hasProtectedAccruals) {
-          return {
-            ok: false,
-            code: "VALIDATION",
-            errors: [
-              "Impossible de recalculer: des accruals sont en revue ou deja valides.",
-            ],
-          };
+        const blocked = protectedAccrualsBlock(existing);
+        if (blocked) {
+          return blocked;
         }
 
         await accrualsRepository.deleteByEventIdAndStatuses(

@@ -252,8 +252,8 @@ describe("POST /sales-events/[id]/process", () => {
     authOk();
     mockProcessingService({
       ok: false,
-      code: "VALIDATION",
-      errors: ["Impossible de recalculer: des accruals sont en revue ou deja valides."],
+      code: "ALREADY_PROCESSED",
+      errors: ["Recalcul impossible: des accruals sont en revue."],
     });
 
     const response = await processEvent(
@@ -268,7 +268,7 @@ describe("POST /sales-events/[id]/process", () => {
     expect(payload.code).toBe("ALREADY_PROCESSED");
   });
 
-  it("retourne 500 pour PERSISTENCE", async () => {
+  it("retourne 500 pour PERSISTENCE_ERROR", async () => {
     authOk();
     mockProcessingService({
       ok: false,
@@ -285,7 +285,6 @@ describe("POST /sales-events/[id]/process", () => {
     const payload = await response.json();
 
     expect(response.status).toBe(500);
-    expect(payload.error).toBeTruthy();
-    expect(payload.code).toBeUndefined();
+    expect(payload.code).toBe("PERSISTENCE_ERROR");
   });
 });
