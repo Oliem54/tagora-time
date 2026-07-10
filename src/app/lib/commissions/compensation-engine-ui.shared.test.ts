@@ -8,12 +8,18 @@ import {
 import type { CompensationSaleEvent } from "./compensation-engine-api.client";
 import {
   buildListSummaryMetrics,
+  buildProcessingSummaryViewModel,
   buildProcessingTimelineSteps,
   formatCompensationEventReference,
+  formatProcessingDurationLabel,
+  formatProcessingExecutionTypeLabel,
+  formatProcessingResultLabel,
+  formatProcessingSupersededCountLabel,
   getDominantAccrualStatus,
   getProcessingActionVisibility,
   getWorkflowActionsForStatus,
   mapProcessingApiErrorMessage,
+  resolveProcessingEngineVersion,
   runConfirmedProcessingAction,
 } from "./compensation-engine-ui.shared";
 
@@ -201,5 +207,83 @@ describe("compensation-engine-ui.shared", () => {
     });
     expect(outcome).toEqual({ ok: true, value: { ok: true } });
     expect(onSuccess).toHaveBeenCalledWith({ ok: true });
+  });
+
+  it("labels execution_type initial / recalculate / retry", () => {
+    expect(formatProcessingExecutionTypeLabel("initial")).toBe("Traitement initial");
+    expect(formatProcessingExecutionTypeLabel("recalculate")).toBe("Recalcul");
+    expect(formatProcessingExecutionTypeLabel("retry")).toBe("Nouvelle tentative");
+  });
+
+  it("resultat SUCCESS via result_code", () => {
+    expect(formatProcessingResultLabel({ result_code: "SUCCESS" })).toBe("Succès");
+  });
+
+  it("formate la duree de facon compacte", () => {
+    expect(formatProcessingDurationLabel(250)).toBe("250 ms");
+    expect(formatProcessingDurationLabel(1500)).toBe("1.5 s");
+    expect(formatProcessingDurationLabel(65000)).toBe("1 min 5 s");
+  });
+
+  it("buildProcessingSummaryViewModel mappe montant, warnings, version et correlation", () => {
+    const withWarnings = buildProcessingSummaryViewModel({
+      summary: {
+        execution_type: "initial",
+        result_code: "SUCCESS",
+        started_at: "2026-07-10T12:00:00.000Z",
+        finished_at: "2026-07-10T12:00:01.500Z",
+        duration_ms: 1500,
+        accruals_created_count: 2,
+        total_calculated_amount_cents: 500,
+        warnings: ["Arrondi applique"],
+        engine_version: "compensation-engine@1.0.0",
+      },
+      meta: {
+        engine_version: "meta-fallback",
+        correlation_id: "corr-abc",
+      },
+    });
+
+    expect(withWarnings.resultLabel).toBe("Succès");
+    expect(withWarnings.totalAmountLabel).toContain("500");
+    expect(withWarnings.warningsEmpty).toBe(false);
+    expect(withWarnings.warnings).toEqual(["Arrondi applique"]);
+    expect(withWarnings.engineVersionLabel).toBe("compensation-engine@1.0.0");
+    expect(withWarnings.correlationId).toBe("corr-abc");
+    expect(withWarnings.sessionNotice).toMatch(/session/);
+    expect(withWarnings.accrualsSupersededLabel).toBe("Non disponible");
+  });
+
+  it("warnings vides → Aucun avertissement via warningsEmpty", () => {
+    const view = buildProcessingSummaryViewModel({
+      summary: {
+        execution_type: "recalculate",
+        result_code: "SUCCESS",
+        duration_ms: 10,
+        accruals_created_count: 1,
+        total_calculated_amount_cents: 0,
+        warnings: [],
+      },
+      meta: { engine_version: "compensation-engine@1.0.0", correlation_id: "c1" },
+    });
+    expect(view.warningsEmpty).toBe(true);
+  });
+
+  it("accruals_superseded_count present est affiche sans invention", () => {
+    expect(
+      formatProcessingSupersededCountLabel({ accruals_superseded_count: 3 })
+    ).toBe("3");
+  });
+
+  it("accruals_superseded_count absent → Non disponible", () => {
+    expect(formatProcessingSupersededCountLabel({ accruals_created_count: 2 })).toBe(
+      "Non disponible"
+    );
+  });
+
+  it("version moteur fallback meta si absente du summary", () => {
+    expect(
+      resolveProcessingEngineVersion({}, { engine_version: "compensation-engine@1.0.0" })
+    ).toBe("compensation-engine@1.0.0");
   });
 });

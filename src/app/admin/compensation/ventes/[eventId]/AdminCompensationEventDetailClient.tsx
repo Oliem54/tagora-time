@@ -7,6 +7,7 @@ import CompensationAccrualsTable from "@/app/components/admin/compensation/Compe
 import CompensationCalculationPanel from "@/app/components/admin/compensation/CompensationCalculationPanel";
 import CompensationEligibilityPanel from "@/app/components/admin/compensation/CompensationEligibilityPanel";
 import CompensationProcessingActions from "@/app/components/admin/compensation/CompensationProcessingActions";
+import CompensationProcessingSummaryPanel from "@/app/components/admin/compensation/CompensationProcessingSummaryPanel";
 import CompensationProcessingTimeline from "@/app/components/admin/compensation/CompensationProcessingTimeline";
 import CompensationWorkflowHistory from "@/app/components/admin/compensation/CompensationWorkflowHistory";
 import AuthenticatedPageHeader from "@/app/components/ui/AuthenticatedPageHeader";
@@ -270,16 +271,7 @@ export default function AdminCompensationEventDetailClient({
             onFeedback={handleProcessingFeedback}
           />
           {lastProcessingResult ? (
-            <section className="compensation-side-card">
-              <div className="compensation-side-card__header">
-                <h2>Dernier resultat</h2>
-              </div>
-              <p className="compensation-side-card__note">
-                Run {lastProcessingResult.run_id.slice(0, 8)} ·{" "}
-                {lastProcessingResult.summary.execution_type} ·{" "}
-                {lastProcessingResult.summary.accruals_created_count} accrual(s)
-              </p>
-            </section>
+            <CompensationProcessingSummaryPanel result={lastProcessingResult} />
           ) : null}
         </aside>
       </div>

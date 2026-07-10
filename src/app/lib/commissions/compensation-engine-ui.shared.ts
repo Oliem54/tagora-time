@@ -296,3 +296,140 @@ export async function runConfirmedProcessingAction<T>(params: {
     return { ok: false, error };
   }
 }
+
+export const PROCESSING_SUMMARY_SESSION_NOTICE =
+  "Ce résumé correspond au dernier traitement exécuté dans cette session. Il ne constitue pas un historique persistant.";
+
+export type ProcessingSummaryViewModel = {
+  executionTypeLabel: string;
+  resultLabel: string;
+  startedAtLabel: string;
+  finishedAtLabel: string;
+  durationLabel: string;
+  accrualsCreatedLabel: string;
+  accrualsSupersededLabel: string;
+  totalAmountLabel: string;
+  warnings: string[];
+  warningsEmpty: boolean;
+  engineVersionLabel: string;
+  correlationId: string | null;
+  sessionNotice: string;
+};
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" ? (value as Record<string, unknown>) : {};
+}
+
+export function formatProcessingExecutionTypeLabel(
+  executionType: string | null | undefined
+): string {
+  if (executionType === "initial") return "Traitement initial";
+  if (executionType === "recalculate") return "Recalcul";
+  if (executionType === "retry") return "Nouvelle tentative";
+  return executionType?.trim() || "—";
+}
+
+export function formatProcessingResultLabel(summary: unknown): string {
+  const record = asRecord(summary);
+  const resultCode =
+    typeof record.result_code === "string" ? record.result_code.trim() : "";
+  if (resultCode === "SUCCESS") return "Succès";
+  if (resultCode) return resultCode;
+
+  const status = typeof record.status === "string" ? record.status.trim() : "";
+  if (status === "succeeded" || status === "SUCCESS") return "Succès";
+  if (status === "failed") return "Échec";
+  if (status) return status;
+  return "—";
+}
+
+export function formatProcessingDateTimeLabel(iso: string | null | undefined): string {
+  if (!iso?.trim()) return "—";
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso;
+  return new Intl.DateTimeFormat("fr-CA", {
+    dateStyle: "short",
+    timeStyle: "medium",
+  }).format(date);
+}
+
+export function formatProcessingDurationLabel(durationMs: number | null | undefined): string {
+  if (durationMs == null || !Number.isFinite(durationMs) || durationMs < 0) return "—";
+  if (durationMs < 1000) return `${Math.round(durationMs)} ms`;
+  const seconds = durationMs / 1000;
+  if (seconds < 60) return `${seconds.toFixed(seconds < 10 ? 1 : 0)} s`;
+  const minutes = Math.floor(seconds / 60);
+  const rem = Math.round(seconds % 60);
+  return `${minutes} min ${rem} s`;
+}
+
+export function formatProcessingSupersededCountLabel(summary: unknown): string {
+  const record = asRecord(summary);
+  if (!Object.prototype.hasOwnProperty.call(record, "accruals_superseded_count")) {
+    return "Non disponible";
+  }
+  const value = record.accruals_superseded_count;
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return String(Math.trunc(value));
+  }
+  return "Non disponible";
+}
+
+export function resolveProcessingEngineVersion(
+  summary: unknown,
+  meta: { engine_version?: string } | null | undefined
+): string {
+  const record = asRecord(summary);
+  if (typeof record.engine_version === "string" && record.engine_version.trim()) {
+    return record.engine_version.trim();
+  }
+  if (typeof meta?.engine_version === "string" && meta.engine_version.trim()) {
+    return meta.engine_version.trim();
+  }
+  return "—";
+}
+
+export function buildProcessingSummaryViewModel(result: {
+  summary: unknown;
+  meta?: { engine_version?: string; correlation_id?: string } | null;
+}): ProcessingSummaryViewModel {
+  const summary = asRecord(result.summary);
+  const warnings = Array.isArray(summary.warnings)
+    ? summary.warnings.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+    : [];
+
+  const totalCents =
+    typeof summary.total_calculated_amount_cents === "number"
+      ? summary.total_calculated_amount_cents
+      : null;
+
+  return {
+    executionTypeLabel: formatProcessingExecutionTypeLabel(
+      typeof summary.execution_type === "string" ? summary.execution_type : null
+    ),
+    resultLabel: formatProcessingResultLabel(summary),
+    startedAtLabel: formatProcessingDateTimeLabel(
+      typeof summary.started_at === "string" ? summary.started_at : null
+    ),
+    finishedAtLabel: formatProcessingDateTimeLabel(
+      typeof summary.finished_at === "string" ? summary.finished_at : null
+    ),
+    durationLabel: formatProcessingDurationLabel(
+      typeof summary.duration_ms === "number" ? summary.duration_ms : null
+    ),
+    accrualsCreatedLabel:
+      typeof summary.accruals_created_count === "number"
+        ? String(Math.trunc(summary.accruals_created_count))
+        : "—",
+    accrualsSupersededLabel: formatProcessingSupersededCountLabel(summary),
+    totalAmountLabel: totalCents == null ? "—" : formatCad(totalCents),
+    warnings,
+    warningsEmpty: warnings.length === 0,
+    engineVersionLabel: resolveProcessingEngineVersion(summary, result.meta),
+    correlationId:
+      typeof result.meta?.correlation_id === "string" && result.meta.correlation_id.trim()
+        ? result.meta.correlation_id.trim()
+        : null,
+    sessionNotice: PROCESSING_SUMMARY_SESSION_NOTICE,
+  };
+}
