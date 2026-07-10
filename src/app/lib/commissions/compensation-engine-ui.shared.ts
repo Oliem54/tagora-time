@@ -177,3 +177,122 @@ export function buildListSummaryMetrics(events: CompensationSaleEvent[]) {
     totalBasisFormatted: formatCad(totalBasis),
   };
 }
+
+/** Visibilité UX uniquement — le backend reste la source de vérité. */
+export type ProcessingActionVisibility = {
+  canProcess: boolean;
+  canRecalculate: boolean;
+  blockedReason: "ineligible" | "under_review" | "validated" | null;
+};
+
+export type ProcessingActionKind = "process" | "recalculate";
+
+const REPLACEABLE_ACCRUAL_STATUSES: Accrual["status"][] = ["draft", "calculated"];
+
+export function getProcessingActionVisibility(
+  isEligible: boolean,
+  accruals: Accrual[]
+): ProcessingActionVisibility {
+  if (accruals.some((row) => row.status === "validated")) {
+    return { canProcess: false, canRecalculate: false, blockedReason: "validated" };
+  }
+  if (accruals.some((row) => row.status === "under_review")) {
+    return { canProcess: false, canRecalculate: false, blockedReason: "under_review" };
+  }
+  if (!isEligible) {
+    return { canProcess: false, canRecalculate: false, blockedReason: "ineligible" };
+  }
+  if (accruals.length === 0) {
+    return { canProcess: true, canRecalculate: false, blockedReason: null };
+  }
+  const allReplaceable = accruals.every((row) =>
+    REPLACEABLE_ACCRUAL_STATUSES.includes(row.status)
+  );
+  return {
+    canProcess: false,
+    canRecalculate: allReplaceable,
+    blockedReason: null,
+  };
+}
+
+export function getProcessingConfirmMessage(kind: ProcessingActionKind): string {
+  if (kind === "process") {
+    return "Lancer le traitement de cette vente ?";
+  }
+  return "Remplacer les accruals calculés ? Cette action recalcule la compensation.";
+}
+
+export function getProcessingBusyMessage(kind: ProcessingActionKind): string {
+  return kind === "process" ? "Traitement en cours…" : "Recalcul en cours…";
+}
+
+export function getProcessingSuccessMessage(kind: ProcessingActionKind): string {
+  return kind === "process"
+    ? "Traitement compensation terminé."
+    : "Recalcul compensation terminé.";
+}
+
+export function mapProcessingApiErrorMessage(
+  code: string | null | undefined,
+  fallback: string
+): string {
+  switch (code) {
+    case "INELIGIBLE":
+      return "Vente inadmissible au traitement.";
+    case "ALREADY_PROCESSED":
+      return "Déjà en revue — recalcul impossible.";
+    case "ALREADY_VALIDATED":
+      return "Déjà validé — recalcul impossible.";
+    case "NOT_FOUND":
+      return "Vente introuvable.";
+    case "FORBIDDEN":
+      return "Accès réservé à l'administration finance.";
+    case "UNAUTHORIZED":
+      return "Authentification requise.";
+    case "VALIDATION_ERROR":
+      return fallback || "Données de traitement invalides.";
+    case "CONFLICT":
+      return "Un traitement est déjà en cours.";
+    case "PERSISTENCE_ERROR":
+      return "Erreur serveur lors du traitement.";
+    default:
+      return fallback || "Traitement compensation impossible.";
+  }
+}
+
+export function getProcessingBlockedNote(
+  blockedReason: ProcessingActionVisibility["blockedReason"]
+): string | null {
+  if (blockedReason === "validated") {
+    return "Au moins un accrual est validé. Traitement et recalcul indisponibles.";
+  }
+  if (blockedReason === "under_review") {
+    return "Au moins un accrual est en revue. Traitement et recalcul indisponibles.";
+  }
+  if (blockedReason === "ineligible") {
+    return "Vente inadmissible. Traitement indisponible.";
+  }
+  return null;
+}
+
+/**
+ * Orchestration pure (testable sans React) :
+ * confirmation annulée / busy / succès avec refresh.
+ */
+export async function runConfirmedProcessingAction<T>(params: {
+  confirmed: boolean;
+  isBusy: boolean;
+  execute: () => Promise<T>;
+  onSuccess: (value: T) => Promise<void> | void;
+}): Promise<"cancelled" | "skipped_busy" | { ok: true; value: T } | { ok: false; error: unknown }> {
+  if (!params.confirmed) return "cancelled";
+  if (params.isBusy) return "skipped_busy";
+
+  try {
+    const value = await params.execute();
+    await params.onSuccess(value);
+    return { ok: true, value };
+  } catch (error) {
+    return { ok: false, error };
+  }
+}

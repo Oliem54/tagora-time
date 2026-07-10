@@ -1,6 +1,10 @@
 import { commissionsFetch } from "@/app/lib/commissions/commissions-api.client";
 import type { Accrual, AccrualStatusHistoryEntry } from "@/app/lib/commissions/accruals.shared";
 import type { CompensationEventRow } from "@/app/lib/commissions/compensation-events.mapper.server";
+import type {
+  CompensationProcessingResultDto,
+  ProcessingApiErrorCode,
+} from "@/app/lib/commissions/compensation-processing-api.shared";
 import type { EligibilityResult } from "@/app/lib/commissions/eligibility.server";
 
 export type CompensationSaleEvent = CompensationEventRow & {
@@ -14,8 +18,34 @@ export type AccrualWithHistory = {
   history: AccrualStatusHistoryEntry[];
 };
 
-async function parseJson<T>(response: Response): Promise<T & { error?: string; errors?: string[] }> {
-  return (await response.json().catch(() => ({}))) as T & { error?: string; errors?: string[] };
+export class CompensationProcessingApiError extends Error {
+  code: ProcessingApiErrorCode | string | null;
+
+  constructor(message: string, code: ProcessingApiErrorCode | string | null = null) {
+    super(message);
+    this.name = "CompensationProcessingApiError";
+    this.code = code;
+  }
+}
+
+async function parseJson<T>(
+  response: Response
+): Promise<T & { error?: string; errors?: string[]; code?: string }> {
+  return (await response.json().catch(() => ({}))) as T & {
+    error?: string;
+    errors?: string[];
+    code?: string;
+  };
+}
+
+function throwProcessingApiError(
+  payload: { error?: string; errors?: string[]; code?: string },
+  fallback: string
+): never {
+  throw new CompensationProcessingApiError(
+    payload.error ?? payload.errors?.[0] ?? fallback,
+    payload.code ?? null
+  );
 }
 
 export async function fetchCompensationSaleEvents(searchParams?: URLSearchParams) {
@@ -105,4 +135,46 @@ export async function patchAccrualWorkflow(
   }
 
   return payload.accrual;
+}
+
+export async function processCompensationSaleEvent(eventId: string) {
+  const response = await commissionsFetch(
+    `/api/direction/commissions/sales-events/${encodeURIComponent(eventId)}/process`,
+    {
+      method: "POST",
+      body: JSON.stringify({}),
+    }
+  );
+  const payload = await parseJson<{ result?: CompensationProcessingResultDto }>(response);
+
+  if (!response.ok) {
+    throwProcessingApiError(payload, "Traitement compensation impossible.");
+  }
+
+  if (!payload.result) {
+    throw new CompensationProcessingApiError("Reponse traitement invalide.");
+  }
+
+  return payload.result;
+}
+
+export async function recalculateCompensationSaleEvent(eventId: string) {
+  const response = await commissionsFetch(
+    `/api/direction/commissions/sales-events/${encodeURIComponent(eventId)}/recalculate`,
+    {
+      method: "POST",
+      body: JSON.stringify({}),
+    }
+  );
+  const payload = await parseJson<{ result?: CompensationProcessingResultDto }>(response);
+
+  if (!response.ok) {
+    throwProcessingApiError(payload, "Recalcul compensation impossible.");
+  }
+
+  if (!payload.result) {
+    throw new CompensationProcessingApiError("Reponse recalcul invalide.");
+  }
+
+  return payload.result;
 }

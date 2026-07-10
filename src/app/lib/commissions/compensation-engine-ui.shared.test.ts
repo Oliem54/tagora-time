@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { Accrual } from "./accruals.shared";
 import {
   COMPENSATION_EVENT_SALE_STATE_DELIVERED,
@@ -11,7 +11,10 @@ import {
   buildProcessingTimelineSteps,
   formatCompensationEventReference,
   getDominantAccrualStatus,
+  getProcessingActionVisibility,
   getWorkflowActionsForStatus,
+  mapProcessingApiErrorMessage,
+  runConfirmedProcessingAction,
 } from "./compensation-engine-ui.shared";
 
 function buildEvent(overrides: Partial<CompensationSaleEvent> = {}): CompensationSaleEvent {
@@ -43,9 +46,9 @@ function buildEvent(overrides: Partial<CompensationSaleEvent> = {}): Compensatio
   };
 }
 
-function buildAccrual(status: Accrual["status"]): Accrual {
+function buildAccrual(status: Accrual["status"], id = "accrual-1"): Accrual {
   return {
-    id: "accrual-1",
+    id,
     compensation_event_id: "11111111-1111-4111-8111-111111111111",
     component: "commission",
     rule_name: "Commission",
@@ -115,5 +118,88 @@ describe("compensation-engine-ui.shared", () => {
     expect(metrics.activeCount).toBe(2);
     expect(metrics.eligibleCount).toBe(1);
     expect(metrics.ineligibleCount).toBe(1);
+  });
+
+  it("affiche Traiter si vente admissible sans accrual", () => {
+    const visibility = getProcessingActionVisibility(true, []);
+    expect(visibility.canProcess).toBe(true);
+    expect(visibility.canRecalculate).toBe(false);
+  });
+
+  it("affiche Recalculer si accruals draft/calculated seulement", () => {
+    const visibility = getProcessingActionVisibility(true, [
+      buildAccrual("draft"),
+      buildAccrual("calculated", "accrual-2"),
+    ]);
+    expect(visibility.canProcess).toBe(false);
+    expect(visibility.canRecalculate).toBe(true);
+  });
+
+  it("masque les actions si under_review", () => {
+    const visibility = getProcessingActionVisibility(true, [buildAccrual("under_review")]);
+    expect(visibility.canProcess).toBe(false);
+    expect(visibility.canRecalculate).toBe(false);
+    expect(visibility.blockedReason).toBe("under_review");
+  });
+
+  it("masque les actions si validated", () => {
+    const visibility = getProcessingActionVisibility(true, [buildAccrual("validated")]);
+    expect(visibility.canProcess).toBe(false);
+    expect(visibility.canRecalculate).toBe(false);
+    expect(visibility.blockedReason).toBe("validated");
+  });
+
+  it("masque Traiter si vente inadmissible", () => {
+    const visibility = getProcessingActionVisibility(false, []);
+    expect(visibility.canProcess).toBe(false);
+    expect(visibility.blockedReason).toBe("ineligible");
+  });
+
+  it("mappe les messages d erreur API", () => {
+    expect(mapProcessingApiErrorMessage("INELIGIBLE", "x")).toMatch(/inadmissible/i);
+    expect(mapProcessingApiErrorMessage("ALREADY_PROCESSED", "x")).toMatch(/revue/i);
+    expect(mapProcessingApiErrorMessage("ALREADY_VALIDATED", "x")).toMatch(/validé/i);
+    expect(mapProcessingApiErrorMessage("NOT_FOUND", "x")).toMatch(/introuvable/i);
+    expect(mapProcessingApiErrorMessage("FORBIDDEN", "x")).toMatch(/finance/i);
+    expect(mapProcessingApiErrorMessage("PERSISTENCE_ERROR", "x")).toMatch(/serveur/i);
+  });
+
+  it("confirmation annulee = aucun appel", async () => {
+    const execute = vi.fn();
+    const onSuccess = vi.fn();
+    const outcome = await runConfirmedProcessingAction({
+      confirmed: false,
+      isBusy: false,
+      execute,
+      onSuccess,
+    });
+    expect(outcome).toBe("cancelled");
+    expect(execute).not.toHaveBeenCalled();
+    expect(onSuccess).not.toHaveBeenCalled();
+  });
+
+  it("busy = aucun appel", async () => {
+    const execute = vi.fn();
+    const outcome = await runConfirmedProcessingAction({
+      confirmed: true,
+      isBusy: true,
+      execute,
+      onSuccess: vi.fn(),
+    });
+    expect(outcome).toBe("skipped_busy");
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it("succes = refresh appele", async () => {
+    const execute = vi.fn().mockResolvedValue({ ok: true });
+    const onSuccess = vi.fn();
+    const outcome = await runConfirmedProcessingAction({
+      confirmed: true,
+      isBusy: false,
+      execute,
+      onSuccess,
+    });
+    expect(outcome).toEqual({ ok: true, value: { ok: true } });
+    expect(onSuccess).toHaveBeenCalledWith({ ok: true });
   });
 });

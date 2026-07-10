@@ -6,6 +6,7 @@ import AdminCompensationNavigation from "@/app/components/admin/compensation/Adm
 import CompensationAccrualsTable from "@/app/components/admin/compensation/CompensationAccrualsTable";
 import CompensationCalculationPanel from "@/app/components/admin/compensation/CompensationCalculationPanel";
 import CompensationEligibilityPanel from "@/app/components/admin/compensation/CompensationEligibilityPanel";
+import CompensationProcessingActions from "@/app/components/admin/compensation/CompensationProcessingActions";
 import CompensationProcessingTimeline from "@/app/components/admin/compensation/CompensationProcessingTimeline";
 import CompensationWorkflowHistory from "@/app/components/admin/compensation/CompensationWorkflowHistory";
 import AuthenticatedPageHeader from "@/app/components/ui/AuthenticatedPageHeader";
@@ -20,6 +21,7 @@ import {
   type AccrualWorkflowAction,
   type CompensationSaleEvent,
 } from "@/app/lib/commissions/compensation-engine-api.client";
+import type { CompensationProcessingResultDto } from "@/app/lib/commissions/compensation-processing-api.shared";
 import {
   buildProcessingTimelineSteps,
   compensationEventStatusLabel,
@@ -46,13 +48,18 @@ export default function AdminCompensationEventDetailClient({
   const [histories, setHistories] = useState<Record<string, AccrualStatusHistoryEntry[]>>({});
   const [aggregateHistory, setAggregateHistory] = useState<AccrualStatusHistoryEntry[]>([]);
   const [loadingAccrualId, setLoadingAccrualId] = useState<string | null>(null);
+  const [processingBusy, setProcessingBusy] = useState(false);
+  const [lastProcessingResult, setLastProcessingResult] =
+    useState<CompensationProcessingResultDto | null>(null);
   const [message, setMessage] = useState("");
   const [messageType, setMessageType] = useState<"success" | "error" | null>(null);
 
-  const loadDetail = useCallback(async () => {
+  const loadDetail = useCallback(async (options?: { preserveMessage?: boolean }) => {
     setLoading(true);
-    setMessage("");
-    setMessageType(null);
+    if (!options?.preserveMessage) {
+      setMessage("");
+      setMessageType(null);
+    }
 
     try {
       const [loadedEvent, loadedAccruals] = await Promise.all([
@@ -115,6 +122,19 @@ export default function AdminCompensationEventDetailClient({
     []
   );
 
+  const handleProcessingSuccess = useCallback(
+    async (result: CompensationProcessingResultDto) => {
+      setLastProcessingResult(result);
+      await loadDetail({ preserveMessage: true });
+    },
+    [loadDetail]
+  );
+
+  const handleProcessingFeedback = useCallback((nextMessage: string, type: "success" | "error") => {
+    setMessage(nextMessage);
+    setMessageType(nextMessage ? type : null);
+  }, []);
+
   const loadAggregateHistory = useCallback(async () => {
     if (accruals.length === 0) {
       setAggregateHistory([]);
@@ -139,7 +159,7 @@ export default function AdminCompensationEventDetailClient({
     });
   }, [accruals, histories]);
 
-  if (loading) {
+  if (loading && !event) {
     return (
       <TagoraLoadingScreen
         isLoading
@@ -212,7 +232,11 @@ export default function AdminCompensationEventDetailClient({
           <div className="compensation-panel">
             <div className="compensation-panel__header">
               <h2>Historique workflow global</h2>
-              <button type="button" className="tagora-dark-outline-action" onClick={() => void loadAggregateHistory()}>
+              <button
+                type="button"
+                className="tagora-dark-outline-action"
+                onClick={() => void loadAggregateHistory()}
+              >
                 Charger historique complet
               </button>
             </div>
@@ -236,15 +260,27 @@ export default function AdminCompensationEventDetailClient({
               ))}
             </ul>
           </section>
-          <section className="compensation-side-card">
-            <div className="compensation-side-card__header">
-              <h2>Actions globales</h2>
-            </div>
-            <p className="compensation-side-card__note">
-              V1 lecture + workflow uniquement. Traitement Processing serveur disponible via service
-              Sprint 7 (sans bouton UI).
-            </p>
-          </section>
+          <CompensationProcessingActions
+            eventId={event.id}
+            isEligible={event.eligibility.is_eligible}
+            accruals={accruals}
+            busy={processingBusy || loading}
+            onBusyChange={setProcessingBusy}
+            onSuccess={handleProcessingSuccess}
+            onFeedback={handleProcessingFeedback}
+          />
+          {lastProcessingResult ? (
+            <section className="compensation-side-card">
+              <div className="compensation-side-card__header">
+                <h2>Dernier resultat</h2>
+              </div>
+              <p className="compensation-side-card__note">
+                Run {lastProcessingResult.run_id.slice(0, 8)} ·{" "}
+                {lastProcessingResult.summary.execution_type} ·{" "}
+                {lastProcessingResult.summary.accruals_created_count} accrual(s)
+              </p>
+            </section>
+          ) : null}
         </aside>
       </div>
 

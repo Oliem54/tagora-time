@@ -7394,6 +7394,17 @@ select {
   font-size: 0.88rem;
 }
 
+.compensation-processing-actions {
+  display: grid;
+  gap: 10px;
+}
+
+.compensation-processing-actions .tagora-dark-action,
+.compensation-processing-actions .tagora-dark-outline-action {
+  width: 100%;
+  justify-content: center;
+}
+
 .compensation-timeline {
   list-style: none;
   margin: 0;
