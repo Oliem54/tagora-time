@@ -15,7 +15,7 @@ export default function CompensationSummaryCards({ events }: CompensationSummary
   return (
     <div className="compensation-summary-grid">
       <AdminCommissionsMetricCard
-        label="Ventes actives"
+        label="Événements actifs"
         value={metrics.activeCount}
         note="Events status actif"
         icon={<Store size={18} aria-hidden />}
@@ -33,9 +33,9 @@ export default function CompensationSummaryCards({ events }: CompensationSummary
         icon={<ShieldAlert size={18} aria-hidden />}
       />
       <AdminCommissionsMetricCard
-        label="Montant total base"
+        label="Base commissionnable totale"
         value={metrics.totalBasisFormatted}
-        note="Somme des ventes visibles"
+        note="Somme des événements visibles"
         icon={<CircleDollarSign size={18} aria-hidden />}
         valueIsCurrency
       />

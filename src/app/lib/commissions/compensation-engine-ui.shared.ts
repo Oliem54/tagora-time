@@ -97,7 +97,7 @@ export function buildProcessingTimelineSteps(
   const steps: ProcessingTimelineStep[] = [
     {
       id: "load",
-      label: "Chargement de la vente",
+      label: "Chargement de l'événement",
       state: "done",
       detail: formatCompensationEventReference(event),
     },
@@ -105,7 +105,7 @@ export function buildProcessingTimelineSteps(
       id: "eligibility",
       label: "Verification eligibilite",
       state: eligible ? "done" : "blocked",
-      detail: eligible ? "Vente admissible" : event.eligibility.rejection_reason,
+      detail: eligible ? "Événement admissible" : event.eligibility.rejection_reason,
     },
     {
       id: "context",
@@ -217,19 +217,21 @@ export function getProcessingActionVisibility(
 
 export function getProcessingConfirmMessage(kind: ProcessingActionKind): string {
   if (kind === "process") {
-    return "Lancer le traitement de cette vente ?";
+    return "Calculer les commissions pour cet événement ?";
   }
-  return "Remplacer les accruals calculés ? Cette action recalcule la compensation.";
+  return "Remplacer les accruals calculés ? Cette action recalcule les commissions.";
 }
 
 export function getProcessingBusyMessage(kind: ProcessingActionKind): string {
-  return kind === "process" ? "Traitement en cours…" : "Recalcul en cours…";
+  return kind === "process"
+    ? "Calcul des commissions en cours…"
+    : "Recalcul des commissions en cours…";
 }
 
 export function getProcessingSuccessMessage(kind: ProcessingActionKind): string {
   return kind === "process"
-    ? "Traitement compensation terminé."
-    : "Recalcul compensation terminé.";
+    ? "Calcul des commissions terminé."
+    : "Recalcul des commissions terminé.";
 }
 
 export function mapProcessingApiErrorMessage(
@@ -238,13 +240,13 @@ export function mapProcessingApiErrorMessage(
 ): string {
   switch (code) {
     case "INELIGIBLE":
-      return "Vente inadmissible au traitement.";
+      return "Événement inadmissible au calcul des commissions.";
     case "ALREADY_PROCESSED":
       return "Déjà en revue — recalcul impossible.";
     case "ALREADY_VALIDATED":
       return "Déjà validé — recalcul impossible.";
     case "NOT_FOUND":
-      return "Vente introuvable.";
+      return "Événement de commission introuvable.";
     case "FORBIDDEN":
       return "Accès réservé à l'administration finance.";
     case "UNAUTHORIZED":
@@ -256,7 +258,7 @@ export function mapProcessingApiErrorMessage(
     case "PERSISTENCE_ERROR":
       return "Erreur serveur lors du traitement.";
     default:
-      return fallback || "Traitement compensation impossible.";
+      return fallback || "Calcul des commissions impossible.";
   }
 }
 
@@ -264,13 +266,13 @@ export function getProcessingBlockedNote(
   blockedReason: ProcessingActionVisibility["blockedReason"]
 ): string | null {
   if (blockedReason === "validated") {
-    return "Au moins un accrual est validé. Traitement et recalcul indisponibles.";
+    return "Au moins un accrual est validé. Calcul et recalcul indisponibles.";
   }
   if (blockedReason === "under_review") {
-    return "Au moins un accrual est en revue. Traitement et recalcul indisponibles.";
+    return "Au moins un accrual est en revue. Calcul et recalcul indisponibles.";
   }
   if (blockedReason === "ineligible") {
-    return "Vente inadmissible. Traitement indisponible.";
+    return "Événement inadmissible. Calcul des commissions indisponible.";
   }
   return null;
 }

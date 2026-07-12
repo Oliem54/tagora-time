@@ -1,8 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import FeedbackMessage from "@/app/components/FeedbackMessage";
-import AdminCompensationNavigation from "@/app/components/admin/compensation/AdminCompensationNavigation";
+import AdminCompensationPageShell from "@/app/components/admin/compensation/AdminCompensationPageShell";
 import CompensationAccrualsTable from "@/app/components/admin/compensation/CompensationAccrualsTable";
 import CompensationCalculationPanel from "@/app/components/admin/compensation/CompensationCalculationPanel";
 import CompensationEligibilityPanel from "@/app/components/admin/compensation/CompensationEligibilityPanel";
@@ -10,7 +11,7 @@ import CompensationProcessingActions from "@/app/components/admin/compensation/C
 import CompensationProcessingSummaryPanel from "@/app/components/admin/compensation/CompensationProcessingSummaryPanel";
 import CompensationProcessingTimeline from "@/app/components/admin/compensation/CompensationProcessingTimeline";
 import CompensationWorkflowHistory from "@/app/components/admin/compensation/CompensationWorkflowHistory";
-import AuthenticatedPageHeader from "@/app/components/ui/AuthenticatedPageHeader";
+import AppCard from "@/app/components/ui/AppCard";
 import StatusBadge from "@/app/components/ui/StatusBadge";
 import TagoraLoadingScreen from "@/app/components/ui/TagoraLoadingScreen";
 import type { Accrual, AccrualStatusHistoryEntry } from "@/app/lib/commissions/accruals.shared";
@@ -19,6 +20,7 @@ import {
   fetchAccrualsForEvent,
   fetchCompensationSaleEvent,
   patchAccrualWorkflow,
+  updateCompensationSaleEvent,
   type AccrualWorkflowAction,
   type CompensationSaleEvent,
 } from "@/app/lib/commissions/compensation-engine-api.client";
@@ -35,6 +37,9 @@ import {
   accrualWorkflowStatusTone,
 } from "@/app/lib/commissions/compensation-engine-ui.shared";
 import { formatCad } from "@/app/lib/commissions/commissions.shared";
+import {
+  isCompensationQaEventMarker,
+} from "@/app/lib/commissions/compensation-qa.shared";
 
 type AdminCompensationEventDetailClientProps = {
   eventId: string;
@@ -50,6 +55,7 @@ export default function AdminCompensationEventDetailClient({
   const [aggregateHistory, setAggregateHistory] = useState<AccrualStatusHistoryEntry[]>([]);
   const [loadingAccrualId, setLoadingAccrualId] = useState<string | null>(null);
   const [processingBusy, setProcessingBusy] = useState(false);
+  const [cancellingQa, setCancellingQa] = useState(false);
   const [lastProcessingResult, setLastProcessingResult] =
     useState<CompensationProcessingResultDto | null>(null);
   const [message, setMessage] = useState("");
@@ -74,7 +80,11 @@ export default function AdminCompensationEventDetailClient({
     } catch (error) {
       setEvent(null);
       setAccruals([]);
-      setMessage(error instanceof Error ? error.message : "Impossible de charger la vente.");
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : "Impossible de charger l'entrée de commission."
+      );
       setMessageType("error");
     } finally {
       setLoading(false);
@@ -91,6 +101,17 @@ export default function AdminCompensationEventDetailClient({
   );
   const totals = useMemo(() => summarizeAccrualTotals(accruals), [accruals]);
   const dominantStatus = useMemo(() => getDominantAccrualStatus(accruals), [accruals]);
+  const isQaEvent = useMemo(
+    () =>
+      event
+        ? isCompensationQaEventMarker({
+            external_reference: event.external_reference,
+            label: event.label,
+            notes: event.notes,
+          })
+        : false,
+    [event]
+  );
 
   const handleExpandHistory = useCallback(async (accrualId: string) => {
     if (histories[accrualId]) return;
@@ -136,6 +157,34 @@ export default function AdminCompensationEventDetailClient({
     setMessageType(nextMessage ? type : null);
   }, []);
 
+  const handleCancelQaEvent = useCallback(async () => {
+    if (!event || cancellingQa) return;
+    const confirmed = window.confirm(
+      "Annuler cette donnée QA staging ? L'événement passera au statut Annulé."
+    );
+    if (!confirmed) return;
+
+    setCancellingQa(true);
+    setMessage("");
+    setMessageType(null);
+    try {
+      const updated = await updateCompensationSaleEvent(event.id, {
+        status: "cancelled",
+        notes: `${event.notes ?? ""}\n[QA] Annulé depuis le livre de commissions.`.trim(),
+      });
+      setEvent(updated);
+      setMessage("Donnée QA annulée (statut Annulé).");
+      setMessageType("success");
+    } catch (error) {
+      setMessage(
+        error instanceof Error ? error.message : "Annulation QA impossible."
+      );
+      setMessageType("error");
+    } finally {
+      setCancellingQa(false);
+    }
+  }, [cancellingQa, event]);
+
   const loadAggregateHistory = useCallback(async () => {
     if (accruals.length === 0) {
       setAggregateHistory([]);
@@ -164,7 +213,7 @@ export default function AdminCompensationEventDetailClient({
     return (
       <TagoraLoadingScreen
         isLoading
-        message="Chargement du detail compensation..."
+        message="Chargement de l'entrée de commission..."
         fullScreen={false}
       />
     );
@@ -172,111 +221,132 @@ export default function AdminCompensationEventDetailClient({
 
   if (!event) {
     return (
-      <main className="page-container compensation-admin-page">
-        <AdminCompensationNavigation variant="detail" />
-        <div className="compensation-empty-state">
-          <strong>Vente introuvable.</strong>
-          <p>{message || "Cet event compensation n existe pas ou n est plus accessible."}</p>
-        </div>
-      </main>
+      <div className="page-container compensation-admin-page">
+        <AdminCompensationPageShell variant="detail" title="Livre de commissions">
+          <AppCard className="compensation-empty-state compensation-empty-state-card">
+            <strong>Entrée de commission introuvable</strong>
+            <p>
+              {message ||
+                "Cet événement de commission n’existe pas ou n’est plus accessible."}
+            </p>
+            <Link
+              href="/admin/compensation/ventes"
+              className="tagora-dark-action tagora-page-navigation-button"
+            >
+              Retour au livre
+            </Link>
+          </AppCard>
+        </AdminCompensationPageShell>
+      </div>
     );
   }
 
+  const eventReference = formatCompensationEventReference(event);
+
   return (
-    <main className="page-container compensation-admin-page">
-      <AdminCompensationNavigation
+    <div className="page-container compensation-admin-page">
+      <AdminCompensationPageShell
         variant="detail"
-        eventReference={formatCompensationEventReference(event)}
-      />
-
-      <AuthenticatedPageHeader
-        title={`Vente — ${formatCompensationEventReference(event)}`}
-        subtitle="Detail Compensation Event, processing result et workflow finance."
-        className="ui-page-header-premium-2027"
-      />
-
-      <div className="compensation-detail-hero">
-        <div className="compensation-detail-hero__badges">
-          <StatusBadge label={compensationEventStatusLabel(event.status)} tone="info" />
-          <StatusBadge label={compensationSaleStateLabel(event.sale_state)} tone="info" />
-          <StatusBadge
-            label={event.eligibility.is_eligible ? "Admissible" : "Non admissible"}
-            tone={eligibilityTone(event.eligibility.is_eligible)}
-          />
-          {dominantStatus ? (
+        title={eventReference}
+        eventReference={eventReference}
+        toolbar={
+          isQaEvent && event.status !== "cancelled" ? (
+            <button
+              type="button"
+              className="tagora-dark-outline-action tagora-page-navigation-button"
+              disabled={cancellingQa}
+              onClick={() => void handleCancelQaEvent()}
+            >
+              {cancellingQa ? "Annulation…" : "Annuler la donnée QA"}
+            </button>
+          ) : null
+        }
+      >
+        <div className="compensation-detail-hero">
+          <div className="compensation-detail-hero__badges">
+            <StatusBadge label={compensationEventStatusLabel(event.status)} tone="info" />
+            <StatusBadge label={compensationSaleStateLabel(event.sale_state)} tone="info" />
             <StatusBadge
-              label={accrualWorkflowStatusLabel(dominantStatus)}
-              tone={accrualWorkflowStatusTone(dominantStatus)}
+              label={event.eligibility.is_eligible ? "Admissible" : "Non admissible"}
+              tone={eligibilityTone(event.eligibility.is_eligible)}
             />
-          ) : null}
-        </div>
-        <div className="compensation-detail-hero__meta">
-          <span>Chauffeur : {event.chauffeur_id ?? "—"}</span>
-          <span>Montant : {formatCad(event.amount)}</span>
-          <span>Vendue le : {event.sold_at ?? "—"}</span>
-          <span>Livree le : {event.delivered_at ?? "—"}</span>
-          <span>Compagnie : {event.company_context ?? "—"}</span>
-        </div>
-      </div>
-
-      <div className="compensation-detail-layout">
-        <div className="compensation-detail-main">
-          <CompensationProcessingTimeline steps={timelineSteps} />
-          <CompensationCalculationPanel accruals={accruals} />
-          <CompensationAccrualsTable
-            accruals={accruals}
-            histories={histories}
-            loadingAccrualId={loadingAccrualId}
-            onWorkflowAction={handleWorkflowAction}
-            onExpandHistory={handleExpandHistory}
-          />
-          <div className="compensation-panel">
-            <div className="compensation-panel__header">
-              <h2>Historique workflow global</h2>
-              <button
-                type="button"
-                className="tagora-dark-outline-action"
-                onClick={() => void loadAggregateHistory()}
-              >
-                Charger historique complet
-              </button>
-            </div>
-            <CompensationWorkflowHistory entries={aggregateHistory} />
+            {dominantStatus ? (
+              <StatusBadge
+                label={accrualWorkflowStatusLabel(dominantStatus)}
+                tone={accrualWorkflowStatusTone(dominantStatus)}
+              />
+            ) : null}
+            {isQaEvent ? <StatusBadge label="QA staging" tone="warning" /> : null}
+          </div>
+          <div className="compensation-detail-hero__meta">
+            <span>Chauffeur : {event.chauffeur_id ?? "—"}</span>
+            <span>Montant : {formatCad(event.amount)}</span>
+            <span>Date événement : {event.sold_at ?? "—"}</span>
+            <span>Livré le : {event.delivered_at ?? "—"}</span>
+            <span>Compagnie : {event.company_context ?? "—"}</span>
+            <span>Réf. externe : {event.external_reference ?? "—"}</span>
           </div>
         </div>
 
-        <aside className="compensation-detail-side">
-          <CompensationEligibilityPanel event={event} />
-          <section className="compensation-side-card">
-            <div className="compensation-side-card__header">
-              <h2>Synthese montants</h2>
+        <div className="compensation-detail-layout">
+          <div className="compensation-detail-main">
+            <CompensationProcessingTimeline steps={timelineSteps} />
+            <CompensationCalculationPanel accruals={accruals} />
+            <CompensationAccrualsTable
+              accruals={accruals}
+              histories={histories}
+              loadingAccrualId={loadingAccrualId}
+              onWorkflowAction={handleWorkflowAction}
+              onExpandHistory={handleExpandHistory}
+            />
+            <div className="compensation-panel">
+              <div className="compensation-panel__header">
+                <h2>Historique workflow global</h2>
+                <button
+                  type="button"
+                  className="tagora-dark-outline-action"
+                  onClick={() => void loadAggregateHistory()}
+                >
+                  Charger historique complet
+                </button>
+              </div>
+              <CompensationWorkflowHistory entries={aggregateHistory} />
             </div>
-            <div className="compensation-side-card__total">{totals.totalFormatted}</div>
-            <ul className="compensation-side-card__list">
-              {Object.entries(totals.byComponent).map(([component, amount]) => (
-                <li key={component}>
-                  <span>{component}</span>
-                  <strong>{formatCad(amount)}</strong>
-                </li>
-              ))}
-            </ul>
-          </section>
-          <CompensationProcessingActions
-            eventId={event.id}
-            isEligible={event.eligibility.is_eligible}
-            accruals={accruals}
-            busy={processingBusy || loading}
-            onBusyChange={setProcessingBusy}
-            onSuccess={handleProcessingSuccess}
-            onFeedback={handleProcessingFeedback}
-          />
-          {lastProcessingResult ? (
-            <CompensationProcessingSummaryPanel result={lastProcessingResult} />
-          ) : null}
-        </aside>
-      </div>
+          </div>
 
-      <FeedbackMessage message={message} type={messageType} />
-    </main>
+          <aside className="compensation-detail-side">
+            <CompensationEligibilityPanel event={event} />
+            <section className="compensation-side-card">
+              <div className="compensation-side-card__header">
+                <h2>Synthese montants</h2>
+              </div>
+              <div className="compensation-side-card__total">{totals.totalFormatted}</div>
+              <ul className="compensation-side-card__list">
+                {Object.entries(totals.byComponent).map(([component, amount]) => (
+                  <li key={component}>
+                    <span>{component}</span>
+                    <strong>{formatCad(amount)}</strong>
+                  </li>
+                ))}
+              </ul>
+            </section>
+            <CompensationProcessingActions
+              eventId={event.id}
+              isEligible={event.eligibility.is_eligible}
+              accruals={accruals}
+              busy={processingBusy || loading}
+              onBusyChange={setProcessingBusy}
+              onSuccess={handleProcessingSuccess}
+              onFeedback={handleProcessingFeedback}
+            />
+            {lastProcessingResult ? (
+              <CompensationProcessingSummaryPanel result={lastProcessingResult} />
+            ) : null}
+          </aside>
+        </div>
+
+        <FeedbackMessage message={message} type={messageType} />
+      </AdminCompensationPageShell>
+    </div>
   );
 }

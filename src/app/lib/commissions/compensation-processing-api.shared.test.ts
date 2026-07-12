@@ -117,7 +117,7 @@ describe("compensation-processing-api.shared", () => {
     const ineligible = {
       is_eligible: false,
       criteria_evaluated: [],
-      rejection_reason: "Vente annulée.",
+      rejection_reason: "Événement annulé.",
     };
 
     expect(deriveFinanceStatus(ineligible, [])).toBe("NOT_ELIGIBLE");

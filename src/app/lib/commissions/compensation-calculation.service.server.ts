@@ -53,7 +53,7 @@ export function createCompensationCalculationService(deps: CompensationCalculati
         return {
           ok: false,
           code: "INELIGIBLE",
-          errors: [context.rejection_reason ?? "Vente non admissible au calcul."],
+          errors: [context.rejection_reason ?? "Événement non admissible au calcul."],
         };
       }
 

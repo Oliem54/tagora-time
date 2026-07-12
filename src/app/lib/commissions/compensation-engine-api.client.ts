@@ -55,7 +55,9 @@ export async function fetchCompensationSaleEvents(searchParams?: URLSearchParams
   const payload = await parseJson<{ events?: CompensationSaleEvent[] }>(response);
 
   if (!response.ok) {
-    throw new Error(payload.error ?? payload.errors?.[0] ?? "Impossible de charger les ventes.");
+    throw new Error(
+      payload.error ?? payload.errors?.[0] ?? "Impossible de charger le livre de commissions."
+    );
   }
 
   return Array.isArray(payload.events) ? payload.events : [];
@@ -66,11 +68,39 @@ export async function fetchCompensationSaleEvent(eventId: string) {
   const payload = await parseJson<{ event?: CompensationSaleEvent }>(response);
 
   if (!response.ok) {
-    throw new Error(payload.error ?? payload.errors?.[0] ?? "Vente introuvable.");
+    throw new Error(
+      payload.error ?? payload.errors?.[0] ?? "Entrée de commission introuvable."
+    );
   }
 
   if (!payload.event) {
-    throw new Error("Vente introuvable.");
+    throw new Error("Entrée de commission introuvable.");
+  }
+
+  return payload.event;
+}
+
+export async function updateCompensationSaleEvent(
+  eventId: string,
+  patch: Record<string, unknown>
+) {
+  const response = await commissionsFetch(
+    `/api/direction/commissions/sales-events/${encodeURIComponent(eventId)}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+    }
+  );
+  const payload = await parseJson<{ event?: CompensationSaleEvent }>(response);
+
+  if (!response.ok) {
+    throw new Error(
+      payload.error ?? payload.errors?.[0] ?? "Mise à jour de l'événement impossible."
+    );
+  }
+
+  if (!payload.event) {
+    throw new Error("Réponse de mise à jour invalide.");
   }
 
   return payload.event;

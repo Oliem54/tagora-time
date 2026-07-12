@@ -24,7 +24,7 @@ export const DELIVERED_COMPENSATION_EVENT_SALE_STATES: readonly CompensationEven
 ];
 
 export const COMPENSATION_EVENT_TYPE_LABELS: Record<CompensationEventType, string> = {
-  sale: "Vente",
+  sale: "Événement",
 };
 
 export const COMPENSATION_EVENT_STATUS_LABELS: Record<CompensationEventStatus, string> = {
@@ -34,10 +34,10 @@ export const COMPENSATION_EVENT_STATUS_LABELS: Record<CompensationEventStatus, s
 };
 
 export const COMPENSATION_EVENT_SALE_STATE_LABELS: Record<CompensationEventSaleState, string> = {
-  sold: "Vendue",
-  delivered: "Livrée",
-  invoiced: "Facturée",
-  collected: "Encaissée",
+  sold: "Consigné",
+  delivered: "Livré",
+  invoiced: "Facturé",
+  collected: "Encaissé",
 };
 
 export type CompensationEvent = {
@@ -147,7 +147,7 @@ function validateSaleStateDateCoherence(input: {
   const errors: string[] = [];
 
   if (input.sale_state !== COMPENSATION_EVENT_SALE_STATE_SOLD && !input.sold_at) {
-    errors.push("sold_at est requis lorsque la vente n'est plus au stade vendue.");
+    errors.push("sold_at est requis lorsque l'événement n'est plus au stade consigné.");
   }
 
   if (
@@ -155,7 +155,7 @@ function validateSaleStateDateCoherence(input: {
     !input.delivered_at &&
     input.sale_state !== COMPENSATION_EVENT_SALE_STATE_SOLD
   ) {
-    errors.push("delivered_at est requis lorsque la vente est livrée ou au-delà.");
+    errors.push("delivered_at est requis lorsque l'événement est livré ou au-delà.");
   }
 
   if (
@@ -163,11 +163,11 @@ function validateSaleStateDateCoherence(input: {
       input.sale_state === COMPENSATION_EVENT_SALE_STATE_COLLECTED) &&
     !input.invoiced_at
   ) {
-    errors.push("invoiced_at est requis lorsque la vente est facturée ou encaissée.");
+    errors.push("invoiced_at est requis lorsque l'événement est facturé ou encaissé.");
   }
 
   if (input.sale_state === COMPENSATION_EVENT_SALE_STATE_COLLECTED && !input.collected_at) {
-    errors.push("collected_at est requis lorsque la vente est encaissée.");
+    errors.push("collected_at est requis lorsque l'événement est encaissé.");
   }
 
   return errors;
@@ -196,7 +196,7 @@ export function validateSaleCompensationEventInput(
     ? input.sale_state
     : COMPENSATION_EVENT_SALE_STATE_SOLD;
   if (input.sale_state != null && !isCompensationEventSaleState(input.sale_state)) {
-    errors.push("État de vente invalide.");
+    errors.push("État source invalide.");
   }
 
   const chauffeur_id = asNumber(input.chauffeur_id);
@@ -206,7 +206,7 @@ export function validateSaleCompensationEventInput(
 
   const amount = asNumber(input.amount);
   if (amount == null || amount < 0) {
-    errors.push("Le montant de vente doit être un nombre positif ou nul.");
+    errors.push("Le montant doit être un nombre positif ou nul.");
   }
 
   const sold_at = asOptionalIsoDate(input.sold_at);

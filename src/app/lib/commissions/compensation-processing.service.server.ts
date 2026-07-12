@@ -80,7 +80,7 @@ export function createCompensationProcessingService(deps: CompensationProcessing
         return {
           ok: false,
           code: "INELIGIBLE",
-          errors: [event.eligibility.rejection_reason ?? "Vente non admissible au traitement."],
+          errors: [event.eligibility.rejection_reason ?? "Événement non admissible au calcul des commissions."],
         };
       }
 
@@ -98,7 +98,7 @@ export function createCompensationProcessingService(deps: CompensationProcessing
         return {
           ok: false,
           code: "INELIGIBLE",
-          errors: [context.rejection_reason ?? "Vente non admissible au calcul."],
+          errors: [context.rejection_reason ?? "Événement non admissible au calcul."],
         };
       }
 

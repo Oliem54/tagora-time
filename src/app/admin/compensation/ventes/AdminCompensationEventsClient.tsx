@@ -2,14 +2,14 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import FeedbackMessage from "@/app/components/FeedbackMessage";
-import AdminCompensationNavigation from "@/app/components/admin/compensation/AdminCompensationNavigation";
+import AdminCompensationPageShell from "@/app/components/admin/compensation/AdminCompensationPageShell";
 import CompensationEventFiltersBar, {
   emptyCompensationEventFilters,
   type CompensationEventFilters,
 } from "@/app/components/admin/compensation/CompensationEventFiltersBar";
 import CompensationEventsTable from "@/app/components/admin/compensation/CompensationEventsTable";
+import CompensationQaSimulator from "@/app/components/admin/compensation/CompensationQaSimulator";
 import CompensationSummaryCards from "@/app/components/admin/compensation/CompensationSummaryCards";
-import AuthenticatedPageHeader from "@/app/components/ui/AuthenticatedPageHeader";
 import TagoraLoadingScreen from "@/app/components/ui/TagoraLoadingScreen";
 import { fetchCompensationSaleEvents } from "@/app/lib/commissions/compensation-engine-api.client";
 import type { CompensationSaleEvent } from "@/app/lib/commissions/compensation-engine-api.client";
@@ -44,7 +44,11 @@ export default function AdminCompensationEventsClient() {
       setEvents(loaded);
     } catch (error) {
       setEvents([]);
-      setMessage(error instanceof Error ? error.message : "Impossible de charger les ventes.");
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : "Impossible de charger le livre de commissions."
+      );
       setMessageType("error");
     } finally {
       setLoading(false);
@@ -72,46 +76,37 @@ export default function AdminCompensationEventsClient() {
     return (
       <TagoraLoadingScreen
         isLoading
-        message="Chargement des ventes compensation..."
+        message="Chargement du livre de commissions..."
         fullScreen={false}
       />
     );
   }
 
   return (
-    <main className="page-container compensation-admin-page">
-      <AdminCompensationNavigation variant="list" />
+    <div className="page-container compensation-admin-page">
+      <AdminCompensationPageShell variant="list" title="Livre de commissions">
+        <CompensationQaSimulator onCreated={() => void loadEvents(filters)} />
 
-      <AuthenticatedPageHeader
-        title="Compensation — Ventes"
-        subtitle="Consultation et validation finance des Compensation Events et accruals."
-        className="ui-page-header-premium-2027"
-      />
+        <CompensationSummaryCards events={filteredEvents} />
 
-      <p className="tagora-note compensation-admin-note">
-        Module Compensation Engine V1 — lecture seule sur les ventes. Legacy objectifs disponible
-        sous Commissions & objectifs.
-      </p>
+        <CompensationEventFiltersBar
+          filters={filters}
+          onChange={setFilters}
+          onReset={() => setFilters(emptyCompensationEventFilters())}
+        />
 
-      <CompensationSummaryCards events={filteredEvents} />
+        {loading ? (
+          <TagoraLoadingScreen isLoading message="Actualisation..." fullScreen={false} />
+        ) : (
+          <CompensationEventsTable events={filteredEvents} />
+        )}
 
-      <CompensationEventFiltersBar
-        filters={filters}
-        onChange={setFilters}
-        onReset={() => setFilters(emptyCompensationEventFilters())}
-      />
+        <FeedbackMessage message={message} type={messageType} />
 
-      {loading ? (
-        <TagoraLoadingScreen isLoading message="Actualisation..." fullScreen={false} />
-      ) : (
-        <CompensationEventsTable events={filteredEvents} />
-      )}
-
-      <FeedbackMessage message={message} type={messageType} />
-
-      <p className="compensation-mobile-note">
-        Validation finance optimisee pour desktop et tablette landscape.
-      </p>
-    </main>
+        <p className="compensation-mobile-note">
+          Validation finance optimisee pour desktop et tablette landscape.
+        </p>
+      </AdminCompensationPageShell>
+    </div>
   );
 }

@@ -87,7 +87,7 @@ export default function CompensationProcessingActions({
         </div>
         <p className="compensation-side-card__note">
           {blockedNote ??
-            "Aucune action de traitement disponible pour l etat actuel de cette vente."}
+            "Aucune action de calcul disponible pour l'état actuel de cet événement."}
         </p>
       </section>
     );
@@ -106,7 +106,7 @@ export default function CompensationProcessingActions({
             disabled={busy}
             onClick={() => void runAction("process")}
           >
-            Traiter la vente
+            Calculer les commissions
           </button>
         ) : null}
         {visibility.canRecalculate ? (
@@ -116,7 +116,7 @@ export default function CompensationProcessingActions({
             disabled={busy}
             onClick={() => void runAction("recalculate")}
           >
-            Recalculer
+            Recalculer les commissions
           </button>
         ) : null}
       </div>

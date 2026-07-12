@@ -25,8 +25,8 @@ const FINANCE_MODULE_LINKS = [
   },
   {
     href: "/admin/compensation/ventes",
-    label: "Compensation",
-    description: "Ventes, accruals et validation finance du Compensation Engine.",
+    label: "Livre de commissions",
+    description: "Événements, accruals et validation finance.",
   },
   {
     href: "/admin/commissions",

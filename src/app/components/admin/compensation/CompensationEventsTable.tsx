@@ -19,8 +19,8 @@ export default function CompensationEventsTable({ events }: CompensationEventsTa
   if (events.length === 0) {
     return (
       <div className="compensation-empty-state">
-        <strong>Aucune vente ne correspond aux filtres.</strong>
-        <p>Reinitialisez les filtres ou attendez de nouvelles ventes compensation.</p>
+        <strong>Aucun événement ne correspond aux filtres.</strong>
+        <p>Réinitialisez les filtres ou attendez de nouveaux événements de commission.</p>
       </div>
     );
   }
@@ -33,7 +33,7 @@ export default function CompensationEventsTable({ events }: CompensationEventsTa
             <th>Reference</th>
             <th>Chauffeur</th>
             <th>Montant</th>
-            <th>Vendue le</th>
+            <th>Date événement</th>
             <th>Etat cycle</th>
             <th>Statut</th>
             <th>Eligibilite</th>

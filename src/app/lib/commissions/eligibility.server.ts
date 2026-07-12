@@ -25,7 +25,7 @@ export type EligibilityResult = {
 
 export const ELIGIBILITY_REJECTION_EVENT_TYPE =
   "Type d'événement hors périmètre Phase 1.";
-export const ELIGIBILITY_REJECTION_CANCELLED = "Vente annulée.";
+export const ELIGIBILITY_REJECTION_CANCELLED = "Événement annulé.";
 export const ELIGIBILITY_REJECTION_NOT_ACTIVE = "Événement non actif.";
 export const ELIGIBILITY_REJECTION_NOT_DELIVERED = "Livraison requise.";
 
@@ -53,7 +53,7 @@ export function evaluateSaleEventEligibility(
     criterion: "event_type_is_sale",
     passed: typePassed,
     message: typePassed
-      ? "Type de vente admissible Phase 1."
+      ? "Type d'événement admissible Phase 1."
       : ELIGIBILITY_REJECTION_EVENT_TYPE,
   });
 
@@ -80,7 +80,7 @@ export function evaluateSaleEventEligibility(
   criteria.push({
     criterion: "event_is_delivered",
     passed: deliveredPassed,
-    message: deliveredPassed ? "Vente livrée." : ELIGIBILITY_REJECTION_NOT_DELIVERED,
+    message: deliveredPassed ? "Événement livré." : ELIGIBILITY_REJECTION_NOT_DELIVERED,
   });
 
   return buildResult(criteria);

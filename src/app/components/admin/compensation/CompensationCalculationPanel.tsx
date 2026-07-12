@@ -21,7 +21,9 @@ export default function CompensationCalculationPanel({ accruals }: CompensationC
       {lines.length === 0 ? (
         <div className="compensation-empty-state compensation-empty-state--compact">
           <strong>Aucun resultat de calcul disponible.</strong>
-          <p>La vente est admissible mais aucun accrual n a encore ete persiste.</p>
+          <p>
+            {"L'événement est admissible mais aucun accrual n'a encore été persisté."}
+          </p>
         </div>
       ) : (
         <div className="compensation-table-wrap">

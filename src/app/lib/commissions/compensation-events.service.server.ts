@@ -70,7 +70,7 @@ export function createCompensationEventsService(deps: CompensationEventsServiceD
       try {
         const event = await repository.getById(id);
         if (!event) {
-          return { ok: false, code: "NOT_FOUND", errors: ["Compensation event introuvable."] };
+          return { ok: false, code: "NOT_FOUND", errors: ["Événement de commission introuvable."] };
         }
         return { ok: true, value: withEligibility(event) };
       } catch (error) {
@@ -97,7 +97,7 @@ export function createCompensationEventsService(deps: CompensationEventsServiceD
       try {
         const current = await repository.getById(id);
         if (!current) {
-          return { ok: false, code: "NOT_FOUND", errors: ["Compensation event introuvable."] };
+          return { ok: false, code: "NOT_FOUND", errors: ["Événement de commission introuvable."] };
         }
 
         const validation = validateSaleCompensationEventUpdateInput(current, patch);
@@ -113,7 +113,7 @@ export function createCompensationEventsService(deps: CompensationEventsServiceD
         );
 
         if (!updated) {
-          return { ok: false, code: "NOT_FOUND", errors: ["Compensation event introuvable."] };
+          return { ok: false, code: "NOT_FOUND", errors: ["Événement de commission introuvable."] };
         }
 
         return { ok: true, value: withEligibility(updated) };

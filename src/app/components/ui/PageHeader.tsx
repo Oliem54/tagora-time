@@ -29,7 +29,7 @@ export default function PageHeader({
   userRoleLabel,
   userRole,
   logoSrc = "/logo.png",
-  logoAlt = "Logo TAGORA",
+  logoAlt = "Logo TAGORA Time",
   className,
   compact = false,
 }: PageHeaderProps) {
@@ -37,6 +37,11 @@ export default function PageHeader({
   const showEyebrow = Boolean(eyebrow) && !isPremiumHeader;
   const showSubtitle = Boolean(subtitle) && !isPremiumHeader;
   const hasCopy = Boolean(showEyebrow || title || showSubtitle || navigation);
+  /** Asset recadré (sans marges blanches) pour en-têtes premium — logo.png reste le master. */
+  const effectiveLogoSrc =
+    isPremiumHeader && logoSrc === "/logo.png" ? "/logo-header.png" : logoSrc;
+  const logoWidth = isPremiumHeader ? 304 : 260;
+  const logoHeight = isPremiumHeader ? 152 : 130;
 
   return (
     <section
@@ -45,11 +50,12 @@ export default function PageHeader({
       <div className="ui-page-header-logo">
         <div className="ui-page-header-logo-shell">
           <Image
-            src={logoSrc}
+            src={effectiveLogoSrc}
             alt={logoAlt}
-            width={260}
-            height={130}
+            width={logoWidth}
+            height={logoHeight}
             priority
+            className="ui-page-header-logo-image"
             style={{
               width: "100%",
               height: "auto",

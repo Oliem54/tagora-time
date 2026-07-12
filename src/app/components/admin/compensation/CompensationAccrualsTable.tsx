@@ -40,7 +40,7 @@ export default function CompensationAccrualsTable({
           <h2>Accruals lies</h2>
         </div>
         <div className="compensation-empty-state compensation-empty-state--compact">
-          <strong>Aucun accrual pour cette vente.</strong>
+          <strong>Aucun accrual pour cet événement.</strong>
           <p>Aucun montant n a encore ete calcule et persiste pour cet event.</p>
         </div>
       </section>
