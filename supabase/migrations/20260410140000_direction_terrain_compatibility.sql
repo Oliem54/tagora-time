@@ -48,7 +48,10 @@ select
     'compatibility_source', 'sorties_terrain',
     'event', 'depart'
   ) as metadata,
-  st.heure_depart as recorded_at
+  case
+    when st.date_sortie is null then null::timestamptz
+    else (st.date_sortie + st.heure_depart) at time zone 'America/Toronto'
+  end as recorded_at
 from public.sorties_terrain st
 where st.heure_depart is not null
   and (st.user_id is not null or st.chauffeur_id is not null)
@@ -81,7 +84,10 @@ select
     'event', 'retour',
     'temps_total', st.temps_total
   ) as metadata,
-  st.heure_retour as recorded_at
+  case
+    when st.date_sortie is null then null::timestamptz
+    else (st.date_sortie + st.heure_retour) at time zone 'America/Toronto'
+  end as recorded_at
 from public.sorties_terrain st
 where st.heure_retour is not null
   and (st.user_id is not null or st.chauffeur_id is not null)

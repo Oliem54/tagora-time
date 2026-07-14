@@ -62,12 +62,15 @@ alter table if exists public.horodateur_events
 update public.sorties_terrain st
 set company_context = coalesce(
   st.company_context,
-  lp.company_context,
+  (
+    select lp.company_context
+    from public.livraisons_planifiees lp
+    where lp.id = st.livraison_id
+  ),
   c.primary_company,
   'oliem_solutions'
 )
 from public.chauffeurs c
-left join public.livraisons_planifiees lp on lp.id = st.livraison_id
 where (st.chauffeur_id = c.id or st.chauffeur_id is null)
   and (
     st.company_context is null

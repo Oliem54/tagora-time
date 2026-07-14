@@ -5,7 +5,7 @@ import { join } from "node:path";
 const MIGRATIONS_DIR = join(process.cwd(), "supabase", "migrations");
 
 const BASELINE_NAME = "20260407000000_rbac_auth_helpers_baseline.sql";
-const HORODATEUR_NAME = "20260408_190000_horodateur.sql";
+const HORODATEUR_NAME = "20260408190000_horodateur.sql";
 
 const REQUIRED_HELPERS = [
   "public.current_app_role()",

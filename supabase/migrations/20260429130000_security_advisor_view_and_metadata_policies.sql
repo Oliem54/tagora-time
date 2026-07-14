@@ -59,7 +59,10 @@ select
     'compatibility_source', 'sorties_terrain',
     'event', 'depart'
   ) as metadata,
-  st.heure_depart as recorded_at
+  case
+    when st.date_sortie is null then null::timestamptz
+    else (st.date_sortie + st.heure_depart) at time zone 'America/Toronto'
+  end as recorded_at
 from public.sorties_terrain st
 where st.heure_depart is not null
   and (st.user_id is not null or st.chauffeur_id is not null)
@@ -92,7 +95,10 @@ select
     'event', 'retour',
     'temps_total', st.temps_total
   ) as metadata,
-  st.heure_retour as recorded_at
+  case
+    when st.date_sortie is null then null::timestamptz
+    else (st.date_sortie + st.heure_retour) at time zone 'America/Toronto'
+  end as recorded_at
 from public.sorties_terrain st
 where st.heure_retour is not null
   and (st.user_id is not null or st.chauffeur_id is not null)
@@ -103,8 +109,8 @@ select
   ('horodateur-' || he.id::text) as id,
   'horodateur'::text as source_kind,
   'Evenement horodateur'::text as source_label,
-  he.user_id,
-  null::bigint as chauffeur_id,
+  c.auth_user_id as user_id,
+  he.employee_id as chauffeur_id,
   he.company_context,
   case
     when he.company_context = 'titan_produits_industriels'
@@ -131,8 +137,10 @@ select
   ) as metadata,
   he.occurred_at as recorded_at
 from public.horodateur_events he
+join public.chauffeurs c
+  on c.id = he.employee_id
 where he.occurred_at is not null
-  and he.user_id is not null;
+  and he.employee_id is not null;
 
 -- ------------------------------------------------------------------
 -- Helpers: app_metadata role only
