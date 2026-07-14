@@ -116,10 +116,11 @@ describe("H5 reconciliation plan documentary (R10)", () => {
     expect(plan).toMatch(/Rollback/);
     expect(plan).toMatch(/\*\*51 %\*\*/);
     expect(plan).toMatch(/DOC ONLY/);
-    const r10Sql = migrationFiles.filter((f) =>
-      /r10|h5.reconcil/i.test(f)
-    );
-    expect(r10Sql).toEqual([]);
+    // R10 itself created no SQL. Post-R10 H5-A may add a single forward-only reconcile file.
+    const r10OnlySql = migrationFiles.filter((f) => /r10/i.test(f));
+    expect(r10OnlySql).toEqual([]);
+    const h5a = migrationFiles.filter((f) => /h5a_reconcile/i.test(f));
+    expect(h5a.length).toBeLessThanOrEqual(1);
   });
 
   it("keeps plan file outside temporary dump paths", () => {

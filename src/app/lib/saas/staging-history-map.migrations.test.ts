@@ -99,11 +99,13 @@ describe("staging history map documentary (R8)", () => {
   const mapDoc = readFileSync(MAP_DOC, "utf8");
   const renameDoc = readFileSync(RENAME_DOC, "utf8");
 
-  it("inventories 84 local migrations with unique 14-digit versions", () => {
-    expect(migrationFiles).toHaveLength(84);
+  it("inventories local migrations with unique 14-digit versions", () => {
+    // R8 baseline was 84; H5-A adds one forward-only reconcile → 85.
+    expect(migrationFiles.length).toBeGreaterThanOrEqual(84);
+    expect(migrationFiles).toHaveLength(85);
     const versions = migrationFiles.map((n) => n.slice(0, 14));
     expect(versions.every((v) => /^\d{14}$/.test(v))).toBe(true);
-    expect(new Set(versions).size).toBe(84);
+    expect(new Set(versions).size).toBe(85);
   });
 
   it("documents 42 renames with unique old→new mapping", () => {
@@ -190,22 +192,22 @@ describe("staging history map documentary (R8)", () => {
   });
 
   it("records manifest fingerprint for local inventory", () => {
-    expect(mapDoc).toContain(
-      "2A2693481D3684C8CF836CB9AE43BB78A761C244568D9A6052CDA64502A31863"
-    );
+    // Portable: normalize CRLF→LF before hashing file contents.
     const parts = migrationFiles.map((name) => {
-      const sha = createHash("sha256")
-        .update(readFileSync(join(MIGRATIONS_DIR, name)))
-        .digest("hex")
-        .toLowerCase();
+      const content = readFileSync(join(MIGRATIONS_DIR, name), "utf8").replace(
+        /\r\n/g,
+        "\n"
+      );
+      const sha = createHash("sha256").update(content).digest("hex").toLowerCase();
       return `${name}|${sha}`;
     });
     const manifest = createHash("sha256")
       .update(parts.join("\n") + "\n")
       .digest("hex")
       .toUpperCase();
+    expect(mapDoc).toContain(manifest);
     expect(manifest).toBe(
-      "2A2693481D3684C8CF836CB9AE43BB78A761C244568D9A6052CDA64502A31863"
+      "849A6BF64635D3A5A9FB251434DD5664D5291998710A94D3010FD12CE7F7A264"
     );
   });
 });

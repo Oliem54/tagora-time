@@ -40,13 +40,15 @@ Sans aucune écriture distante.
 
 | Item | Valeur |
 |------|--------|
-| Total migrations locales | **84** |
+| Total migrations locales | **85** (84 R8 + 1 H5-A forward-only) |
 | Renommages legacy (R4) | **42** |
 | Hash avant/après rename (R4) | **42/42 identiques** (contenu SQL inchangé au moment du rename) |
-| Versions 14 chiffres uniques | **84** (0 doublon) |
+| Versions 14 chiffres uniques | **85** (0 doublon) |
 | Première version | `20260407000000` |
-| Dernière version | `20260712220500` |
-| Empreinte manifeste fichiers+SHA-256 (R8) | `2A2693481D3684C8CF836CB9AE43BB78A761C244568D9A6052CDA64502A31863` |
+| Dernière version | `20260714140000` (H5-A) |
+| Empreinte LF fichiers+SHA-256 (portable, post H5-A) | `849A6BF64635D3A5A9FB251434DD5664D5291998710A94D3010FD12CE7F7A264` |
+| Empreinte git ls-tree (84 fichiers, pre-H5-A) | `370C9C7A2F686D5A49FCD6BF644DC971F6B289C1F63E27B195663E0AFD2A927B` |
+| Empreinte fichier+SHA-256 historique (poste maison R8, non portable CRLF) | `2A2693481D3684C8CF836CB9AE43BB78A761C244568D9A6052CDA64502A31863` |
 
 ### Contenu SQL modifié après rename (R3–R7, conservé)
 

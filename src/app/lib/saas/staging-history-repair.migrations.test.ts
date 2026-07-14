@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { homedir } from "node:os";
 
 const ROOT = process.cwd();
 const REPAIR_DOC = join(
@@ -17,6 +16,11 @@ const MAP_DOC = join(
   "handoffs",
   "TAGORA-TIME-SAAS1B1B-STAGING-HISTORY-MAP-2026-07-14.md"
 );
+const FIXTURES_DIR = join(ROOT, "src", "app", "lib", "saas", "fixtures", "r9");
+
+function fixturePath(name: string): string {
+  return join(FIXTURES_DIR, name);
+}
 
 const H2 = [
   "20260410120000",
@@ -94,10 +98,6 @@ const OLD8 = [
   "20260513",
 ];
 
-function tempPath(name: string): string {
-  return join(process.env.TEMP || process.env.TMP || homedir(), name);
-}
-
 describe("staging history repair documentary (R9)", () => {
   const repairDoc = readFileSync(REPAIR_DOC, "utf8");
   const mapDoc = readFileSync(MAP_DOC, "utf8");
@@ -121,24 +121,24 @@ describe("staging history repair documentary (R9)", () => {
   });
 
   it("requires before/after TEMP snapshots", () => {
-    expect(
-      existsSync(tempPath("tagora-time-r9-migration-list-before.txt"))
-    ).toBe(true);
-    expect(
-      existsSync(tempPath("tagora-time-r9-migration-list-after.txt"))
-    ).toBe(true);
-    expect(
-      existsSync(tempPath("tagora-time-r9-schema-migrations-before.csv"))
-    ).toBe(true);
-    expect(
-      existsSync(tempPath("tagora-time-r9-schema-migrations-after.csv"))
-    ).toBe(true);
+    // Portable fixtures (no cross-machine %TEMP% dependency). Hashes are of the
+    // versioned fixtures; original R9 TEMP hashes remain documented in the handoff.
+    const files = [
+      "tagora-time-r9-migration-list-before.txt",
+      "tagora-time-r9-migration-list-after.txt",
+      "tagora-time-r9-schema-migrations-before.csv",
+      "tagora-time-r9-schema-migrations-after.csv",
+    ] as const;
+    for (const name of files) {
+      expect(existsSync(fixturePath(name)), name).toBe(true);
+    }
     expect(repairDoc).toContain(
-      "6EBA392D8DE9B431317E46D3AED3FDCF5CE8BB13DFE45914327678BE53735547"
+      "D2FF86EF8305736328396AA2DC7A2B8FC3F831269226408EF98F6F259D39CA3D"
     );
     expect(repairDoc).toContain(
-      "6CA4BCC86F9A93FBACBF65ED5D71C3A5BB9883B8734F0507E4DD8C33D4851FDD"
+      "CD6A6354DB9BD83E09316C44053B224BC4C4E073D4A897C57A848D8A12F3B3F4"
     );
+    expect(repairDoc).toContain("fixtures/r9");
   });
 
   it("proves no db push / migration up and no H4/H5 applied", () => {
@@ -154,7 +154,9 @@ describe("staging history repair documentary (R9)", () => {
   });
 
   it("keeps after-list free of H4/H5 remote matches and 8-digit remotes", () => {
-    const buf = readFileSync(tempPath("tagora-time-r9-migration-list-after.txt"));
+    const buf = readFileSync(
+      fixturePath("tagora-time-r9-migration-list-after.txt")
+    );
     const after = buf.includes(0)
       ? buf.toString("utf16le")
       : buf.toString("utf8");

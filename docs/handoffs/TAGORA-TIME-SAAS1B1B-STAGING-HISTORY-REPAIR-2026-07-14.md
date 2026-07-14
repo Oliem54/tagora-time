@@ -44,6 +44,9 @@ Total commandes `migration repair` : **34**.
 | Liste après | `%TEMP%\tagora-time-r9-migration-list-after.txt` | `6CA4BCC86F9A93FBACBF65ED5D71C3A5BB9883B8734F0507E4DD8C33D4851FDD` |
 | CSV après | `%TEMP%\tagora-time-r9-schema-migrations-after.csv` | `02875F6AC344CE225C39163A6FC8D937C22925EC8066A9EE3BF81D50E448332E` |
 | Journal | `%TEMP%\tagora-time-r9-repair-journal.txt` | (horodatages de chaque repair) |
+| Fixtures portables (`src/app/lib/saas/fixtures/r9/`) | liste avant | `CD6A6354DB9BD83E09316C44053B224BC4C4E073D4A897C57A848D8A12F3B3F4` |
+| Fixtures portables (`src/app/lib/saas/fixtures/r9/`) | liste après | `D2FF86EF8305736328396AA2DC7A2B8FC3F831269226408EF98F6F259D39CA3D` |
+| Fixtures portables (`src/app/lib/saas/fixtures/r9/`) | CSV avant / après | `8AA2BA3831C1CD4C0E50707C7AAAF8564C7907F8485AC8B4D4BA84B4CA976507` / `7C8D7D0661A2127A31354385426CCBC57A09C8AB1AE7F948DD24DDC6A6620532` |
 
 **Avant :** remote = 14 (8 chiffres) + 34 (H1) = 48 ; H2/H3/H4/H5 absents du remote.  
 **Après :** remote = **54** (34 H1 + 18 H2 + 2 H3) ; **0** version 8 chiffres ; H4/H5 toujours local-only pending.

@@ -1,15 +1,15 @@
 # TAGORA Time — SaaS 1B.1B H5 reconciliation plan (2026-07-14)
 
-**Agent :** Martin  
-**Mandat :** R10 (documentation only)  
-**Branche :** `wip/saas1b1-tenant-foundation-checkpoint-2026-07-13`  
-**HEAD WIP au départ R10 :** `21bcca8c4e86a77259f4008c26e8380518ea897c`  
-**Feature protégée :** `feature/sales-book-grants` @ `6fd6ca09078eedbd133e59aca160f606fa33040b`  
+**Agent :** Martin
+**Mandat :** R10 (documentation only)
+**Branche :** `wip/saas1b1-tenant-foundation-checkpoint-2026-07-13`
+**HEAD WIP au départ R10 :** `21bcca8c4e86a77259f4008c26e8380518ea897c`
+**Feature protégée :** `feature/sales-book-grants` @ `6fd6ca09078eedbd133e59aca160f606fa33040b`
 
-**Staging (lecture seule) :** `qokyobcvplzufshydhih`  
-**Production (interdite) :** `qcgvzdlfsxybrmloijpt`  
+**Staging (lecture seule) :** `qokyobcvplzufshydhih`
+**Production (interdite) :** `qcgvzdlfsxybrmloijpt`
 
-**Avancement V1 :** **51 %**  
+**Avancement V1 :** **51 %**
 **Exécution H5 / H4 / repair / db push / migration up dans R10 :** **aucune**
 
 ---
@@ -25,7 +25,7 @@
 | H5 | 24 pending | écarts partiels — objet de ce plan |
 | Versions 8 chiffres | 0 | retirées en R9 |
 
-Aucune migration SQL nouvelle n’est créée durant R10.  
+Aucune migration SQL nouvelle n’est créée durant R10.
 Tout SQL « forward-only » ci-dessous est **documentation uniquement**.
 
 ---
@@ -47,7 +47,7 @@ Tout SQL « forward-only » ci-dessous est **documentation uniquement**.
 
 ## 3. Inventaire des 24 H5
 
-Légende état staging : d’après dump R8 + `migration list` R10 + requêtes agrégées RO  
+Légende état staging : d’après dump R8 + `migration list` R10 + requêtes agrégées RO
 (`tracking_token`=0, `sorties_terrain.company_context`=0, `horodateur_events.user_id`=1, `employee_id`=1, `actor_user_id`=1).
 
 | # | Version | Fichier canonique | Ancien nom | Domaine | Cat | État staging | Cible locale | Écart | Risque | Stratégie historique |
@@ -79,15 +79,15 @@ Légende état staging : d’après dump R8 + `migration list` R10 + requêtes a
 
 ### Dépendances (synthèse)
 
-- `10140000` / `29130000` dépendent de la décision GPS + HE.  
-- `18141000` dépend de `18140000` (R5).  
-- `21113000` dépend de `11101500` (R4/R2 tracking).  
+- `10140000` / `29130000` dépendent de la décision GPS + HE.
+- `18141000` dépend de `18140000` (R5).
+- `21113000` dépend de `11101500` (R4/R2 tracking).
 - `20110000` / `08190000` (R3) ne doivent pas précéder la décision DROP/`user_id`.
 
 ### Données éventuellement touchées (sans ligne métier exposée)
 
-- R4 `11101500` : backfill `tracking_token` possible pour lignes `livraisons_planifiees` sans token (compte agrégé seulement).  
-- R5 `18140000` : DROP `user_id` pourrait casser clients dépendants de la colonne.  
+- R4 `11101500` : backfill `tracking_token` possible pour lignes `livraisons_planifiees` sans token (compte agrégé seulement).
+- R5 `18140000` : DROP `user_id` pourrait casser clients dépendants de la colonne.
 - R2 `10130000` : UPDATE GPS company_context (agrégats null vs non-null uniquement).
 
 ---
@@ -110,18 +110,21 @@ Légende état staging : d’après dump R8 + `migration list` R10 + requêtes a
 
 ### LOT H5-A — Fondations horaires / pauses / notifs (risque faible)
 
-- Migrations : `12170000`, `12181500`, `19103000`, `19141500`, `19164500`, `20111000` (R1)  
-- Prérequis : staging RO snapshot ; H2/H3 inchangés  
-- Opérations futures : replay idempotent ou mark applied après preuve no-op  
-- Tests : empreintes tables/colonnes ; pas de ligne métier  
-- STOP : objet manquant inattendu / erreur non-IF EXISTS  
-- Rollback : `repair --status reverted` si mark too early ; pas de DROP  
+**Statut 2026-07-14 bureau :** **EXÉCUTÉ** — voir `TAGORA-TIME-SAAS1B1B-H5A-EXECUTION-2026-07-14.md`
+Forward-only `20260714140000_h5a_reconcile_foundations_columns.sql` applied staging ; historiques R1 restent pending.
+
+- Migrations : `12170000`, `12181500`, `19103000`, `19141500`, `19164500`, `20111000` (R1)
+- Prérequis : staging RO snapshot ; H2/H3 inchangés
+- Opérations futures : replay idempotent ou mark applied après preuve no-op
+- Tests : empreintes tables/colonnes ; pas de ligne métier
+- STOP : objet manquant inattendu / erreur non-IF EXISTS
+- Rollback : `repair --status reverted` si mark too early ; pas de DROP
 - Risque : **faible**
 
 ### LOT H5-B — Contexte compagnie + tracking (risque élevé)
 
-- Migrations : `10130000` (R2), `12103000` (R2), `11101500` (R4), `21113000` (R2)  
-- Prérequis : GO données pour R4 ; backup history  
+- Migrations : `10130000` (R2), `12103000` (R2), `11101500` (R4), `21113000` (R2)
+- Prérequis : GO données pour R4 ; backup history
 - Forward-only documenté (exemple, **non exécuté**) :
 
 ```sql
@@ -133,41 +136,41 @@ alter table public.livraisons_planifiees
   add column if not exists tracking_enabled boolean not null default true;
 ```
 
-- STOP : violation contrainte / volume backfill hors politique  
-- Rollback : DROP COLUMN seulement si GO inverse distinct (interdit sans mandat)  
+- STOP : violation contrainte / volume backfill hors politique
+- Rollback : DROP COLUMN seulement si GO inverse distinct (interdit sans mandat)
 - Risque : **élevé**
 
 ### LOT H5-C — GPS / vue Direction terrain (risque élevé)
 
-- Migrations : `10140000` (R2), dépendance partielle `29130000`  
-- Prérequis : LOT H5-B GPS colonne ; revue produit de la vue staging actuelle  
-- Forward-only : `CREATE OR REPLACE VIEW …` version R5 locale  
-- STOP : régression app Direction terrain  
-- Rollback : restaurer définition vue previous (snapshot DDL)  
+- Migrations : `10140000` (R2), dépendance partielle `29130000`
+- Prérequis : LOT H5-B GPS colonne ; revue produit de la vue staging actuelle
+- Forward-only : `CREATE OR REPLACE VIEW …` version R5 locale
+- STOP : régression app Direction terrain
+- Rollback : restaurer définition vue previous (snapshot DDL)
 - Risque : **élevé**
 
 ### LOT H5-D — Transition Horodateur (risque bloquant)
 
-- Migrations : `18140000` (R5), `18141000` (R2), `08190000`/`20110000` (R3), `20112000` (R5)  
-- Prérequis : **décision métier** conservation `user_id`  
-- Interdit sans GO : `DROP COLUMN user_id`  
-- STOP : toute tentative DROP sans checklist lignes dépendantes (agrégats)  
-- Rollback : history only ; pas de recreation col sans mandat  
+- Migrations : `18140000` (R5), `18141000` (R2), `08190000`/`20110000` (R3), `20112000` (R5)
+- Prérequis : **décision métier** conservation `user_id`
+- Interdit sans GO : `DROP COLUMN user_id`
+- STOP : toute tentative DROP sans checklist lignes dépendantes (agrégats)
+- Rollback : history only ; pas de recreation col sans mandat
 - Risque : **bloquant** tant que R5 non tranché
 
 ### LOT H5-E — Sécurité / RLS / vues finales (risque moyen–élevé)
 
-- Migrations : `29120000` (R2), `29130000` (R2)  
-- Prérequis : lots C et D stabilisés  
-- STOP : policy fail-open `USING (true)` non voulue  
-- Rollback : restore policy names previous  
+- Migrations : `29120000` (R2), `29130000` (R2)
+- Prérequis : lots C et D stabilisés
+- STOP : policy fail-open `USING (true)` non voulue
+- Rollback : restore policy names previous
 - Risque : **élevé**
 
 ### LOT H5-F — Autres domaines (risque moyen)
 
-- Migrations : `12161500` (R5), `12191500` (R6), `25090500` (R6), `25133500` (R6), `25140500` (R2), `26120500` (R2)  
-- Prérequis : audits DDL storage/photos manquants pour R6  
-- STOP : preuve insuffisante  
+- Migrations : `12161500` (R5), `12191500` (R6), `25090500` (R6), `25133500` (R6), `25140500` (R2), `26120500` (R2)
+- Prérequis : audits DDL storage/photos manquants pour R6
+- STOP : preuve insuffisante
 - Risque : **moyen** à **élevé** (storage)
 
 Chaque lot futur exige : snapshot `migration list` avant/après ; empreintes DDL ; aucun `db push --include-all`.
@@ -176,26 +179,26 @@ Chaque lot futur exige : snapshot `migration list` avant/après ; empreintes DDL
 
 ## 6. Stratégie d’historique future
 
-1. Ne jamais `db push` les 24 H5 d’un coup.  
-2. Lot par lot : forward DDL contrôlé **ou** preuve no-op → `migration repair --status applied`.  
-3. R3 : préférer preuve no-op + applied, pas de rejeu.  
-4. R5 : bloquer jusqu’à GO écrit Martin.  
+1. Ne jamais `db push` les 24 H5 d’un coup.
+2. Lot par lot : forward DDL contrôlé **ou** preuve no-op → `migration repair --status applied`.
+3. R3 : préférer preuve no-op + applied, pas de rejeu.
+4. R5 : bloquer jusqu’à GO écrit Martin.
 5. H4 SaaS (`20260712220000`…`20500`) : **mandat séparé** ; jamais mélangé aux lots H5.
 
 ---
 
 ## 7. H4 SaaS — protégées (hors R10)
 
-`20260712220000`, `20260712220100`, `20260712220200`, `20260712220300`, `20260712220400`, `20260712220500`  
+`20260712220000`, `20260712220100`, `20260712220200`, `20260712220300`, `20260712220400`, `20260712220500`
 → tables absentes ; pending strict ; aucun applied / push dans R10.
 
 ---
 
 ## 8. Validations avant/après chaque lot (futur)
 
-- `npx supabase migration list --linked`  
-- counts colonnes/cibles (agrégats)  
-- tests documentaires + ciblés migrations  
+- `npx supabase migration list --linked`
+- counts colonnes/cibles (agrégats)
+- tests documentaires + ciblés migrations
 - STOP si H4 change d’état accidentellement
 
 ---
@@ -212,11 +215,11 @@ Ne restaure pas automatiquement le DDL ; un mandat inverse distinct est requis p
 
 ## 10. Interdictions R10 (respectées)
 
-- aucun repair / db push / migration up  
-- aucune exécution H4/H5  
-- aucune production  
-- aucun fichier SQL nouveau dans `supabase/migrations`  
-- aucun secret / dump dans Git  
+- aucun repair / db push / migration up
+- aucune exécution H4/H5
+- aucune production
+- aucun fichier SQL nouveau dans `supabase/migrations`
+- aucun secret / dump dans Git
 
 ---
 
