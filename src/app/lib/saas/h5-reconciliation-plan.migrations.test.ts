@@ -121,8 +121,10 @@ describe("H5 reconciliation plan documentary (R10)", () => {
     expect(r10OnlySql).toEqual([]);
     const h5a = migrationFiles.filter((f) => /h5a_reconcile/i.test(f));
     const h5b = migrationFiles.filter((f) => /h5b_reconcile/i.test(f));
+    const h5c = migrationFiles.filter((f) => /h5c_reconcile/i.test(f));
     expect(h5a.length).toBeLessThanOrEqual(1);
     expect(h5b.length).toBeLessThanOrEqual(1);
+    expect(h5c.length).toBeLessThanOrEqual(1);
   });
 
   it("keeps plan file outside temporary dump paths", () => {

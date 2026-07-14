@@ -46,7 +46,7 @@ Sans aucune écriture distante.
 | Versions 14 chiffres uniques | **85** (0 doublon) |
 | Première version | `20260407000000` |
 | Dernière version | `20260714140000` (H5-A) |
-| Empreinte LF fichiers+SHA-256 (portable, post H5-B) | `6F66029BAF331B662C9B076118E73EAC71907FC3196FEBE4E69A880204D621EA` |
+| Empreinte LF fichiers+SHA-256 (portable, post H5-C) | `0B90B7C3167F06E679FA8E91E9498A3F307FEF0FA98E01DED8E483532B671F94` |
 | Empreinte git ls-tree (84 fichiers, pre-H5-A) | `370C9C7A2F686D5A49FCD6BF644DC971F6B289C1F63E27B195663E0AFD2A927B` |
 | Empreinte fichier+SHA-256 historique (poste maison R8, non portable CRLF) | `2A2693481D3684C8CF836CB9AE43BB78A761C244568D9A6052CDA64502A31863` |
 

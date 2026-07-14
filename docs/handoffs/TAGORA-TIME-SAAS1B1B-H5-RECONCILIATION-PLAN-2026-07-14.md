@@ -142,12 +142,20 @@ Forward-only `20260714140000_h5a_reconcile_foundations_columns.sql` applied stag
 
 ### LOT H5-C — GPS / vue Direction terrain (risque élevé)
 
-- Migrations : `10140000` (R2), dépendance partielle `29130000`
-- Prérequis : LOT H5-B GPS colonne ; revue produit de la vue staging actuelle
-- Forward-only : `CREATE OR REPLACE VIEW …` version R5 locale
-- STOP : régression app Direction terrain
-- Rollback : restaurer définition vue previous (snapshot DDL)
-- Risque : **élevé**
+**Statut 2026-07-14 bureau :** **EXÉCUTÉ** — voir `TAGORA-TIME-SAAS1B1B-H5C-EXECUTION-2026-07-14.md`
+
+- Migrations : `10140000` (R2), dépendance partielle `29130000` (**security_invoker seulement**)
+- Prérequis : GO H5-B ; colonnes gps/sorties/horodateur présentes ; `user_id` conservé
+- Forward-only exécuté :
+
+`supabase/migrations/20260714160000_h5c_reconcile_direction_terrain_view.sql`
+
+- Contrat pré-H5-D : `horodateur_events.user_id` (pas de join `employee_id` / chauffeurs)
+- Historiques `10140000` / `29130000` restent **pending**
+- STOP : prérequis colonne manquant / regression Direction terrain
+- Rollback : `migration repair 20260714160000 --status reverted` + restore DDL snapshot
+- Risque : **élevé** (mitigé staging vue GPS-only + 0 lignes)
+
 
 ### LOT H5-D — Transition Horodateur (risque bloquant)
 
