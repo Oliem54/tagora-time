@@ -108,6 +108,8 @@ Légende état staging : d’après dump R8 + `migration list` R10 + requêtes a
 
 ## 5. Lots futurs (non exécutés)
 
+Note R10 : exemples SQL dans les lots non encore exécutés restent **DOC ONLY** jusqu’à GO Martin du lot.
+
 ### LOT H5-A — Fondations horaires / pauses / notifs (risque faible)
 
 **Statut 2026-07-14 bureau :** **EXÉCUTÉ** — voir `TAGORA-TIME-SAAS1B1B-H5A-EXECUTION-2026-07-14.md`
@@ -123,22 +125,20 @@ Forward-only `20260714140000_h5a_reconcile_foundations_columns.sql` applied stag
 
 ### LOT H5-B — Contexte compagnie + tracking (risque élevé)
 
+**Statut 2026-07-14 bureau :** **EXÉCUTÉ** — voir `TAGORA-TIME-SAAS1B1B-H5B-EXECUTION-2026-07-14.md`
+
 - Migrations : `10130000` (R2), `12103000` (R2), `11101500` (R4), `21113000` (R2)
-- Prérequis : GO données pour R4 ; backup history
-- Forward-only documenté (exemple, **non exécuté**) :
+- Prérequis : GO H5-A ; portes agrégées unresolved=0 / conflicts=0 / token dups=0
+- Forward-only exécuté :
 
-```sql
--- DOC ONLY — ne pas exécuter en R10
-alter table public.sorties_terrain
-  add column if not exists company_context text;
-alter table public.livraisons_planifiees
-  add column if not exists tracking_token text,
-  add column if not exists tracking_enabled boolean not null default true;
-```
+`supabase/migrations/20260714150000_h5b_reconcile_company_context_tracking.sql`
 
-- STOP : violation contrainte / volume backfill hors politique
-- Rollback : DROP COLUMN seulement si GO inverse distinct (interdit sans mandat)
-- Risque : **élevé**
+- Historiques H5-B restent **pending** ; seule la version `20260714150000` est marked applied.
+- Politique : pas de fallback `oliem_solutions` sur lignes ambiguës ; tracking ancien `false` ; tokens `gen_random_bytes` ; pas de SMS ; `type_operation` nullable historique.
+- STOP : unresolved / conflit / doublon token / orphelin FK
+- Rollback : `migration repair 20260714150000 --status reverted` (DDL non auto-retiré)
+- Risque : **élevé** (mitigé staging tables métier vides)
+- Décision / preuve : `docs/handoffs/TAGORA-TIME-SAAS1B1B-H5B-EXECUTION-2026-07-14.md`
 
 ### LOT H5-C — GPS / vue Direction terrain (risque élevé)
 

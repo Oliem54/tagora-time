@@ -100,12 +100,12 @@ describe("staging history map documentary (R8)", () => {
   const renameDoc = readFileSync(RENAME_DOC, "utf8");
 
   it("inventories local migrations with unique 14-digit versions", () => {
-    // R8 baseline was 84; H5-A adds one forward-only reconcile → 85.
+    // R8 baseline was 84; H5-A + H5-B forward-only reconcile → 86.
     expect(migrationFiles.length).toBeGreaterThanOrEqual(84);
-    expect(migrationFiles).toHaveLength(85);
+    expect(migrationFiles).toHaveLength(86);
     const versions = migrationFiles.map((n) => n.slice(0, 14));
     expect(versions.every((v) => /^\d{14}$/.test(v))).toBe(true);
-    expect(new Set(versions).size).toBe(85);
+    expect(new Set(versions).size).toBe(86);
   });
 
   it("documents 42 renames with unique old→new mapping", () => {
@@ -207,7 +207,7 @@ describe("staging history map documentary (R8)", () => {
       .toUpperCase();
     expect(mapDoc).toContain(manifest);
     expect(manifest).toBe(
-      "849A6BF64635D3A5A9FB251434DD5664D5291998710A94D3010FD12CE7F7A264"
+      "6F66029BAF331B662C9B076118E73EAC71907FC3196FEBE4E69A880204D621EA"
     );
   });
 });
