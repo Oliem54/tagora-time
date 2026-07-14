@@ -175,6 +175,36 @@ function isMissingColumnError(error: unknown, columnName: string) {
   return code === "42703" && text.includes(columnName.toLowerCase());
 }
 
+/** Legacy schema still requires horodateur_events.user_id NOT NULL. */
+function isNotNullViolationOnColumn(error: unknown, columnName: string) {
+  if (!error || typeof error !== "object") {
+    return false;
+  }
+
+  const code =
+    typeof (error as { code?: unknown }).code === "string"
+      ? (error as { code: string }).code
+      : "";
+  const text = readErrorText(error);
+
+  return code === "23502" && text.includes(columnName.toLowerCase());
+}
+
+/** Resolve employee auth identity — never use actor_user_id as the employee. */
+async function resolveLegacyEmployeeUserId(
+  employeeId: number,
+  fallbackUserId?: string | null
+) {
+  const fromEmployee = await getEmployeeAuthUserIdByEmployeeId(employeeId);
+  if (fromEmployee) {
+    return fromEmployee;
+  }
+  if (typeof fallbackUserId === "string" && fallbackUserId.trim()) {
+    return fallbackUserId.trim();
+  }
+  return null;
+}
+
 function isCanonicalEventType(value: string): value is HorodateurCanonicalEventType {
   return value in HORODATEUR_CANONICAL_TO_LEGACY_EVENT_TYPE;
 }
@@ -533,8 +563,8 @@ export async function updateEventOccurredAt(input: {
 export async function insertEvent(input: HorodateurPhase1InsertEventInput) {
   const supabase = createAdminSupabaseClient();
   const eventType = toStoredLegacyEventType(input.eventType);
+  // Canonical write: employee_id + actor_user_id. Do not dual-write user_id.
   const payload: Record<string, unknown> = {
-    user_id: input.userId,
     employee_id: input.employeeId,
     occurred_at: input.occurredAt,
     event_type: eventType,
@@ -570,7 +600,8 @@ export async function insertEvent(input: HorodateurPhase1InsertEventInput) {
     payload.employer_company_key = input.employerCompanyKey;
   }
 
-  for (let attempt = 0; attempt < 7; attempt += 1) {
+  // Bounded retries: column renames + targeted legacy user_id compatibility only.
+  for (let attempt = 0; attempt < 8; attempt += 1) {
     const { data, error } = await supabase
       .from("horodateur_events")
       .insert(payload)
@@ -605,8 +636,30 @@ export async function insertEvent(input: HorodateurPhase1InsertEventInput) {
       continue;
     }
 
+    // Legacy schema without employee_id: write user_id from chauffeurs.auth_user_id only.
     if (isMissingColumnError(error, "employee_id") && "employee_id" in payload) {
+      const legacyUserId = await resolveLegacyEmployeeUserId(
+        input.employeeId,
+        input.userId
+      );
+      if (!legacyUserId) {
+        throw error;
+      }
       delete payload.employee_id;
+      payload.user_id = legacyUserId;
+      continue;
+    }
+
+    // Staging/pre-H5-D2: user_id still NOT NULL — add employee auth id, never actor_user_id.
+    if (isNotNullViolationOnColumn(error, "user_id") && !("user_id" in payload)) {
+      const legacyUserId = await resolveLegacyEmployeeUserId(
+        input.employeeId,
+        input.userId
+      );
+      if (!legacyUserId) {
+        throw error;
+      }
+      payload.user_id = legacyUserId;
       continue;
     }
 

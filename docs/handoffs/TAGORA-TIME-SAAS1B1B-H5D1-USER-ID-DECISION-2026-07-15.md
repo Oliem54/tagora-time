@@ -3,6 +3,20 @@
 **Décision finale (ce mandat) :**  
 `H5-D1 TERMINÉ — AUDIT USER_ID DOCUMENTÉ, DÉCISION MARTIN REQUISE`
 
+## Décision Martin post-audit (H5-D2)
+
+**OPTION B APPROUVÉE** par Martin (2026-07-15).
+
+Contrat officiel :
+1. `employee_id` = identité métier canonique ;
+2. `actor_user_id` = acteur ;
+3. `user_id` = legacy déprécié, **physiquement conservé** ;
+4. aucun DROP `user_id` ;
+5. écritures canoniques sans dépendre de `user_id` ;
+6. vue Direction terrain via `chauffeurs.auth_user_id` / `he.employee_id` (H5-D2).
+
+Exécution : `docs/handoffs/TAGORA-TIME-SAAS1B1B-H5D2-DEPRECATION-2026-07-15.md`.
+
 | Champ | Valeur |
 |-------|--------|
 | Agent exécutant | Martin |

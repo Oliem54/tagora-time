@@ -165,13 +165,16 @@ export type HorodateurPhase1EmployeeProfile = {
 
 export type HorodateurPhase1EventRecord = {
   id: string;
+  /** Legacy compatibility only when present — not canonical employee identity. */
   user_id?: string | null;
+  /** Canonical employee identity (`chauffeurs.id`). */
   employee_id: number;
   event_type: HorodateurPhase1EventType;
   // Canonical DB column.
   occurred_at: string | null;
   // Legacy compatibility alias kept during transition.
   event_time?: string | null;
+  /** User who performed the action (may differ from the employee). */
   actor_user_id?: string | null;
   actor_role?: HorodateurPhase1ActorRole;
   source_kind?: HorodateurPhase1SourceKind;
@@ -393,12 +396,19 @@ export type HorodateurPhase1ClassifyInput = {
 };
 
 export type HorodateurPhase1InsertEventInput = {
-  userId: string;
+  /**
+   * Legacy compatibility hint only. Canonical inserts do not write `user_id`.
+   * Used solely when an old schema requires `user_id` (missing `employee_id` or NOT NULL).
+   * Never treated as the actor — see `actorUserId`.
+   */
+  userId?: string | null;
+  /** Canonical employee identity (`chauffeurs.id`) — required. */
   employeeId: number;
   occurredAt: string;
   workDate: string;
   weekStartDate: string;
   eventType: HorodateurPhase1EventType | HorodateurCanonicalEventType;
+  /** Actor who performed the action (null allowed for explicit system events). */
   actorUserId: string | null;
   actorRole: HorodateurPhase1ActorRole;
   sourceKind: HorodateurPhase1SourceKind;

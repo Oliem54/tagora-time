@@ -45,7 +45,6 @@ describe("H5-D1 user_id transition audit documentary", () => {
 
   it("creates no new SQL migration and no DROP user_id execution", () => {
     expect(files.some((f) => /h5d1/i.test(f))).toBe(false);
-    expect(files.some((f) => /20260715.*h5d/i.test(f))).toBe(false);
     expect(audit).toMatch(/Aucune migration SQL nouvelle créée dans H5-D1/i);
     expect(audit).toMatch(/Aucun DROP `user_id` exécuté/i);
     expect(audit).not.toMatch(/DROP COLUMN user_id exécuté/i);
@@ -83,6 +82,6 @@ describe("H5-D1 user_id transition audit documentary", () => {
   it("keeps R10 H5-D lot aware of decision gate and update note", () => {
     expect(plan).toMatch(/LOT H5-D/);
     expect(plan).toMatch(/DROP COLUMN user_id/);
-    expect(plan).toMatch(/H5-D1 AUDITÉ — DÉCISION EN ATTENTE MARTIN/);
+    expect(plan).toMatch(/OPTION B APPROUVÉE|H5-D2/);
   });
 });

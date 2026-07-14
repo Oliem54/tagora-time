@@ -165,7 +165,9 @@ Forward-only `20260714140000_h5a_reconcile_foundations_columns.sql` applied stag
 - STOP : toute tentative DROP sans checklist lignes dépendantes (agrégats)
 - Rollback : history only ; pas de recreation col sans mandat
 - Risque : **bloquant** tant que R5 non tranché
-- **Statut H5-D1 :** `H5-D1 AUDITÉ — DÉCISION EN ATTENTE MARTIN` (voir `TAGORA-TIME-SAAS1B1B-H5D1-USER-ID-DECISION-2026-07-15.md` ; recommandation technique Option B — pas de DROP, pas de H5-D2 sans GO)
+- **Statut H5-D1 :** `H5-D1 AUDITÉ — OPTION B APPROUVÉE` (Martin) — voir `TAGORA-TIME-SAAS1B1B-H5D1-USER-ID-DECISION-2026-07-15.md`
+- **Statut H5-D2 :** dépréciation contrôlée `user_id` (DROP NOT NULL + vue `employee_id` / `chauffeurs.auth_user_id`) — `20260715120000` ; **aucun DROP COLUMN**
+- Recommandation exécutée : Option B (conserver colonne, déprécier)
 
 ### LOT H5-E — Sécurité / RLS / vues finales (risque moyen–élevé)
 
