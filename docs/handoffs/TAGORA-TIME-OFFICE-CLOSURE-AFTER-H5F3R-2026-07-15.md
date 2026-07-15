@@ -28,8 +28,8 @@ Bureau.
 
 ## 6. HEAD final
 
-`428202665d0c340198176c33b0b0da15cc8ceae6`  
-(H5-F3R supersession `c8c22f8` + fermeture bureau `4282026`)
+`e25aaa7216f9dcd5ca15843d32d8aa630380559c`  
+(H5-F3R `c8c22f8` → fermeture `4282026` → sync HEAD `e25aaa7`)
 
 ## 7. Feature protégée
 
