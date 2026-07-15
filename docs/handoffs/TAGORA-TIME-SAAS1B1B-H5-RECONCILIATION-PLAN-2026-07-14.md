@@ -190,9 +190,12 @@ Forward-only `20260714140000_h5a_reconcile_foundations_columns.sql` applied stag
 ### LOT H5-F — Autres domaines (risque moyen)
 
 - Migrations : `12161500` (R5), `12191500` (R6), `25090500` (R6), `25133500` (R6), `25140500` (R2), `26120500` (R2)
-- Prérequis : audits DDL storage/photos manquants pour R6
-- STOP : preuve insuffisante
+- **Statut H5-F1 :** `H5-F1 TERMINÉ — AUDIT RO DOCUMENTÉ` — voir `TAGORA-TIME-SAAS1B1B-H5F1-OTHER-DOMAINS-AUDIT-2026-07-15.md`
+- Découpage : **H5-F2** comptes ; **H5-F3** SMS/pauses ; **H5-F4** preuves/inline ; **H5-F5** Storage (bloqué / DELETE large ; bucket staging absent)
+- Prérequis exécution : **décisions Martin** (surtout SMS + Storage) ; ne jamais rejouer `25133500` / UPDATE global `12191500`
+- STOP : rejeu historique Storage ; db push
 - Risque : **moyen** à **élevé** (storage)
+- Avancement V1 : **51 %** (inchangé)
 
 Chaque lot futur exige : snapshot `migration list` avant/après ; empreintes DDL ; aucun `db push --include-all`.
 
