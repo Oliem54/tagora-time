@@ -16,6 +16,12 @@
 
 **Verdict :** `H5-D3 OBSERVATION INSUFFISANTE — AUCUN ÉVÉNEMENT POST-DÉPLOIEMENT`
 
+## Suite H5-D4 (preuve transactionnelle)
+
+Preuve éphémère staging **ROLLBACK** enregistrée dans
+`docs/handoffs/TAGORA-TIME-SAAS1B1B-H5D4-STAGING-TRANSACTIONAL-PROOF-2026-07-15.md`
+(`H5-D4 VALIDÉ` — contrat technique prouvé ; **pas** stabilisation trafic réel).
+
 ---
 
 ## 1. Prérequis H5-D2 (confirmés)

@@ -169,6 +169,7 @@ Forward-only `20260714140000_h5a_reconcile_foundations_columns.sql` applied stag
 - **Statut H5-D2 :** dépréciation contrôlée `user_id` (DROP NOT NULL + vue `employee_id` / `chauffeurs.auth_user_id`) — `20260715120000` ; **aucun DROP COLUMN**
 - Recommandation exécutée : Option B (conserver colonne, déprécier)
 - **Statut H5-D3 :** `H5-D3 OBSERVATION INSUFFISANTE — AUCUN ÉVÉNEMENT POST-DÉPLOIEMENT` (table HE staging = 0 ; pas de stabilisation données réelles) — voir `TAGORA-TIME-SAAS1B1B-H5D3-OBSERVATION-2026-07-15.md`
+- **Statut H5-D4 :** `H5-D4 VALIDÉ — PREUVE TRANSACTIONNELLE STAGING RÉUSSIE, AUCUNE DONNÉE PERSISTANTE` (BEGIN/insert canonique/`user_id` null/vue/triggers + **ROLLBACK**) — voir `TAGORA-TIME-SAAS1B1B-H5D4-STAGING-TRANSACTIONAL-PROOF-2026-07-15.md` ; trafic réel H5-D3 toujours non observé
 
 ### LOT H5-E — Sécurité / RLS / vues finales (risque moyen–élevé)
 
