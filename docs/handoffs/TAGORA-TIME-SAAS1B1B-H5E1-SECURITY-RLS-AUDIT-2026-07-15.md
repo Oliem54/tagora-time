@@ -257,10 +257,12 @@ Classements : `29120000` = **nécessite forward-only** (pas rejeu aveugle).
 - Risque : moyen. Rollback : restore snapshots TEMP.
 - Dépendance H4 : non. Isolable : **oui**.
 
-### H5-E2B — account_requests / temps_titan
-- Drop/recreate policies fail-safe ; durcir INSERT AR ; TT Direction/admin.
-- **Pas** d’isolation company tant que H4 absent (documenter).
-- Risque : élevé. Isolable : oui. Dépend H4 pour tenant : partiel.
+### H5-E2B — account_requests / temps_titan — **EXÉCUTÉ**
+- Voir `TAGORA-TIME-SAAS1B1B-H5E2B-ACCOUNT-REQUESTS-TEMPS-TITAN-RLS-2026-07-15.md`.
+- Migration : `20260715150000_h5e2b_harden_account_requests_temps_titan.sql`.
+- INSERT public AR borné (pending only, champs privilégiés interdits, permissions/audit bornés) ; gestion Direction/Admin ; TT Admin ou Direction+terrain S/I/U ; pas DELETE authenticated.
+- **Pas** d’isolation company tant que H4 absent (documenté).
+- Risque : élevé (réduit). Isolable : oui. Dépend H4 pour tenant : partiel.
 
 ### H5-E2C — Horodateur / chauffeurs / sorties — **EXÉCUTÉ**
 - Voir `TAGORA-TIME-SAAS1B1B-H5E2C-TERRAIN-RLS-CLOSURE-2026-07-15.md`.
@@ -286,8 +288,9 @@ Décisions Martin éventuelles : ordre E2A→E2C prioritaire sécurité ; E2B ; 
 | Domaine | Statut |
 |---------|--------|
 | H5-E2A | **Exécuté** (helpers) |
+| H5-E2B | **Exécuté** (AR/TT policies) |
 | H5-E2C | **Exécuté** (fail-open fermés) |
-| H5-E2B/D SQL | Non démarrés |
+| H5-E2D SQL | Non démarré |
 | H5-F / H4 | Non touchés |
 | Production | Interdite |
 | H5-D2 vue | Préservée |
@@ -297,5 +300,5 @@ Décisions Martin éventuelles : ordre E2A→E2C prioritaire sécurité ; E2B ; 
 
 ## 15. Prochaine étape unique
 
-**H5-E2B — account_requests / temps_titan** (mandat Martin distinct).
-Ne pas démarrer H5-E2D, H5-F, H4 ; ne pas intégrer feature ; ne pas toucher production.
+**H5-E2D — Vue + grants vue** (mandat Martin distinct).
+Ne pas démarrer H5-F, H4 ; ne pas intégrer feature ; ne pas toucher production.

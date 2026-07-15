@@ -163,4 +163,5 @@ Snapshots après :
 
 **GO H5-E2C — POLICIES FAIL-OPEN TERRAIN/HORODATEUR FERMÉES ET VALIDÉES**
 
-Prochaine étape unique : **H5-E2B** (mandat distinct).
+Prochaine étape unique : **H5-E2D** (mandat distinct).
+H5-E2B exécuté : `TAGORA-TIME-SAAS1B1B-H5E2B-ACCOUNT-REQUESTS-TEMPS-TITAN-RLS-2026-07-15.md`.
