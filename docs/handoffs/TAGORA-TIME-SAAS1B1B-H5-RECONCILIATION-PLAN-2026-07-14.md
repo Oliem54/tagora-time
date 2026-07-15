@@ -182,7 +182,8 @@ Forward-only `20260714140000_h5a_reconcile_foundations_columns.sql` applied stag
 - **Statut H5-E2A :** `H5-E2A EXÉCUTÉ — HELPERS DURCIS` — migration `20260715130000` ; voir `TAGORA-TIME-SAAS1B1B-H5E2A-AUTH-HELPERS-HARDENING-2026-07-15.md`
 - **Statut H5-E2C :** `H5-E2C EXÉCUTÉ — FAIL-OPEN TERRAIN/HORODATEUR FERMÉS` — migration `20260715140000` ; voir `TAGORA-TIME-SAAS1B1B-H5E2C-TERRAIN-RLS-CLOSURE-2026-07-15.md`
 - **Statut H5-E2B :** `H5-E2B EXÉCUTÉ — ACCOUNT_REQUESTS / TEMPS_TITAN DURCIS` — migration `20260715150000` ; voir `TAGORA-TIME-SAAS1B1B-H5E2B-ACCOUNT-REQUESTS-TEMPS-TITAN-RLS-2026-07-15.md`
-- **Ne jamais rejouer** `29120000` / `29130000` (vue 2913 supersédée par H5-D2) ; suite forward-only **H5-E2D** après GO Martin
+- **Statut H5-E2D :** `H5-E2D EXÉCUTÉ — GRANTS VUE DIRECTION TERRAIN DURCIS` — migration `20260715160000` ; voir `TAGORA-TIME-SAAS1B1B-H5E2D-DIRECTION-TERRAIN-VIEW-GRANTS-2026-07-15.md`
+- **Ne jamais rejouer** `29120000` / `29130000` (vue 2913 supersédée par H5-D2) ; H5-E forward-only **complet** ; suite éventuelle **H5-F** après GO Martin
 - Fail-open staging **fermé** en H5-E2C (`horodateur_events_*` public ; `chauffeurs` / `sorties_terrain` `allow all `)
 - Avancement V1 : **51 %** (inchangé)
 

@@ -44,7 +44,7 @@ describe("H5-E1 security RLS audit documentary", () => {
     expect(files.some((f) => /h5e2a_harden_authorization_helpers/i.test(f))).toBe(true);
     expect(files.some((f) => /h5e2b_harden_account_requests_temps_titan/i.test(f))).toBe(true);
     expect(files.some((f) => /h5e2c_close_terrain_fail_open/i.test(f))).toBe(true);
-    expect(files.some((f) => /h5e2d_/i.test(f))).toBe(false);
+    expect(files.some((f) => /h5e2d_harden_direction_terrain_view_grants/i.test(f))).toBe(true);
     expect(audit).toMatch(/NE PAS REJOUER|ne jamais rejouer|Ne jamais rejouer/i);
     expect(audit).toMatch(/aucune[\s\S]*migration|audit RO uniquement/i);
     expect(audit).toMatch(/aucune[\s\S]*policy|policy.*modifiés/i);

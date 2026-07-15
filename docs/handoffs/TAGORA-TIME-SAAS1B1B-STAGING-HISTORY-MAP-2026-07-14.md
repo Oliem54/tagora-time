@@ -40,12 +40,13 @@ Sans aucune écriture distante.
 
 | Item | Valeur |
 |------|--------|
-| Total migrations locales | **91** (84 R8 + H5-A/B/C + H5-D2 + H5-E2A + H5-E2C + H5-E2B) |
+| Total migrations locales | **92** (84 R8 + H5-A/B/C + H5-D2 + H5-E2A + H5-E2C + H5-E2B + H5-E2D) |
 | Renommages legacy (R4) | **42** |
 | Hash avant/après rename (R4) | **42/42 identiques** (contenu SQL inchangé au moment du rename) |
-| Versions 14 chiffres uniques | **91** (0 doublon) |
+| Versions 14 chiffres uniques | **92** (0 doublon) |
 | Première version | `20260407000000` |
-| Dernière version | `20260715150000` (H5-E2B) |
+| Dernière version | `20260715160000` (H5-E2D) |
+| Empreinte LF fichiers+SHA-256 (portable, post H5-E2D) | `CD5CB3A15731B192FEB4B6658DBD6A34970BABD20E278CC33CC298371D219C5E` |
 | Empreinte LF fichiers+SHA-256 (portable, post H5-E2B) | `2904E0362A4279FA820A2AFC466EBE33387715208D2DCBD30741116AC62D9717` |
 | Empreinte LF fichiers+SHA-256 (portable, post H5-E2C) | `26D0DE598ECECC64D3FCD00B0B3B18AEF268669C9C4655DB9C6A4A38D4CFDEA8` |
 | Empreinte LF fichiers+SHA-256 (portable, post H5-E2A) | `06BE51BF780911385B15C7F8E05890DD47F5F41CAD5C0EA3A04D071ECEDF42A0` |

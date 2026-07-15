@@ -271,9 +271,11 @@ Classements : `29120000` = **nécessite forward-only** (pas rejeu aveugle).
 - Prérequis : H5-D2 / H5-E2A OK.
 - Risque : **élevé / bloquant sécurité** (fermé). Isolable : oui.
 
-### H5-E2D — Vue + grants vue
-- Valider contrat 18 colonnes H5-D2 ; **aucun** CREATE VIEW depuis 2913 ; grants vue ; pas de régression D2.
-- Isolable après E2C (sous-jacents sécurisés).
+### H5-E2D — Vue + grants vue — **EXÉCUTÉ**
+- Voir `TAGORA-TIME-SAAS1B1B-H5E2D-DIRECTION-TERRAIN-VIEW-GRANTS-2026-07-15.md`.
+- Migration : `20260715160000_h5e2d_harden_direction_terrain_view_grants.sql`.
+- Contrat 18 colonnes H5-D2 validé ; **aucun** CREATE/DROP VIEW ; REVOKE PUBLIC/anon ; SELECT only authenticated + service_role.
+- Isolable après E2B/E2C (sous-jacents + AR/TT durcis).
 
 **Rejeu 29120000 recommandé ?** Non.
 **Rejeu 29130000 recommandé ?** Non.
@@ -290,15 +292,15 @@ Décisions Martin éventuelles : ordre E2A→E2C prioritaire sécurité ; E2B ; 
 | H5-E2A | **Exécuté** (helpers) |
 | H5-E2B | **Exécuté** (AR/TT policies) |
 | H5-E2C | **Exécuté** (fail-open fermés) |
-| H5-E2D SQL | Non démarré |
+| H5-E2D | **Exécuté** (grants vue) |
 | H5-F / H4 | Non touchés |
 | Production | Interdite |
-| H5-D2 vue | Préservée |
+| H5-D2 vue | Préservée (définition) |
 | V1 | 51 % |
 
 ---
 
 ## 15. Prochaine étape unique
 
-**H5-E2D — Vue + grants vue** (mandat Martin distinct).
-Ne pas démarrer H5-F, H4 ; ne pas intégrer feature ; ne pas toucher production.
+**H5-F** (mandat Martin distinct) — après clôture H5-E.
+Ne pas démarrer H4 ; ne pas intégrer feature ; ne pas toucher production.

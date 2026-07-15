@@ -175,4 +175,4 @@ Snapshots après :
 
 **GO H5-E2B — POLICIES ACCOUNT_REQUESTS ET TEMPS_TITAN DURCIES ET VALIDÉES**
 
-Prochaine étape unique : **H5-E2D** (mandat distinct).
+Prochaine étape unique : **H5-E2D** exécuté — voir `TAGORA-TIME-SAAS1B1B-H5E2D-DIRECTION-TERRAIN-VIEW-GRANTS-2026-07-15.md`.
