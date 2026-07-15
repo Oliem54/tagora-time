@@ -28,8 +28,8 @@ Bureau.
 
 ## 6. HEAD final
 
-`c8c22f8a4c492253da82ae4536db84ca1c1bf0c1`  
-(+ commit de fermeture éventuel sur la même branche — confirmer `git rev-parse HEAD` après push)
+`428202665d0c340198176c33b0b0da15cc8ceae6`  
+(H5-F3R supersession `c8c22f8` + fermeture bureau `4282026`)
 
 ## 7. Feature protégée
 
