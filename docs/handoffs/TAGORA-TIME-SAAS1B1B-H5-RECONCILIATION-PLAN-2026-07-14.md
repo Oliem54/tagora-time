@@ -192,8 +192,9 @@ Forward-only `20260714140000_h5a_reconcile_foundations_columns.sql` applied stag
 - Migrations : `12161500` (R5), `12191500` (R6), `25090500` (R6), `25133500` (R6), `25140500` (R2), `26120500` (R2)
 - **Statut H5-F1 :** `H5-F1 TERMINÉ — AUDIT RO DOCUMENTÉ` — voir `TAGORA-TIME-SAAS1B1B-H5F1-OTHER-DOMAINS-AUDIT-2026-07-15.md`
 - **Statut H5-F4 :** `GO H5-F4 — HISTORY NORMALISÉ` — trois repairs history-only (`25090500`, `25140500`, `26120500`) ; voir `TAGORA-TIME-SAAS1B1B-H5F4-PROOFS-PHOTOS-INLINE-HISTORY-2026-07-15.md`
-- Découpage restant : **H5-F2** comptes ; **H5-F3** SMS/pauses ; **H5-F5** Storage (bloqué / DELETE large ; bucket staging absent)
-- Prérequis exécution F2/F3/F5 : **décisions Martin** (surtout SMS + Storage) ; ne jamais rejouer `25133500` / UPDATE global `12191500`
+- **Statut H5-F2 :** `GO H5-F2 — HISTORY NORMALISÉ` — repair history-only `20260412161500` ; voir `TAGORA-TIME-SAAS1B1B-H5F2-EMPLOYEE-ACCOUNT-HISTORY-2026-07-15.md`
+- Découpage restant : **H5-F3** SMS/pauses ; **H5-F5** Storage (bloqué / DELETE large ; bucket staging absent)
+- Prérequis exécution F3/F5 : **décisions Martin** (surtout SMS + Storage) ; ne jamais rejouer `25133500` / UPDATE global `12191500`
 - STOP : rejeu historique Storage ; db push
 - Risque : **moyen** à **élevé** (storage)
 - Avancement V1 : **51 %** (inchangé)

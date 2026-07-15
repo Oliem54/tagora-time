@@ -15,9 +15,11 @@
 **Décision R9 :** GO HISTORY — H2/H3 NORMALISÉS, H4/H5 CONSERVÉS PENDING  
 (voir `docs/handoffs/TAGORA-TIME-SAAS1B1B-STAGING-HISTORY-REPAIR-2026-07-14.md`)
 
-**Avancement V1 :** **51 %** (inchangé ; H5-F4 history-only normalisé ; H5-F2/F3/F5 + H4 restent pending)
+**Avancement V1 :** **51 %** (inchangé ; H5-F4 + H5-F2 history-only normalisés ; H5-F3/F5 + H4 restent pending)
 
 **Statut H5-F4 (2026-07-15) :** `20260425090500`, `20260425140500`, `20260426120500` → **applied** (repair history-only ; aucun DDL) — voir `TAGORA-TIME-SAAS1B1B-H5F4-PROOFS-PHOTOS-INLINE-HISTORY-2026-07-15.md`
+
+**Statut H5-F2 (2026-07-15) :** `20260412161500` → **applied** (repair history-only ; aucun DDL ; candidate_update_count=0) — voir `TAGORA-TIME-SAAS1B1B-H5F2-EMPLOYEE-ACCOUNT-HISTORY-2026-07-15.md`
 
 **Écritures distantes R8 :** aucune  
 **migration repair / db push R8 :** **non executes**  
@@ -212,7 +214,9 @@ Total : 34+18+2+6+24 = **84**.
 
 `20260408190000`, `20260410130000`, `20260410140000`, `20260411101500`, `20260412103000`, `20260412161500`, `20260412170000`, `20260412181500`, `20260412191500`, `20260418140000`, `20260418141000`, `20260419103000`, `20260419141500`, `20260419164500`, `20260420110000`, `20260420111000`, `20260420112000`, `20260421113000`, `20260425090500`, `20260425133500`, `20260425140500`, `20260426120500`, `20260429120000`, `20260429130000`
 
-**Post H5-F4 (2026-07-15) :** `20260425090500`, `20260425140500`, `20260426120500` → **applied** (history-only, no-op DDL) ; restent pending côté F : `12161500`, `12191500`, `25133500` (+ autres H5 non F4).
+**Post H5-F4 (2026-07-15) :** `20260425090500`, `20260425140500`, `20260426120500` → **applied** (history-only, no-op DDL).
+
+**Post H5-F2 (2026-07-15) :** `20260412161500` → **applied** (history-only, no-op DDL) ; restent pending côté F : `12191500`, `25133500` (+ autres H5 non F2/F4).
 
 ### Détail spécial
 

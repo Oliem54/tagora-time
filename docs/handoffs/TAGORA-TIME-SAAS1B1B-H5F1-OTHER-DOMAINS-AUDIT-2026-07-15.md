@@ -171,11 +171,11 @@ Pas de table d’arrêts alternative canonique identifiée pour remplacer les co
 ## 7. Découpage recommandé
 
 ### H5-F2 — Comptes employés (`12161500`)
-- Prérequis : réponses Martin 12161500  
-- Stratégie : **preuve DDL no-op** → éventuellement `repair applied` ; **pas** de rejeu UPDATE  
-- STOP : conflit `auth_user_id`  
-- Dépendance H4 : non  
-- Verdict prépa : **GO conditionnel** après décisions écrites
+- Prérequis : réponses Martin 12161500 — **satisfaits**
+- Stratégie : **preuve DDL no-op** + `repair applied` history-only ; **pas** de rejeu UPDATE ; backfill interdit
+- **Statut :** `GO H5-F2` exécuté — voir `TAGORA-TIME-SAAS1B1B-H5F2-EMPLOYEE-ACCOUNT-HISTORY-2026-07-15.md`
+- `candidate_update_count = 0` ; 0 doublon auth_user_id ; aucun DDL staging
+- Dépendance H4 : non
 
 ### H5-F3 — Horaires / SMS (`12191500`)
 - Prérequis : décisions SMS/pauses  
@@ -236,4 +236,4 @@ Sans objet (audit doc only). Futurs lots : snapshots TEMP ; interdit restaurer D
 
 **H5-F1 TERMINÉ — AUDIT DES DOMAINES RESTANTS DOCUMENTÉ, DÉCISIONS MARTIN REQUISES**
 
-Prochaine étape unique : mandat distinct **H5-F2** (comptes) après décisions Martin — **ne pas démarrer automatiquement** H5-F2 / H5-F3 / H5-F5 / H4.
+Prochaine étape unique : mandat distinct **H5-F3** (SMS/pauses) après décisions Martin — **ne pas démarrer automatiquement** H5-F3 / H5-F5 / H4.
