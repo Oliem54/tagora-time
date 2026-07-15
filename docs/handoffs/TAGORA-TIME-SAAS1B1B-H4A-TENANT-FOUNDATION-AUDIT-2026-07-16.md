@@ -1,18 +1,32 @@
 # TAGORA Time — SaaS 1B.1B H4-A — Audit fondation multi-tenant (2026-07-16)
 
-**Agent exécutant :** Martin  
-**Agent donneur :** Martin  
-**Projet :** TAGORA Time uniquement (`C:\dev\tagora-time`)  
-**Poste :** Maison  
-**Branche :** `wip/saas1b1-tenant-foundation-checkpoint-2026-07-13`  
-**HEAD avant :** `9ac279e62cf4cfd9242fb8e2be94aca2f61665bd`  
-**Feature protégée :** `feature/sales-book-grants` @ `6fd6ca09078eedbd133e59aca160f606fa33040b`  
-**Staging (RO) :** `qokyobcvplzufshydhih`  
-**Production (INTERDITE) :** `qcgvzdlfsxybrmloijpt`  
-**Avancement V1 :** **51 %** (inchangé)
+**Agent exécutant :** Martin
+**Agent donneur :** Martin
+**Projet :** TAGORA Time uniquement (`C:\dev\tagora-time`)
+**Poste :** Maison
+**Branche :** `wip/saas1b1-tenant-foundation-checkpoint-2026-07-13`
+**HEAD avant H4-A :** `9ac279e62cf4cfd9242fb8e2be94aca2f61665bd`
+**Feature protégée :** `feature/sales-book-grants` @ `6fd6ca09078eedbd133e59aca160f606fa33040b`
+**Staging (RO) :** `qokyobcvplzufshydhih`
+**Production (INTERDITE) :** `qcgvzdlfsxybrmloijpt`
 
-**Écriture staging / migration apply / repair / db push réel :** **aucune**.  
+**Avancement V1 avant H4-A (gelé historique) :** 51 %
+**Avancement V1 après H4-A (recalculé) :** **55 %** — voir §13.
+
+**Écriture staging / migration apply / repair / db push réel :** **aucune**.
 **Migration SQL nouvelle :** **aucune**.
+**H4-A = dernier audit global fondation H4.** Aucune chaîne H4-A1/A2/A3. Aucun élargissement SaaS 1B.2.
+
+---
+
+## 0. Directive priorité V1 fonctionnelle rapide
+
+Objectif : livrer une V1 fonctionnelle sans contourner sécurité, validation ni isolation SaaS.
+
+- H4-A est l’**audit final** de la fondation H4.
+- Les décisions non bloquantes sont classées **REPORT APRÈS V1**.
+- Les durcissements sécurité minimaux nécessaires à l’isolation sont **dans H4-B**, pas reportés.
+- Aucune production ; aucun `--include-all` ; aucun H5-F5 avant H4 ; aucune intégration feature avant H4 + H5-F5.
 
 ---
 
@@ -59,19 +73,17 @@ Pour les **7 tables** :
 **Constats locaux après reset :**
 
 - 7 tables présentes, **vides**, RLS+FORCE = true, policy_count = 0
-- Fonctions INVOKER, `proconfig` vide (pas de `search_path`)
-- EXECUTE fonctions encore visible pour PUBLIC/anon/authenticated (defaults) → **à durcir avant/avec exécution**
-- `platform_access_audit` : service_role conserve des privilèges DML larges via defaults Supabase malgré GRANT SQL limité → **append-only DB non garanti**
-
-Classement :
+- Fonctions INVOKER, `proconfig` vide (pas de `search_path`) → durcir en H4-B1
+- EXECUTE fonctions encore visible pour PUBLIC/anon/authenticated → durcir en H4-B1
+- `platform_access_audit` : append-only DB non garanti via defaults → durcir en H4-B3
 
 | Objet | Classe |
 |-------|--------|
 | Tables + FORCE RLS + 0 policy | fail-closed |
 | Revoke client | fail-closed |
-| Fonctions sans search_path / EXECUTE large | à durcir avant exécution |
-| Audit sans blocage UPDATE/DELETE DB | à durcir avant exécution |
-| Membership `organization_id` mutable | à durcir / décision Martin |
+| Fonctions search_path / EXECUTE | à durcir **dans H4-B1** (chemin critique) |
+| Audit UPDATE/DELETE | à durcir **dans H4-B3** (chemin critique) |
+| Membership `organization_id` | immuable **dans H4-B2** (reco ferme) |
 
 ---
 
@@ -97,43 +109,32 @@ Project ref linked : **`qokyobcvplzufshydhih`** (≠ production).
 | Fonctions H4 | **absentes** |
 | H4 pending | **6** |
 | H5-F5 `20260425133500` | **pending** |
-| H5-F2 `20260412161500` | applied |
-| H5-F3R `20260412191500` | applied |
-| H5-F4 (`090500`/`140500`/`120500`) | applied |
+| H5-F2 / F3R / F4 | applied |
 | H5-E2A→E2D | applied |
 
-Snapshots : `%TEMP%\tagora-time-h4a-staging-*-2026-07-16.txt`, `…-migration-list-…`, SHA fichier list `7BBE1797…5ED8`.
+Snapshots : `%TEMP%\tagora-time-h4a-staging-*-2026-07-16.txt`.
 
 ---
 
-## 6. Risques métier / sécurité (résumé)
+## 6. Risques (chemin critique seulement)
 
-### Memberships — `organization_id`
-`enforce_organization_has_owner` vérifie le dernier owner sur UPDATE seulement si `role` **ou** `status` change. Un UPDATE qui déplace un owner actif vers une autre `organization_id` **sans** changer rôle/statut **n’est pas bloqué** → org source peut perdre son dernier owner.
+### Bloquant — memberships `organization_id`
+Le trigger dernier owner ne protège pas un UPDATE qui déplace un owner actif vers une autre org sans changer `role`/`status`.
 
-**Question bloquante Martin :** le membership peut-il changer d’organisation, ou doit-il être **supprimé puis recréé** (recommandé : `organization_id` immuable) ?
+**Reco ferme :** `organization_id` **immuable** après INSERT (erreur si UPDATE le change). Transfert = delete + recreate. À appliquer dans **H4-B2**.
 
-Autres scénarios dernier owner (delete / demote / suspend) : **protégés** par le trigger. Insertion premier owner : **OK**. Deux owners : **OK**.
+### Bloquant — fonctions fondation
+Sans `search_path` fixe + REVOKE EXECUTE PUBLIC/anon : surface de détournement.
 
-### Invitations
-- `token_hash` only (≥32) : OK  
-- email lower/trim + `@` : OK  
-- accepted consistency : OK  
-- revoked consistency : permet `status <> revoked` **avec** `revoked_at` non null  
-- pas d’auto `expired` ; pending + `expires_at` passé possible  
-- pas de durée max hardcodée  
+**Reco ferme :** durcir dans **H4-B1** (même pattern H5-E2A).
 
-### Platform access / audit
-- Support : `expires_at` obligatoire : OK  
-- Super admin : expiration optionnelle ; unicité active/user : OK  
-- Plusieurs support actifs : autorisés  
-- status active + expires_at passé : possible (pas d’auto-expire)  
-- Audit : **pas** d’immutabilité DB réelle pour service_role  
+### Bloquant — audit append-only
+SELECT/INSERT seuls en intention SQL ; DML large encore possible via defaults.
 
-### Organizations / companies / settings
-- slug unique si `deleted_at IS NULL` ; timezone SQL = **UTC** ; status défaut **pending**  
-- une seule company `is_default` ; **pas** d’exigence d’en avoir une  
-- settings 1:1 **non** auto-créés  
+**Reco ferme :** REVOKE UPDATE/DELETE (+ trigger deny si nécessaire) dans **H4-B3**.
+
+### Non bloquant V1 — invitations / platform
+Cohérence `revoked_at` stricte, auto-expire, durée max support, schemas JSON : **REPORT APRÈS V1** (app + lots ultérieurs). Les CHECK existants (`token_hash`, support `expires_at`, roles hors memberships) suffisent pour V1.
 
 ---
 
@@ -143,81 +144,151 @@ Autres scénarios dernier owner (delete / demote / suspend) : **protégés** par
 npx supabase db push --linked --dry-run
 ```
 
-Résultat : **refuse** d’appliquer ; exige `--include-all` et listerait notamment :
+Refuse sans `--include-all` ; avec ce flag appliquerait H5 historiques pending (dont **H5-F5**) + 6 H4.
 
-- nombreuses H5 historiques pending (dont **`20260425133500` H5-F5**) ;
-- les **six H4**.
-
-**Conclusion :** `db push` direct (avec ou sans `--include-all`) = **interdit** pour H4. Aucun `--include-all` utilisé.
+**Conclusion :** `db push` direct = **interdit**. Jamais `--include-all`.
 
 ---
 
-## 8. Options d’application
+## 8. Méthode d’application H4 immédiatement exécutable
 
-| Option | Verdict | Motif |
-|--------|---------|-------|
-| **A** — push des 6 originales | **NO-GO** | hors-ordre ; exige `--include-all` → risque H5-F5 |
-| **B** — 1 forward-only consolidée + repair history-only des 6 | **GO sous conditions** | sûr si SQL isolé + décisions Martin intégrées |
-| **C** — 3 forward-only H4-B1/B2/B3 + repair history-only des 6 | **GO recommandé** | atomicité par lot ; rollback plus fin |
-| **D** — SQL TX contrôlé + repair | **GO sous conditions** | équivalent à B/C sans fichier forward si gates strictes |
+| Option | Verdict |
+|--------|---------|
+| A — push des 6 originales | **NO-GO** |
+| B — 1 consolidée + repair history-only | acceptable mais moins granulaire |
+| **C — 3 forward-only H4-B1/B2/B3 + repair history-only des 6** | **GO — méthode retenue** |
+| D — SQL TX + repair | équivalent, plus opaque |
 
-**Recommandation :** **Option C** (forward-only post-`20260715160000`), puis `migration repair --status applied` **uniquement** des six versions `20260712220x00`. Jamais H5-F5. Jamais `--include-all`.
+### Méthode C (exécutable)
 
-### Découpage recommandé
+1. Créer **exactement 3** migrations forward-only **après** `20260715160000` (ex. `20260716220000` / `221000` / `222000`).
+2. Contenu = SQL des 6 fichiers H4 **plus** durcissements minimaux des reco fermes (§9), **sans** seed / backfill / org / ALTER métier.
+3. Appliquer chaque lot sur staging via canal contrôlé **scoped** (jamais `db push --include-all`).
+4. Après B1+B2+B3 appliqués et prouvés : `migration repair --status applied` **uniquement** sur les six versions `20260712220x00`.
+5. **Ne jamais** repair / push `20260425133500` (H5-F5) dans ce flux.
+6. Preuves obligatoires par lot : reset local PASS, tables vides, RLS+FORCE, 0 policy client, grants fail-closed, tests ciblés verts.
 
-**H4-B1 — Racine tenant**  
-`organizations`, `organization_companies`, `organization_settings`, `set_saas_foundation_updated_at` (+ durcir search_path / EXECUTE fonctions).
+**Nombre minimal de sous-lots :** **3** (H4-B1, H4-B2, H4-B3). Pas de fusion en un seul lot (rollback plus grossier) sauf interruption technique démontrée.
 
-**H4-B2 — Identités**  
-`organization_memberships`, `organization_invitations`, `enforce_organization_has_owner` (+ immutabilité `organization_id` si GO Martin ; durcir invitations).
+### Découpage
 
-**H4-B3 — Plateforme**  
-`platform_access`, `platform_access_audit` (+ blocage UPDATE/DELETE audit ; politique expires).
+**H4-B1 — Racine tenant**
+`organizations`, `organization_companies`, `organization_settings`, `set_saas_foundation_updated_at` + durcir `search_path` / EXECUTE.
 
-Chaque lot : snapshot DDL, TX+gates, tests RLS role matrix, rollback documenté, **pas** de seed/backfill/org créée.
+**H4-B2 — Identités**
+`organization_memberships`, `organization_invitations`, `enforce_organization_has_owner` + immutabilité `organization_id`.
 
----
-
-## 9. Décisions Martin requises (non prises)
-
-1. `default_timezone` : garder **UTC** ou passer **America/Toronto** ?  
-2. status org défaut : garder **pending** ?  
-3. réutilisation slug après soft-delete ?  
-4. interdire clés sensibles dans `metadata` ?  
-5. exiger exactement une company `is_default` ?  
-6. auto-créer `organization_settings` avec org ?  
-7. branding uniquement org-level (confirmé SQL) vs overrides compagnie ?  
-8. schémas JSON versionnés vs jsonb libre ?  
-9. **membership `organization_id` immuable** (recommandé) ?  
-10. durée max invitation + auto `expired` ?  
-11. durcir `revoked_at` null quand non-revoked ?  
-12. conserver email post-acceptation ?  
-13. durée max support ; expiration super admin ?  
-14. audit via trigger vs service app ; **blocage DB UPDATE/DELETE** ?  
-15. politique consultation données client par support ?
+**H4-B3 — Plateforme**
+`platform_access`, `platform_access_audit` + revoke UPDATE/DELETE audit.
 
 ---
 
-## 10. Protections
+## 9. Décisions réellement bloquantes (liste courte)
 
-- H5-F5 : **protégé** (pending ; hors périmètre)  
-- Feature : **non intégrée**  
-- Production : **intacte**  
-- Aucune org/membership/invitation/platform_access créée  
-- V1 : **51 %**
+| # | Décision | Reco ferme Martin | Lot |
+|---|----------|-------------------|-----|
+| D1 | `organization_id` membership mutable ? | **NON — immuable** (delete+recreate) | H4-B2 |
+| D2 | Durcir fonctions fondation (`search_path`, REVOKE EXECUTE PUBLIC/anon) ? | **OUI** | H4-B1 |
+| D3 | Forcer append-only audit en DB (REVOKE UPDATE/DELETE) ? | **OUI** | H4-B3 |
+| D4 | Méthode d’application | **Option C — 3 lots** | H4-B* |
+
+Ces reco **engagent** H4-B. Aucune nouvelle phase d’audit requise pour les trancher.
+
+### REPORT APRÈS V1 (non bloquant)
+
+- timezone SQL `UTC` vs `America/Toronto` → garder **UTC** en fondation ; override app/settings plus tard
+- status org défaut `pending` → **garder**
+- réutilisation slug après soft-delete → comportement SQL actuel (`deleted_at IS NULL`) **OK V1**
+- interdiction clés sensibles `metadata` → validation app **après V1**
+- exiger exactement une company `is_default` → **non** en DB V1
+- auto-créer `organization_settings` → **non** en DDL ; service after V1 si besoin
+- branding company-level overrides → **non** V1 (org-level suffit ; déjà décidé SaaS-1)
+- schémas JSON versionnés → **après V1**
+- durée max invitation + auto `expired` → **après V1** (job app)
+- durcir CHECK `revoked_at` strict → **après V1** si non trivial
+- conserver email post-acceptation → **oui garder**
+- durée max support / expire super admin → CHECK support actuel **OK V1** ; politique max **après V1**
+- politique consultation données client par support → runtime/docs **après V1**
+- SaaS 1B.2, entitlements, billing, backfill métier → **hors périmètre**
 
 ---
 
-## 11. Rollback futur (après éventuel H4-B*)
+## 10. Chemin critique exact jusqu’à V1 fonctionnelle
 
-- Rollback SQL uniquement sous mandat ; préférer drop contrôlé des objets fondation **vides**  
-- `migration repair … reverted` = history-only  
-- Ne jamais `--include-all` pour « revenir »
+```text
+H4-A audit final ✅
+→ H4-B1 racine tenant
+→ H4-B2 memberships et invitations
+→ H4-B3 accès plateforme et audit
+→ H5-F5 Storage isolé par organisation
+→ intégration contrôlée avec feature
+→ QA fonctionnelle V1
+→ pilote V1
+```
+
+Tout hors cette liste : **REPORT APRÈS V1**.
 
 ---
 
-## 12. Verdict H4-A
+## 11. Protections
 
-**H4-A TERMINÉ — DÉCISIONS MARTIN REQUISES AVANT TOUTE APPLICATION**
+- H5-F5 : **protégé** jusqu’après H4-B1..B3
+- Feature : **non intégrée** tant que H4 + H5-F5 non validés
+- Production : **intacte**
+- Aucune org/membership/invitation/platform_access créée
+- Aucune migration SQL créée dans H4-A
 
-Prochaine étape unique : **recueillir décisions Martin**, puis mandat **H4-B1** (Option C) — sans auto-exécution.
+---
+
+## 12. Rollback futur (après H4-B*)
+
+- Tables fondation **vides** : drop contrôlé sous mandat
+- `migration repair … reverted` = history-only
+- Jamais `--include-all`
+
+---
+
+## 13. Matrice V1 recalculée (après H4-A)
+
+Le **51 %** gelé ne crédait plus H5-E ni H5-F2/F3R/F4 fermés, ni le plan H4 exécutable. Recalcul chemin critique → V1 fonctionnelle (somme exacte) :
+
+| Domaine | Poids (pts) | Avancement | Points | Justification |
+|---------|------------:|-----------:|-------:|---------------|
+| Modules métier V1 existants (dual-run JWT) | 30 | 100 % relatif poids | **30** | App interne opérationnelle ; isolation tenant runtime absente |
+| H5 réconciliation non-Storage (A–D, F2/F3R/F4) | 12 | 100 % | **12** | History + lots fermés |
+| H5-E sécurité / RLS / helpers | 8 | 100 % | **8** | E2A–E2D fermés |
+| Fondation H4 — audit/plan | 2 | 100 % | **2** | H4-A final ; méthode C verrouillée |
+| Fondation H4 — apply B1/B2/B3 + repair | 10 | 0 % | **0** | Staging : 0/6 H4 appliquées |
+| H5-F5 Storage isolé org | 12 | 0 % | **0** | Attend H4 |
+| Intégration feature contrôlée | 12 | 0 % | **0** | Attend H4 + F5 |
+| QA fonctionnelle V1 | 8 | 0 % | **0** | Après intégration |
+| Pilote V1 | 6 | 0 % | **0** | Après QA |
+| **Total** | **100** | — | **55** | — |
+
+**Pourcentage global réel après H4-A : 55 %**
+(avant 51 % → +4 : +2 H5-E, +1 H5-F history non-Storage, +1 audit H4 verrouillé).
+
+H4-A n’applique pas la DDL : les **10 pts** apply H4 restent à 0 jusqu’à H4-B1…B3.
+
+---
+
+## 14. Prochain mandat exécutable unique
+
+**H4-B1 — appliquer la racine tenant** (Option C, lot 1/3) :
+
+- forward-only post-`20260715160000` ;
+- tables `organizations` / `organization_companies` / `organization_settings` ;
+- fonction `set_saas_foundation_updated_at` durcie ;
+- preuves local + staging scoped ;
+- **pas** B2/B3, **pas** H5-F5, **pas** feature, **pas** production.
+
+---
+
+## 15. Verdict H4-A
+
+**H4-A TERMINÉ — AUDIT FONDATION TENANT DOCUMENTÉ, PLAN D’APPLICATION PRÊT**
+
+Les seules décisions bloquantes sont tranchées par reco fermes (D1–D4).
+Pas de H4-A1/A2/A3. Pas de nouvel audit. Pas d’application auto dans ce mandat.
+
+STOP après H4-B1 en prochain mandat distinct.

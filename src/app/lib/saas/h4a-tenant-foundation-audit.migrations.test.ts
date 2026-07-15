@@ -97,11 +97,11 @@ describe("H4-A tenant foundation audit documentary", () => {
     expect(combined).toContain("platform_access_audit");
   });
 
-  it("documents organization_id membership risk, audit append-only gap, dry-run bans include-all", () => {
+  it("documents critical path, blocking recos, executable Option C, and recalculated V1 %", () => {
     expect(existsSync(HANDOFF)).toBe(true);
     expect(handoff).toMatch(/organization_id/);
-    expect(handoff).toMatch(/immutable|immuable|supprimé puis recréé|TRANSFER/i);
-    expect(handoff).toMatch(/append-only|UPDATE\/DELETE|service_role/i);
+    expect(handoff).toMatch(/immuable/i);
+    expect(handoff).toMatch(/append-only|REVOKE UPDATE\/DELETE|UPDATE\/DELETE/i);
     expect(handoff).toMatch(/--include-all/);
     expect(handoff).toMatch(/dry-run|DRY RUN/i);
     expect(handoff).toContain("20260425133500");
@@ -110,9 +110,18 @@ describe("H4-A tenant foundation audit documentary", () => {
     expect(handoff).toMatch(/INTERDITE|interdite/);
     expect(handoff).toContain("qokyobcvplzufshydhih");
     expect(handoff).toMatch(/51\s*%/);
-    expect(handoff).toMatch(/H4-B1|H4-B2|H4-B3/);
-    expect(handoff).toMatch(/Option A|Option B|Option C|Option D/);
-    expect(handoff).toMatch(/aucune[\s\S]*migration SQL|Ne créer aucune migration|aucune migration créée/i);
+    expect(handoff).toMatch(/55\s*%/);
+    expect(handoff).toMatch(/REPORT APRÈS V1/);
+    expect(handoff).toMatch(/chemin critique/i);
+    expect(handoff).toMatch(/H4-B1[\s\S]*H4-B2[\s\S]*H4-B3/);
+    expect(handoff).toMatch(/Option C/);
+    expect(handoff).toMatch(/Nombre minimal de sous-lots[\s\S]*\*\*3\*\*/);
+    expect(handoff).toMatch(/Décisions réellement bloquantes/);
+    expect(handoff).toMatch(
+      /AUDIT FONDATION TENANT DOCUMENTÉ, PLAN D['’]APPLICATION PRÊT/
+    );
+    expect(handoff).toMatch(/Migration SQL nouvelle[\s\S]*aucune/i);
+    expect(handoff).toMatch(/Aucune chaîne H4-A1\/A2\/A3/);
   });
 
   it("fingerprints the six H4 files", () => {
