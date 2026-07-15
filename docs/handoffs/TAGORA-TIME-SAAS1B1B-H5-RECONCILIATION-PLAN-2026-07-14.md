@@ -178,6 +178,9 @@ Forward-only `20260714140000_h5a_reconcile_foundations_columns.sql` applied stag
 - STOP : policy fail-open `USING (true)` non voulue
 - Rollback : restore policy names previous
 - Risque : **élevé**
+- **Statut H5-E1 :** `H5-E1 TERMINÉ — AUDIT SÉCURITÉ/RLS DOCUMENTÉ, H5-E2 REQUIERT GO MARTIN` — voir `TAGORA-TIME-SAAS1B1B-H5E1-SECURITY-RLS-AUDIT-2026-07-15.md`
+- **Ne jamais rejouer** `29120000` / `29130000` (vue 2913 supersédée par H5-D2) ; forward-only H5-E2A/B/C/D après GO Martin
+- Fail-open staging documentés : `horodateur_events_*` public true ; `chauffeurs` / `sorties_terrain` `allow all`
 
 ### LOT H5-F — Autres domaines (risque moyen)
 

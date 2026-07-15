@@ -161,5 +161,8 @@ Aucun `db reset`.
 
 ## 11. Prochaine étape unique
 
-**GO Martin distinct pour H5-E1 (audit lecture seule RLS/sécurité)** — ou attendre trafic réel pour rejouer H5-D3.  
-Pas d’exécution H5-E, pas H5-F, pas H4.
+**GO Martin distinct pour H5-E1 (audit lecture seule RLS/sécurité)** — admissible après H5-D4.
+Exécution H5-E / H5-F / H4 / feature : **non**.
+
+H5-E1 réalisé : voir `docs/handoffs/TAGORA-TIME-SAAS1B1B-H5E1-SECURITY-RLS-AUDIT-2026-07-15.md`
+(`H5-E1 TERMINÉ` — H5-E2 nécessite GO Martin séparé ; fail-open HE/chauffeurs/sorties documentés).
