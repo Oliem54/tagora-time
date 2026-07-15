@@ -178,10 +178,11 @@ Pas de table d’arrêts alternative canonique identifiée pour remplacer les co
 - Dépendance H4 : non
 
 ### H5-F3 — Horaires / SMS (`12191500`)
-- Prérequis : décisions SMS/pauses  
-- Stratégie : forward-only colonnes **si absentes** (déjà présentes → no-op) ; **aucun** UPDATE global ; **aucun SMS réel**  
-- STOP : tentation de rejeu historique  
-- Verdict : **NO-GO exécution** tant que décisions SMS ouvertes
+- Prérequis : décisions SMS/pauses — **satisfaits** (H5-F3R)
+- Stratégie : DDL déjà présent ; UPDATE `WHERE true` **supersédé** ; repair history-only
+- **Statut :** `GO H5-F3R` — voir `TAGORA-TIME-SAAS1B1B-H5F3R-SCHEDULE-SMS-LEGACY-SUPERSESSION-2026-07-15.md`
+- Écart legacy approuvé : 2 lignes, `break_am_minutes` NULL vs `break_1_minutes` ; `contract_invalid_count = 0` ; aucun backfill
+- Verdict : **NO-GO H5-F3** initial (UPDATE non no-op) puis **GO H5-F3R** (supersession)
 
 ### H5-F4 — Preuves / photos metadata / inline (`25090500` + `25140500` + `26120500`)
 - Prérequis : confirmation catalogue note + metadata — **satisfaits**
@@ -236,4 +237,4 @@ Sans objet (audit doc only). Futurs lots : snapshots TEMP ; interdit restaurer D
 
 **H5-F1 TERMINÉ — AUDIT DES DOMAINES RESTANTS DOCUMENTÉ, DÉCISIONS MARTIN REQUISES**
 
-Prochaine étape unique : mandat distinct **H5-F3** (SMS/pauses) après décisions Martin — **ne pas démarrer automatiquement** H5-F3 / H5-F5 / H4.
+Prochaine étape unique : H5-F5 **bloqué** (Storage) — mandat distinct / H4 éventuel ; **ne pas démarrer automatiquement**.
