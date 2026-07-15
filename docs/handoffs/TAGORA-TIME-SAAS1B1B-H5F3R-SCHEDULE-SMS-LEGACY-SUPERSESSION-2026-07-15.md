@@ -107,4 +107,10 @@ History-only ; ne modifie aucune donnée / SMS / colonne.
 
 **GO H5-F3R — ÉCART LEGACY APPROUVÉ, HISTORIQUE NORMALISÉ**
 
+### Fermeture bureau / reprise maison
+
+Document de fermeture : `TAGORA-TIME-OFFICE-CLOSURE-AFTER-H5F3R-2026-07-15.md`  
+Poste quitté : Bureau (`C:\dev\tagora-time`).  
+Reprise maison : synchroniser la branche WIP avec `git pull --ff-only` ; ne pas démarrer H4 / H5-F5 sans mandat.
+
 Prochaine étape unique : H5-F5 **bloqué** — attendre décisions Storage / H4 ; ne pas démarrer auto.

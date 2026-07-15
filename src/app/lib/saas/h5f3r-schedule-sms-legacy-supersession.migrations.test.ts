@@ -82,7 +82,7 @@ describe("H5-F3R schedule SMS legacy supersession documentary", () => {
     expect(handoff.toLowerCase()).toMatch(/update where true|update historique|aucun update/);
   });
 
-  it("is history-only repair with protections and V1 51%", () => {
+  it("is history-only repair with protections, office closure, home resume, V1 51%", () => {
     expect(handoff.toLowerCase()).toMatch(/history-only|migration repair/);
     expect(handoff).toMatch(/aucun SMS|pas de SMS|SMS réel/i);
     expect(handoff).toMatch(/H5-F5/);
@@ -91,6 +91,18 @@ describe("H5-F3R schedule SMS legacy supersession documentary", () => {
     expect(handoff).toMatch(/INTERDITE/);
     expect(handoff).toMatch(/\*\*51 %\*\*/);
     expect(handoff.toLowerCase()).toContain("rollback");
+    expect(handoff.toLowerCase()).toMatch(/fermeture bureau|fermeture/);
+    expect(handoff.toLowerCase()).toMatch(/reprise maison|maison/);
+    expect(
+      existsSync(
+        join(
+          ROOT,
+          "docs",
+          "handoffs",
+          "TAGORA-TIME-OFFICE-CLOSURE-AFTER-H5F3R-2026-07-15.md"
+        )
+      )
+    ).toBe(true);
     expect(f1).toMatch(/H5-F3/);
     expect(plan).toMatch(/H5-F3/);
   });
