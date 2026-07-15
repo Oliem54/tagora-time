@@ -40,7 +40,9 @@ describe("H5-E1 security RLS audit documentary", () => {
       expect(existsSync(join(MIGRATIONS_DIR, name))).toBe(true);
       expect(audit).toContain(name.slice(0, 14));
     }
-    expect(files.some((f) => /h5e1|h5e2/i.test(f))).toBe(false);
+    expect(files.some((f) => /h5e1/i.test(f))).toBe(false);
+    expect(files.some((f) => /h5e2a_harden_authorization_helpers/i.test(f))).toBe(true);
+    expect(files.some((f) => /h5e2[bcd]/i.test(f))).toBe(false);
     expect(audit).toMatch(/NE PAS REJOUER|ne jamais rejouer|Ne jamais rejouer/i);
     expect(audit).toMatch(/aucune[\s\S]*migration|audit RO uniquement/i);
     expect(audit).toMatch(/aucune[\s\S]*policy|policy.*modifiés/i);
@@ -76,8 +78,10 @@ describe("H5-E1 security RLS audit documentary", () => {
     expect(audit).toMatch(/INTERDITE/);
     expect(audit).toContain("qokyobcvplzufshydhih");
     expect(audit).toMatch(/51\s*%/);
-    expect(audit).toMatch(/H5-E1 TERMINÉ — AUDIT SÉCURITÉ\/RLS DOCUMENTÉ, H5-E2 REQUIERT GO MARTIN/);
+    expect(audit).toMatch(/H5-E1 TERMINÉ/);
+    expect(audit).toMatch(/H5-E2A/);
     expect(plan).toMatch(/H5-E1|LOT H5-E/);
+    expect(plan).toMatch(/H5-E2A/);
     expect(d4).toMatch(/H5-E1/);
   });
 });

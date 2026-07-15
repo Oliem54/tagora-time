@@ -1,14 +1,14 @@
 # TAGORA Time — SaaS 1B.1B H5-E1 audit sécurité / RLS / vues (2026-07-15)
 
-**Agent :** Martin  
-**Agent donneur :** Martin  
-**Projet :** TAGORA Time uniquement  
-**Poste :** Maison  
-**Branche :** `wip/saas1b1-tenant-foundation-checkpoint-2026-07-13`  
-**HEAD :** `f29dedbb1db38144ce2c45fe506c1f1c686d038a`  
+**Agent :** Martin
+**Agent donneur :** Martin
+**Projet :** TAGORA Time uniquement
+**Poste :** Maison
+**Branche :** `wip/saas1b1-tenant-foundation-checkpoint-2026-07-13`
+**HEAD :** `f29dedbb1db38144ce2c45fe506c1f1c686d038a`
 **Feature :** `feature/sales-book-grants` @ `6fd6ca09078eedbd133e59aca160f606fa33040b`
 
-**Staging (lecture seule) :** `qokyobcvplzufshydhih`  
+**Staging (lecture seule) :** `qokyobcvplzufshydhih`
 **Production :** **INTERDITE** — `qcgvzdlfsxybrmloijpt`
 
 **Avancement V1 :** **51 %** (inchangé)
@@ -86,7 +86,7 @@ Ces policies **annulent** l’effet utile des policies plus strictes coexistante
 | `…_insert_pending_public` | INSERT | anon, authenticated | WITH CHECK : status pending ; assigned_* / review_* / invited_* / lock / last_error vides |
 | `…_select/update/delete_direction_admin` | S/U/D | authenticated | `is_direction_or_admin()` |
 
-**Insert public borné ?** Oui pour champs **d’assignation/revue**.  
+**Insert public borné ?** Oui pour champs **d’assignation/revue**.
 
 **Élévation possible ?** Partielle (pas de rôle assigné via INSERT) :
 - `requested_role` / `requested_permissions` / `company` / `message` / `audit_log` **non** verrouillés par la policy → falsification de demande / framing société possible (**MOYEN**).
@@ -122,7 +122,7 @@ Policies Phase1 locale (`*_phase1` Direction+terrain) **non applied** (migration
 | horodateur_current_state | autorisé (select) | refusé* | non prouvable** | non prouvable** | refusé* | hors RLS |
 | horodateur_exceptions | autorisé (select) | refusé* | non prouvable** | non prouvable** | refusé* | hors RLS |
 
-\* sous réserve grants — anon a GRANT large, mais sans policy SELECT → refus RLS.  
+\* sous réserve grants — anon a GRANT large, mais sans policy SELECT → refus RLS.
 \*\* pas de policy Direction/terrain applied ; seuls helpers non utilisés ici.
 
 **Dépendance `user_id` obligatoire ?** Non — policies strictes utilisent `employee_id` ↔ `chauffeurs.auth_user_id`. Aligné H5-D2.
@@ -137,12 +137,13 @@ Policies Phase1 locale (`*_phase1` Direction+terrain) **non applied** (migration
 | `is_direction_or_admin()` | INVOKER | vide | rôles `direction`/`admin` |
 | `is_direction_user()` | INVOKER | vide | rôle `direction` |
 | `has_app_permission(text)` | INVOKER | vide | rôle + `current_app_permissions()` |
+| `current_app_permissions()` | INVOKER | vide | **coalesce(app_metadata, user_metadata, [])** (écart H5-E1 corrigé en H5-E2A) |
 
-- **user_metadata :** non utilisé dans ces helpers (**OK**).  
-- **app_metadata :** oui (**OK** pour confiance JWT serveur).  
-- **SECURITY DEFINER :** aucun parmi ces 4.  
-- **search_path dangereux :** config `proconfig` vide — **MOYEN** (à fixer en H5-E2A même en INVOKER).  
-- EXECUTE accordé à PUBLIC/anon/authenticated/service_role — **MOYEN** (helpers non secrets, mais surface large).
+- **user_metadata :** `current_app_role` / `is_direction_*` / `has_app_permission` ne le lisent pas directement ; **`current_app_permissions` avait encore un fallback user_metadata** (confirmé staging) — **corrigé en H5-E2A**.
+- **app_metadata :** oui (**OK** pour confiance JWT serveur).
+- **SECURITY DEFINER :** aucun parmi ces helpers.
+- **search_path dangereux :** config `proconfig` vide — **MOYEN** (**corrigé en H5-E2A** : `search_path=pg_catalog`).
+- EXECUTE accordé à PUBLIC/anon/authenticated/service_role — **MOYEN** (**corrigé en H5-E2A** : PUBLIC/anon révoqués).
 
 ---
 
@@ -213,7 +214,7 @@ Comportement RLS sous-jacent : vue INVOKER ⇒ fuite via branches GPS/sorties/HE
 | FORCE RLS | non | non | false | documenter / décider Martin |
 | Tenant | non | non | absent | **dépend H4** |
 
-Classements : `29120000` = **nécessite forward-only** (pas rejeu aveugle).  
+Classements : `29120000` = **nécessite forward-only** (pas rejeu aveugle).
 `29130000` = **dangereux à rejouer** (vue) + forward-only partiel (helpers/policies seulement).
 
 ---
@@ -221,57 +222,58 @@ Classements : `29120000` = **nécessite forward-only** (pas rejeu aveugle).
 ## 12. Risques classés
 
 ### CRITIQUE
-1. `horodateur_events_*` public `true` (S/I/U/D).  
-2. `chauffeurs` / `sorties_terrain` `allow all` public.  
-3. Vue terrain `security_invoker` exposant données via tables fail-open.  
+1. `horodateur_events_*` public `true` (S/I/U/D).
+2. `chauffeurs` / `sorties_terrain` `allow all` public.
+3. Vue terrain `security_invoker` exposant données via tables fail-open.
 4. GRANT anon large ∩ fail-open.
 
 ### ÉLEVÉ
-1. Policies permissives redondantes qui neutalisent `events_select`.  
-2. temps_titan sans filtre compagnie.  
-3. Phase1 Direction+terrain non applied (trou fonctionnel Direction via RLS stricte).  
+1. Policies permissives redondantes qui neutalisent `events_select`.
+2. temps_titan sans filtre compagnie.
+3. Phase1 Direction+terrain non applied (trou fonctionnel Direction via RLS stricte).
 4. Helpers sans `search_path` explicite.
 
 ### MOYEN
-1. AR INSERT laisse `company` / `requested_*` / `audit_log` libres.  
-2. FORCE RLS = false partout.  
-3. EXECUTE helpers pour PUBLIC.  
+1. AR INSERT laisse `company` / `requested_*` / `audit_log` libres.
+2. FORCE RLS = false partout.
+3. EXECUTE helpers pour PUBLIC.
 4. Duplication gps own vs policy terrain.
 
 ### FAIBLE
-1. Noms `allow all ` (espace trailing).  
+1. Noms `allow all ` (espace trailing).
 2. Duplication cosmétique de helpers entre migrations pending.
 
 ---
 
-## 13. Stratégie H5-E2 (proposition — **non exécutée**)
+## 13. Stratégie H5-E2
 
-**Ne jamais rejouer** `29120000` / `29130000` tels quels.  
-**Forward-only** uniquement, après GO Martin.
+**Ne jamais rejouer** `29120000` / `29130000` tels quels.
+**Forward-only** uniquement.
 
-### H5-E2A — Helpers
-- Prérequis : GO Martin ; snapshot policies.  
-- Objets : `current_app_role`, `is_direction_*`, `has_app_permission`, search_path, EXECUTE grants.  
-- Risque : moyen. Rollback : restore définition helpers.  
+### H5-E2A — Helpers — **EXÉCUTÉ**
+- Voir `TAGORA-TIME-SAAS1B1B-H5E2A-AUTH-HELPERS-HARDENING-2026-07-15.md`.
+- Migration : `20260715130000_h5e2a_harden_authorization_helpers.sql`.
+- Objets : cinq helpers ; app_metadata only ; INVOKER ; `search_path=pg_catalog` ; ACL authenticated/service_role.
+- Risque : moyen. Rollback : restore snapshots TEMP.
 - Dépendance H4 : non. Isolable : **oui**.
 
 ### H5-E2B — account_requests / temps_titan
-- Drop/recreate policies fail-safe ; durcir INSERT AR ; TT Direction/admin.  
-- **Pas** d’isolation company tant que H4 absent (documenter).  
+- Drop/recreate policies fail-safe ; durcir INSERT AR ; TT Direction/admin.
+- **Pas** d’isolation company tant que H4 absent (documenter).
 - Risque : élevé. Isolable : oui. Dépend H4 pour tenant : partiel.
 
 ### H5-E2C — Horodateur
-- DROP policies fail-open HE ; aligner selects Phase1 (`employee_id` + Direction+`terrain`) ; shifts/state/exceptions.  
-- Prérequis : H5-D2 OK.  
-- Risque : **élevé / bloquant sécurité**. Isolable : oui.  
+- DROP policies fail-open HE ; aligner selects Phase1 (`employee_id` + Direction+`terrain`) ; shifts/state/exceptions.
+- Prérequis : H5-D2 OK.
+- Risque : **élevé / bloquant sécurité**. Isolable : oui.
 - Tests : punch employé, Direction, refus cross-employee.
 
 ### H5-E2D — Vue + grants vue
-- Valider contrat 18 colonnes H5-D2 ; **aucun** CREATE VIEW depuis 2913 ; grants vue ; pas de régression D2.  
-- Isolable après E2C (sous-jacents sécurisés).  
+- Valider contrat 18 colonnes H5-D2 ; **aucun** CREATE VIEW depuis 2913 ; grants vue ; pas de régression D2.
+- Isolable après E2C (sous-jacents sécurisés).
 
-**Rejeu 29120000 recommandé ?** Non.  
-**Rejeu 29130000 recommandé ?** Non.  
+**Rejeu 29120000 recommandé ?** Non.
+**Rejeu 29130000 recommandé ?** Non.
 **Forward-only H5-E2 ?** Oui.
 
 Décisions Martin éventuelles : ordre E2A→E2C prioritaire sécurité ; E2B ; FORCE RLS ; portée grants anon ; attendre H4 pour TT company.
@@ -282,9 +284,9 @@ Décisions Martin éventuelles : ordre E2A→E2C prioritaire sécurité ; E2B ; 
 
 | Domaine | Statut |
 |---------|--------|
-| H5-E2 SQL | Non créé |
+| H5-E2A | **Exécuté** (helpers) |
+| H5-E2B/C/D SQL | Non démarrés |
 | H5-F / H4 | Non touchés |
-| Staging écriture | Aucune |
 | Production | Interdite |
 | H5-D2 vue | Préservée |
 | V1 | 51 % |
@@ -293,5 +295,5 @@ Décisions Martin éventuelles : ordre E2A→E2C prioritaire sécurité ; E2B ; 
 
 ## 15. Prochaine étape unique
 
-**GO Martin distinct pour démarrer H5-E2A (helpers) ou H5-E2C (Horodateur fail-open)** — prioriser fail-open HE/chauffeurs/sorties.  
-Pas d’exécution globale H5-E, pas H5-F, pas H4.
+**H5-E2C — policies fail-open Horodateur / chauffeurs / sorties** (mandat Martin distinct).
+Ne pas démarrer H5-E2B/D, H5-F, H4 ; ne pas intégrer feature ; ne pas toucher production.

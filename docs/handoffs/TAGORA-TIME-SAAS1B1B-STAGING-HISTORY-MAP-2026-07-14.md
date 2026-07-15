@@ -40,12 +40,13 @@ Sans aucune écriture distante.
 
 | Item | Valeur |
 |------|--------|
-| Total migrations locales | **88** (84 R8 + H5-A/B/C + H5-D2) |
+| Total migrations locales | **89** (84 R8 + H5-A/B/C + H5-D2 + H5-E2A) |
 | Renommages legacy (R4) | **42** |
 | Hash avant/après rename (R4) | **42/42 identiques** (contenu SQL inchangé au moment du rename) |
-| Versions 14 chiffres uniques | **88** (0 doublon) |
+| Versions 14 chiffres uniques | **89** (0 doublon) |
 | Première version | `20260407000000` |
-| Dernière version | `20260715120000` (H5-D2) |
+| Dernière version | `20260715130000` (H5-E2A) |
+| Empreinte LF fichiers+SHA-256 (portable, post H5-E2A) | `06BE51BF780911385B15C7F8E05890DD47F5F41CAD5C0EA3A04D071ECEDF42A0` |
 | Empreinte LF fichiers+SHA-256 (portable, post H5-D2) | `F0AED47A8C7791A08873C10E2741D503E325105FEF78A5AD7B7A731CD48A93B6` |
 | Empreinte git ls-tree (84 fichiers, pre-H5-A) | `370C9C7A2F686D5A49FCD6BF644DC971F6B289C1F63E27B195663E0AFD2A927B` |
 | Empreinte fichier+SHA-256 historique (poste maison R8, non portable CRLF) | `2A2693481D3684C8CF836CB9AE43BB78A761C244568D9A6052CDA64502A31863` |
