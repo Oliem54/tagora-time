@@ -262,11 +262,12 @@ Classements : `29120000` = **nécessite forward-only** (pas rejeu aveugle).
 - **Pas** d’isolation company tant que H4 absent (documenter).
 - Risque : élevé. Isolable : oui. Dépend H4 pour tenant : partiel.
 
-### H5-E2C — Horodateur
-- DROP policies fail-open HE ; aligner selects Phase1 (`employee_id` + Direction+`terrain`) ; shifts/state/exceptions.
-- Prérequis : H5-D2 OK.
-- Risque : **élevé / bloquant sécurité**. Isolable : oui.
-- Tests : punch employé, Direction, refus cross-employee.
+### H5-E2C — Horodateur / chauffeurs / sorties — **EXÉCUTÉ**
+- Voir `TAGORA-TIME-SAAS1B1B-H5E2C-TERRAIN-RLS-CLOSURE-2026-07-15.md`.
+- Migration : `20260715140000_h5e2c_close_terrain_fail_open_policies.sql`.
+- DROP policies fail-open HE + `allow all ` ; SELECT Phase1+admin ; sorties CRUD sécurisé.
+- Prérequis : H5-D2 / H5-E2A OK.
+- Risque : **élevé / bloquant sécurité** (fermé). Isolable : oui.
 
 ### H5-E2D — Vue + grants vue
 - Valider contrat 18 colonnes H5-D2 ; **aucun** CREATE VIEW depuis 2913 ; grants vue ; pas de régression D2.
@@ -285,7 +286,8 @@ Décisions Martin éventuelles : ordre E2A→E2C prioritaire sécurité ; E2B ; 
 | Domaine | Statut |
 |---------|--------|
 | H5-E2A | **Exécuté** (helpers) |
-| H5-E2B/C/D SQL | Non démarrés |
+| H5-E2C | **Exécuté** (fail-open fermés) |
+| H5-E2B/D SQL | Non démarrés |
 | H5-F / H4 | Non touchés |
 | Production | Interdite |
 | H5-D2 vue | Préservée |
@@ -295,5 +297,5 @@ Décisions Martin éventuelles : ordre E2A→E2C prioritaire sécurité ; E2B ; 
 
 ## 15. Prochaine étape unique
 
-**H5-E2C — policies fail-open Horodateur / chauffeurs / sorties** (mandat Martin distinct).
-Ne pas démarrer H5-E2B/D, H5-F, H4 ; ne pas intégrer feature ; ne pas toucher production.
+**H5-E2B — account_requests / temps_titan** (mandat Martin distinct).
+Ne pas démarrer H5-E2D, H5-F, H4 ; ne pas intégrer feature ; ne pas toucher production.

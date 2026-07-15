@@ -172,11 +172,12 @@ Vue hash avant = après : `9aff5841040669bf4acb3528ad997751064915b849f6358e7e6c6
 
 ## 9. Limites / suite
 
-- Policies fail-open Horodateur / chauffeurs / sorties **toujours critiques** → **H5-E2C** (non démarré).
+- Policies fail-open Horodateur / chauffeurs / sorties **fermées en H5-E2C** — voir handoff E2C.
 - H5-E2B (AR/TT), H5-E2D (vue/grants), H5-F, H4 : **protégés**.
 - Aucune intégration `feature/sales-book-grants`.
 - Production non touchée.
 - Données métier : **aucune** modification.
+- Prochaine étape : **H5-E2B** (mandat distinct).
 
 ---
 
@@ -192,5 +193,4 @@ Vue hash avant = après : `9aff5841040669bf4acb3528ad997751064915b849f6358e7e6c6
 
 **GO H5-E2A — HELPERS D’AUTORISATION DURCIS ET VALIDÉS**
 
-Prochaine étape unique : **H5-E2C** (fail-open Horodateur) — mandat distinct uniquement.  
-V1 demeure **51 %**.
+H5-E2C exécuté ensuite (lot suivant) — ne pas confondre avec un rejeu E2A.

@@ -180,8 +180,9 @@ Forward-only `20260714140000_h5a_reconcile_foundations_columns.sql` applied stag
 - Risque : **élevé**
 - **Statut H5-E1 :** `H5-E1 TERMINÉ — AUDIT SÉCURITÉ/RLS DOCUMENTÉ` — voir `TAGORA-TIME-SAAS1B1B-H5E1-SECURITY-RLS-AUDIT-2026-07-15.md`
 - **Statut H5-E2A :** `H5-E2A EXÉCUTÉ — HELPERS DURCIS` — migration `20260715130000` ; voir `TAGORA-TIME-SAAS1B1B-H5E2A-AUTH-HELPERS-HARDENING-2026-07-15.md`
-- **Ne jamais rejouer** `29120000` / `29130000` (vue 2913 supersédée par H5-D2) ; suite forward-only **H5-E2C** puis E2B/E2D après GO Martin
-- Fail-open staging documentés (toujours critiques jusqu’à H5-E2C) : `horodateur_events_*` public true ; `chauffeurs` / `sorties_terrain` `allow all`
+- **Statut H5-E2C :** `H5-E2C EXÉCUTÉ — FAIL-OPEN TERRAIN/HORODATEUR FERMÉS` — migration `20260715140000` ; voir `TAGORA-TIME-SAAS1B1B-H5E2C-TERRAIN-RLS-CLOSURE-2026-07-15.md`
+- **Ne jamais rejouer** `29120000` / `29130000` (vue 2913 supersédée par H5-D2) ; suite forward-only **H5-E2B** puis E2D après GO Martin
+- Fail-open staging **fermé** en H5-E2C (`horodateur_events_*` public ; `chauffeurs` / `sorties_terrain` `allow all `)
 - Avancement V1 : **51 %** (inchangé)
 
 ### LOT H5-F — Autres domaines (risque moyen)
