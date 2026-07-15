@@ -184,10 +184,10 @@ Pas de table d’arrêts alternative canonique identifiée pour remplacer les co
 - Verdict : **NO-GO exécution** tant que décisions SMS ouvertes
 
 ### H5-F4 — Preuves / photos metadata / inline (`25090500` + `25140500` + `26120500`)
-- Prérequis : confirmation catalogue note + metadata  
-- Stratégie : preuves no-op séparées ou lot joint ; repair history-only  
-- Peut se **sous-diviser** si Martin le demande  
-- Verdict : **GO documentary / repair** possible après GO Martin (schema déjà OK)
+- Prérequis : confirmation catalogue note + metadata — **satisfaits**
+- Stratégie : preuves no-op + repair history-only (trois versions, une à la fois)
+- **Statut :** `GO H5-F4` exécuté — voir `TAGORA-TIME-SAAS1B1B-H5F4-PROOFS-PHOTOS-INLINE-HISTORY-2026-07-15.md`
+- Aucun SQL rejoué ; schéma/données/policies inchangés ; history-only applied
 
 ### H5-F5 — Storage (`25133500`)
 - Prérequis : décisions ACL + création bucket contrôlée  
@@ -236,4 +236,4 @@ Sans objet (audit doc only). Futurs lots : snapshots TEMP ; interdit restaurer D
 
 **H5-F1 TERMINÉ — AUDIT DES DOMAINES RESTANTS DOCUMENTÉ, DÉCISIONS MARTIN REQUISES**
 
-Prochaine étape unique : **attente décisions Martin**, puis mandat **H5-F4** (preuves no-op) ou **H5-F2** selon priorité — **ne pas démarrer automatiquement**.
+Prochaine étape unique : mandat distinct **H5-F2** (comptes) après décisions Martin — **ne pas démarrer automatiquement** H5-F2 / H5-F3 / H5-F5 / H4.
