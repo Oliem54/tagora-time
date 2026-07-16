@@ -19,6 +19,8 @@ import {
   getPasswordChangePathForRole,
   getUserRole,
 } from "@/app/lib/auth/roles";
+import { appRoleMatchesArea } from "@/app/lib/auth/organization-role-mapping.shared";
+import { fetchSessionAuthorizationContext } from "@/app/lib/auth/session-context.client";
 import { hasPasswordChangeRequired } from "@/app/lib/auth/passwords";
 import { getMandatoryMfaGate } from "@/app/lib/auth/mfa.client";
 import { isAuthMfaPath } from "@/app/lib/auth/mfa.shared";
@@ -104,7 +106,6 @@ export default function AuthGate({
             userError = second.error;
           }
           const user = data.user;
-          const role = getUserRole(user);
 
           if (cancelled) return;
 
@@ -118,19 +119,33 @@ export default function AuthGate({
             return;
           }
 
-          if (!role) {
-            await supabase.auth.signOut();
+          const sessionRes = await supabase.auth.getSession();
+          const accessToken = sessionRes.data.session?.access_token;
+          if (!accessToken) {
+            if (isPublicPath) {
+              setStatus("allowed");
+              return;
+            }
+            router.replace(getLoginPathForRole(areaRole));
+            return;
+          }
 
+          const ctx = await fetchSessionAuthorizationContext(accessToken);
+          if (cancelled) return;
+
+          // H4 membership is required. JWT alone (including admin) does not authorize.
+          if (!ctx.authorized || !ctx.appRole) {
+            await supabase.auth.signOut();
             if (!cancelled) {
               router.replace(getLoginPathForRole(areaRole));
             }
             return;
           }
 
-          const roleMatchesArea =
-            areaRole === "admin"
-              ? role === "admin"
-              : role === areaRole || (areaRole === "direction" && role === "admin");
+          const role = ctx.appRole;
+          const jwtRole = getUserRole(user);
+
+          const roleMatchesArea = appRoleMatchesArea(areaRole, role);
 
           const crossReadOk =
             Boolean(crossAreaReadMatch) &&
@@ -172,10 +187,18 @@ export default function AuthGate({
 
           const requiredPermission = getRequiredPermissionForPath(pathname);
 
+          // Finance stays JWT-admin only (hasAdminFinanceAccess).
+          // Membership-mapped admin may lack JWT permission lists for non-finance modules.
           if (requiredPermission && !hasUserPermission(user, requiredPermission)) {
-            setMissingPermission(requiredPermission);
-            router.replace(getHomePathForRole(role));
-            return;
+            const membershipAdminModuleBypass =
+              requiredPermission !== "admin_finance" &&
+              role === "admin" &&
+              jwtRole !== "admin";
+            if (!membershipAdminModuleBypass) {
+              setMissingPermission(requiredPermission);
+              router.replace(getHomePathForRole(role));
+              return;
+            }
           }
 
           setStatus("allowed");

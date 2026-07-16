@@ -23,14 +23,15 @@ describe("QA V1-C1 nonmember/employee access documentary", () => {
     expect(handoff).toMatch(/memberships avant[\s\S]*\*\*3\*\*|memberships avant \| \*\*3\*\*/i);
   });
 
-  it("documents H4 employe membership and AuthGate JWT gap as PARTIAL", () => {
+  it("documents H4 employe membership, initial AuthGate gap, and final GO after C1B", () => {
     expect(handoff).toMatch(/PARTIAL QA V1-C1/);
     expect(handoff).toMatch(/organization_memberships|Membership Employé \(H4\)/);
     expect(handoff).toMatch(/employe/);
     expect(handoff).toMatch(/Memberships après[\s\S]*\*\*4\*\*/);
     expect(handoff).toMatch(/AuthGate/);
     expect(handoff).toMatch(/JWT[\s\S]*none|jwt[\s\S]*none/i);
-    expect(handoff).toMatch(/ne débloque pas|NON RACCORDÉ|non raccord/i);
+    expect(handoff).toMatch(/Verdict final[\s\S]*GO QA V1-C1|GO QA V1-C1 — FAIL-CLOSED/);
+    expect(handoff).toMatch(/QA V1-C1B/);
     expect(handoff).toMatch(/Direction[\s\S]*refus/i);
     expect(handoff).toMatch(/Admin[\s\S]*refus/i);
     expect(handoff).toMatch(/Compensation[\s\S]*refus/i);
@@ -40,7 +41,6 @@ describe("QA V1-C1 nonmember/employee access documentary", () => {
     expect(handoff).toMatch(/Auth modifiée[\s\S]*non/i);
     expect(handoff).toContain("qcgvzdlfsxybrmloijpt");
     expect(handoff).toMatch(/77 %/);
-    expect(handoff).not.toMatch(/GO QA V1-C1 — FAIL-CLOSED/);
     expect(migrations.some((f) => /qa.?v1c1.?employ|add.?employee/i.test(f))).toBe(
       false
     );

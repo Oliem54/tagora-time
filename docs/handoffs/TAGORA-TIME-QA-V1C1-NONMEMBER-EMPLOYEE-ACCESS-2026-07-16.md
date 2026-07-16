@@ -11,7 +11,10 @@
 
 **Avancement V1 :** **77 % → 77 %**
 
-**Verdict :** **PARTIAL QA V1-C1 — MEMBERSHIP H4 VALIDÉ, AUTHGATE EMPLOYÉ NON RACCORDÉ AUX MEMBERSHIPS**
+**Verdict initial :** **PARTIAL QA V1-C1 — MEMBERSHIP H4 VALIDÉ, AUTHGATE EMPLOYÉ NON RACCORDÉ AUX MEMBERSHIPS**
+
+**Verdict final (après QA V1-C1B) :** **GO QA V1-C1 — FAIL-CLOSED NON-MEMBRE ET LIMITES EMPLOYÉ VALIDÉS**  
+Écart AuthGate corrigé dans `TAGORA-TIME-QA-V1C1B-AUTHGATE-MEMBERSHIP-INTEGRATION-2026-07-16.md`. Reprise fonctionnelle : membership `employe` + JWT `none` → accès Employé ; Direction/Admin/Compensation refusés ; Auth inchangée.
 
 ---
 
@@ -107,11 +110,16 @@ Aucune élévation vers Direction / Admin / Compensation / plateforme.
 
 ---
 
-## 8. Prochaine étape
+## 8. Clôture après QA V1-C1B
 
-Selon verdict PARTIAL :
+Écart AuthGate **corrigé** (`docs/handoffs/TAGORA-TIME-QA-V1C1B-AUTHGATE-MEMBERSHIP-INTEGRATION-2026-07-16.md`).
 
-1. **Correctif AuthGate / runtime** pour consommer les memberships H4 (ou stratégie JWT alignée, sous mandat dédié) ;  
-2. puis **QA V1-C2** (Owner / Admin / Direction) — **ne pas démarrer automatiquement**.
+Reprise fonctionnelle :
+
+- membership H4 `employe` + JWT `none` → accès Employé (`/api/auth/session-context`, `/api/employe/effectifs/mon-horaire` 200) ;
+- Direction / Admin / utilisateurs / Compensation → refus ;
+- Auth / memberships / Storage inchangés côté données.
+
+**Prochaine étape :** **QA V1-C2** — Owner / Admin / Direction — **ne pas démarrer automatiquement**.
 
 **Avancement V1 : 77 % → 77 %**
