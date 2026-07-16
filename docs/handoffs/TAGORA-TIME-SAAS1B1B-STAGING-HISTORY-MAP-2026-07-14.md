@@ -15,7 +15,7 @@
 **Décision R9 :** GO HISTORY — H2/H3 NORMALISÉS, H4/H5 CONSERVÉS PENDING  
 (voir `docs/handoffs/TAGORA-TIME-SAAS1B1B-STAGING-HISTORY-REPAIR-2026-07-14.md`)
 
-**Avancement V1 :** **55 %** (recalculé après H4-A ; H5-F5 + apply H4 pending ; plan H4 Option C verrouillé — voir `TAGORA-TIME-SAAS1B1B-H4A-TENANT-FOUNDATION-AUDIT-2026-07-16.md`)
+**Avancement V1 :** **57 %** (après H4-B1 GO ; était **55 %** post H4-A / **51 %** gelé historique ; H4-B2/B3 + H5-F5 pending — voir `TAGORA-TIME-SAAS1B1B-H4B1-TENANT-ROOT-EXECUTION-2026-07-16.md`)
 
 **Statut H5-F4 (2026-07-15) :** `20260425090500`, `20260425140500`, `20260426120500` → **applied** (repair history-only ; aucun DDL) — voir `TAGORA-TIME-SAAS1B1B-H5F4-PROOFS-PHOTOS-INLINE-HISTORY-2026-07-15.md`
 
@@ -46,12 +46,13 @@ Sans aucune écriture distante.
 
 | Item | Valeur |
 |------|--------|
-| Total migrations locales | **92** (84 R8 + H5-A/B/C + H5-D2 + H5-E2A + H5-E2C + H5-E2B + H5-E2D) |
+| Total migrations locales | **93** (92 post H5-E2D + H4-B1 `20260716220000`) |
 | Renommages legacy (R4) | **42** |
 | Hash avant/après rename (R4) | **42/42 identiques** (contenu SQL inchangé au moment du rename) |
-| Versions 14 chiffres uniques | **92** (0 doublon) |
+| Versions 14 chiffres uniques | **93** (0 doublon) |
 | Première version | `20260407000000` |
-| Dernière version | `20260715160000` (H5-E2D) |
+| Dernière version | `20260716220000` (H4-B1) |
+| Empreinte LF fichiers+SHA-256 (portable, post H4-B1) | `D2F725E8E00B5A8E8542C5B542BC3828A85A02D667ED1C729468DC8A86C53A2D` |
 | Empreinte LF fichiers+SHA-256 (portable, post H5-E2D) | `CD5CB3A15731B192FEB4B6658DBD6A34970BABD20E278CC33CC298371D219C5E` |
 | Empreinte LF fichiers+SHA-256 (portable, post H5-E2B) | `2904E0362A4279FA820A2AFC466EBE33387715208D2DCBD30741116AC62D9717` |
 | Empreinte LF fichiers+SHA-256 (portable, post H5-E2C) | `26D0DE598ECECC64D3FCD00B0B3B18AEF268669C9C4655DB9C6A4A38D4CFDEA8` |

@@ -12,6 +12,7 @@
 
 **Avancement V1 avant H4-A (gelé historique) :** 51 %
 **Avancement V1 après H4-A (recalculé) :** **55 %** — voir §13.
+**Avancement V1 après H4-B1 GO :** **57 %** — voir `TAGORA-TIME-SAAS1B1B-H4B1-TENANT-ROOT-EXECUTION-2026-07-16.md`.
 
 **Écriture staging / migration apply / repair / db push réel :** **aucune**.
 **Migration SQL nouvelle :** **aucune**.
@@ -258,29 +259,23 @@ Le **51 %** gelé ne crédait plus H5-E ni H5-F2/F3R/F4 fermés, ni le plan H4 e
 | H5 réconciliation non-Storage (A–D, F2/F3R/F4) | 12 | 100 % | **12** | History + lots fermés |
 | H5-E sécurité / RLS / helpers | 8 | 100 % | **8** | E2A–E2D fermés |
 | Fondation H4 — audit/plan | 2 | 100 % | **2** | H4-A final ; méthode C verrouillée |
-| Fondation H4 — apply B1/B2/B3 + repair | 10 | 0 % | **0** | Staging : 0/6 H4 appliquées |
-| H5-F5 Storage isolé org | 12 | 0 % | **0** | Attend H4 |
+| Fondation H4 — apply B1/B2/B3 + repair | 10 | 20 % (B1 seul) | **2** | H4-B1 applied staging ; B2/B3 pending |
+| H5-F5 Storage isolé org | 12 | 0 % | **0** | Attend H4-B2/B3 |
 | Intégration feature contrôlée | 12 | 0 % | **0** | Attend H4 + F5 |
 | QA fonctionnelle V1 | 8 | 0 % | **0** | Après intégration |
 | Pilote V1 | 6 | 0 % | **0** | Après QA |
-| **Total** | **100** | — | **55** | — |
+| **Total après H4-A** | **100** | — | **55** | audit only |
+| **Total après H4-B1 GO** | **100** | — | **57** | +2 pts apply B1 |
 
-**Pourcentage global réel après H4-A : 55 %**
-(avant 51 % → +4 : +2 H5-E, +1 H5-F history non-Storage, +1 audit H4 verrouillé).
-
-H4-A n’applique pas la DDL : les **10 pts** apply H4 restent à 0 jusqu’à H4-B1…B3.
+**Pourcentage global après H4-A : 55 %** ; **après H4-B1 GO : 57 %**.
 
 ---
 
 ## 14. Prochain mandat exécutable unique
 
-**H4-B1 — appliquer la racine tenant** (Option C, lot 1/3) :
+**H4-B1 — EXÉCUTÉ (GO).** Voir handoff H4-B1.
 
-- forward-only post-`20260715160000` ;
-- tables `organizations` / `organization_companies` / `organization_settings` ;
-- fonction `set_saas_foundation_updated_at` durcie ;
-- preuves local + staging scoped ;
-- **pas** B2/B3, **pas** H5-F5, **pas** feature, **pas** production.
+**Prochaine étape :** **H4-B2** (memberships + invitations + `organization_id` immuable) — mandat distinct.
 
 ---
 
