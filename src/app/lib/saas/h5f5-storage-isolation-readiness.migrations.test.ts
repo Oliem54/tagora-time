@@ -36,14 +36,11 @@ describe("H5-F5 storage isolation readiness documentary", () => {
     expect(handoff).toMatch(/ne pas rejouer|NE PAS REJOUER|interdite/i);
   });
 
-  it("forbids new SQL, bucket, policy, Storage writes, production, and repair in this pass", () => {
-    expect(files.some((f) => f.startsWith("20260716223000"))).toBe(false);
-    expect(files.filter((f) => /h5f5/i.test(f))).toEqual([]);
-    expect(handoff).toMatch(/aucune[\s\S]*migration SQL créée|ne pas créer maintenant/i);
-    expect(handoff).toMatch(/aucun[\s\S]*bucket|Bucket[\s\S]*non cré/i);
-    expect(handoff).toMatch(/aucune[\s\S]*policy|policy[\s\S]*non cré/i);
-    expect(handoff).toMatch(/aucun[\s\S]*objet Storage|objet[\s\S]*non cré/i);
-    expect(handoff).toMatch(/Écriture staging[\s\S]*aucune|aucune[\s\S]*écriture staging/i);
+  it("forbids production writes and documents scoped repair only after proof", () => {
+    expect(files.some((f) => f.startsWith("20260716223000"))).toBe(true);
+    expect(files.filter((f) => /h5f5_photos_dossiers/i.test(f))).toEqual([
+      "20260716223000_h5f5_photos_dossiers_org_isolation.sql",
+    ]);
     expect(handoff).toContain("qcgvzdlfsxybrmloijpt");
     expect(handoff).toMatch(/INTERDITE|interdite/);
     expect(handoff).toMatch(/migration repair/);
@@ -72,21 +69,20 @@ describe("H5-F5 storage isolation readiness documentary", () => {
     expect(handoff).toMatch(/SECURITY DEFINER[\s\S]*non requis|Helper[\s\S]*non requis/i);
   });
 
-  it("specifies future migration 20260716223000 without creating it", () => {
+  it("specifies migration 20260716223000 as the H5-F5B forward-only file", () => {
     expect(handoff).toContain("20260716223000_h5f5_photos_dossiers_org_isolation.sql");
     expect(handoff).toContain("20260716223000");
     expect(handoff).toMatch(/forward-only|transactionnel/i);
     expect(existsSync(
       join(MIGRATIONS_DIR, "20260716223000_h5f5_photos_dossiers_org_isolation.sql")
-    )).toBe(false);
+    )).toBe(true);
   });
 
-  it("keeps V1 at 65% for readiness and targets 77% only after full H5-F5 GO", () => {
+  it("records V1 progress through readiness → full H5-F5 GO at 77%", () => {
     expect(handoff).toMatch(/\*\*65 %\*\*/);
-    expect(handoff).toMatch(/inchangé|préparation seulement/i);
     expect(handoff).toMatch(/\*\*77 %\*\*/);
     expect(handoff).toMatch(
-      /PARTIAL H5-F5 — CONTRAT STORAGE FIGÉ, INTÉGRATION DU CONTEXTE ORGANISATIONNEL REQUISE AVANT APPLICATION/
+      /GO H5-F5 — RUNTIME OPTION A \+ BUCKET PRIVÉ VALIDÉS|H5-F5B/
     );
   });
 });

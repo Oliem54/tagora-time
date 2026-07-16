@@ -71,7 +71,7 @@ Légende état staging : d’après dump R8 + `migration list` R10 + requêtes a
 | 17 | `20260420112000` | `…_horodateur_core_guardrails_minimal.sql` | `20260420_112000_…` | Guardrails HE | **R5** | Contraintes partielles | Guardrails locaux | Peut rejeter données | élevé | GO métier / audit comptes agrégés |
 | 18 | `20260421113000` | `…_delivery_phase_a_minimal.sql` | `20260421_113000_…` | Livraison Phase A | **R2** | Tracking lié absent | Champs Phase A | Dépend tokens | moyen | Après lot tracking |
 | 19 | `20260425090500` | `…_photos_dossier_proof_metadata.sql` | `20260425_090500_…` | Photos / preuves | **R6** | Tables photos/preuves mixtes | Metadata locale | Preuve colonnes incomplète | moyen | Audit schéma photos |
-| 20 | `20260425133500` | `…_storage_photos_dossiers_policy_alignment.sql` | `20260425_133500_…` | Storage policies | **R6** | Bucket absent ; 0 policy staging ; H4 complet | Forward-only privé + Option A (pas de rejeu historique) | DELETE historique trop large | critique | H5-F5 readiness 2026-07-16 — **ne jamais rejouer** ; voir handoff H5-F5 |
+| 20 | `20260425133500` | `…_storage_photos_dossiers_policy_alignment.sql` | `20260425_133500_…` | Storage policies | **R6** | Bucket privé H5-F5B ; policies=0 ; history-only repaired | Forward-only privé + Option A (pas de rejeu historique) | DELETE historique trop large | critique | H5-F5B GO 2026-07-16 — **jamais rejouée** ; voir handoff H5-F5B |
 | 21 | `20260425140500` | `…_operation_proofs_note_type.sql` | `20260425_140500_…` | Proofs note_type | **R2** | `operation_proofs` présent ; note_type ? | Colonne/check note | Possiblement manquante | moyen | ADD IF NOT EXISTS |
 | 22 | `20260426120500` | `…_livraisons_planifiees_inline_stop_fields.sql` | `20260426_120500_…` | Stops inline | **R2** | Champs stop **absents** | Colonnes inline stop | Colonnes manquantes | moyen | Forward ADD COLUMN |
 | 23 | `20260429120000` | `…_rls_account_requests_temps_titan.sql` | `20260429_120000_…` | RLS AR/TT | **R2** | RLS présentes (variantes) | Policies locales | Diff helpers role | moyen | Diff policies RO puis align |
@@ -194,7 +194,7 @@ Forward-only `20260714140000_h5a_reconcile_foundations_columns.sql` applied stag
 - **Statut H5-F4 :** `GO H5-F4 — HISTORY NORMALISÉ` — trois repairs history-only (`25090500`, `25140500`, `26120500`) ; voir `TAGORA-TIME-SAAS1B1B-H5F4-PROOFS-PHOTOS-INLINE-HISTORY-2026-07-15.md`
 - **Statut H5-F2 :** `GO H5-F2 — HISTORY NORMALISÉ` — repair history-only `20260412161500` ; voir `TAGORA-TIME-SAAS1B1B-H5F2-EMPLOYEE-ACCOUNT-HISTORY-2026-07-15.md`
 - **Statut H5-F3R :** `GO H5-F3R — LEGACY BACKFILL SUPERSEDED` — repair history-only `20260412191500` ; écart `break_am_minutes` approuvé ; voir `TAGORA-TIME-SAAS1B1B-H5F3R-SCHEDULE-SMS-LEGACY-SUPERSESSION-2026-07-15.md`
-- Découpage restant : **H5-F5** Storage — **H5-F5A runtime Option A livré** (2026-07-16) ; reste **H5-F5B** migration forward-only + bucket/policies (bloqué / DELETE large historique ; bucket staging absent)
+- Découpage restant : **H5-F5 Storage COMPLET** (H5-F5A runtime + H5-F5B bucket privé / policies=0 / history-only `20260425133500` — 2026-07-16)
 - Prérequis F5 : **décisions Martin** + création bucket contrôlée ; ne jamais rejouer `25133500`
 - STOP : rejeu historique Storage ; db push
 - Risque : **élevé** (storage)

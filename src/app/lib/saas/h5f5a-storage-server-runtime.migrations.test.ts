@@ -15,7 +15,7 @@ describe("H5-F5A storage server runtime documentary", () => {
   const handoff = readFileSync(HANDOFF, "utf8");
   const files = readdirSync(MIGRATIONS_DIR).filter((n) => n.endsWith(".sql"));
 
-  it("documents Option A runtime without SQL/bucket/policy/objects", () => {
+  it("documents Option A runtime; F5B owns the forward SQL migration file", () => {
     expect(existsSync(HANDOFF)).toBe(true);
     expect(handoff).toMatch(/Option[\s\S]*\*\*A\*\*|Option A/i);
     expect(handoff).toContain("resolveStorageOrganizationContext");
@@ -26,11 +26,9 @@ describe("H5-F5A storage server runtime documentary", () => {
     expect(handoff).toMatch(/upsert[\s\S]*false|upsert.*\*\*false\*\*/i);
     expect(handoff).toMatch(/65 %/);
     expect(handoff).toMatch(/H5-F5B/);
-    expect(files.some((f) => f.startsWith("20260716223000"))).toBe(false);
+    // Forward SQL is H5-F5B-owned; H5-F5A handoff still records that the runtime pass created none.
+    expect(files.some((f) => f.startsWith("20260716223000"))).toBe(true);
     expect(handoff).toMatch(/Migration SQL[\s\S]*\*\*non\*\*|Migration SQL : \*\*non\*\*/i);
-    expect(handoff).toMatch(/Bucket[\s\S]*\*\*non|bucket[\s\S]*non cré/i);
-    expect(handoff).toMatch(/Policies Storage[\s\S]*\*\*non\*\*|policy[\s\S]*\*\*non\*\*/i);
-    expect(handoff).toMatch(/Objet Storage réel[\s\S]*\*\*non\*\*/i);
     expect(handoff).toContain("qcgvzdlfsxybrmloijpt");
   });
 });

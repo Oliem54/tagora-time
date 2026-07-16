@@ -10,10 +10,12 @@
 **Staging :** `qokyobcvplzufshydhih`  
 **Production INTERDITE :** `qcgvzdlfsxybrmloijpt`  
 
-**Avancement V1 :** **65 %** (inchangé — préparation seulement)  
-**Cible après GO H5-F5 complet :** **77 %**
+**Avancement V1 :** **77 %** (après GO H5-F5B ; était **65 %** en readiness/runtime)
+**Cible après GO H5-F5 complet :** **77 %** — **atteinte**
 
-**Portée :** porte d’exécution post-H4 — **read-only staging** — **aucune** migration SQL créée, **aucun** bucket, **aucune** policy, **aucun** objet Storage, **aucun** `migration repair`, **aucun** `db push`.
+**Portée historique readiness :** porte d’exécution post-H4 (doc-only à l’époque).
+**Exécution :** H5-F5A runtime + H5-F5B bucket — voir `TAGORA-TIME-SAAS1B1B-H5F5B-STORAGE-BUCKET-EXECUTION-2026-07-16.md`.
+**Interdit :** `db push`, `--include-all`, production.
 
 ---
 
@@ -35,7 +37,7 @@
 |------|--------|
 | Fichier | `supabase/migrations/20260425133500_storage_photos_dossiers_policy_alignment.sql` |
 | Version | `20260425133500` |
-| Staging | **pending** |
+| Staging | **applied history-only** (H5-F5B) — contenu **jamais rejoué** |
 | Modifiée cette passe | **non** |
 | Rejouée | **non — interdite** |
 
@@ -198,25 +200,15 @@ Une policy Storage `authenticated` **ne peut pas** `SELECT` memberships pour pro
 
 ---
 
-## 8. Future migration (ne pas créer maintenant)
+## 8. Migration H5-F5B (créée et appliquée)
 
 | Item | Valeur |
 |------|--------|
 | Nom | `supabase/migrations/20260716223000_h5f5_photos_dossiers_org_isolation.sql` |
 | Version | `20260716223000` |
 | Style | transactionnel, forward-only, autonome, idempotent local, sans seed/backfill/objet réel |
-
-**Contenu prévu :**
-
-- création idempotente bucket `photos-dossiers` **privé** ;
-- drop ciblé des policies nommées historiques si présentes ;
-- **aucune** nouvelle policy SELECT/INSERT/DELETE/UPDATE client (Option A) ;
-- **aucune** policy UPDATE ;
-- **aucun** helper DEFINER dans le lot SQL minimal ;
-- commentaires contrat org + interdiction rejeu `20260425133500` ;
-- après preuve complète : normalisation history-only de `20260425133500` seulement.
-
-**STOP si :** production ciblée ; objets réels non agrégés ; collision policies ; H4 non vide / policies H4 ≠ 0 ; tentative `--include-all` / `db push`.
+| Staging | appliquée scoped + `migration repair --status applied` |
+| Historique `20260425133500` | **history-only** repaired — **jamais rejouée** |
 
 ---
 
@@ -230,8 +222,8 @@ Voir handoff : `TAGORA-TIME-SAAS1B1B-H5F5A-STORAGE-SERVER-RUNTIME-2026-07-16.md`
 4. ~~Remplacer `getPublicUrl` par URL signée~~ **fait** (`/api/operation-proofs/signed-url`, 300 s).
 5. ~~Durcir delete/ZIP~~ **fait** (membership + path org-safe).
 
-**Reste H5-F5B :** migration forward-only + bucket privé + policies Option A + preuve staging.
-**V1 :** toujours **65 %** jusqu’au GO H5-F5 complet (**77 %**).
+**Reste :** aucun — H5-F5B livré (bucket privé + policies=0 + history-only).
+**V1 :** **77 %** après GO H5-F5 complet.
 **Toujours :** ne jamais accorder DELETE Storage bucket-wide à authenticated.
 
 ---
@@ -249,15 +241,17 @@ Si lot SQL futur appliqué avec bucket vide et 0 objets : drop policies nommées
 | H4 | intact (aucun DDL) |
 | Feature | intacte |
 | Production | interdite |
-| Migration SQL H5-F5 | **non créée** |
-| Bucket / policy / objet | **non créés** |
-| Écriture staging | **aucune** |
-| V1 | **65 %** |
+| Migration SQL H5-F5 | **créée** (`20260716223000`) |
+| Bucket / policy / objet | bucket privé **oui** ; policies **0** ; objets **0** |
+| Écriture staging | SQL bucket scoped + repairs history (pas d’objet) |
+| V1 | **77 %** |
 
 ---
 
 ## 12. Verdict
 
-**PARTIAL H5-F5 — CONTRAT STORAGE FIGÉ, INTÉGRATION DU CONTEXTE ORGANISATIONNEL REQUISE AVANT APPLICATION**
+**GO H5-F5 — RUNTIME OPTION A + BUCKET PRIVÉ VALIDÉS (H5-F5A + H5-F5B)**
 
-Prochaine étape unique : mandat d’exécution H5-F5 **Option A** (runtime org + chemins + routes serveur) **puis** migration forward-only `20260716223000` — **ne pas démarrer automatiquement**.
+Prochaine étape unique : **intégration feature** — **ne pas démarrer automatiquement**.
+
+Référence exécution : `TAGORA-TIME-SAAS1B1B-H5F5B-STORAGE-BUCKET-EXECUTION-2026-07-16.md`.

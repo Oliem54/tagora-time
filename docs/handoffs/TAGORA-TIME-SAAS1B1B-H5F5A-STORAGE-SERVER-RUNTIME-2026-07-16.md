@@ -109,8 +109,9 @@ Revenir au commit précédent WIP. Aucune migration à annuler.
 
 ## 13. Prochaine étape unique
 
-**H5-F5B** — migration forward-only `20260716223000` (bucket privé + grants/policies Option A) — **ne pas démarrer automatiquement**.
+**H5-F5B livré** — voir `TAGORA-TIME-SAAS1B1B-H5F5B-STORAGE-BUCKET-EXECUTION-2026-07-16.md`.
+Prochaine étape chemin critique : **intégration feature** — ne pas démarrer automatiquement.
 
 ---
 
-**Verdict cible :** GO H5-F5A si CI vert + push WIP aligné.
+**Verdict runtime :** GO H5-F5A (inchangé). **H5-F5 complet :** oui (avec H5-F5B).
