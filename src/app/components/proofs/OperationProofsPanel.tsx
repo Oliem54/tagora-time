@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { type ChangeEvent, type PointerEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type ChangeEvent, type CSSProperties, type PointerEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/app/lib/supabase/client";
 import FormField from "@/app/components/ui/FormField";
 import AppCard from "@/app/components/ui/AppCard";
@@ -14,6 +14,10 @@ import {
   DOCUMENT_BADGE_STYLES,
   getDocumentBadgeLabel,
 } from "@/app/lib/operation-proof-documents.shared";
+import {
+  fetchOperationProofSignedUrl,
+  uploadOperationProofViaServer,
+} from "@/app/lib/storage/photos-dossiers-upload.client";
 
 export type ModuleSource =
   | "dossier"
@@ -92,8 +96,99 @@ function shortUserRef(id: string | null | undefined) {
   return id.length > 10 ? `${id.slice(0, 8)}…` : id;
 }
 
-function buildStoragePrefix(moduleSource: ModuleSource, sourceId: string) {
-  return `operation-proofs/${moduleSource}/${sourceId}`;
+function SignedProofOpenButton({
+  proofId,
+  label,
+  className,
+  style,
+}: {
+  proofId: string;
+  label: string;
+  className?: string;
+  style?: CSSProperties;
+}) {
+  const [busy, setBusy] = useState(false);
+
+  const openSigned = async () => {
+    setBusy(true);
+    try {
+      const result = await fetchOperationProofSignedUrl(proofId);
+      if (!result.ok) {
+        window.alert(result.message);
+        return;
+      }
+      window.open(result.url, "_blank", "noopener,noreferrer");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <button
+      type="button"
+      className={className}
+      style={style}
+      disabled={busy}
+      onClick={() => void openSigned()}
+    >
+      {busy ? "…" : label}
+    </button>
+  );
+}
+
+function SignedProofMedia({
+  proof,
+}: {
+  proof: { id: string; type_preuve: string; mime_type: string | null; nom: string; commentaire: string | null };
+}) {
+  const [url, setUrl] = useState<string | null>(null);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const result = await fetchOperationProofSignedUrl(proof.id);
+      if (cancelled) return;
+      if (!result.ok) {
+        setError(result.message);
+        return;
+      }
+      setUrl(result.url);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [proof.id]);
+
+  if (error) {
+    return <div className="ui-text-muted">{error}</div>;
+  }
+  if (!url) {
+    return <div className="ui-text-muted">Chargement…</div>;
+  }
+  if (proof.type_preuve === "voice") {
+    return <audio controls src={url} style={{ width: "100%" }} />;
+  }
+  if (proof.mime_type?.startsWith("image/")) {
+    return (
+      <Image
+        src={url}
+        alt={proof.nom}
+        width={640}
+        height={280}
+        unoptimized
+        style={{ width: "100%", height: 140, objectFit: "cover", borderRadius: 10 }}
+      />
+    );
+  }
+  return (
+    <SignedProofOpenButton
+      proofId={proof.id}
+      label="Ouvrir / telecharger"
+      className="tagora-dark-outline-action"
+      style={{ textDecoration: "none", textAlign: "center", padding: "10px 12px", borderRadius: 10 }}
+    />
+  );
 }
 
 export function isPendingOperationId(sourceId: string | number | null | undefined) {
@@ -275,33 +370,13 @@ export default function OperationProofsPanel({
 
   const uploadProof = useCallback(
     async (file: File, typePreuve: ProofType, extra?: UploadExtra) => {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (!user) {
-        setFeedback("Session invalide. Reconnecte-toi.");
+      if (typePreuve === "note") {
+        setFeedback("Type de preuve invalide pour un fichier.");
         return;
       }
 
       setUploading(true);
       setFeedback("");
-      const ext = file.name.includes(".") ? file.name.split(".").pop() : "bin";
-      const storageName = `${typePreuve}-${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
-      const storagePath = `${buildStoragePrefix(moduleSource, sourceIdText)}/${storageName}`;
-
-      const { error: uploadError } = await supabase.storage
-        .from("photos-dossiers")
-        .upload(storagePath, file);
-
-      if (uploadError) {
-        setFeedback("Echec upload du fichier.");
-        setUploading(false);
-        return;
-      }
-
-      const { data: publicUrlData } = supabase.storage
-        .from("photos-dossiers")
-        .getPublicUrl(storagePath);
 
       const categorieRow =
         extra?.categorieOverride !== undefined ? extra.categorieOverride : categorieParDefaut;
@@ -311,23 +386,17 @@ export default function OperationProofsPanel({
           ? extra.commentaireOverride ?? null
           : commentaire.trim() || null;
 
-      const { error: insertError } = await supabase.from("operation_proofs").insert({
-        module_source: moduleSource,
-        source_id: sourceIdText,
-        type_preuve: typePreuve,
+      const result = await uploadOperationProofViaServer({
+        moduleSource,
+        sourceId: sourceIdText,
+        typePreuve,
+        file,
         categorie: categorieRow,
-        nom: file.name || storageName,
-        date_heure: new Date().toISOString(),
-        cree_par: user.id,
-        url_fichier: publicUrlData.publicUrl,
-        mime_type: file.type || null,
-        taille: Number.isFinite(file.size) ? file.size : null,
         commentaire: commentaireRow,
-        statut: "captured",
       });
 
-      if (insertError) {
-        setFeedback("Upload fait mais enregistrement impossible.");
+      if (!result.ok) {
+        setFeedback(result.message || "Echec upload du fichier.");
         setUploading(false);
         return;
       }
@@ -433,9 +502,15 @@ export default function OperationProofsPanel({
     setDeletingId(doc.id);
     setFeedback("");
     try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
       const response = await fetch(`/api/operation-proofs/${doc.id}`, {
         method: "DELETE",
         credentials: "same-origin",
+        headers: session?.access_token
+          ? { Authorization: `Bearer ${session.access_token}` }
+          : undefined,
       });
       const payload = (await response.json().catch(() => ({}))) as { error?: string };
       if (!response.ok) {
@@ -634,32 +709,7 @@ export default function OperationProofsPanel({
     if (proof.type_preuve === "note") {
       return <div className="ui-text-muted">{proof.commentaire || "-"}</div>;
     }
-    if (proof.type_preuve === "voice") {
-      return <audio controls src={proof.url_fichier} style={{ width: "100%" }} />;
-    }
-    if (proof.mime_type?.startsWith("image/")) {
-      return (
-        <Image
-          src={proof.url_fichier}
-          alt={proof.nom}
-          width={640}
-          height={280}
-          unoptimized
-          style={{ width: "100%", height: 140, objectFit: "cover", borderRadius: 10 }}
-        />
-      );
-    }
-    return (
-      <a
-        href={proof.url_fichier}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="tagora-dark-outline-action"
-        style={{ textDecoration: "none", textAlign: "center", padding: "10px 12px", borderRadius: 10 }}
-      >
-        Ouvrir / telecharger
-      </a>
-    );
+    return <SignedProofMedia proof={proof} />;
   };
 
   const gap = compact ? 8 : 12;
@@ -845,10 +895,9 @@ export default function OperationProofsPanel({
                       ) : null}
                     </div>
                     <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-                      <a
-                        href={doc.url_fichier}
-                        target="_blank"
-                        rel="noopener noreferrer"
+                      <SignedProofOpenButton
+                        proofId={doc.id}
+                        label="Voir"
                         className="tagora-dark-action"
                         style={{
                           display: "inline-flex",
@@ -860,14 +909,10 @@ export default function OperationProofsPanel({
                           fontWeight: 700,
                           textDecoration: "none",
                         }}
-                      >
-                        Voir
-                      </a>
-                      <a
-                        href={doc.url_fichier}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        download={doc.nom || undefined}
+                      />
+                      <SignedProofOpenButton
+                        proofId={doc.id}
+                        label="Télécharger"
                         className="tagora-dark-outline-action"
                         style={{
                           display: "inline-flex",
@@ -879,9 +924,7 @@ export default function OperationProofsPanel({
                           fontWeight: 700,
                           textDecoration: "none",
                         }}
-                      >
-                        Télécharger
-                      </a>
+                      />
                       {canDeleteDoc(doc) ? (
                         <button
                           type="button"

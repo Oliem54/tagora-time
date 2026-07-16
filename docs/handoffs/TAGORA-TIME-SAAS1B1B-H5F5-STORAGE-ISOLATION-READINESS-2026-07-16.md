@@ -220,14 +220,19 @@ Une policy Storage `authenticated` **ne peut pas** `SELECT` memberships pour pro
 
 ---
 
-## 9. Modifications runtime requises (mandat suivant, hors cette passe)
+## 9. Modifications runtime (H5-F5A — livré 2026-07-16)
 
-1. Résoudre **organization_id active** côté serveur (membership `active`).  
-2. Construire chemins `<organization_id>/<domain>/…`.  
-3. Déplacer upload preuves vers routes serveur (service_role).  
-4. Remplacer `getPublicUrl` par **URL signée** à durée courte.  
-5. Conserver delete/ZIP serveur ; durcir check membership org du path.  
-6. Ne jamais accorder DELETE Storage bucket-wide à authenticated.
+Voir handoff : `TAGORA-TIME-SAAS1B1B-H5F5A-STORAGE-SERVER-RUNTIME-2026-07-16.md`.
+
+1. ~~Résoudre organization_id active côté serveur~~ **fait** (`resolveStorageOrganizationContext`).
+2. ~~Chemins `<organization_id>/<domain>/…`~~ **fait** (`buildOrganizationStoragePath`).
+3. ~~Upload preuves routes serveur~~ **fait** (`POST /api/operation-proofs/upload`).
+4. ~~Remplacer `getPublicUrl` par URL signée~~ **fait** (`/api/operation-proofs/signed-url`, 300 s).
+5. ~~Durcir delete/ZIP~~ **fait** (membership + path org-safe).
+
+**Reste H5-F5B :** migration forward-only + bucket privé + policies Option A + preuve staging.
+**V1 :** toujours **65 %** jusqu’au GO H5-F5 complet (**77 %**).
+**Toujours :** ne jamais accorder DELETE Storage bucket-wide à authenticated.
 
 ---
 

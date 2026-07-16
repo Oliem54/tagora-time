@@ -1,4 +1,5 @@
 import type { AppRole } from "@/app/lib/auth/roles";
+import { extractPhotosDossiersObjectPath } from "@/app/lib/storage/photos-dossiers-contract.shared";
 
 export type OperationProofModuleSource =
   | "dossier"
@@ -44,19 +45,8 @@ export function getDocumentBadgeLabel(
 }
 
 export function extractStoragePathFromProofUrl(url: string, bucket: string) {
-  const marker = `/object/public/${bucket}/`;
-  const idx = url.indexOf(marker);
-  if (idx >= 0) {
-    return decodeURIComponent(url.slice(idx + marker.length));
-  }
-  const marker2 = `/object/sign/${bucket}/`;
-  const idx2 = url.indexOf(marker2);
-  if (idx2 >= 0) {
-    const pathWithQuery = url.slice(idx2 + marker2.length);
-    const q = pathWithQuery.indexOf("?");
-    return decodeURIComponent(q >= 0 ? pathWithQuery.slice(0, q) : pathWithQuery);
-  }
-  return null;
+  // H5-F5A: support public/sign URLs, storage:// refs, and raw object paths.
+  return extractPhotosDossiersObjectPath(url, bucket);
 }
 
 export function canDeleteOperationDocument(options: {

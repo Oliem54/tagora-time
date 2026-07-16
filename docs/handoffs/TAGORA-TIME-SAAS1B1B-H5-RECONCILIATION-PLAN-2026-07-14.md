@@ -194,7 +194,7 @@ Forward-only `20260714140000_h5a_reconcile_foundations_columns.sql` applied stag
 - **Statut H5-F4 :** `GO H5-F4 — HISTORY NORMALISÉ` — trois repairs history-only (`25090500`, `25140500`, `26120500`) ; voir `TAGORA-TIME-SAAS1B1B-H5F4-PROOFS-PHOTOS-INLINE-HISTORY-2026-07-15.md`
 - **Statut H5-F2 :** `GO H5-F2 — HISTORY NORMALISÉ` — repair history-only `20260412161500` ; voir `TAGORA-TIME-SAAS1B1B-H5F2-EMPLOYEE-ACCOUNT-HISTORY-2026-07-15.md`
 - **Statut H5-F3R :** `GO H5-F3R — LEGACY BACKFILL SUPERSEDED` — repair history-only `20260412191500` ; écart `break_am_minutes` approuvé ; voir `TAGORA-TIME-SAAS1B1B-H5F3R-SCHEDULE-SMS-LEGACY-SUPERSESSION-2026-07-15.md`
-- Découpage restant : **H5-F5** Storage (bloqué / DELETE large ; bucket staging absent)
+- Découpage restant : **H5-F5** Storage — **H5-F5A runtime Option A livré** (2026-07-16) ; reste **H5-F5B** migration forward-only + bucket/policies (bloqué / DELETE large historique ; bucket staging absent)
 - Prérequis F5 : **décisions Martin** + création bucket contrôlée ; ne jamais rejouer `25133500`
 - STOP : rejeu historique Storage ; db push
 - Risque : **élevé** (storage)

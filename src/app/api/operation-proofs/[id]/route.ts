@@ -1,14 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthenticatedRequestUser } from "@/app/lib/account-requests.server";
 import { getUserRole } from "@/app/lib/auth/roles";
-import { hasUserPermission } from "@/app/lib/auth/permissions";
-import {
-  canDeleteOperationDocument,
-  extractStoragePathFromProofUrl,
-} from "@/app/lib/operation-proof-documents.shared";
+import { canDeleteOperationDocument } from "@/app/lib/operation-proof-documents.shared";
 import { createAdminSupabaseClient } from "@/app/lib/supabase/admin";
-
-const PHOTOS_BUCKET = "photos-dossiers";
+import { PHOTOS_DOSSIERS_BUCKET } from "@/app/lib/storage/photos-dossiers-contract.shared";
+import {
+  assertModuleSourceAccessible,
+  assertObjectPathReadableByOrganization,
+  resolveStorageOrganizationContext,
+  storageOrgFailureMessage,
+} from "@/app/lib/storage/photos-dossiers-org.server";
 
 type ProofRow = {
   id: string;
@@ -26,21 +27,20 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { user, role: _role } = await getAuthenticatedRequestUser(req);
+    const { user } = await getAuthenticatedRequestUser(req);
     if (!user) {
       return NextResponse.json({ error: "Authentification requise." }, { status: 401 });
     }
 
-    const role = getUserRole(user);
-    const canAccess =
-      hasUserPermission(user, "documents")
-      || hasUserPermission(user, "livraisons")
-      || hasUserPermission(user, "terrain");
-
-    if (!canAccess) {
-      return NextResponse.json({ error: "Permission insuffisante." }, { status: 403 });
+    const org = await resolveStorageOrganizationContext(req);
+    if (!org.ok) {
+      return NextResponse.json(
+        { error: storageOrgFailureMessage(org.reason) },
+        { status: org.status }
+      );
     }
 
+    const role = getUserRole(user);
     const { id } = await params;
     const proofId = String(id || "").trim();
     if (!proofId) {
@@ -55,7 +55,7 @@ export async function DELETE(
       .maybeSingle();
 
     if (error) {
-      return NextResponse.json({ error: error.message }, { status: 400 });
+      return NextResponse.json({ error: "Lecture impossible." }, { status: 400 });
     }
     if (!data) {
       return NextResponse.json({ error: "Document introuvable." }, { status: 404 });
@@ -69,11 +69,17 @@ export async function DELETE(
       );
     }
 
-    if (
-      proof.module_source !== "livraison"
-      && proof.module_source !== "ramassage"
-    ) {
+    if (proof.module_source !== "livraison" && proof.module_source !== "ramassage") {
       return NextResponse.json({ error: "Opération non autorisée pour ce module." }, { status: 403 });
+    }
+
+    const access = await assertModuleSourceAccessible({
+      user: org.user,
+      moduleSource: proof.module_source,
+      sourceId: proof.source_id,
+    });
+    if (!access.ok) {
+      return NextResponse.json({ error: "Permission insuffisante." }, { status: 403 });
     }
 
     if (
@@ -93,9 +99,17 @@ export async function DELETE(
       );
     }
 
-    const storagePath = proof.url_fichier
-      ? extractStoragePathFromProofUrl(proof.url_fichier, PHOTOS_BUCKET)
-      : null;
+    let storagePath: string | null = null;
+    if (proof.url_fichier) {
+      const pathCheck = assertObjectPathReadableByOrganization({
+        urlOrPath: proof.url_fichier,
+        organizationId: org.organizationId,
+      });
+      if (!pathCheck.ok) {
+        return NextResponse.json({ error: "Opération Storage refusée." }, { status: 403 });
+      }
+      storagePath = pathCheck.path;
+    }
 
     const { error: deleteError } = await supabase
       .from("operation_proofs")
@@ -103,21 +117,22 @@ export async function DELETE(
       .eq("id", proofId);
 
     if (deleteError) {
-      return NextResponse.json({ error: deleteError.message }, { status: 400 });
+      return NextResponse.json({ error: "Suppression impossible." }, { status: 400 });
     }
 
     if (storagePath) {
+      // Targeted single-object remove only — never prefix/folder delete.
       const { error: storageError } = await supabase.storage
-        .from(PHOTOS_BUCKET)
+        .from(PHOTOS_DOSSIERS_BUCKET)
         .remove([storagePath]);
       if (storageError) {
-        console.warn("[operation-proofs] storage remove failed", storageError.message);
+        console.warn("[operation-proofs] storage remove failed");
       }
     }
 
     return NextResponse.json({ success: true, id: proofId, name: proof.nom });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Erreur serveur.";
-    return NextResponse.json({ error: message }, { status: 500 });
+  } catch {
+    console.warn("[operation-proofs] delete unexpected failure");
+    return NextResponse.json({ error: "Erreur serveur." }, { status: 500 });
   }
 }

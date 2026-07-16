@@ -1,8 +1,8 @@
 "use client";
 
 import { useCallback, useRef, useState, type PointerEvent } from "react";
-import { supabase } from "@/app/lib/supabase/client";
 import type { OperationProofModuleSource } from "@/app/components/livraisons/day-delivery/upload-operation-proof.client";
+import { uploadOperationProofViaServer } from "@/app/lib/storage/photos-dossiers-upload.client";
 
 type Props = {
   open: boolean;
@@ -50,53 +50,21 @@ export default function StopSignatureQuickCapture({
 
   const uploadSignature = useCallback(
     async (file: File) => {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (!user) {
-        setFeedback("Session invalide. Reconnecte-toi.");
-        return;
-      }
-
       setUploading(true);
       setFeedback("");
-      const sourceIdText = String(sourceId);
-      const ext = file.name.includes(".") ? file.name.split(".").pop() : "png";
-      const storageName = `signature-${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
-      const storagePath = `operation-proofs/${moduleSource}/${sourceIdText}/${storageName}`;
 
-      const { error: uploadError } = await supabase.storage
-        .from("photos-dossiers")
-        .upload(storagePath, file);
-
-      if (uploadError) {
-        setFeedback("Echec upload de la signature.");
-        setUploading(false);
-        return;
-      }
-
-      const { data: publicUrlData } = supabase.storage
-        .from("photos-dossiers")
-        .getPublicUrl(storagePath);
-
-      const { error: insertError } = await supabase.from("operation_proofs").insert({
-        module_source: moduleSource,
-        source_id: sourceIdText,
-        type_preuve: "signature",
+      const result = await uploadOperationProofViaServer({
+        moduleSource,
+        sourceId,
+        typePreuve: "signature",
+        file,
         categorie: moduleSource === "ramassage" ? "preuve_ramassage" : "signature_client",
-        nom: file.name || storageName,
-        date_heure: new Date().toISOString(),
-        cree_par: user.id,
-        url_fichier: publicUrlData.publicUrl,
-        mime_type: file.type || "image/png",
-        taille: Number.isFinite(file.size) ? file.size : null,
         commentaire: `Signature rapide — ${clientLabel}`,
-        statut: "captured",
       });
 
       setUploading(false);
-      if (insertError) {
-        setFeedback("Signature envoyee mais enregistrement impossible.");
+      if (!result.ok) {
+        setFeedback(result.message || "Echec upload de la signature.");
         return;
       }
 

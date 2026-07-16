@@ -5,7 +5,6 @@ import {
   type ProofRow,
   buildSafeArchiveFilename,
   ensureUniqueFilename,
-  extractStoragePathFromProofUrl,
   firstText,
   logArchiveAction,
   operationType,
@@ -13,6 +12,11 @@ import {
   requireDirectionOrAdminApi,
   safeFilenamePart,
 } from "@/app/api/direction/livraisons-ramassages/archives/_lib";
+import {
+  resolveStorageOrganizationContext,
+  assertObjectPathReadableByOrganization,
+  storageOrgFailureMessage,
+} from "@/app/lib/storage/photos-dossiers-org.server";
 
 async function downloadProofBinary(
   supabase: ReturnType<typeof requireDirectionOrAdminApi> extends Promise<infer T>
@@ -20,26 +24,38 @@ async function downloadProofBinary(
       ? S
       : never
     : never,
-  proof: ProofRow
+  proof: ProofRow,
+  organizationId: string
 ) {
   if (proof.url_fichier) {
-    const storagePath = extractStoragePathFromProofUrl(proof.url_fichier, "photos-dossiers");
-    if (storagePath) {
-      const storageRes = await supabase.storage.from("photos-dossiers").download(storagePath);
-      if (!storageRes.error && storageRes.data) {
-        const arrayBuffer = await storageRes.data.arrayBuffer();
-        return new Uint8Array(arrayBuffer);
-      }
+    const pathCheck = assertObjectPathReadableByOrganization({
+      urlOrPath: proof.url_fichier,
+      organizationId,
+    });
+    if (!pathCheck.ok) {
+      return null;
     }
 
-    try {
-      const response = await fetch(proof.url_fichier);
-      if (response.ok) {
-        const arrayBuffer = await response.arrayBuffer();
-        return new Uint8Array(arrayBuffer);
+    const storageRes = await supabase.storage.from("photos-dossiers").download(pathCheck.path);
+    if (!storageRes.error && storageRes.data) {
+      const arrayBuffer = await storageRes.data.arrayBuffer();
+      return new Uint8Array(arrayBuffer);
+    }
+
+    // Legacy public URL fallback (pre-H5-F5A) after org/business gate.
+    if (
+      /^https?:\/\//i.test(proof.url_fichier)
+      && proof.url_fichier.includes("/object/public/photos-dossiers/")
+    ) {
+      try {
+        const response = await fetch(proof.url_fichier);
+        if (response.ok) {
+          const arrayBuffer = await response.arrayBuffer();
+          return new Uint8Array(arrayBuffer);
+        }
+      } catch {
+        // Keep processing other files.
       }
-    } catch {
-      // Keep processing other files.
     }
   }
   return null;
@@ -64,6 +80,14 @@ export async function GET(
     const auth = await requireDirectionOrAdminApi(req);
     if (!auth.ok) return auth.response;
     const { supabase, user, role } = auth;
+
+    const org = await resolveStorageOrganizationContext(req);
+    if (!org.ok) {
+      return NextResponse.json(
+        { error: storageOrgFailureMessage(org.reason) },
+        { status: org.status }
+      );
+    }
 
     const { id } = await params;
     const operationId = Number(id);
@@ -107,7 +131,7 @@ export async function GET(
     const includedDocuments: string[] = [];
 
     for (const proof of proofs) {
-      const binary = await downloadProofBinary(supabase, proof);
+      const binary = await downloadProofBinary(supabase, proof, org.organizationId);
       if (!binary) continue;
 
       const baseName =
