@@ -10,7 +10,7 @@
 **Staging :** `qokyobcvplzufshydhih`
 **Production INTERDITE :** `qcgvzdlfsxybrmloijpt`
 
-**Avancement V1 :** **57 % → 59 %** (H4-B2 GO = +2 pts)
+**Avancement V1 :** **57 % → 59 %** (H4-B2) ; H4-B3 / H4 complet → **65 %**
 
 **Décision méthode :** Option C — lot 2/3
 **H4-B1 :** préservé (GO antérieur)
@@ -109,4 +109,4 @@ Sous mandat Martin distinct, si memberships/invitations = 0 et H4-B3 absent :
 
 **GO H4-B2 — IDENTITÉS ORGANISATIONNELLES APPLIQUÉES, IMMUTABLES ET VALIDÉES SUR STAGING**
 
-Prochaine étape unique : **H4-B3** (platform_access + audit append-only) — mandat distinct.
+Suite : **H4-B3 EXÉCUTÉ (GO)** — H4 complet ; prochaine étape : **H5-F5**.
