@@ -191,17 +191,14 @@ Pas de table d’arrêts alternative canonique identifiée pour remplacer les co
 - Aucun SQL rejoué ; schéma/données/policies inchangés ; history-only applied
 
 ### H5-F5 — Storage (`25133500`)
-- Prérequis : décisions ACL + création bucket contrôlée  
-- **Ne jamais rejouer** la policy historique DELETE large  
-- Peut attendre **H4** si isolation org requise  
-- Verdict : **BLOQUÉ**
+- Prérequis : décisions ACL + création bucket contrôlée + **H4 complet**
+- **Ne jamais rejouer** la policy historique DELETE large
+- H4 désormais **complet** (pending = 0) — porte readiness : voir `TAGORA-TIME-SAAS1B1B-H5F5-STORAGE-ISOLATION-READINESS-2026-07-16.md`
+- Option recommandée : **A** (routes serveur + service_role ; pas de policy Storage client)
+- Verdict readiness : **PARTIAL** — contrat figé ; intégration contexte organisationnel runtime **requise** avant application
 
 ### Ordre
-**H5-F4 (preuves no-op) → H5-F2 (comptes) → H5-F3 (SMS sans UPDATE) → H5-F5 (Storage, post-décisions / H4)**
-
-Sous-lot pouvant démarrer en préparation documentaire sans décision lourde : **H5-F4** (schema déjà satisfait).  
-Sous-lots bloqués sans décision : **H5-F3** (SMS), **H5-F5** (Storage).  
-H5-F2 : décisions légères puis preuve.
+**H5-F4 ✅ → H5-F2 ✅ → H5-F3R ✅ → H4 ✅ → H5-F5 (Storage readiness PARTIAL → exécution mandat distinct)**
 
 ---
 
@@ -237,4 +234,4 @@ Sans objet (audit doc only). Futurs lots : snapshots TEMP ; interdit restaurer D
 
 **H5-F1 TERMINÉ — AUDIT DES DOMAINES RESTANTS DOCUMENTÉ, DÉCISIONS MARTIN REQUISES**
 
-Prochaine étape unique : H5-F5 **bloqué** (Storage) — mandat distinct / H4 éventuel ; **ne pas démarrer automatiquement**.
+Prochaine étape unique : exécution H5-F5 Option A (mandat distinct post-readiness) — **ne pas démarrer automatiquement**.

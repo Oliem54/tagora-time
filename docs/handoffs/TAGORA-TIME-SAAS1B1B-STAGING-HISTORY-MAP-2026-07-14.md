@@ -15,7 +15,7 @@
 **Décision R9 :** GO HISTORY — H2/H3 NORMALISÉS, H4/H5 CONSERVÉS PENDING  
 (voir `docs/handoffs/TAGORA-TIME-SAAS1B1B-STAGING-HISTORY-REPAIR-2026-07-14.md`)
 
-**Avancement V1 :** **65 %** (après H4-B3 GO / H4 complet ; était **59 %** post H4-B2 / **51 %** gelé ; H5-F5 pending — voir `TAGORA-TIME-SAAS1B1B-H4B3-PLATFORM-ACCESS-AUDIT-EXECUTION-2026-07-16.md`)
+**Avancement V1 :** **65 %** (après H4-B3 GO / H4 complet ; H5-F5 readiness PARTIAL doc-only — % inchangé ; cible post GO H5-F5 = **77 %** — voir `TAGORA-TIME-SAAS1B1B-H5F5-STORAGE-ISOLATION-READINESS-2026-07-16.md`)
 
 **Statut H5-F4 (2026-07-15) :** `20260425090500`, `20260425140500`, `20260426120500` → **applied** (repair history-only ; aucun DDL) — voir `TAGORA-TIME-SAAS1B1B-H5F4-PROOFS-PHOTOS-INLINE-HISTORY-2026-07-15.md`
 
