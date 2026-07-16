@@ -10,7 +10,7 @@
 **Staging :** `qokyobcvplzufshydhih`
 **Production INTERDITE :** `qcgvzdlfsxybrmloijpt`
 
-**Avancement V1 :** **55 % → 57 %** (H4-B1 GO = +2 pts)
+**Avancement V1 :** **55 % → 57 %** (H4-B1 GO = +2 pts) ; suite H4-B2 → **59 %** (voir handoff H4-B2)
 
 **Décision méthode :** Option C — lot 1/3
 **H4-A :** dernier audit global H4 (terminé)
@@ -105,4 +105,4 @@ Sous mandat Martin distinct seulement, si tables toujours vides et sans dépenda
 
 **GO H4-B1 — RACINE TENANT APPLIQUÉE, DURCIE ET VALIDÉE SUR STAGING**
 
-Prochaine étape unique : **H4-B2** (memberships + invitations + immutabilité `organization_id`) — mandat distinct, sans auto-exécution.
+Prochaine étape après H4-B1 : **H4-B2** — **EXÉCUTÉ (GO)** ; suite **H4-B3** (mandat distinct).

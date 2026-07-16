@@ -100,12 +100,12 @@ describe("staging history map documentary (R8)", () => {
   const renameDoc = readFileSync(RENAME_DOC, "utf8");
 
   it("inventories local migrations with unique 14-digit versions", () => {
-    // R8 baseline was 84; + H5 lots → 92; + H4-B1 → 93.
+    // R8 baseline was 84; + H5 lots → 92; + H4-B1 → 93; + H4-B2 → 94.
     expect(migrationFiles.length).toBeGreaterThanOrEqual(84);
-    expect(migrationFiles).toHaveLength(93);
+    expect(migrationFiles).toHaveLength(94);
     const versions = migrationFiles.map((n) => n.slice(0, 14));
     expect(versions.every((v) => /^\d{14}$/.test(v))).toBe(true);
-    expect(new Set(versions).size).toBe(93);
+    expect(new Set(versions).size).toBe(94);
   });
 
   it("documents 42 renames with unique old→new mapping", () => {
@@ -177,7 +177,7 @@ describe("staging history map documentary (R8)", () => {
     expect(mapDoc).toContain("qcgvzdlfsxybrmloijpt");
     expect(mapDoc).toMatch(/Avancement V1/);
     expect(mapDoc).toMatch(/\*\*51 %\*\*/);
-    expect(mapDoc).toMatch(/\*\*57 %\*\*/);
+    expect(mapDoc).toMatch(/\*\*59 %\*\*/);
   });
 
   it("keeps dump path outside the repo", () => {
@@ -208,7 +208,7 @@ describe("staging history map documentary (R8)", () => {
       .toUpperCase();
     expect(mapDoc).toContain(manifest);
     expect(manifest).toBe(
-      "D2F725E8E00B5A8E8542C5B542BC3828A85A02D667ED1C729468DC8A86C53A2D"
+      "0144D8372B304E8A4D0BAF5CA0F83B093B312F075F03F3FEE85F7E2023067D67"
     );
   });
 });
