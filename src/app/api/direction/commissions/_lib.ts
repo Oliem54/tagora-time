@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
+import type { User } from "@supabase/supabase-js";
 import {
   getAuthenticatedRequestUser,
   getRequestAccessToken,
 } from "@/app/lib/account-requests.server";
+import { normalizeCompany } from "@/app/lib/account-requests.shared";
 import { hasAdminFinanceAccess } from "@/app/lib/auth/admin-finance";
 import { hasUserPermission } from "@/app/lib/auth/permissions";
 import { isJwtExplicitlyAal1Only } from "@/app/lib/auth/jwt-access-token";
@@ -13,11 +15,13 @@ import {
 import { createAdminSupabaseClient } from "@/app/lib/supabase/admin";
 import { parseTierConfig } from "@/app/lib/commissions/calculate.server";
 import {
+  DEFAULT_COMMISSION_BASIS,
   formatChauffeurDisplayLabel,
   type CommissionEntryRow,
   type CommissionRuleRow,
   type SalesObjectiveRow,
 } from "@/app/lib/commissions/commissions.shared";
+import { resolveCompanyContext } from "@/app/lib/timeclock-api.shared";
 
 export const dynamic = "force-dynamic";
 
@@ -91,6 +95,51 @@ export function getUserDisplayName(user: { email?: string | null; user_metadata?
   return fromMeta || user.email || "Direction";
 }
 
+/**
+ * Organisation commissions : exclusivement depuis le JWT authentifié.
+ * Ne jamais accepter company_context / organization_id provenant du navigateur.
+ */
+export function resolveCommissionsCompanyContext(user: User): string {
+  return resolveCompanyContext(user, null);
+}
+
+export function chauffeurMatchesCompanyContext(
+  chauffeurPrimaryCompany: unknown,
+  companyContext: string
+): boolean {
+  const chauffeurCompany = normalizeCompany(chauffeurPrimaryCompany);
+  const org = normalizeCompany(companyContext);
+  if (!chauffeurCompany || !org) return false;
+  return chauffeurCompany === org;
+}
+
+export async function assertChauffeurInCompany(
+  supabase: ReturnType<typeof createAdminSupabaseClient>,
+  chauffeurId: number,
+  companyContext: string
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const { data, error } = await supabase
+    .from("chauffeurs")
+    .select("id, primary_company")
+    .eq("id", chauffeurId)
+    .maybeSingle();
+
+  if (error || !data) {
+    return { ok: false, error: "Employe introuvable." };
+  }
+
+  if (
+    !chauffeurMatchesCompanyContext(
+      (data as { primary_company?: unknown }).primary_company,
+      companyContext
+    )
+  ) {
+    return { ok: false, error: "Employe hors organisation." };
+  }
+
+  return { ok: true };
+}
+
 function asNumber(value: unknown): number | null {
   if (value == null || value === "") return null;
   const parsed = Number(value);
@@ -126,16 +175,45 @@ export function mapObjectiveRow(
 }
 
 export function mapRuleRow(row: Record<string, unknown>): CommissionRuleRow {
+  const normalizedType =
+    row.rule_type === "percentage" ||
+    row.rule_type === "tier_bonus" ||
+    row.rule_type === "per_unit"
+      ? row.rule_type
+      : row.rule_type == null || row.rule_type === "" || row.rule_type === "fixed"
+        ? "fixed"
+        : null;
+
+  if (normalizedType == null) {
+    // Refuse unknown types at map boundary — callers/recalculate must not invent per_unit.
+    throw new Error(`Type de règle de commission inconnu: ${String(row.rule_type)}`);
+  }
+
+  /**
+   * Compatibilité transitoire (migration non encore exécutée) :
+   * - commission_basis absent/null → DEFAULT_COMMISSION_BASIS (achieved_amount)
+   * - ne jamais déduire depuis target_type
+   * - aucune règle legacy n'est auto-promue en per_unit
+   */
+  const basisRaw = row.commission_basis;
+  const commission_basis =
+    basisRaw === "achieved_sales_count" || basisRaw === "achieved_amount"
+      ? basisRaw
+      : basisRaw == null || basisRaw === ""
+        ? DEFAULT_COMMISSION_BASIS
+        : (() => {
+            throw new Error(`Base de calcul de commission inconnue: ${String(basisRaw)}`);
+          })();
+
   return {
     id: String(row.id),
     objective_id: String(row.objective_id),
     rule_name: String(row.rule_name ?? "Commission"),
-    rule_type:
-      row.rule_type === "percentage" || row.rule_type === "tier_bonus"
-        ? row.rule_type
-        : "fixed",
+    rule_type: normalizedType,
+    commission_basis,
     fixed_amount: asNumber(row.fixed_amount),
     percentage_rate: asNumber(row.percentage_rate),
+    per_unit_amount: asNumber(row.per_unit_amount),
     tier_config: parseTierConfig(row.tier_config),
     achievement_bonus_amount: asNumber(row.achievement_bonus_amount),
     is_active: row.is_active !== false,

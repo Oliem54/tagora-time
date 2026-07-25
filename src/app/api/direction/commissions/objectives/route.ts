@@ -8,12 +8,18 @@ import {
   deriveObjectiveStatus,
 } from "@/app/lib/commissions/calculate.server";
 import {
+  parseAndValidateCommissionRuleInput,
+  toCommissionRuleInsertPayload,
+} from "@/app/lib/commissions/commission-rules.server";
+import {
+  assertChauffeurInCompany,
   getUserDisplayName,
   loadChauffeurLabels,
   mapDirectionObjectiveOperationalRow,
   mapObjectiveRow,
   requireAdminFinanceCommissionsAccess,
   requireCommissionsAccess,
+  resolveCommissionsCompanyContext,
 } from "@/app/api/direction/commissions/_lib";
 import { hasAdminFinanceAccess } from "@/app/lib/auth/admin-finance";
 import { loadDirectionGrantedOperationalObjectives } from "@/app/lib/commissions/sales-book-grants.server";
@@ -28,22 +34,6 @@ function asNumber(value: unknown) {
   if (value == null || value === "") return null;
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
-}
-
-function parseRuleInput(raw: Record<string, unknown>) {
-  const rule_type =
-    raw.rule_type === "percentage" || raw.rule_type === "tier_bonus"
-      ? raw.rule_type
-      : "fixed";
-  return {
-    rule_name: asText(raw.rule_name) ?? "Commission",
-    rule_type,
-    fixed_amount: rule_type === "fixed" ? asNumber(raw.fixed_amount) : null,
-    percentage_rate: rule_type === "percentage" ? asNumber(raw.percentage_rate) : null,
-    tier_config: rule_type === "tier_bonus" && Array.isArray(raw.tier_config) ? raw.tier_config : [],
-    achievement_bonus_amount: asNumber(raw.achievement_bonus_amount),
-    is_active: raw.is_active !== false,
-  };
 }
 
 export async function GET(req: NextRequest) {
@@ -135,6 +125,19 @@ export async function POST(req: NextRequest) {
 
     const publish = body.publish === true;
     const actorName = getUserDisplayName(user);
+    // Jamais body.company_context — source de vérité = claims serveur.
+    const company_context = resolveCommissionsCompanyContext(user);
+
+    if (chauffeur_id) {
+      const chauffeurCheck = await assertChauffeurInCompany(
+        supabase,
+        Math.trunc(chauffeur_id),
+        company_context
+      );
+      if (!chauffeurCheck.ok) {
+        return NextResponse.json({ error: chauffeurCheck.error }, { status: 403 });
+      }
+    }
 
     const objectivePayload = {
       title,
@@ -149,7 +152,7 @@ export async function POST(req: NextRequest) {
       achieved_amount: asNumber(body.achieved_amount) ?? 0,
       achieved_sales_count: Math.trunc(asNumber(body.achieved_sales_count) ?? 0),
       status: publish ? "active" : "draft",
-      company_context: asText(body.company_context),
+      company_context,
       created_by: user.id,
       created_by_name: actorName,
       updated_by: user.id,
@@ -168,20 +171,30 @@ export async function POST(req: NextRequest) {
 
     const objectiveId = String((insertRes.data as Record<string, unknown>).id);
     const rulesInput = Array.isArray(body.rules) ? body.rules : [];
-    const parsedRules = rulesInput
-      .filter((item) => item && typeof item === "object")
-      .map((item) => parseRuleInput(item as Record<string, unknown>));
+    const parsedRules = [];
+    for (const item of rulesInput) {
+      if (!item || typeof item !== "object") continue;
+      const parsed = parseAndValidateCommissionRuleInput(item as Record<string, unknown>);
+      if (!parsed.ok) {
+        return NextResponse.json({ error: parsed.error }, { status: 400 });
+      }
+      parsedRules.push(parsed.rule);
+    }
 
     if (parsedRules.length > 0) {
-      const rulesPayload = parsedRules.map((rule) => ({
-        ...rule,
-        objective_id: objectiveId,
-      }));
+      const rulesPayload = parsedRules.map((rule) =>
+        toCommissionRuleInsertPayload(rule, objectiveId)
+      );
       const rulesRes = await supabase.from("commission_rules").insert(rulesPayload);
       if (rulesRes.error) {
+        const msg = rulesRes.error.message ?? "";
+        const schemaHint =
+          /commission_basis|per_unit_amount|per_unit/i.test(msg)
+            ? " Schema commissions incomplete : appliquer la migration commission_basis / per_unit sur staging."
+            : "";
         return NextResponse.json(
           {
-            error: rulesRes.error.message,
+            error: `${msg}${schemaHint}`,
             warning: "Objectif cree mais regles de commission non enregistrees.",
             objective: insertRes.data,
           },

@@ -1,10 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
-  calculateRuleCommission,
   computeProgressPercent,
   deriveObjectiveStatus,
-  salesBasisForObjective,
 } from "@/app/lib/commissions/calculate.server";
+import { buildEstimatedCommissionEntries } from "@/app/lib/commissions/commission-rules.server";
 import { todayIsoLocal } from "@/app/lib/commissions/commissions.shared";
 import {
   assigneeLabelFromObjective,
@@ -13,17 +12,20 @@ import {
   mapRuleRow,
   mapEntryRow,
   requireAdminFinanceCommissionsAccess,
+  resolveCommissionsCompanyContext,
 } from "@/app/api/direction/commissions/_lib";
 import { createAdminSupabaseClient } from "@/app/lib/supabase/admin";
 
 async function loadObjectiveBundle(
   supabase: ReturnType<typeof createAdminSupabaseClient>,
-  objectiveId: string
+  objectiveId: string,
+  companyContext: string
 ) {
   const objectiveRes = await supabase
     .from("sales_objectives")
     .select("*")
     .eq("id", objectiveId)
+    .eq("company_context", companyContext)
     .maybeSingle();
 
   if (objectiveRes.error || !objectiveRes.data) {
@@ -46,9 +48,22 @@ async function loadObjectiveBundle(
     supabase.from("commission_entries").select("*").eq("objective_id", objectiveId),
   ]);
 
+  if (rulesRes.error) {
+    return { error: rulesRes.error.message } as const;
+  }
+
+  let rules;
+  try {
+    rules = (rulesRes.data ?? []).map((row) => mapRuleRow(row as Record<string, unknown>));
+  } catch (error) {
+    return {
+      error: error instanceof Error ? error.message : "Regle de commission invalide.",
+    } as const;
+  }
+
   return {
     objective,
-    rules: (rulesRes.data ?? []).map((row) => mapRuleRow(row as Record<string, unknown>)),
+    rules,
     entries: (entriesRes.data ?? []).map((row) => mapEntryRow(row as Record<string, unknown>)),
   } as const;
 }
@@ -58,24 +73,31 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    // Isolation tenant / rôles : helpers d'autorisation existants uniquement.
     const auth = await requireAdminFinanceCommissionsAccess(req);
     if (!auth.ok) return auth.response;
-    const { supabase } = auth;
+    const { supabase, user } = auth;
     const { id } = await params;
     const todayIso = todayIsoLocal();
+    const companyContext = resolveCommissionsCompanyContext(user);
 
-    const bundle = await loadObjectiveBundle(supabase, id);
+    const bundle = await loadObjectiveBundle(supabase, id, companyContext);
     if ("error" in bundle) {
       return NextResponse.json({ error: bundle.error }, { status: 404 });
     }
 
+    // Progression = uniquement target_type + cibles/réalisés (indépendant de commission_basis).
     const computed_status = deriveObjectiveStatus(bundle.objective, todayIso);
     const persistedStatus =
       bundle.objective.status === "draft" || bundle.objective.status === "cancelled"
         ? bundle.objective.status
         : computed_status;
 
-    await supabase.from("sales_objectives").update({ status: persistedStatus }).eq("id", id);
+    await supabase
+      .from("sales_objectives")
+      .update({ status: persistedStatus })
+      .eq("id", id)
+      .eq("company_context", companyContext);
 
     await supabase
       .from("commission_entries")
@@ -83,25 +105,25 @@ export async function POST(
       .eq("objective_id", id)
       .eq("status", "estimated");
 
-    const salesBasis = salesBasisForObjective(bundle.objective);
     const objectiveAchieved = computed_status === "achieved";
     const assigneeLabel = assigneeLabelFromObjective(bundle.objective);
 
-    const newEntries = bundle.rules
-      .filter((rule) => rule.is_active)
-      .map((rule) => ({
-        objective_id: id,
-        rule_id: rule.id,
-        chauffeur_id: bundle.objective.chauffeur_id,
-        team_name: bundle.objective.team_name,
-        label: `${rule.rule_name} — ${assigneeLabel}`,
-        period_start: bundle.objective.period_start,
-        period_end: bundle.objective.period_end,
-        sales_basis_amount: salesBasis,
-        calculated_amount: calculateRuleCommission(rule, salesBasis, objectiveAchieved),
-        status: "estimated" as const,
-      }))
-      .filter((entry) => entry.calculated_amount > 0);
+    let newEntries;
+    try {
+      // resolveCommissionBasis(rule.commission_basis) + calculateRuleCommission.
+      newEntries = buildEstimatedCommissionEntries({
+        objectiveId: id,
+        objective: bundle.objective,
+        rules: bundle.rules,
+        objectiveAchieved,
+        assigneeLabel,
+      });
+    } catch (error) {
+      return NextResponse.json(
+        { error: error instanceof Error ? error.message : "Regle de commission invalide." },
+        { status: 400 }
+      );
+    }
 
     if (newEntries.length > 0) {
       const insertRes = await supabase.from("commission_entries").insert(newEntries).select("*");
@@ -110,7 +132,7 @@ export async function POST(
       }
     }
 
-    const refreshed = await loadObjectiveBundle(supabase, id);
+    const refreshed = await loadObjectiveBundle(supabase, id, companyContext);
     if ("error" in refreshed) {
       return NextResponse.json({ error: refreshed.error }, { status: 404 });
     }
