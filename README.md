@@ -29,12 +29,19 @@ Ouvrir [http://localhost:3000](http://localhost:3000).
 | `npm run lint` | ESLint |
 | `npm test` | Tests Vitest |
 | `npm run sync:auth-email-templates` | Synchronise les templates email Supabase (voir `scripts/`) |
+| `npm run db:guard:test` | Tests du garde des opérations Supabase distantes |
+| `npm run db:check` / `db:link:staging` / `db:push:staging` | Opérations DB via garde (dry-run par défaut) |
 
 ## Déploiement
 
 1. **Build** : `npm run build` doit réussir (également vérifié en CI sur les PR).
 2. **Variables** : reporter toutes les clés nécessaires depuis [`.env.example`](.env.example) vers la configuration de l’hébergeur (staging puis production).
-3. **Supabase** : appliquer les migrations dans l’ordre sous [`supabase/migrations/`](supabase/migrations/) sur le projet cible (`supabase db push` ou pipeline SQL).
+3. **Supabase (critique)** :
+   - **Ne jamais** exécuter une commande Supabase distante directement (`supabase db push`, `supabase link`, etc.).
+   - Utiliser **uniquement** les scripts npm protégés (`db:check`, `db:link:staging`, `db:push:staging`) via le garde.
+   - Consulter [`docs/operations/SUPABASE-REMOTE-OPERATIONS.md`](docs/operations/SUPABASE-REMOTE-OPERATIONS.md).
+   - Production **non liée par défaut** ; **`db push` production interdit**.
+   - Staging uniquement après garde, dry-run, confirmation exacte, et mandat explicite.
 4. **URL canonique** : définir `NEXT_PUBLIC_APP_URL` sur l’URL publique (sans slash final) pour les liens dans les emails et les redirections.
 
 ### Vercel

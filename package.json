@@ -11,8 +11,12 @@
     "test": "vitest",
     "test:ci": "vitest run",
     "sync:auth-email-templates": "node scripts/sync-supabase-auth-email-templates.mjs",
-    "db:push": "supabase db push",
-    "db:link": "supabase link",
+    "db:guard:test": "node --test scripts/guard-supabase-remote.test.mjs",
+    "db:check": "node scripts/guard-supabase-remote.mjs --op=check-only --env=local",
+    "db:link:staging": "node scripts/guard-supabase-remote.mjs --op=link-staging --env=staging",
+    "db:push:staging": "node scripts/guard-supabase-remote.mjs --op=db-push-staging --env=staging",
+    "db:push": "node -e \"console.error('REFUSED: do not run supabase db push directly. Use npm run db:push:staging (guarded, dry-run by default). See docs/operations/SUPABASE-REMOTE-OPERATIONS.md'); process.exit(8)\"",
+    "db:link": "node -e \"console.error('REFUSED: do not run supabase link directly. Use npm run db:link:staging (guarded, dry-run by default). See docs/operations/SUPABASE-REMOTE-OPERATIONS.md'); process.exit(8)\"",
     "db:diagnose-horodateur": "node --env-file=.env.local scripts/diagnose-horodateur-employee.mjs"
   },
   "dependencies": {

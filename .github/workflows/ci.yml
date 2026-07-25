@@ -30,6 +30,33 @@ jobs:
       - name: Unit tests
         run: npm run test:ci
 
+      - name: Supabase remote guard tests
+        run: npm run db:guard:test
+
+      - name: Assert no direct supabase db push/link scripts
+        run: |
+          node <<'NODE'
+          const fs = require("fs");
+          const pkg = JSON.parse(fs.readFileSync("package.json", "utf8"));
+          for (const [name, value] of Object.entries(pkg.scripts || {})) {
+            const script = String(value).trim();
+            if (/^supabase\s+db\s+push\b/.test(script) || /^supabase\s+link\b/.test(script)) {
+              console.error(`FORBIDDEN direct CLI script: ${name} -> ${script}`);
+              process.exit(1);
+            }
+          }
+          const workflow = fs.readFileSync(".github/workflows/ci.yml", "utf8");
+          const runLines = workflow
+            .split(/\r?\n/)
+            .filter((line) => /^\s+run:\s+/.test(line) || /^\s+run:\s*$/.test(line) || /^\s{2,}npm\s+/.test(line) || /^\s{2,}supabase\s+/.test(line));
+          const joined = runLines.join("\n");
+          if (/\bsupabase\s+(db\s+push|link|migration)\b/.test(joined)) {
+            console.error("FORBIDDEN remote Supabase CLI invocation in CI run steps");
+            process.exit(1);
+          }
+          console.log("OK: no direct supabase db push/link in package.json or CI run steps");
+          NODE
+
       - name: Build
         run: npm run build
         env:
