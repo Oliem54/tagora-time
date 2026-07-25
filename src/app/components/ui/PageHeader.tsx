@@ -33,14 +33,13 @@ export default function PageHeader({
   className,
   compact = false,
 }: PageHeaderProps) {
+  const hasCopy = Boolean(eyebrow || title || subtitle || navigation);
   const isPremiumHeader = className?.includes("ui-page-header-premium-2027");
-  const showEyebrow = Boolean(eyebrow) && !isPremiumHeader;
-  const showSubtitle = Boolean(subtitle) && !isPremiumHeader;
-  const hasCopy = Boolean(showEyebrow || title || showSubtitle || navigation);
 
   return (
     <section
       className={cn("ui-page-header", compact && "ui-page-header-compact", className)}
+      data-header-variant={isPremiumHeader ? "premium-2027" : undefined}
     >
       <div className="ui-page-header-logo">
         <div className="ui-page-header-logo-shell">
@@ -62,18 +61,35 @@ export default function PageHeader({
 
       {hasCopy ? (
         <div className="ui-page-header-copy">
-          {showEyebrow ? <p className="ui-page-header-eyebrow">{eyebrow}</p> : null}
-          {title ? (
-            <h1
+          {isPremiumHeader ? (
+            <div className="ui-page-header-heading-group">
+              {eyebrow ? (
+                <p className="ui-page-header-eyebrow ui-page-header-eyebrow-premium-2027">
+                  {eyebrow}
+                </p>
+              ) : null}
+              {title ? (
+                <h1 className="ui-page-header-title ui-page-header-title-premium-2027">
+                  {title}
+                </h1>
+              ) : null}
+            </div>
+          ) : (
+            <>
+              {eyebrow ? <p className="ui-page-header-eyebrow">{eyebrow}</p> : null}
+              {title ? <h1 className="ui-page-header-title">{title}</h1> : null}
+            </>
+          )}
+          {subtitle ? (
+            <p
               className={cn(
-                "ui-page-header-title",
-                isPremiumHeader && "ui-page-header-title-premium-2027"
+                "ui-page-header-subtitle",
+                isPremiumHeader && "ui-page-header-subtitle-premium-2027"
               )}
             >
-              {title}
-            </h1>
+              {subtitle}
+            </p>
           ) : null}
-          {showSubtitle ? <p className="ui-page-header-subtitle">{subtitle}</p> : null}
           {navigation ? (
             <div className="ui-page-header-navigation">{navigation}</div>
           ) : null}

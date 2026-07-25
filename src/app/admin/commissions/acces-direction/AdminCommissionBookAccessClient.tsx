@@ -449,9 +449,9 @@ export default function AdminCommissionBookAccessClient() {
     <main className="page-container admin-grants-page">
       <AuthenticatedPageHeader
         className="ui-page-header-premium-2027"
-        eyebrow="Administration · Commissions"
-        title="Partage des livres de ventes"
-        subtitle="Acces individuels de consultation, montants masques."
+        eyebrow="Commissions · Administration"
+        title="Acces direction"
+        subtitle="Consultation des livres sans montants confidentiels."
         showNavigation={false}
         navigation={<AdminCommissionsNavigation variant="acces-direction" />}
       />

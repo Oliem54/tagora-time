@@ -17,53 +17,78 @@ import { commissionsFetch } from "@/app/lib/commissions/commissions-api.client";
 import {
   COMMISSION_STATUS_LABELS,
   OBJECTIVE_STATUS_LABELS,
-  RULE_TYPE_LABELS,
   formatCad,
+  formatCommissionBasisDisplay,
   firstDayOfMonthIsoLocal,
   todayIsoLocal,
   commissionStatusTone,
+  normalizeCommissionBasis,
+  normalizeRuleType,
   objectiveStatusTone,
   type CommissionEntryRow,
+  type CommissionTier,
   type CommissionsSummary,
+  type RuleType,
   type SalesObjectiveRow,
+  type TargetType,
 } from "@/app/lib/commissions/commissions.shared";
+import {
+  formatAchievedValue,
+  formatCommissionRuleValue,
+  formatRuleTypeLabel,
+  formatTargetTypeLabel,
+  formatTargetValue,
+  summarizeObjectiveRulesForDisplay,
+  type CommissionRuleDisplayInput,
+} from "@/app/lib/commissions/commission-display.shared";
+import {
+  applyCommissionBasisChange,
+  applyRuleTypeChange,
+  applyTargetTypeChange,
+  COMMISSION_BASIS_FORM_OPTIONS,
+  emptyAdminCreateObjectiveForm,
+  RULE_TYPE_FORM_OPTIONS,
+  TARGET_TYPE_FORM_OPTIONS,
+  validateAndBuildAdminCreateObjectivePayload,
+  type AdminCreateObjectiveFormState,
+} from "@/app/lib/commissions/admin-create-objective-form.shared";
 
 type ChauffeurOption = {
   id: number;
   label: string;
 };
 
-type CreateFormState = {
-  title: string;
-  description: string;
-  chauffeur_id: string;
-  team_name: string;
-  period_start: string;
-  period_end: string;
-  target_type: "amount" | "sales_count";
-  target_amount: string;
-  target_sales_count: string;
-  rule_type: "fixed" | "percentage" | "tier_bonus";
-  rule_name: string;
-  fixed_amount: string;
-  percentage_rate: string;
+type AdminRuleDisplayRow = CommissionRuleDisplayInput & {
+  id: string;
+  objective_id: string;
 };
 
-function emptyForm(): CreateFormState {
-  return {
-    title: "",
-    description: "",
-    chauffeur_id: "",
-    team_name: "",
+function emptyForm(): AdminCreateObjectiveFormState {
+  return emptyAdminCreateObjectiveForm({
     period_start: firstDayOfMonthIsoLocal(),
     period_end: todayIsoLocal(),
-    target_type: "amount",
-    target_amount: "",
-    target_sales_count: "",
-    rule_type: "percentage",
-    rule_name: "Commission principale",
-    fixed_amount: "",
-    percentage_rate: "5",
+  });
+}
+
+function mapRuleDisplayRow(row: Record<string, unknown>): AdminRuleDisplayRow | null {
+  const id = String(row.id ?? "");
+  const objective_id = String(row.objective_id ?? "");
+  if (!id || !objective_id) return null;
+  const rule_type = normalizeRuleType(row.rule_type) ?? row.rule_type;
+  const commission_basis =
+    row.commission_basis == null ? null : normalizeCommissionBasis(row.commission_basis);
+  const tier_config = Array.isArray(row.tier_config)
+    ? (row.tier_config as CommissionTier[])
+    : [];
+  return {
+    id,
+    objective_id,
+    rule_type,
+    commission_basis,
+    fixed_amount: row.fixed_amount == null ? null : Number(row.fixed_amount),
+    percentage_rate: row.percentage_rate == null ? null : Number(row.percentage_rate),
+    per_unit_amount: row.per_unit_amount == null ? null : Number(row.per_unit_amount),
+    tier_config,
   };
 }
 
@@ -71,16 +96,6 @@ function assigneeLabel(objective: SalesObjectiveRow) {
   if (objective.chauffeur_label?.trim()) return objective.chauffeur_label;
   if (objective.team_name?.trim()) return objective.team_name;
   return "Non assigne";
-}
-
-function targetLabel(objective: SalesObjectiveRow) {
-  if (objective.target_type === "amount") return formatCad(objective.target_amount ?? 0);
-  return `${objective.target_sales_count ?? 0} ventes`;
-}
-
-function achievedLabel(objective: SalesObjectiveRow) {
-  if (objective.target_type === "amount") return formatCad(objective.achieved_amount ?? 0);
-  return `${objective.achieved_sales_count ?? 0} ventes`;
 }
 
 export default function AdminCommissionsPageClient() {
@@ -93,9 +108,13 @@ export default function AdminCommissionsPageClient() {
   const [summary, setSummary] = useState<CommissionsSummary | null>(null);
   const [objectives, setObjectives] = useState<SalesObjectiveRow[]>([]);
   const [entries, setEntries] = useState<CommissionEntryRow[]>([]);
+  const [rulesById, setRulesById] = useState<Record<string, AdminRuleDisplayRow>>({});
+  const [rulesByObjectiveId, setRulesByObjectiveId] = useState<
+    Record<string, AdminRuleDisplayRow[]>
+  >({});
   const [chauffeurs, setChauffeurs] = useState<ChauffeurOption[]>([]);
   const [showCreateForm, setShowCreateForm] = useState(false);
-  const [createForm, setCreateForm] = useState<CreateFormState>(() => emptyForm());
+  const [createForm, setCreateForm] = useState<AdminCreateObjectiveFormState>(() => emptyForm());
   const [actionKey, setActionKey] = useState<string | null>(null);
 
   const loadData = useCallback(async () => {
@@ -130,6 +149,8 @@ export default function AdminCommissionsPageClient() {
       setSummary(null);
       setObjectives([]);
       setEntries([]);
+      setRulesById({});
+      setRulesByObjectiveId({});
       setMessage(
         summaryJson.error ||
           objectivesJson.error ||
@@ -138,9 +159,43 @@ export default function AdminCommissionsPageClient() {
       );
       setMessageType("error");
     } else {
+      const nextEntries = Array.isArray(entriesJson.entries) ? entriesJson.entries : [];
+      const nextObjectives = Array.isArray(objectivesJson.objectives)
+        ? objectivesJson.objectives
+        : [];
       setSummary(summaryJson.summary ?? null);
-      setObjectives(Array.isArray(objectivesJson.objectives) ? objectivesJson.objectives : []);
-      setEntries(Array.isArray(entriesJson.entries) ? entriesJson.entries : []);
+      setObjectives(nextObjectives);
+      setEntries(nextEntries);
+
+      const objectiveIds = nextObjectives.map((row) => row.id).filter(Boolean);
+      if (objectiveIds.length === 0) {
+        setRulesById({});
+        setRulesByObjectiveId({});
+      } else {
+        const { data: ruleRows, error: rulesError } = await supabase
+          .from("commission_rules")
+          .select(
+            "id, objective_id, rule_type, commission_basis, fixed_amount, percentage_rate, per_unit_amount, tier_config"
+          )
+          .in("objective_id", objectiveIds);
+        if (rulesError || !ruleRows) {
+          setRulesById({});
+          setRulesByObjectiveId({});
+        } else {
+          const byId: Record<string, AdminRuleDisplayRow> = {};
+          const byObjective: Record<string, AdminRuleDisplayRow[]> = {};
+          for (const raw of ruleRows as Array<Record<string, unknown>>) {
+            const mapped = mapRuleDisplayRow(raw);
+            if (!mapped) continue;
+            byId[mapped.id] = mapped;
+            const list = byObjective[mapped.objective_id] ?? [];
+            list.push(mapped);
+            byObjective[mapped.objective_id] = list;
+          }
+          setRulesById(byId);
+          setRulesByObjectiveId(byObjective);
+        }
+      }
     }
 
     if (!chauffeursRes.error) {
@@ -199,35 +254,14 @@ export default function AdminCommissionsPageClient() {
     setMessage("");
     setMessageType(null);
     try {
+      const built = validateAndBuildAdminCreateObjectivePayload(createForm, publish);
+      if (!built.ok) {
+        throw new Error(built.error);
+      }
+
       const res = await commissionsFetch("/api/direction/commissions/objectives", {
         method: "POST",
-        body: JSON.stringify({
-          ...createForm,
-          chauffeur_id: createForm.chauffeur_id ? Number(createForm.chauffeur_id) : null,
-          target_amount: createForm.target_amount ? Number(createForm.target_amount) : null,
-          target_sales_count: createForm.target_sales_count
-            ? Number(createForm.target_sales_count)
-            : null,
-          achieved_amount: 0,
-          achieved_sales_count: 0,
-          publish,
-          rules: [
-            {
-              rule_name: createForm.rule_name,
-              rule_type: createForm.rule_type,
-              fixed_amount:
-                createForm.rule_type === "fixed" ? Number(createForm.fixed_amount || 0) : null,
-              percentage_rate:
-                createForm.rule_type === "percentage"
-                  ? Number(createForm.percentage_rate || 0)
-                  : null,
-              tier_config:
-                createForm.rule_type === "tier_bonus"
-                  ? [{ threshold: 0, bonus_amount: Number(createForm.fixed_amount || 0) }]
-                  : [],
-            },
-          ],
-        }),
+        body: JSON.stringify(built.payload),
       });
       const payload = (await res.json().catch(() => ({}))) as { error?: string };
       if (!res.ok) throw new Error(payload.error || "Creation impossible.");
@@ -394,9 +428,9 @@ export default function AdminCommissionsPageClient() {
     <main className="page-container commissions-page">
       <AuthenticatedPageHeader
         className="ui-page-header-premium-2027"
-        eyebrow="Administration · Finance"
-        title="Commissions & objectifs"
-        subtitle="Pilotage finance : montants, regles, validation et paiement."
+        eyebrow="Finance · Administration"
+        title="Commissions"
+        subtitle="Objectifs, regles, validation et paiement."
         showNavigation={false}
         navigation={<AdminCommissionsNavigation variant="commissions" />}
       />
@@ -497,32 +531,35 @@ export default function AdminCommissionsPageClient() {
               <select
                 className="tagora-input"
                 value={createForm.target_type}
-                onChange={(e) =>
-                  setCreateForm({
-                    ...createForm,
-                    target_type: e.target.value === "sales_count" ? "sales_count" : "amount",
-                  })
-                }
+                onChange={(e) => {
+                  const nextType: TargetType =
+                    e.target.value === "sales_count" ? "sales_count" : "amount";
+                  setCreateForm(applyTargetTypeChange(createForm, nextType));
+                }}
               >
-                <option value="amount">Montant ($)</option>
-                <option value="sales_count">Nombre de ventes</option>
+                {TARGET_TYPE_FORM_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
               </select>
             </label>
             {createForm.target_type === "amount" ? (
               <label className="tagora-field">
-                <span className="tagora-label">Montant cible (CAD)</span>
+                <span className="tagora-label">Montant cible</span>
                 <input
                   type="number"
-                  min="0"
+                  min="0.01"
                   step="0.01"
                   className="tagora-input"
                   value={createForm.target_amount}
                   onChange={(e) => setCreateForm({ ...createForm, target_amount: e.target.value })}
+                  placeholder="Ex. : 100000"
                 />
               </label>
             ) : (
               <label className="tagora-field">
-                <span className="tagora-label">Nombre de ventes cible</span>
+                <span className="tagora-label">Nombre d’unités cible</span>
                 <input
                   type="number"
                   min="1"
@@ -532,41 +569,63 @@ export default function AdminCommissionsPageClient() {
                   onChange={(e) =>
                     setCreateForm({ ...createForm, target_sales_count: e.target.value })
                   }
+                  placeholder="Ex. : 10"
                 />
               </label>
             )}
             <label className="tagora-field">
-              <span className="tagora-label">Regle de commission</span>
+              <span className="tagora-label">Mode de rémunération</span>
               <select
                 className="tagora-input"
                 value={createForm.rule_type}
-                onChange={(e) =>
-                  setCreateForm({
-                    ...createForm,
-                    rule_type:
-                      e.target.value === "percentage" || e.target.value === "tier_bonus"
-                        ? e.target.value
-                        : "fixed",
-                  })
-                }
+                onChange={(e) => {
+                  const nextType = (["fixed", "percentage", "tier_bonus", "per_unit"] as const).includes(
+                    e.target.value as RuleType
+                  )
+                    ? (e.target.value as RuleType)
+                    : "fixed";
+                  setCreateForm(applyRuleTypeChange(createForm, nextType));
+                }}
               >
-                {Object.entries(RULE_TYPE_LABELS).map(([value, label]) => (
-                  <option key={value} value={value}>
-                    {label}
+                {RULE_TYPE_FORM_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
                   </option>
                 ))}
               </select>
             </label>
-            {createForm.rule_type === "fixed" || createForm.rule_type === "tier_bonus" ? (
+            <label className="tagora-field">
+              <span className="tagora-label">Base de calcul</span>
+              <select
+                className="tagora-input"
+                value={createForm.commission_basis}
+                onChange={(e) => {
+                  const nextBasis =
+                    e.target.value === "achieved_sales_count"
+                      ? "achieved_sales_count"
+                      : "achieved_amount";
+                  setCreateForm(applyCommissionBasisChange(createForm, nextBasis));
+                }}
+              >
+                {COMMISSION_BASIS_FORM_OPTIONS.map((option) => (
+                  <option
+                    key={option.value}
+                    value={option.value}
+                    disabled={
+                      createForm.rule_type === "per_unit" && option.value === "achieved_amount"
+                    }
+                  >
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {createForm.rule_type === "fixed" ? (
               <label className="tagora-field">
-                <span className="tagora-label">
-                  {createForm.rule_type === "fixed"
-                    ? "Montant fixe (CAD)"
-                    : "Bonus palier initial (CAD)"}
-                </span>
+                <span className="tagora-label">Montant fixe</span>
                 <input
                   type="number"
-                  min="0"
+                  min="0.01"
                   step="0.01"
                   className="tagora-input"
                   value={createForm.fixed_amount}
@@ -576,17 +635,69 @@ export default function AdminCommissionsPageClient() {
             ) : null}
             {createForm.rule_type === "percentage" ? (
               <label className="tagora-field">
-                <span className="tagora-label">Pourcentage (%)</span>
+                <span className="tagora-label">Pourcentage</span>
                 <input
                   type="number"
-                  min="0"
+                  min="0.01"
                   step="0.01"
                   className="tagora-input"
                   value={createForm.percentage_rate}
                   onChange={(e) =>
                     setCreateForm({ ...createForm, percentage_rate: e.target.value })
                   }
+                  placeholder="Ex. : 5"
                 />
+              </label>
+            ) : null}
+            {createForm.rule_type === "tier_bonus" ? (
+              <>
+                <label className="tagora-field">
+                  <span className="tagora-label">
+                    {createForm.commission_basis === "achieved_sales_count"
+                      ? "Seuil (unités)"
+                      : "Seuil (montant)"}
+                  </span>
+                  <input
+                    type="number"
+                    min="0"
+                    step={createForm.commission_basis === "achieved_sales_count" ? "1" : "0.01"}
+                    className="tagora-input"
+                    value={createForm.tier_threshold}
+                    onChange={(e) =>
+                      setCreateForm({ ...createForm, tier_threshold: e.target.value })
+                    }
+                  />
+                </label>
+                <label className="tagora-field">
+                  <span className="tagora-label">Bonus du palier</span>
+                  <input
+                    type="number"
+                    min="0.01"
+                    step="0.01"
+                    className="tagora-input"
+                    value={createForm.tier_bonus_amount}
+                    onChange={(e) =>
+                      setCreateForm({ ...createForm, tier_bonus_amount: e.target.value })
+                    }
+                  />
+                </label>
+              </>
+            ) : null}
+            {createForm.rule_type === "per_unit" ? (
+              <label className="tagora-field">
+                <span className="tagora-label">Montant par unité</span>
+                <input
+                  type="number"
+                  min="0.01"
+                  step="0.01"
+                  className="tagora-input"
+                  value={createForm.per_unit_amount}
+                  onChange={(e) =>
+                    setCreateForm({ ...createForm, per_unit_amount: e.target.value })
+                  }
+                  placeholder="Ex. : 100"
+                />
+                <span className="tagora-note">Ex. : 100 $ par unité réalisée</span>
               </label>
             ) : null}
             <label className="tagora-field commissions-form-span-2">
@@ -643,9 +754,24 @@ export default function AdminCommissionsPageClient() {
                       />
                     </div>
                     <div className="commissions-list-meta">
-                      <span>Cible: {targetLabel(objective)}</span>
-                      <span>Realise: {achievedLabel(objective)}</span>
+                      <span>Type de cible: {formatTargetTypeLabel(objective.target_type)}</span>
+                      <span>Cible: {formatTargetValue(objective)}</span>
+                      <span>Realise: {formatAchievedValue(objective)}</span>
                       <span>Progression: {objective.progress_percent ?? 0}%</span>
+                      {(() => {
+                        const summaryRules = summarizeObjectiveRulesForDisplay(
+                          rulesByObjectiveId[objective.id] ?? []
+                        );
+                        return (
+                          <>
+                            <span>Mode: {summaryRules.ruleTypeLabel}</span>
+                            <span>Base: {summaryRules.basisLabel}</span>
+                            {summaryRules.ruleValueLabel !== "—" ? (
+                              <span>Detail: {summaryRules.ruleValueLabel}</span>
+                            ) : null}
+                          </>
+                        );
+                      })()}
                     </div>
                     <div className="commissions-list-actions">
                       <button
@@ -724,7 +850,23 @@ export default function AdminCommissionsPageClient() {
                     />
                   </div>
                   <div className="commissions-list-meta">
-                    <span>Base: {formatCad(entry.sales_basis_amount)}</span>
+                    {entry.rule_id && rulesById[entry.rule_id] ? (
+                      <>
+                        <span>
+                          Mode: {formatRuleTypeLabel(rulesById[entry.rule_id].rule_type)}
+                        </span>
+                        <span>
+                          Detail: {formatCommissionRuleValue(rulesById[entry.rule_id])}
+                        </span>
+                      </>
+                    ) : null}
+                    <span>
+                      Base:{" "}
+                      {formatCommissionBasisDisplay(
+                        entry.sales_basis_amount,
+                        entry.rule_id ? (rulesById[entry.rule_id]?.commission_basis ?? null) : null
+                      )}
+                    </span>
                     <span>Montant: {formatCad(entry.calculated_amount)}</span>
                     {entry.validated_at ? (
                       <span>Validee: {new Date(entry.validated_at).toLocaleString("fr-CA")}</span>

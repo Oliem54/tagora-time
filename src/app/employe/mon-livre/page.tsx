@@ -22,10 +22,20 @@ import { useCurrentAccess } from "@/app/hooks/useCurrentAccess";
 import { getHomePathForRole, type AppRole } from "@/app/lib/auth/roles";
 import {
   formatCad,
+  normalizeCommissionBasis,
+  normalizeRuleType,
   OBJECTIVE_STATUS_LABELS,
   objectiveStatusTone,
   type ObjectiveStatus,
 } from "@/app/lib/commissions/commissions.shared";
+import {
+  formatAchievedValue,
+  formatAggregateSalesBasisDisplay,
+  formatTargetTypeLabel,
+  formatTargetValue,
+  summarizeObjectiveRulesForDisplay,
+  type CommissionRuleDisplayInput,
+} from "@/app/lib/commissions/commission-display.shared";
 import { supabase } from "@/app/lib/supabase/client";
 
 const PROFILE_NOT_LINKED_MESSAGE = "Aucun profil employé lié à ce compte.";
@@ -50,6 +60,10 @@ type EmployeeSalesBookObjective = {
   total_sales_basis_amount: number;
   total_calculated_amount: number;
 };
+
+type EmployeeRuleDisplay = CommissionRuleDisplayInput & { objective_id: string };
+
+type ObjectiveRulesSummary = ReturnType<typeof summarizeObjectiveRulesForDisplay>;
 
 type SalesBookPayload = {
   chauffeur_id?: number;
@@ -94,18 +108,21 @@ function getObjectiveProgress(objective: EmployeeSalesBookObjective) {
   return Math.min(100, Math.round((objective.achieved_sales_count / target) * 100));
 }
 
-function formatTarget(objective: EmployeeSalesBookObjective) {
-  if (objective.target_type === "amount") {
-    return formatCad(objective.target_amount ?? 0);
-  }
-  return `${objective.target_sales_count ?? 0} vente(s)`;
-}
-
-function formatAchieved(objective: EmployeeSalesBookObjective) {
-  if (objective.target_type === "amount") {
-    return formatCad(objective.achieved_amount ?? 0);
-  }
-  return `${objective.achieved_sales_count ?? 0} vente(s)`;
+function mapEmployeeRuleRow(row: Record<string, unknown>): EmployeeRuleDisplay | null {
+  const objective_id = String(row.objective_id ?? "");
+  if (!objective_id) return null;
+  return {
+    objective_id,
+    rule_type: normalizeRuleType(row.rule_type) ?? row.rule_type,
+    commission_basis:
+      row.commission_basis == null ? null : normalizeCommissionBasis(row.commission_basis),
+    fixed_amount: row.fixed_amount == null ? null : Number(row.fixed_amount),
+    percentage_rate: row.percentage_rate == null ? null : Number(row.percentage_rate),
+    per_unit_amount: row.per_unit_amount == null ? null : Number(row.per_unit_amount),
+    tier_config: Array.isArray(row.tier_config)
+      ? (row.tier_config as CommissionRuleDisplayInput["tier_config"])
+      : [],
+  };
 }
 
 function sharedBooksHref(role: AppRole | null) {
@@ -128,6 +145,9 @@ export default function EmployeMonLivrePage() {
   const [profileNotLinked, setProfileNotLinked] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const [objectives, setObjectives] = useState<EmployeeSalesBookObjective[]>([]);
+  const [rulesSummaryByObjectiveId, setRulesSummaryByObjectiveId] = useState<
+    Record<string, ObjectiveRulesSummary>
+  >({});
 
   const loadSalesBook = useCallback(async () => {
     setLoading(true);
@@ -143,6 +163,7 @@ export default function EmployeMonLivrePage() {
       if (!token) {
         setErrorMessage("Session expirée. Veuillez vous reconnecter.");
         setObjectives([]);
+        setRulesSummaryByObjectiveId({});
         setLoading(false);
         return;
       }
@@ -160,6 +181,7 @@ export default function EmployeMonLivrePage() {
       if (response.status === 403) {
         setForbidden(true);
         setObjectives([]);
+        setRulesSummaryByObjectiveId({});
         setLoading(false);
         return;
       }
@@ -167,21 +189,55 @@ export default function EmployeMonLivrePage() {
       if (response.status === 404) {
         setProfileNotLinked(true);
         setObjectives([]);
+        setRulesSummaryByObjectiveId({});
         setLoading(false);
         return;
       }
 
       if (!response.ok) {
         setObjectives([]);
+        setRulesSummaryByObjectiveId({});
         setErrorMessage(payload.error ?? "Impossible de charger votre livre de ventes.");
         setLoading(false);
         return;
       }
 
-      setObjectives(Array.isArray(payload.objectives) ? payload.objectives : []);
+      const nextObjectives = Array.isArray(payload.objectives) ? payload.objectives : [];
+      setObjectives(nextObjectives);
+
+      const objectiveIds = nextObjectives.map((row) => row.id).filter(Boolean);
+      if (objectiveIds.length === 0) {
+        setRulesSummaryByObjectiveId({});
+      } else {
+        const { data: ruleRows, error: rulesError } = await supabase
+          .from("commission_rules")
+          .select(
+            "objective_id, rule_type, commission_basis, fixed_amount, percentage_rate, per_unit_amount, tier_config"
+          )
+          .in("objective_id", objectiveIds);
+        if (rulesError || !ruleRows) {
+          setRulesSummaryByObjectiveId({});
+        } else {
+          const rulesByObjective = new Map<string, CommissionRuleDisplayInput[]>();
+          for (const raw of ruleRows as Array<Record<string, unknown>>) {
+            const mapped = mapEmployeeRuleRow(raw);
+            if (!mapped) continue;
+            const list = rulesByObjective.get(mapped.objective_id) ?? [];
+            list.push(mapped);
+            rulesByObjective.set(mapped.objective_id, list);
+          }
+          const nextSummaries: Record<string, ObjectiveRulesSummary> = {};
+          for (const [objectiveId, rules] of rulesByObjective) {
+            nextSummaries[objectiveId] = summarizeObjectiveRulesForDisplay(rules);
+          }
+          setRulesSummaryByObjectiveId(nextSummaries);
+        }
+      }
+
       setLoading(false);
     } catch {
       setObjectives([]);
+      setRulesSummaryByObjectiveId({});
       setErrorMessage("Erreur réseau lors du chargement de votre livre.");
       setLoading(false);
     }
@@ -410,9 +466,25 @@ export default function EmployeMonLivrePage() {
                       Période : {formatDateFr(objective.period_start)} →{" "}
                       {formatDateFr(objective.period_end)}
                     </span>
+                    <span>Type de cible : {formatTargetTypeLabel(objective.target_type)}</span>
                     <span>
-                      Cible : {formatTarget(objective)} · Réalisé : {formatAchieved(objective)}
+                      Cible : {formatTargetValue(objective)} · Réalisé :{" "}
+                      {formatAchievedValue(objective)}
                     </span>
+                    {rulesSummaryByObjectiveId[objective.id] ? (
+                      <>
+                        <span>
+                          Mode de rémunération :{" "}
+                          {rulesSummaryByObjectiveId[objective.id].ruleTypeLabel}
+                        </span>
+                        <span>
+                          Base de calcul : {rulesSummaryByObjectiveId[objective.id].basisLabel}
+                        </span>
+                        <span>
+                          Détail : {rulesSummaryByObjectiveId[objective.id].ruleValueLabel}
+                        </span>
+                      </>
+                    ) : null}
                   </div>
 
                   <div className="employe-sales-book-progress" aria-label={`Progression ${progress}%`}>
@@ -442,10 +514,15 @@ export default function EmployeMonLivrePage() {
                       </div>
                       <div>
                         <span className="employe-sales-book-entry-stat-label">Base ventes</span>
-                        <strong>{formatCad(objective.total_sales_basis_amount)}</strong>
+                        <strong>
+                          {formatAggregateSalesBasisDisplay(
+                            objective.total_sales_basis_amount,
+                            rulesSummaryByObjectiveId[objective.id]?.basisKind ?? { kind: "none" }
+                          )}
+                        </strong>
                       </div>
                       <div>
-                        <span className="employe-sales-book-entry-stat-label">Montant calculé</span>
+                        <span className="employe-sales-book-entry-stat-label">Commission estimée</span>
                         <strong>{formatCad(objective.total_calculated_amount)}</strong>
                       </div>
                     </div>

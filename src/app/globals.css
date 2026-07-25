@@ -1,4 +1,4 @@
-﻿@import "tailwindcss";
+@import "tailwindcss";
 @import "leaflet/dist/leaflet.css";
 
 /* -------------------------------------------------------------------------- */
@@ -2483,19 +2483,58 @@ select {
   display: flex;
   flex-direction: column;
   justify-content: center;
-  gap: 0;
+  gap: 6px;
   align-self: center;
   min-height: 0;
 }
 
+.ui-page-header-heading-group {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 5px;
+  min-width: 0;
+}
+
 .ui-page-header-title-premium-2027,
-.ui-page-header-premium-2027 .ui-page-header-title {
+.ui-page-header-premium-2027 .ui-page-header-title,
+[data-header-variant="premium-2027"] .ui-page-header-title {
   margin: 0;
+  padding: 0;
   font-size: 1.0625rem !important;
   font-weight: 500 !important;
   line-height: 1.32 !important;
   letter-spacing: 0.012em !important;
+  color: rgba(255, 255, 255, 0.93) !important;
   max-width: none;
+  text-wrap: balance;
+  font-synthesis: none;
+  -webkit-font-smoothing: antialiased;
+}
+
+.ui-page-header-eyebrow-premium-2027,
+.ui-page-header-premium-2027 .ui-page-header-eyebrow,
+[data-header-variant="premium-2027"] .ui-page-header-eyebrow {
+  margin: 0;
+  font-size: 0.625rem;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.42);
+  line-height: 1.2;
+}
+
+.ui-page-header-subtitle-premium-2027,
+.ui-page-header-premium-2027 .ui-page-header-subtitle {
+  max-width: 34rem;
+  margin: 0;
+  font-size: 0.75rem !important;
+  font-weight: 400 !important;
+  line-height: 1.45 !important;
+  color: rgba(255, 255, 255, 0.58) !important;
+  white-space: normal;
+  overflow: visible;
+  text-overflow: unset;
 }
 
 .ui-page-header-premium-2027 .ui-page-header-actions {
@@ -2613,7 +2652,8 @@ select {
   }
 
   .ui-page-header-title-premium-2027,
-  .ui-page-header-premium-2027 .ui-page-header-title {
+  .ui-page-header-premium-2027 .ui-page-header-title,
+  [data-header-variant="premium-2027"] .ui-page-header-title {
     font-size: 1rem !important;
     line-height: 1.35 !important;
   }

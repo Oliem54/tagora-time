@@ -16,6 +16,11 @@ import {
   objectiveStatusTone,
   type ObjectiveStatus,
 } from "@/app/lib/commissions/commissions.shared";
+import {
+  formatCommissionBasisLabel,
+  formatTargetTypeLabel,
+  formatTargetValue,
+} from "@/app/lib/commissions/commission-display.shared";
 
 type DirectionSalesBookObjective = {
   id: string;
@@ -211,15 +216,19 @@ export default function DirectionSalesBookDetailPage({
               <tr>
                 <th>Objectif</th>
                 <th>Periode</th>
-                <th>Type</th>
-                <th>Cible (non monetaire)</th>
-                <th>Realise</th>
+                <th>Type de cible</th>
+                <th>Cible</th>
+                <th>Base</th>
                 <th>Statut</th>
               </tr>
             </thead>
             <tbody>
               {objectives.map((row) => {
                 const status = row.status as ObjectiveStatus;
+                const isUnits = row.target_type === "sales_count";
+                const basisLabel = formatCommissionBasisLabel(
+                  isUnits ? "achieved_sales_count" : "achieved_amount"
+                );
                 return (
                   <tr key={row.id}>
                     <td>
@@ -233,17 +242,16 @@ export default function DirectionSalesBookDetailPage({
                     <td>
                       {row.period_start} - {row.period_end}
                     </td>
-                    <td>{row.target_type === "sales_count" ? "Volume" : "Objectif qualitatif"}</td>
+                    <td>{formatTargetTypeLabel(row.target_type)}</td>
                     <td>
-                      {row.target_type === "sales_count" && row.target_sales_count != null
-                        ? `${row.target_sales_count} ventes`
-                        : "Reserve admin"}
+                      {isUnits
+                        ? formatTargetValue({
+                            target_type: "sales_count",
+                            target_sales_count: row.target_sales_count,
+                          })
+                        : "—"}
                     </td>
-                    <td>
-                      {row.target_type === "sales_count"
-                        ? `${row.achieved_sales_count} ventes`
-                        : "Suivi operationnel"}
-                    </td>
+                    <td>{basisLabel}</td>
                     <td>
                       <StatusBadge
                         label={OBJECTIVE_STATUS_LABELS[status] ?? row.status}
