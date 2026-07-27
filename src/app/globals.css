@@ -2350,7 +2350,8 @@ select {
 
 .tagora-header {
   position: relative;
-  overflow: hidden;
+  /* visible: account menu must escape the header without being clipped */
+  overflow: visible;
   background: linear-gradient(135deg, #081e3c 0%, #0f2f63 42%, #1b4d8d 100%);
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 24px;
@@ -2366,7 +2367,8 @@ select {
 
 .ui-page-header {
   position: relative;
-  overflow: hidden;
+  /* visible: shared account menu is absolutely positioned below the badge */
+  overflow: visible;
   display: flex;
   align-items: center;
   justify-content: flex-start;
@@ -2378,6 +2380,7 @@ select {
   background: linear-gradient(135deg, #102a50 0%, #17345f 55%, #264a7d 100%);
   border: 1px solid rgba(255, 255, 255, 0.06);
   box-shadow: 0 14px 32px rgba(20, 42, 78, 0.14);
+  z-index: 20;
 }
 
 .ui-page-header::before {
@@ -2477,7 +2480,8 @@ select {
   padding: 0;
   border-radius: 10px;
   border: 1px solid rgba(255, 255, 255, 0.12);
-  background: #000000;
+  /* Official logo assets are already transparent PNGs — never paint a black plate. */
+  background: transparent;
   box-shadow: none;
   overflow: hidden;
   line-height: 0;
@@ -2656,7 +2660,8 @@ select {
 
 .ui-page-header-actions {
   position: relative;
-  z-index: 1;
+  z-index: 30;
+  overflow: visible;
   display: flex;
   align-items: center;
   flex-wrap: wrap;
@@ -2683,6 +2688,7 @@ select {
 
 .ui-user-identity-shell {
   position: relative;
+  z-index: 40;
 }
 
 .ui-user-identity-avatar {
@@ -2724,7 +2730,7 @@ select {
   position: absolute;
   top: calc(100% + 8px);
   right: 0;
-  z-index: 8;
+  z-index: 50;
   min-width: 240px;
   max-width: min(86vw, 320px);
   border-radius: 14px;
