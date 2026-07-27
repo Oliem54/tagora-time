@@ -2760,6 +2760,18 @@ select {
   color: rgba(226, 239, 255, 0.85);
 }
 
+.ui-user-identity-menu-logout {
+  margin-top: 4px;
+}
+
+.ui-user-identity-menu-logout-error {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 600;
+  color: #fecaca;
+  line-height: 1.35;
+}
+
 @keyframes ui-user-menu-enter {
   from {
     opacity: 0;

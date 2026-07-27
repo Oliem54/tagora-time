@@ -1,7 +1,11 @@
 "use client";
 
 import { listMfaFactorsForUi } from "@/app/lib/auth/mfa.client";
-import { getLoginPathForRole, getUserRole } from "@/app/lib/auth/roles";
+import {
+  getLoginPathForRole,
+  getUserRole,
+  type AppRole,
+} from "@/app/lib/auth/roles";
 import { writeBrowserSessionCookie } from "@/app/lib/auth/session-cookie";
 import { supabase } from "@/app/lib/supabase/client";
 
@@ -51,12 +55,31 @@ export function clearTagoraAuthBrowserSession(): void {
   sessionStorage.removeItem("tagora_mfa_repeated_alert_sent");
 }
 
-/** Déconnexion complète puis route login adaptée au rôle courant (employé vs direction/admin). */
-export async function signOutToSwitchAccount(): Promise<string> {
+/** Login path after logout; prefers the active UI/membership role when provided. */
+export function resolvePostLogoutLoginPath(
+  preferredRole?: AppRole | null
+): string {
+  if (preferredRole) {
+    return getLoginPathForRole(preferredRole);
+  }
+  return "/direction/login";
+}
+
+/**
+ * Déconnexion complète puis route login adaptée au rôle courant
+ * (employé vs direction/admin). `preferredRole` évite de dépendre uniquement
+ * du JWT historique lorsque le rôle actif vient du membership H4.
+ */
+export async function signOutToSwitchAccount(
+  preferredRole?: AppRole | null
+): Promise<string> {
   const { data } = await supabase.auth.getUser();
-  const role = getUserRole(data.user);
-  const loginPath = role ? getLoginPathForRole(role) : "/direction/login";
-  await supabase.auth.signOut();
+  const role = preferredRole ?? getUserRole(data.user);
+  const loginPath = resolvePostLogoutLoginPath(role);
+  const { error } = await supabase.auth.signOut();
+  if (error) {
+    throw error;
+  }
   clearTagoraAuthBrowserSession();
   return loginPath;
 }

@@ -3,11 +3,14 @@
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { AppRole } from "@/app/lib/auth/roles";
+import { signOutToSwitchAccount } from "@/app/lib/auth/password-mfa.client";
+import { fetchSessionAuthorizationContext } from "@/app/lib/auth/session-context.client";
+import { supabase } from "@/app/lib/supabase/client";
 
 type UserIdentityBadgeProps = {
   value: string;
   roleLabel?: string | null;
-  /** Pour le badge MFA discret direction/admin. */
+  /** Pour le badge MFA discret direction/admin et la redirection post-logout. */
   role?: AppRole | null;
   className?: string;
 };
@@ -18,8 +21,9 @@ export default function UserIdentityBadge({
   role,
   className,
 }: UserIdentityBadgeProps) {
-  void role;
   const [open, setOpen] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
+  const [signOutError, setSignOutError] = useState<string | null>(null);
   const rootRef = useRef<HTMLDivElement | null>(null);
   const classes = ["ui-user-identity-badge", className].filter(Boolean).join(" ");
   const normalizedRole = useMemo(
@@ -56,6 +60,35 @@ export default function UserIdentityBadge({
     };
   }, []);
 
+  async function resolvePreferredLogoutRole(): Promise<AppRole | null> {
+    if (role) return role;
+    // Header may still expose JWT-only role while AuthGate already uses H4 membership.
+    try {
+      const sessionRes = await supabase.auth.getSession();
+      const accessToken = sessionRes.data.session?.access_token;
+      if (!accessToken) return null;
+      const ctx = await fetchSessionAuthorizationContext(accessToken);
+      return ctx.appRole;
+    } catch {
+      return null;
+    }
+  }
+
+  async function handleSignOut() {
+    if (signingOut) return;
+    setSigningOut(true);
+    setSignOutError(null);
+    try {
+      const preferredRole = await resolvePreferredLogoutRole();
+      const loginPath = await signOutToSwitchAccount(preferredRole);
+      // Hard replace: clears in-memory UI state and avoids Back restoring the session shell.
+      window.location.replace(loginPath);
+    } catch {
+      setSignOutError("Impossible de se déconnecter. Réessayez.");
+      setSigningOut(false);
+    }
+  }
+
   return (
     <div className="ui-user-identity-shell" ref={rootRef}>
       <button
@@ -87,6 +120,25 @@ export default function UserIdentityBadge({
           >
             Sécurité du compte
           </Link>
+          <button
+            type="button"
+            className="ui-button ui-button-secondary ui-user-identity-menu-logout"
+            role="menuitem"
+            aria-label="Déconnexion"
+            disabled={signingOut}
+            aria-busy={signingOut}
+            onClick={() => {
+              void handleSignOut();
+            }}
+            style={{ display: "inline-flex", justifyContent: "center" }}
+          >
+            {signingOut ? "Déconnexion…" : "Déconnexion"}
+          </button>
+          {signOutError ? (
+            <p className="ui-user-identity-menu-logout-error" role="alert">
+              {signOutError}
+            </p>
+          ) : null}
         </div>
       ) : null}
     </div>
