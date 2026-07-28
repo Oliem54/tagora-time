@@ -35,7 +35,7 @@ export async function requireCommissionsAccess(req: NextRequest) {
       response: NextResponse.json({ error: "Acces reserve a la direction/admin." }, { status: 403 }),
     };
   }
-  if (!hasUserPermission(user, "commissions")) {
+  if (!hasUserPermission(user, "commissions", role)) {
     return {
       ok: false as const,
       response: NextResponse.json(

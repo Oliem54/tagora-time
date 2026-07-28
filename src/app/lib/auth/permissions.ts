@@ -4,6 +4,7 @@ import {
   hasAdminFinanceAccess,
   isAdminFinancePath,
 } from "@/app/lib/auth/admin-finance";
+import type { AppRole } from "@/app/lib/auth/roles";
 import { getUserRole } from "@/app/lib/auth/roles";
 
 export const APP_PERMISSION_DEFINITIONS = [
@@ -101,13 +102,64 @@ export function getUserPermissions(user: User | null | undefined): AppPermission
   return normalizePermissionList(user.user_metadata?.permissions);
 }
 
+/** Request-scoped H4 AppRole bound to the User instance from getAuthenticatedRequestUser. */
+const boundEffectiveAppRole = new WeakMap<User, AppRole | null>();
+
+export function bindEffectiveAppRole(
+  user: User,
+  effectiveRole: AppRole | null
+): void {
+  boundEffectiveAppRole.set(user, effectiveRole);
+}
+
+function resolveEffectiveRoleForPermission(
+  user: User | null | undefined,
+  effectiveRole: AppRole | null | undefined,
+  explicitEffectiveRole: boolean
+): { mode: "explicit" | "bound" | "legacy"; role: AppRole | null | undefined } {
+  if (explicitEffectiveRole) {
+    return { mode: "explicit", role: effectiveRole };
+  }
+  if (user && boundEffectiveAppRole.has(user)) {
+    return { mode: "bound", role: boundEffectiveAppRole.get(user) };
+  }
+  return { mode: "legacy", role: undefined };
+}
+
+/**
+ * Organizational module permission check.
+ *
+ * When `effectiveRole` is provided (H4 membership AppRole), it is authoritative:
+ * - admin → grant non-finance module permissions for the active organization
+ * - other roles → require the permission in JWT permission lists (Direction/Employé)
+ * - null → no admin bypass (non-member / unauthorized)
+ *
+ * When omitted, prefers a role bound via `bindEffectiveAppRole` (set by
+ * getAuthenticatedRequestUser). Otherwise legacy JWT `role===admin` bypass.
+ * Finance (`admin_finance`) stays JWT-admin only.
+ */
 export function hasUserPermission(
   user: User | null | undefined,
-  permission: AppPermission
+  permission: AppPermission,
+  effectiveRole?: AppRole | null
 ) {
   if (permission === ADMIN_FINANCE_PERMISSION) {
     return hasAdminFinanceAccess(user);
   }
+
+  const resolved = resolveEffectiveRoleForPermission(
+    user,
+    effectiveRole,
+    arguments.length >= 3
+  );
+
+  if (resolved.mode === "explicit" || resolved.mode === "bound") {
+    if (resolved.role === "admin") {
+      return true;
+    }
+    return getUserPermissions(user).includes(permission);
+  }
+
   if (getUserRole(user) === "admin") {
     return true;
   }

@@ -15,6 +15,7 @@ import {
   readRequestHostname,
   shouldBlockJwtAal1ForMandatoryMfaRole,
 } from "@/app/lib/auth/mfa.shared";
+import { bindEffectiveAppRole } from "@/app/lib/auth/permissions";
 import { resolveOrganizationAuthContextForUser } from "@/app/lib/saas/organization-membership.server";
 
 export { getJwtAal };
@@ -317,6 +318,8 @@ export async function getAuthenticatedRequestUser(req: NextRequest) {
   const orgAuth = await resolveOrganizationAuthContextForUser(data.user, jwtRole);
 
   if (!orgAuth.ok) {
+    // Bind null so hasUserPermission does not fall back to JWT-admin bypass.
+    bindEffectiveAppRole(data.user, null);
     return {
       user: data.user,
       role: null,
@@ -327,6 +330,8 @@ export async function getAuthenticatedRequestUser(req: NextRequest) {
       authorizationSource: null as "membership" | null,
     };
   }
+
+  bindEffectiveAppRole(data.user, orgAuth.context.appRole);
 
   return {
     user: data.user,
