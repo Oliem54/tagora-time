@@ -2526,6 +2526,63 @@ select {
   border-top: 1px solid rgba(255, 255, 255, 0.08);
 }
 
+/* Shared authenticated-header contract variants (same shell, optional chrome). */
+.ui-page-header-variant-compact,
+.ui-page-header-variant-module {
+  align-items: center;
+  border-radius: 14px;
+  padding: 10px 16px;
+  gap: 16px;
+  background: linear-gradient(135deg, #0f2748 0%, #17345f 48%, #1e4478 100%);
+  box-shadow:
+    0 12px 28px rgba(15, 39, 72, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.07);
+  overflow: visible;
+}
+
+.ui-page-header-variant-compact {
+  min-height: 0;
+}
+
+.ui-page-header-variant-module {
+  min-height: 0;
+  align-items: flex-start;
+  padding-top: 12px;
+  padding-bottom: 12px;
+}
+
+.ui-page-header-variant-module .ui-page-header-copy {
+  gap: 6px;
+  align-self: center;
+}
+
+.ui-page-header-variant-module .ui-page-header-eyebrow {
+  margin: 0;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.62);
+  line-height: 1.35;
+}
+
+.ui-page-header-variant-module .ui-page-header-subtitle {
+  margin: 0;
+  font-size: 0.875rem;
+  font-weight: 400;
+  line-height: 1.4;
+  color: rgba(255, 255, 255, 0.78);
+  max-width: 42rem;
+}
+
+.ui-page-header-variant-compact .ui-page-header-actions,
+.ui-page-header-variant-module .ui-page-header-actions {
+  align-self: center;
+  margin-left: auto;
+  overflow: visible;
+  z-index: 30;
+}
+
 .admin-commissions-metric-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

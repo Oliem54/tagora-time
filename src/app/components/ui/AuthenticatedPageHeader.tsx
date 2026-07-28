@@ -2,7 +2,7 @@
 
 import { Suspense, type ComponentProps } from "react";
 import { useCurrentAccess } from "@/app/hooks/useCurrentAccess";
-import PageHeader from "./PageHeader";
+import PageHeader, { type PageHeaderVariant } from "./PageHeader";
 import TagoraPageNavigation from "./TagoraPageNavigation";
 
 type AuthenticatedPageHeaderProps = Omit<
@@ -12,12 +12,14 @@ type AuthenticatedPageHeaderProps = Omit<
   showUserIdentity?: boolean;
   showNavigation?: boolean;
   navigation?: ComponentProps<typeof PageHeader>["navigation"];
+  variant?: PageHeaderVariant;
 };
 
 export default function AuthenticatedPageHeader({
   showUserIdentity = true,
   showNavigation = true,
   navigation,
+  variant = "default",
   ...props
 }: AuthenticatedPageHeaderProps) {
   const { user, role } = useCurrentAccess();
@@ -40,6 +42,7 @@ export default function AuthenticatedPageHeader({
   return (
     <PageHeader
       {...props}
+      variant={variant}
       navigation={resolvedNavigation}
       userIdentity={showUserIdentity ? user?.email ?? null : null}
       userRoleLabel={showUserIdentity ? roleLabel : null}

@@ -19,6 +19,7 @@ describe("authenticated header logo + account menu layering", () => {
     expect(pageHeaderSource).toContain('"/logo-header.png"');
     expect(pageHeaderSource).toContain("ui-page-header-logo-image");
     expect(pageHeaderSource).toContain('objectFit: "contain"');
+    expect(pageHeaderSource).toContain('variant?: PageHeaderVariant');
   });
 
   it("does not paint a black plate behind the premium logo shell", () => {

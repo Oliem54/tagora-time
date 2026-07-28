@@ -4,6 +4,8 @@ import type { AppRole } from "@/app/lib/auth/roles";
 import { cn } from "./cn";
 import UserIdentityBadge from "./UserIdentityBadge";
 
+export type PageHeaderVariant = "default" | "compact" | "module";
+
 type PageHeaderProps = {
   eyebrow?: string;
   title?: string;
@@ -17,6 +19,13 @@ type PageHeaderProps = {
   logoAlt?: string;
   className?: string;
   compact?: boolean;
+  /**
+   * Shared authenticated-header contract:
+   * - compact: premium shell, title-focused (dashboard-like)
+   * - module: premium shell + optional eyebrow/subtitle/navigation (commissions-like)
+   * - default: legacy non-premium layout
+   */
+  variant?: PageHeaderVariant;
 };
 
 export default function PageHeader({
@@ -32,11 +41,22 @@ export default function PageHeader({
   logoAlt = "Logo TAGORA Time",
   className,
   compact = false,
+  variant = "default",
 }: PageHeaderProps) {
-  const isPremiumHeader = className?.includes("ui-page-header-premium-2027");
-  const showEyebrow = Boolean(eyebrow) && !isPremiumHeader;
-  const showSubtitle = Boolean(subtitle) && !isPremiumHeader;
+  const legacyPremiumClass = className?.includes("ui-page-header-premium-2027") ?? false;
+  const isPremiumHeader =
+    variant === "compact" || variant === "module" || legacyPremiumClass;
+  const isCompactVariant = variant === "compact" || (compact && variant === "default");
+  const isModuleVariant = variant === "module";
+
+  // Module variant keeps category/description on the premium shell.
+  // Compact/default-premium hide empty chrome; non-premium keeps legacy eyebrow/subtitle.
+  const showEyebrow =
+    Boolean(eyebrow) && (isModuleVariant || (!isPremiumHeader && variant === "default"));
+  const showSubtitle =
+    Boolean(subtitle) && (isModuleVariant || (!isPremiumHeader && variant === "default"));
   const hasCopy = Boolean(showEyebrow || title || showSubtitle || navigation);
+
   /** Asset recadré (sans marges blanches) pour en-têtes premium — logo.png reste le master. */
   const effectiveLogoSrc =
     isPremiumHeader && logoSrc === "/logo.png" ? "/logo-header.png" : logoSrc;
@@ -45,7 +65,15 @@ export default function PageHeader({
 
   return (
     <section
-      className={cn("ui-page-header", compact && "ui-page-header-compact", className)}
+      className={cn(
+        "ui-page-header",
+        isCompactVariant && "ui-page-header-compact",
+        isPremiumHeader && "ui-page-header-premium-2027",
+        variant === "compact" && "ui-page-header-variant-compact",
+        variant === "module" && "ui-page-header-variant-module",
+        className
+      )}
+      data-header-variant={variant}
     >
       <div className="ui-page-header-logo">
         <div className="ui-page-header-logo-shell">

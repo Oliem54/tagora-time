@@ -393,7 +393,7 @@ export default function AdminCommissionsPageClient() {
   return (
     <main className="page-container commissions-page">
       <AuthenticatedPageHeader
-        className="ui-page-header-premium-2027"
+        variant="module"
         eyebrow="Administration · Finance"
         title="Commissions & objectifs"
         subtitle="Pilotage finance : montants, regles, validation et paiement."
