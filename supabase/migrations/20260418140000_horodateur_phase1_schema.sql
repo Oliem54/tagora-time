@@ -212,6 +212,8 @@ alter table if exists public.horodateur_events
   check (work_date is not null and week_start_date is not null);
 
 do $$
+declare
+  user_id_nullable text;
 begin
   if exists (
     select 1
@@ -220,8 +222,20 @@ begin
       and table_name = 'horodateur_events'
       and column_name = 'user_id'
   ) then
-    alter table public.horodateur_events
-      drop column user_id;
+    select c.is_nullable
+    into user_id_nullable
+    from information_schema.columns c
+    where c.table_schema = 'public'
+      and c.table_name = 'horodateur_events'
+      and c.column_name = 'user_id';
+
+    if user_id_nullable = 'NO' then
+      alter table public.horodateur_events
+        alter column user_id drop not null;
+    end if;
+
+    comment on column public.horodateur_events.user_id is
+      'LEGACY COMPATIBILITY ONLY. employee_id is the canonical employee identity (chauffeurs.id). actor_user_id identifies the actor who performed the action. Do not use user_id for new business logic. Column retained for old schemas/clients; this migration does not DROP it.';
   end if;
 end $$;
 

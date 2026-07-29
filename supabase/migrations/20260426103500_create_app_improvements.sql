@@ -33,6 +33,10 @@ create table if not exists public.app_improvements (
   )
 );
 
+alter table if exists public.app_improvements
+add column if not exists treated_at timestamptz null,
+add column if not exists deleted_at timestamptz null;
+
 create index if not exists idx_app_improvements_created_at
   on public.app_improvements (created_at desc);
 

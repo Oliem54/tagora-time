@@ -1,3 +1,14 @@
+-- ============================================================
+-- TAGORA Time - Security Advisor fixes
+-- 1) direction_terrain_positions with security_invoker=true
+-- 2) RLS policies migrated from user_metadata to app_metadata helpers
+-- ============================================================
+
+begin;
+
+-- ------------------------------------------------------------------
+-- View hardening: run as invoker to respect underlying table RLS
+-- ------------------------------------------------------------------
 create or replace view public.direction_terrain_positions
 with (security_invoker = true) as
 select
@@ -48,7 +59,10 @@ select
     'compatibility_source', 'sorties_terrain',
     'event', 'depart'
   ) as metadata,
-  st.heure_depart as recorded_at
+  case
+when st.date_sortie is null then null::timestamptz
+else (st.date_sortie + st.heure_depart) at time zone 'America/Toronto'
+end as recorded_at
 from public.sorties_terrain st
 where st.heure_depart is not null
   and (st.user_id is not null or st.chauffeur_id is not null)
@@ -81,7 +95,10 @@ select
     'event', 'retour',
     'temps_total', st.temps_total
   ) as metadata,
-  st.heure_retour as recorded_at
+  case
+when st.date_sortie is null then null::timestamptz
+else (st.date_sortie + st.heure_retour) at time zone 'America/Toronto'
+end as recorded_at
 from public.sorties_terrain st
 where st.heure_retour is not null
   and (st.user_id is not null or st.chauffeur_id is not null)
@@ -122,3 +139,97 @@ select
 from public.horodateur_events he
 where he.occurred_at is not null
   and he.user_id is not null;
+
+-- ------------------------------------------------------------------
+-- Helpers: app_metadata role only
+-- ------------------------------------------------------------------
+create or replace function public.current_app_role()
+returns text
+language sql
+stable
+as $$
+  select nullif(auth.jwt() -> 'app_metadata' ->> 'role', '')
+$$;
+
+create or replace function public.is_direction_or_admin()
+returns boolean
+language sql
+stable
+as $$
+  select public.current_app_role() in ('direction', 'admin')
+$$;
+
+-- ------------------------------------------------------------------
+-- account_requests / temps_titan RLS policy reset without user_metadata
+-- ------------------------------------------------------------------
+alter table public.account_requests enable row level security;
+alter table public.temps_titan enable row level security;
+
+drop policy if exists account_requests_insert_pending_public on public.account_requests;
+drop policy if exists account_requests_select_direction_admin on public.account_requests;
+drop policy if exists account_requests_update_direction_admin on public.account_requests;
+drop policy if exists account_requests_delete_direction_admin on public.account_requests;
+
+create policy account_requests_insert_pending_public
+on public.account_requests
+for insert
+to public
+with check (
+  status = 'pending'
+  and coalesce(assigned_role::text, '') = ''
+  and (
+    assigned_permissions is null
+    or coalesce(array_length(assigned_permissions, 1), 0) = 0
+  )
+  and review_note is null
+  and reviewed_by is null
+  and reviewed_at is null
+  and invited_user_id is null
+  and review_lock_token is null
+  and review_started_at is null
+  and last_error is null
+);
+
+create policy account_requests_select_direction_admin
+on public.account_requests
+for select
+to authenticated
+using (public.is_direction_or_admin());
+
+create policy account_requests_update_direction_admin
+on public.account_requests
+for update
+to authenticated
+using (public.is_direction_or_admin())
+with check (public.is_direction_or_admin());
+
+create policy account_requests_delete_direction_admin
+on public.account_requests
+for delete
+to authenticated
+using (public.is_direction_or_admin());
+
+drop policy if exists temps_titan_select_direction_admin on public.temps_titan;
+drop policy if exists temps_titan_insert_direction_admin on public.temps_titan;
+drop policy if exists temps_titan_update_direction_admin on public.temps_titan;
+
+create policy temps_titan_select_direction_admin
+on public.temps_titan
+for select
+to authenticated
+using (public.is_direction_or_admin());
+
+create policy temps_titan_insert_direction_admin
+on public.temps_titan
+for insert
+to authenticated
+with check (public.is_direction_or_admin());
+
+create policy temps_titan_update_direction_admin
+on public.temps_titan
+for update
+to authenticated
+using (public.is_direction_or_admin())
+with check (public.is_direction_or_admin());
+
+commit;

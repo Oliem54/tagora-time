@@ -48,6 +48,8 @@ grant execute on function auth.jwt() to authenticated, anon;
 
 do $$
 declare
+  v_org_a text := 'oliem_solutions';
+  v_org_b text := 'titan_produits_industriels';
   v_emp_a1 bigint;
   v_emp_a2 bigint;
   v_emp_b1 bigint;
@@ -65,22 +67,32 @@ declare
 begin
   -- Nettoyage jetable
   delete from public.sale_commercial_origin_snapshots
-  where organization_id in ('org_a', 'org_b');
+  where organization_id in (v_org_a, v_org_b);
   delete from public.commercial_origin_transfers
-  where organization_id in ('org_a', 'org_b');
+  where organization_id in (v_org_a, v_org_b);
   delete from public.commercial_origin_profiles
-  where organization_id in ('org_a', 'org_b');
+  where organization_id in (v_org_a, v_org_b);
   delete from public.commercial_parties
-  where organization_id in ('org_a', 'org_b');
+  where organization_id in (v_org_a, v_org_b);
   delete from public.chauffeurs
   where nom in ('emp_a1', 'emp_a2', 'emp_b1');
 
-  insert into public.chauffeurs (primary_company, nom)
-  values ('org_a', 'emp_a1') returning id into v_emp_a1;
-  insert into public.chauffeurs (primary_company, nom)
-  values ('org_a', 'emp_a2') returning id into v_emp_a2;
-  insert into public.chauffeurs (primary_company, nom)
-  values ('org_b', 'emp_b1') returning id into v_emp_b1;
+  select coalesce(max(id), 0) + 1000
+  into v_emp_a1
+  from public.chauffeurs;
+
+  v_emp_a2 := v_emp_a1 + 1;
+
+  v_emp_b1 := v_emp_a1 + 2;
+
+  insert into public.chauffeurs (id, primary_company, nom)
+  values (v_emp_a1, v_org_a, 'emp_a1');
+
+  insert into public.chauffeurs (id, primary_company, nom)
+  values (v_emp_a2, v_org_a, 'emp_a2');
+
+  insert into public.chauffeurs (id, primary_company, nom)
+  values (v_emp_b1, v_org_b, 'emp_b1');
 
   -- =========================================================================
   -- organization_id convention
@@ -107,16 +119,16 @@ begin
   end;
 
   insert into public.commercial_parties (organization_id, party_type, label, external_key)
-  values ('org_a', 'client', 'Client A', 'ext-a')
+  values (v_org_a, 'client', 'Client A', 'ext-a')
   returning id into v_party_a;
 
   insert into public.commercial_parties (organization_id, party_type, label, external_key)
-  values ('org_b', 'client', 'Client B', 'ext-b')
+  values (v_org_b, 'client', 'Client B', 'ext-b')
   returning id into v_party_b;
 
   update public.commercial_parties set label = 'Client A renommé' where id = v_party_a;
   begin
-    update public.commercial_parties set organization_id = 'org_b' where id = v_party_a;
+    update public.commercial_parties set organization_id = v_org_b where id = v_party_a;
     raise exception 'org_id mutation should fail';
   exception when others then
     if sqlerrm not ilike '%immuable%' then raise; end if;
@@ -129,7 +141,7 @@ begin
     organization_id, entity_type, entity_id, commercial_origin,
     developed_by_employee_id, effective_from, status
   ) values (
-    'org_a', 'client', v_party_a, 'existing', null, '2026-01-01', 'active'
+    v_org_a, 'client', v_party_a, 'existing', null, '2026-01-01', 'active'
   ) returning id into v_profile_a;
 
   begin
@@ -137,7 +149,7 @@ begin
       organization_id, entity_type, entity_id, commercial_origin,
       developed_by_employee_id, effective_from, status
     ) values (
-      'org_a', 'client', v_party_a, 'employee_developed', null, '2026-02-01', 'active'
+      v_org_a, 'client', v_party_a, 'employee_developed', null, '2026-02-01', 'active'
     );
     raise exception 'employee_developed without developer should fail';
   exception when check_violation then null;
@@ -152,7 +164,7 @@ begin
     organization_id, entity_type, entity_id, commercial_origin,
     developed_by_employee_id, effective_from, status
   ) values (
-    'org_a', 'client', v_party_a, 'employee_developed', v_emp_a1, '2026-06-01', 'active'
+    v_org_a, 'client', v_party_a, 'employee_developed', v_emp_a1, '2026-06-01', 'active'
   ) returning id into v_profile_a;
 
   begin
@@ -160,7 +172,7 @@ begin
       organization_id, entity_type, entity_id, commercial_origin,
       developed_by_employee_id, effective_from, status
     ) values (
-      'org_a', 'client', v_party_a, 'employee_developed', v_emp_b1, '2026-07-01', 'active'
+      v_org_a, 'client', v_party_a, 'employee_developed', v_emp_b1, '2026-07-01', 'active'
     );
     raise exception 'cross-tenant developer should fail';
   exception when others then
@@ -171,7 +183,7 @@ begin
     organization_id, entity_type, entity_id, commercial_origin,
     developed_by_employee_id, effective_from, effective_to, status
   ) values (
-    'org_b', 'client', v_party_b, 'company_developed', null, '2026-01-01', null, 'active'
+    v_org_b, 'client', v_party_b, 'company_developed', null, '2026-01-01', null, 'active'
   );
 
   begin
@@ -179,7 +191,7 @@ begin
       organization_id, entity_type, entity_id, commercial_origin,
       developed_by_employee_id, effective_from, effective_to, status
     ) values (
-      'org_a', 'client', v_party_a, 'existing', null, '2026-08-01', '2026-07-01', 'active'
+      v_org_a, 'client', v_party_a, 'existing', null, '2026-08-01', '2026-07-01', 'active'
     );
     raise exception 'inverted period should fail';
   exception when check_violation then null;
@@ -190,7 +202,7 @@ begin
       organization_id, entity_type, entity_id, commercial_origin,
       developed_by_employee_id, effective_from, status
     ) values (
-      'org_a', 'client', v_party_a, 'existing', null, '2026-09-01', 'active'
+      v_org_a, 'client', v_party_a, 'existing', null, '2026-09-01', 'active'
     );
     raise exception 'second open active profile should fail unique';
   exception when unique_violation then null;
@@ -203,7 +215,7 @@ begin
     organization_id, entity_type, entity_id,
     from_employee_id, to_employee_id, effective_at, reason, created_by
   ) values (
-    'org_a', 'client', v_party_a, v_emp_a1, v_emp_a2, '2026-07-01',
+    v_org_a, 'client', v_party_a, v_emp_a1, v_emp_a2, '2026-07-01',
     'Réaffectation interne', null
   ) returning id into v_transfer_id;
 
@@ -212,7 +224,7 @@ begin
       organization_id, entity_type, entity_id,
       from_employee_id, to_employee_id, effective_at
     ) values (
-      'org_a', 'client', v_party_a, v_emp_a1, v_emp_a1, '2026-08-01'
+      v_org_a, 'client', v_party_a, v_emp_a1, v_emp_a1, '2026-08-01'
     );
     raise exception 'same from/to should fail';
   exception when check_violation then null;
@@ -223,7 +235,7 @@ begin
       organization_id, entity_type, entity_id,
       from_employee_id, to_employee_id, effective_at
     ) values (
-      'org_a', 'client', v_party_a, v_emp_a1, v_emp_b1, '2026-08-01'
+      v_org_a, 'client', v_party_a, v_emp_a1, v_emp_b1, '2026-08-01'
     );
     raise exception 'B1 on party A should fail';
   exception when others then
@@ -242,7 +254,7 @@ begin
     developed_by_employee_id_snapshot, source_profile_id,
     review_status, captured_by_system
   ) values (
-    'org_a', 'sale-past', 'employee_developed', v_emp_a1, v_profile_a,
+    v_org_a, 'sale-past', 'employee_developed', v_emp_a1, v_profile_a,
     'confirmed', true
   ) returning id into v_snap_id;
 
@@ -251,13 +263,13 @@ begin
     organization_id, sale_id, commercial_origin_snapshot,
     developed_by_employee_id_snapshot, review_status
   ) values (
-    'org_b', 'sale-past', 'company_developed', null, 'confirmed'
+    v_org_b, 'sale-past', 'company_developed', null, 'confirmed'
   );
 
   begin
     insert into public.sale_commercial_origin_snapshots (
       organization_id, sale_id, commercial_origin_snapshot, review_status
-    ) values ('org_a', 'sale-past', 'existing', 'confirmed');
+    ) values (v_org_a, 'sale-past', 'existing', 'confirmed');
     raise exception 'duplicate org+sale should fail';
   exception when unique_violation then null;
   end;
@@ -277,7 +289,7 @@ begin
     organization_id, sale_id, commercial_origin_snapshot,
     developed_by_employee_id_snapshot, review_status
   ) values (
-    'org_a', 'sale-pending', null, null, 'pending_review'
+    v_org_a, 'sale-pending', null, null, 'pending_review'
   ) returning id into v_snap_id;
 
   update public.sale_commercial_origin_snapshots
@@ -310,7 +322,7 @@ begin
   -- company_developed conservé
   select commercial_origin_snapshot into v_origin
   from public.sale_commercial_origin_snapshots
-  where organization_id = 'org_b' and sale_id = 'sale-past';
+  where organization_id = v_org_b and sale_id = 'sale-past';
   if v_origin <> 'company_developed' then
     raise exception 'company_developed not preserved';
   end if;
@@ -334,29 +346,31 @@ $$;
 -- ===========================================================================
 do $$
 declare
+  v_org_a text := 'oliem_solutions';
+  v_org_b text := 'titan_produits_industriels';
   v_count int;
   v_party_a uuid;
   v_party_b uuid;
   v_snap_b uuid;
 begin
-  select id into v_party_a from public.commercial_parties where organization_id = 'org_a' limit 1;
-  select id into v_party_b from public.commercial_parties where organization_id = 'org_b' limit 1;
+  select id into v_party_a from public.commercial_parties where organization_id = v_org_a limit 1;
+  select id into v_party_b from public.commercial_parties where organization_id = v_org_b limit 1;
   select id into v_snap_b from public.sale_commercial_origin_snapshots
-  where organization_id = 'org_b' and sale_id = 'sale-past';
+  where organization_id = v_org_b and sale_id = 'sale-past';
 
   -- Admin A
   perform set_config('role', 'authenticated', true);
-  perform public._bloc6c_set_claims('admin', 'org_a', '{}', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa');
+  perform public._bloc6c_set_claims('admin', v_org_a, '{}', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa');
 
-  select count(*) into v_count from public.commercial_parties where organization_id = 'org_a';
+  select count(*) into v_count from public.commercial_parties where organization_id = v_org_a;
   if v_count < 1 then raise exception 'ADMIN_A cannot read parties A'; end if;
 
-  select count(*) into v_count from public.commercial_parties where organization_id = 'org_b';
+  select count(*) into v_count from public.commercial_parties where organization_id = v_org_b;
   if v_count <> 0 then raise exception 'ADMIN_A leaked parties B'; end if;
 
   begin
     insert into public.commercial_parties (organization_id, party_type, label)
-    values ('org_b', 'client', 'Inject');
+    values (v_org_b, 'client', 'Inject');
     raise exception 'ADMIN_A injected B';
   exception when others then
     if sqlerrm like '%ADMIN_A injected%' then raise; end if;
@@ -366,10 +380,10 @@ begin
   perform set_config('role', 'postgres', true);
   insert into public.sale_commercial_origin_snapshots (
     organization_id, sale_id, review_status
-  ) values ('org_a', 'sale-rls-pending', 'pending_review');
+  ) values (v_org_a, 'sale-rls-pending', 'pending_review');
 
   perform set_config('role', 'authenticated', true);
-  perform public._bloc6c_set_claims('admin', 'org_a', '{}', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa');
+  perform public._bloc6c_set_claims('admin', v_org_a, '{}', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa');
   update public.sale_commercial_origin_snapshots
   set
     review_status = 'resolved',
@@ -377,7 +391,7 @@ begin
     confirmed_by = null,
     confirmed_at = timezone('utc', now()),
     confirmation_reason = 'RLS ok'
-  where organization_id = 'org_a' and sale_id = 'sale-rls-pending';
+  where organization_id = v_org_a and sale_id = 'sale-rls-pending';
 
   -- Cannot resolve B
   begin
@@ -396,35 +410,35 @@ begin
 
   -- Admin B reads B only
   perform set_config('role', 'authenticated', true);
-  perform public._bloc6c_set_claims('admin', 'org_b', '{}', 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb');
-  select count(*) into v_count from public.commercial_parties where organization_id = 'org_b';
+  perform public._bloc6c_set_claims('admin', v_org_b, '{}', 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb');
+  select count(*) into v_count from public.commercial_parties where organization_id = v_org_b;
   if v_count < 1 then raise exception 'ADMIN_B cannot read B'; end if;
-  select count(*) into v_count from public.commercial_parties where organization_id = 'org_a';
+  select count(*) into v_count from public.commercial_parties where organization_id = v_org_a;
   if v_count <> 0 then raise exception 'ADMIN_B leaked A'; end if;
 
   -- Direction A + commissions: read, no write
   perform public._bloc6c_set_claims(
-    'direction', 'org_a', array['commissions'], 'dddddddd-dddd-dddd-dddd-dddddddddddd'
+    'direction', v_org_a, array['commissions'], 'dddddddd-dddd-dddd-dddd-dddddddddddd'
   );
-  select count(*) into v_count from public.commercial_parties where organization_id = 'org_a';
+  select count(*) into v_count from public.commercial_parties where organization_id = v_org_a;
   if v_count < 1 then raise exception 'DIR_A cannot read A'; end if;
-  select count(*) into v_count from public.commercial_parties where organization_id = 'org_b';
+  select count(*) into v_count from public.commercial_parties where organization_id = v_org_b;
   if v_count <> 0 then raise exception 'DIR_A leaked B'; end if;
 
-  update public.commercial_parties set label = 'hack-dir' where organization_id = 'org_a';
+  update public.commercial_parties set label = 'hack-dir' where organization_id = v_org_a;
   perform set_config('role', 'postgres', true);
-  if exists (select 1 from public.commercial_parties where organization_id = 'org_a' and label = 'hack-dir') then
+  if exists (select 1 from public.commercial_parties where organization_id = v_org_a and label = 'hack-dir') then
     raise exception 'DIR_A wrote A';
   end if;
 
   -- Direction without permission
   perform set_config('role', 'authenticated', true);
-  perform public._bloc6c_set_claims('direction', 'org_a', '{}', 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee');
+  perform public._bloc6c_set_claims('direction', v_org_a, '{}', 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee');
   select count(*) into v_count from public.commercial_parties;
   if v_count <> 0 then raise exception 'DIR_NO_PERM read count=%', v_count; end if;
 
   -- Employé
-  perform public._bloc6c_set_claims('employe', 'org_a', array['commissions'], 'ffffffff-ffff-ffff-ffff-ffffffffffff');
+  perform public._bloc6c_set_claims('employe', v_org_a, array['commissions'], 'ffffffff-ffff-ffff-ffff-ffffffffffff');
   select count(*) into v_count from public.commercial_parties;
   if v_count <> 0 then raise exception 'EMPLOYE read config'; end if;
 
@@ -452,6 +466,88 @@ begin
 
   perform set_config('role', 'postgres', true);
   raise notice 'RLS_OK';
+end;
+$$;
+
+-- Nettoyage final autonome : laisser la base compatible avec 6D immédiat
+do $$
+declare
+  v_org_a text := 'oliem_solutions';
+  v_org_b text := 'titan_produits_industriels';
+  v_remaining integer;
+begin
+  delete from public.sale_commercial_origin_snapshots
+  where organization_id in (v_org_a, v_org_b)
+    and sale_id in (
+      'sale-past',
+      'sale-pending',
+      'sale-rls-pending'
+    );
+
+  delete from public.commercial_origin_transfers
+  where organization_id in (v_org_a, v_org_b)
+    and entity_id in (
+      select id
+      from public.commercial_parties
+      where organization_id in (v_org_a, v_org_b)
+        and (
+          external_key in ('ext-a', 'ext-b')
+          or label in ('Client A', 'Client A renommé', 'Client B', 'Inject')
+        )
+    );
+
+  delete from public.commercial_origin_profiles
+  where organization_id in (v_org_a, v_org_b)
+    and entity_id in (
+      select id
+      from public.commercial_parties
+      where organization_id in (v_org_a, v_org_b)
+        and (
+          external_key in ('ext-a', 'ext-b')
+          or label in ('Client A', 'Client A renommé', 'Client B', 'Inject')
+        )
+    );
+
+  delete from public.commercial_parties
+  where organization_id in (v_org_a, v_org_b)
+    and (
+      external_key in ('ext-a', 'ext-b')
+      or label in ('Client A', 'Client A renommé', 'Client B', 'Inject')
+    );
+
+  delete from public.chauffeurs
+  where nom in ('emp_a1', 'emp_a2', 'emp_b1');
+
+  select
+    (
+      select count(*)
+      from public.sale_commercial_origin_snapshots
+      where organization_id in (v_org_a, v_org_b)
+        and sale_id in ('sale-past', 'sale-pending', 'sale-rls-pending')
+    )
+    +
+    (
+      select count(*)
+      from public.commercial_parties
+      where organization_id in (v_org_a, v_org_b)
+        and (
+          external_key in ('ext-a', 'ext-b')
+          or label in ('Client A', 'Client A renommé', 'Client B', 'Inject')
+        )
+    )
+    +
+    (
+      select count(*)
+      from public.chauffeurs
+      where nom in ('emp_a1', 'emp_a2', 'emp_b1')
+    )
+  into v_remaining;
+
+  if v_remaining <> 0 then
+    raise exception 'BLOC 6C cleanup incomplet: % résidu(s)', v_remaining;
+  end if;
+
+  raise notice 'BLOC_6C_CLEANUP_OK';
 end;
 $$;
 
