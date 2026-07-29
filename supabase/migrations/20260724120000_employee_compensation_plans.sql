@@ -238,6 +238,8 @@ comment on column public.employee_compensation_plan_rules.calculation_basis is
 create or replace function public.enforce_employee_compensation_plan_tenant()
 returns trigger
 language plpgsql
+security definer
+set search_path = pg_catalog
 as $$
 declare
   v_emp_org text;

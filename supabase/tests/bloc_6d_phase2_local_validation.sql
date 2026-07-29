@@ -90,6 +90,8 @@ grant execute on function auth.jwt() to authenticated, anon;
 
 do $$
 declare
+  v_org_a text := 'oliem_solutions';
+  v_org_b text := 'titan_produits_industriels';
   v_emp_a1 bigint;
   v_emp_a2 bigint;
   v_emp_b1 bigint;
@@ -118,16 +120,16 @@ begin
   -- Nettoyage jetable (bypass trigger immutabilité règles publiées)
   set local session_replication_role = replica;
   delete from public.employee_compensation_plan_rules
-  where organization_id in ('org_a', 'org_b');
+  where organization_id in (v_org_a, v_org_b);
   delete from public.employee_compensation_plan_versions
-  where organization_id in ('org_a', 'org_b');
+  where organization_id in (v_org_a, v_org_b);
   update public.employee_compensation_plans set current_version_id = null
-  where organization_id in ('org_a', 'org_b');
+  where organization_id in (v_org_a, v_org_b);
   delete from public.employee_compensation_plans
-  where organization_id in ('org_a', 'org_b');
+  where organization_id in (v_org_a, v_org_b);
   set local session_replication_role = origin;
   delete from public.commission_categories
-  where organization_id in ('org_a', 'org_b');
+  where organization_id in (v_org_a, v_org_b);
   delete from public.chauffeurs
   where nom in ('emp_a1', 'emp_a2', 'emp_b1', 'emp_a1_in_b');
   delete from auth.users
@@ -136,38 +138,50 @@ begin
   insert into auth.users (id) values (v_admin_a), (v_admin_b), (v_dir_a)
   on conflict do nothing;
 
-  insert into public.chauffeurs (primary_company, nom)
-  values ('org_a', 'emp_a1') returning id into v_emp_a1;
-  insert into public.chauffeurs (primary_company, nom)
-  values ('org_a', 'emp_a2') returning id into v_emp_a2;
-  insert into public.chauffeurs (primary_company, nom)
-  values ('org_b', 'emp_b1') returning id into v_emp_b1;
-  -- Même id numérique possible seulement via lignes distinctes (ids générés)
-  insert into public.chauffeurs (primary_company, nom)
-  values ('org_b', 'emp_a1_in_b') returning id into v_emp_a1_in_b;
+  select coalesce(max(id), 0) + 2000
+  into v_emp_a1
+  from public.chauffeurs;
+
+  v_emp_a2 := v_emp_a1 + 1;
+
+  v_emp_b1 := v_emp_a1 + 2;
+
+  v_emp_a1_in_b := v_emp_a1 + 3;
+
+  insert into public.chauffeurs (id, primary_company, nom)
+  values (v_emp_a1, v_org_a, 'emp_a1');
+
+  insert into public.chauffeurs (id, primary_company, nom)
+  values (v_emp_a2, v_org_a, 'emp_a2');
+
+  insert into public.chauffeurs (id, primary_company, nom)
+  values (v_emp_b1, v_org_b, 'emp_b1');
+
+  insert into public.chauffeurs (id, primary_company, nom)
+  values (v_emp_a1_in_b, v_org_b, 'emp_a1_in_b');
 
   insert into public.commission_categories (
     organization_id, code, label, is_visible, is_active, display_order
   ) values
-    ('org_a', 'cat_vis', 'Catégorie visible A', true, true, 1)
+    (v_org_a, 'cat_vis', 'Catégorie visible A', true, true, 1)
     returning id into v_cat_a_vis;
 
   insert into public.commission_categories (
     organization_id, code, label, is_visible, is_active, display_order
   ) values
-    ('org_a', 'cat_hid', 'Catégorie masquée A', false, true, 2)
+    (v_org_a, 'cat_hid', 'Catégorie masquée A', false, true, 2)
     returning id into v_cat_a_hid;
 
   insert into public.commission_categories (
     organization_id, code, label, is_visible, is_active, display_order
   ) values
-    ('org_a', 'cat_off', 'Catégorie inactive A', true, false, 3)
+    (v_org_a, 'cat_off', 'Catégorie inactive A', true, false, 3)
     returning id into v_cat_a_inactive;
 
   insert into public.commission_categories (
     organization_id, code, label, is_visible, is_active, display_order
   ) values
-    ('org_b', 'cat_b', 'Catégorie B', true, true, 1)
+    (v_org_b, 'cat_b', 'Catégorie B', true, true, 1)
     returning id into v_cat_b;
 
   raise notice 'SEED_OK emp_a1=% emp_a2=% emp_b1=%', v_emp_a1, v_emp_a2, v_emp_b1;
@@ -218,20 +232,20 @@ begin
   insert into public.employee_compensation_plans (
     organization_id, employee_id, plan_code, name, status, created_by
   ) values (
-    'org_a', v_emp_a1, 'plan_a1', 'Plan principal A1', 'active', v_admin_a
+    v_org_a, v_emp_a1, 'plan_a1', 'Plan principal A1', 'active', v_admin_a
   ) returning id into v_plan_a1;
 
   insert into public.employee_compensation_plans (
     organization_id, employee_id, plan_code, name, status, created_by
   ) values (
-    'org_b', v_emp_b1, 'plan_b1', 'Plan principal B1', 'active', v_admin_b
+    v_org_b, v_emp_b1, 'plan_b1', 'Plan principal B1', 'active', v_admin_b
   ) returning id into v_plan_b1;
 
   -- Unicité org+employé
   begin
     insert into public.employee_compensation_plans (
       organization_id, employee_id, plan_code, name
-    ) values ('org_a', v_emp_a1, 'plan_a1_dup', 'Dup');
+    ) values (v_org_a, v_emp_a1, 'plan_a1_dup', 'Dup');
     raise exception 'duplicate org+employee should fail';
   exception when unique_violation then null;
   end;
@@ -240,7 +254,7 @@ begin
   begin
     insert into public.employee_compensation_plans (
       organization_id, employee_id, plan_code, name
-    ) values ('org_a', v_emp_a2, 'plan_a1', 'Autre nom');
+    ) values (v_org_a, v_emp_a2, 'plan_a1', 'Autre nom');
     raise exception 'duplicate plan_code should fail';
   exception when unique_violation then null;
   end;
@@ -249,7 +263,7 @@ begin
   begin
     insert into public.employee_compensation_plans (
       organization_id, employee_id, plan_code, name
-    ) values ('org_a', v_emp_a2, 'BAD-CODE', 'X');
+    ) values (v_org_a, v_emp_a2, 'BAD-CODE', 'X');
     raise exception 'invalid plan_code should fail';
   exception when check_violation then null;
   end;
@@ -257,7 +271,7 @@ begin
   begin
     insert into public.employee_compensation_plans (
       organization_id, employee_id, plan_code, name
-    ) values ('org_a', v_emp_a2, '', 'X');
+    ) values (v_org_a, v_emp_a2, '', 'X');
     raise exception 'empty plan_code should fail';
   exception when check_violation then null;
   end;
@@ -266,7 +280,7 @@ begin
   begin
     insert into public.employee_compensation_plans (
       organization_id, employee_id, plan_code, name
-    ) values ('org_a', v_emp_a2, 'plan_a2', '   ');
+    ) values (v_org_a, v_emp_a2, 'plan_a2', '   ');
     raise exception 'blank name should fail';
   exception when check_violation then null;
   end;
@@ -275,7 +289,7 @@ begin
   begin
     insert into public.employee_compensation_plans (
       organization_id, employee_id, plan_code, name
-    ) values ('org_a', v_emp_b1, 'plan_x', 'Cross');
+    ) values (v_org_a, v_emp_b1, 'plan_x', 'Cross');
     raise exception 'cross-tenant employee should fail';
   exception when others then
     if sqlerrm not ilike '%cross-tenant%' then raise; end if;
@@ -285,19 +299,19 @@ begin
   insert into public.employee_compensation_plans (
     organization_id, employee_id, plan_code, name
   ) values (
-    'org_b', v_emp_a1_in_b, 'plan_a1_b', 'Plan A1-like in B'
+    v_org_b, v_emp_a1_in_b, 'plan_a1_b', 'Plan A1-like in B'
   );
 
   insert into public.employee_compensation_plans (
     organization_id, employee_id, plan_code, name
   ) values (
-    'org_a', v_emp_a2, 'plan_a2', 'Plan principal A2'
+    v_org_a, v_emp_a2, 'plan_a2', 'Plan principal A2'
   ) returning id into v_plan_a2;
 
   -- organization_id immuable
   begin
     update public.employee_compensation_plans
-    set organization_id = 'org_b' where id = v_plan_a1;
+    set organization_id = v_org_b where id = v_plan_a1;
     raise exception 'org mutation should fail';
   exception when others then
     if sqlerrm not ilike '%immuable%' then raise; end if;
@@ -313,14 +327,14 @@ begin
     organization_id, plan_id, version_number, status,
     effective_from, effective_to, created_by
   ) values (
-    'org_a', v_plan_a1, 1, 'draft', '2026-01-01', null, v_admin_a
+    v_org_a, v_plan_a1, 1, 'draft', '2026-01-01', null, v_admin_a
   ) returning id into v_ver_a1_v1;
 
   -- version_number unique
   begin
     insert into public.employee_compensation_plan_versions (
       organization_id, plan_id, version_number, status, effective_from
-    ) values ('org_a', v_plan_a1, 1, 'draft', '2026-02-01');
+    ) values (v_org_a, v_plan_a1, 1, 'draft', '2026-02-01');
     raise exception 'duplicate version_number should fail';
   exception when unique_violation then null;
   end;
@@ -329,7 +343,7 @@ begin
   begin
     insert into public.employee_compensation_plan_versions (
       organization_id, plan_id, version_number, status, effective_from, effective_to
-    ) values ('org_a', v_plan_a1, 99, 'draft', '2026-06-01', '2026-06-01');
+    ) values (v_org_a, v_plan_a1, 99, 'draft', '2026-06-01', '2026-06-01');
     raise exception 'equal effective_to should fail';
   exception when check_violation then null;
   end;
@@ -339,7 +353,7 @@ begin
     organization_id, plan_version_id, category_id, commercial_origin,
     calculation_basis, calculation_method, rate_percent, display_order
   ) values (
-    'org_a', v_ver_a1_v1, v_cat_a_vis, null,
+    v_org_a, v_ver_a1_v1, v_cat_a_vis, null,
     'net_sales_ex_tax', 'percentage', 10, 0
   ) returning id into v_rule_id;
 
@@ -348,7 +362,7 @@ begin
     organization_id, plan_version_id, category_id, commercial_origin,
     calculation_basis, calculation_method, rate_percent, display_order
   ) values (
-    'org_a', v_ver_a1_v1, v_cat_a_hid, 'existing',
+    v_org_a, v_ver_a1_v1, v_cat_a_hid, 'existing',
     'achieved_amount', 'percentage', 5, 1
   );
 
@@ -358,7 +372,7 @@ begin
       organization_id, plan_version_id, category_id,
       calculation_basis, calculation_method, rate_percent
     ) values (
-      'org_a', v_ver_a1_v1, v_cat_a_inactive,
+      v_org_a, v_ver_a1_v1, v_cat_a_inactive,
       'net_sales_ex_tax', 'percentage', 1
     );
     raise exception 'inactive category should fail';
@@ -372,7 +386,7 @@ begin
       organization_id, plan_version_id, category_id,
       calculation_basis, calculation_method, rate_percent
     ) values (
-      'org_a', v_ver_a1_v1, v_cat_b,
+      v_org_a, v_ver_a1_v1, v_cat_b,
       'net_sales_ex_tax', 'percentage', 1
     );
     raise exception 'cross-tenant category should fail';
@@ -385,7 +399,7 @@ begin
     organization_id, plan_version_id, category_id,
     calculation_basis, calculation_method, fixed_amount, currency_code, display_order
   ) values (
-    'org_a', v_ver_a1_v1, v_cat_a_vis,
+    v_org_a, v_ver_a1_v1, v_cat_a_vis,
     'achieved_amount', 'fixed_amount', 100, 'CAD', 2
   );
 
@@ -393,7 +407,7 @@ begin
     organization_id, plan_version_id, category_id,
     calculation_basis, calculation_method, per_unit_amount, currency_code, display_order
   ) values (
-    'org_a', v_ver_a1_v1, v_cat_a_vis,
+    v_org_a, v_ver_a1_v1, v_cat_a_vis,
     'achieved_sales_count', 'per_unit', 25, 'CAD', 3
   );
 
@@ -403,7 +417,7 @@ begin
       organization_id, plan_version_id, category_id,
       calculation_basis, calculation_method, rate_percent, currency_code
     ) values (
-      'org_a', v_ver_a1_v1, v_cat_a_vis,
+      v_org_a, v_ver_a1_v1, v_cat_a_vis,
       'net_sales_ex_tax', 'percentage', 2, 'CAD'
     );
     raise exception 'percentage currency should fail';
@@ -416,7 +430,7 @@ begin
       organization_id, plan_version_id, category_id,
       calculation_basis, calculation_method, rate_percent
     ) values (
-      'org_a', v_ver_a1_v1, v_cat_a_vis,
+      v_org_a, v_ver_a1_v1, v_cat_a_vis,
       'net_sales_ex_tax', 'percentage', 101
     );
     raise exception 'rate>100 should fail';
@@ -429,7 +443,7 @@ begin
       organization_id, plan_version_id, category_id,
       calculation_basis, calculation_method, fixed_amount
     ) values (
-      'org_a', v_ver_a1_v1, v_cat_a_vis,
+      v_org_a, v_ver_a1_v1, v_cat_a_vis,
       'achieved_amount', 'fixed_amount', 10
     );
     raise exception 'fixed without currency should fail';
@@ -442,7 +456,7 @@ begin
       organization_id, plan_version_id, category_id,
       calculation_basis, calculation_method, fixed_amount, currency_code
     ) values (
-      'org_a', v_ver_a1_v1, v_cat_a_vis,
+      v_org_a, v_ver_a1_v1, v_cat_a_vis,
       'achieved_amount', 'fixed_amount', -1, 'CAD'
     );
     raise exception 'negative fixed should fail';
@@ -455,7 +469,7 @@ begin
       organization_id, plan_version_id, category_id,
       calculation_basis, calculation_method, rate_percent, min_amount, max_amount
     ) values (
-      'org_a', v_ver_a1_v1, v_cat_a_vis,
+      v_org_a, v_ver_a1_v1, v_cat_a_vis,
       'net_sales_ex_tax', 'percentage', 3, 100, 50
     );
     raise exception 'min>max should fail';
@@ -468,7 +482,7 @@ begin
       organization_id, plan_version_id, category_id,
       calculation_basis, calculation_method, rate_percent
     ) values (
-      'org_a', v_ver_a1_v1, v_cat_a_vis,
+      v_org_a, v_ver_a1_v1, v_cat_a_vis,
       'gross_before_tax', 'percentage', 1
     );
     raise exception 'unknown basis should fail';
@@ -480,9 +494,9 @@ begin
     organization_id, plan_version_id, category_id, commercial_origin,
     calculation_basis, calculation_method, rate_percent, display_order
   ) values
-    ('org_a', v_ver_a1_v1, v_cat_a_vis, 'employee_developed',
+    (v_org_a, v_ver_a1_v1, v_cat_a_vis, 'employee_developed',
      'net_sales_ex_tax', 'percentage', 8, 10),
-    ('org_a', v_ver_a1_v1, v_cat_a_vis, 'company_developed',
+    (v_org_a, v_ver_a1_v1, v_cat_a_vis, 'company_developed',
      'net_sales_ex_tax', 'percentage', 7, 11);
 
   begin
@@ -490,7 +504,7 @@ begin
       organization_id, plan_version_id, category_id, commercial_origin,
       calculation_basis, calculation_method, rate_percent
     ) values (
-      'org_a', v_ver_a1_v1, v_cat_a_vis, 'unknown_origin',
+      v_org_a, v_ver_a1_v1, v_cat_a_vis, 'unknown_origin',
       'net_sales_ex_tax', 'percentage', 1
     );
     raise exception 'unknown origin should fail';
@@ -538,7 +552,7 @@ begin
       organization_id, plan_version_id, category_id,
       calculation_basis, calculation_method, rate_percent
     ) values (
-      'org_a', v_ver_a1_v1, v_cat_a_vis,
+      v_org_a, v_ver_a1_v1, v_cat_a_vis,
       'net_sales_ex_tax', 'percentage', 1
     );
     raise exception 'rule insert on published should fail';
@@ -573,7 +587,7 @@ begin
     organization_id, plan_id, version_number, status,
     effective_from, effective_to, created_by
   ) values (
-    'org_a', v_plan_a1, 2, 'draft', '2026-07-01', null, v_admin_a
+    v_org_a, v_plan_a1, 2, 'draft', '2026-07-01', null, v_admin_a
   ) returning id into v_ver_a1_v2;
 
   -- Clonage logique: copier règles avec nouveaux ids
@@ -605,7 +619,7 @@ begin
       organization_id, plan_id, version_number, status,
       effective_from, effective_to
     ) values (
-      'org_a', v_plan_a1, 3, 'scheduled', '2026-06-01', '2026-08-01'
+      v_org_a, v_plan_a1, 3, 'scheduled', '2026-06-01', '2026-08-01'
     );
     raise exception 'overlap should fail';
   exception when exclusion_violation then null;
@@ -616,7 +630,7 @@ begin
     organization_id, plan_id, version_number, status,
     effective_from, effective_to
   ) values (
-    'org_a', v_plan_a1, 3, 'draft', '2027-01-01', '2027-06-01'
+    v_org_a, v_plan_a1, 3, 'draft', '2027-01-01', '2027-06-01'
   );
   update public.employee_compensation_plan_versions
   set status = 'cancelled'
@@ -693,7 +707,7 @@ begin
   insert into public.employee_compensation_plan_versions (
     organization_id, plan_id, version_number, status, effective_from
   ) values (
-    'org_a', v_plan_a1, 4, 'draft', '2028-01-01'
+    v_org_a, v_plan_a1, 4, 'draft', '2028-01-01'
   ) returning id into v_ver_clone;
 
   if exists (
@@ -738,7 +752,7 @@ begin
       organization_id, plan_version_id, category_id,
       calculation_basis, calculation_method, rate_percent
     ) values (
-      'org_a', v_ver_clone, v_cat_a_vis,
+      v_org_a, v_ver_clone, v_cat_a_vis,
       'net_sales_ex_tax', 'percentage', 1
     );
     raise exception 'inactive cat on new rule should fail';
@@ -773,33 +787,37 @@ $$;
 -- =========================================================================
 do $$
 declare
+  v_org_a text := 'oliem_solutions';
+  v_org_b text := 'titan_produits_industriels';
   v_plan_a uuid;
   v_plan_b uuid;
   v_ver_a uuid;
   v_count int;
   v_emp_a1 bigint;
+  v_emp_b1 bigint;
   v_cat_a uuid;
 begin
   select id into v_plan_a from public.employee_compensation_plans
-  where organization_id = 'org_a' and plan_code = 'plan_a1';
+  where organization_id = v_org_a and plan_code = 'plan_a1';
   select id into v_plan_b from public.employee_compensation_plans
-  where organization_id = 'org_b' and plan_code = 'plan_b1';
+  where organization_id = v_org_b and plan_code = 'plan_b1';
   select id into v_ver_a from public.employee_compensation_plan_versions
   where plan_id = v_plan_a and version_number = 4;
   select id into v_emp_a1 from public.chauffeurs where nom = 'emp_a1';
+  select id into v_emp_b1 from public.chauffeurs where nom = 'emp_b1';
   select id into v_cat_a from public.commission_categories
-  where organization_id = 'org_a' and code = 'cat_vis';
+  where organization_id = v_org_a and code = 'cat_vis';
 
   -- Admin A
-  perform public._bloc6d_set_claims('admin', 'org_a');
+  perform public._bloc6d_set_claims('admin', v_org_a);
   set local role authenticated;
 
   select count(*) into v_count from public.employee_compensation_plans
-  where organization_id = 'org_a';
+  where organization_id = v_org_a;
   if v_count < 1 then raise exception 'Admin A cannot read A plans'; end if;
 
   select count(*) into v_count from public.employee_compensation_plans
-  where organization_id = 'org_b';
+  where organization_id = v_org_b;
   if v_count <> 0 then raise exception 'Admin A saw B plans'; end if;
 
   -- lecture / écriture A OK
@@ -812,9 +830,7 @@ begin
   begin
     insert into public.employee_compensation_plans (
       organization_id, employee_id, plan_code, name
-    ) values ('org_b', (
-      select id from public.chauffeurs where nom = 'emp_b1'
-    ), 'hack_b', 'Hack');
+    ) values (v_org_b, v_emp_b1, 'hack_b', 'Hack');
     raise exception 'Admin A inject org_b should fail RLS';
   exception when insufficient_privilege then null;
   when others then
@@ -825,30 +841,30 @@ begin
   perform public._bloc6d_clear_claims();
 
   -- Admin B
-  perform public._bloc6d_set_claims('admin', 'org_b');
+  perform public._bloc6d_set_claims('admin', v_org_b);
   set local role authenticated;
 
   select count(*) into v_count from public.employee_compensation_plans
-  where organization_id = 'org_b';
+  where organization_id = v_org_b;
   if v_count < 1 then raise exception 'Admin B cannot read B'; end if;
 
   select count(*) into v_count from public.employee_compensation_plans
-  where organization_id = 'org_a';
+  where organization_id = v_org_a;
   if v_count <> 0 then raise exception 'Admin B saw A'; end if;
 
   reset role;
   perform public._bloc6d_clear_claims();
 
   -- Direction A + commissions
-  perform public._bloc6d_set_claims('direction', 'org_a', array['commissions']);
+  perform public._bloc6d_set_claims('direction', v_org_a, array['commissions']);
   set local role authenticated;
 
   select count(*) into v_count from public.employee_compensation_plans
-  where organization_id = 'org_a';
+  where organization_id = v_org_a;
   if v_count < 1 then raise exception 'Direction+commissions cannot read A'; end if;
 
   select count(*) into v_count from public.employee_compensation_plans
-  where organization_id = 'org_b';
+  where organization_id = v_org_b;
   if v_count <> 0 then raise exception 'Direction saw B'; end if;
 
   begin
@@ -862,7 +878,7 @@ begin
   perform public._bloc6d_clear_claims();
 
   -- Direction sans permission
-  perform public._bloc6d_set_claims('direction', 'org_a', '{}'::text[]);
+  perform public._bloc6d_set_claims('direction', v_org_a, '{}'::text[]);
   set local role authenticated;
 
   select count(*) into v_count from public.employee_compensation_plans;
@@ -872,7 +888,7 @@ begin
   perform public._bloc6d_clear_claims();
 
   -- Employé
-  perform public._bloc6d_set_claims('employe', 'org_a');
+  perform public._bloc6d_set_claims('employe', v_org_a);
   set local role authenticated;
 
   select count(*) into v_count from public.employee_compensation_plans;
@@ -912,21 +928,47 @@ $$;
 
 -- Nettoyage jetable final
 do $$
+declare
+  v_org_a text := 'oliem_solutions';
+  v_org_b text := 'titan_produits_industriels';
+  v_admin_a uuid := 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
+  v_admin_b uuid := 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
+  v_dir_a uuid := 'cccccccc-cccc-cccc-cccc-cccccccccccc';
 begin
   set local session_replication_role = replica;
   delete from public.employee_compensation_plan_rules
-  where organization_id in ('org_a', 'org_b');
+  where organization_id in (v_org_a, v_org_b);
   delete from public.employee_compensation_plan_versions
-  where organization_id in ('org_a', 'org_b');
+  where organization_id in (v_org_a, v_org_b);
   update public.employee_compensation_plans set current_version_id = null
-  where organization_id in ('org_a', 'org_b');
+  where organization_id in (v_org_a, v_org_b);
   delete from public.employee_compensation_plans
-  where organization_id in ('org_a', 'org_b');
+  where organization_id in (v_org_a, v_org_b);
   set local session_replication_role = origin;
   delete from public.commission_categories
-  where organization_id in ('org_a', 'org_b');
+  where organization_id in (v_org_a, v_org_b);
   delete from public.chauffeurs
   where nom in ('emp_a1', 'emp_a2', 'emp_b1', 'emp_a1_in_b');
+
+  delete from auth.users
+  where id in (
+    v_admin_a,
+    v_admin_b,
+    v_dir_a
+  );
+
+  if exists (
+    select 1
+    from auth.users
+    where id in (
+      v_admin_a,
+      v_admin_b,
+      v_dir_a
+    )
+  ) then
+    raise exception 'BLOC 6D cleanup Auth incomplet';
+  end if;
+
   raise notice 'CLEANUP_OK';
 end;
 $$;
