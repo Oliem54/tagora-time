@@ -36,6 +36,10 @@ import {
   summarizeObjectiveRulesForDisplay,
   type CommissionRuleDisplayInput,
 } from "@/app/lib/commissions/commission-display.shared";
+import {
+  getEmployeeSalesBookObjectiveProgress,
+  summarizeEmployeeSalesBookKpis,
+} from "@/app/lib/commissions/employee-sales-book-kpi.shared";
 import { supabase } from "@/app/lib/supabase/client";
 
 const PROFILE_NOT_LINKED_MESSAGE = "Aucun profil employé lié à ce compte.";
@@ -95,17 +99,6 @@ function normalizeObjectiveStatus(status: string): ObjectiveStatus {
     return status;
   }
   return "draft";
-}
-
-function getObjectiveProgress(objective: EmployeeSalesBookObjective) {
-  if (objective.target_type === "amount") {
-    const target = objective.target_amount ?? 0;
-    if (target <= 0) return 0;
-    return Math.min(100, Math.round((objective.achieved_amount / target) * 100));
-  }
-  const target = objective.target_sales_count ?? 0;
-  if (target <= 0) return 0;
-  return Math.min(100, Math.round((objective.achieved_sales_count / target) * 100));
 }
 
 function mapEmployeeRuleRow(row: Record<string, unknown>): EmployeeRuleDisplay | null {
@@ -249,41 +242,10 @@ export default function EmployeMonLivrePage() {
     }
   }, [accessLoading, user, role, loadSalesBook]);
 
-  const summary = useMemo(() => {
-    const activeObjectives = objectives.filter(
-      (row) => row.status === "active" || row.status === "partially_achieved"
-    );
-    const progressValues = objectives
-      .filter((row) => row.status !== "cancelled" && row.status !== "draft")
-      .map(getObjectiveProgress);
-    const averageProgress =
-      progressValues.length > 0
-        ? Math.round(progressValues.reduce((sum, value) => sum + value, 0) / progressValues.length)
-        : 0;
-
-    return objectives.reduce(
-      (acc, row) => {
-        acc.totalObjectives += 1;
-        if (row.status === "active" || row.status === "partially_achieved") {
-          acc.activeObjectives += 1;
-        }
-        acc.totalCalculated += row.total_calculated_amount ?? 0;
-        acc.entriesPending += row.entries_pending_validation ?? 0;
-        acc.entriesPaid += row.entries_paid ?? 0;
-        acc.entriesTotal += row.entries_count ?? 0;
-        return acc;
-      },
-      {
-        totalObjectives: 0,
-        activeObjectives: activeObjectives.length,
-        averageProgress,
-        totalCalculated: 0,
-        entriesPending: 0,
-        entriesPaid: 0,
-        entriesTotal: 0,
-      }
-    );
-  }, [objectives]);
+  const summary = useMemo(
+    () => summarizeEmployeeSalesBookKpis(objectives),
+    [objectives]
+  );
 
   if (accessLoading) {
     return <TagoraLoadingScreen isLoading message="Chargement de votre livre..." fullScreen />;
@@ -442,7 +404,7 @@ export default function EmployeMonLivrePage() {
           <div className="employe-sales-book-objectives">
             {objectives.map((objective) => {
               const status = normalizeObjectiveStatus(objective.status);
-              const progress = getObjectiveProgress(objective);
+              const progress = getEmployeeSalesBookObjectiveProgress(objective);
 
               return (
                 <AppCard key={objective.id} tone="elevated" className="employe-sales-book-objective-card">
