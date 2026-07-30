@@ -12,6 +12,10 @@ import TagoraLoadingScreen from "@/app/components/ui/TagoraLoadingScreen";
 import { useCurrentAccess } from "@/app/hooks/useCurrentAccess";
 import { hasAdminFinanceAccess } from "@/app/lib/auth/admin-finance";
 import { commissionsFetch } from "@/app/lib/commissions/commissions-api.client";
+import {
+  shouldLoadDirectionSalesBooks,
+  shouldShowDirectionCommissionsLoading,
+} from "@/app/direction/commissions/direction-commissions-loading.shared";
 
 type DirectionSalesBookObjective = {
   id: string;
@@ -47,25 +51,38 @@ export default function DirectionCommissionsPage() {
     setLoading(true);
     setErrorMessage("");
 
-    const response = await commissionsFetch("/api/direction/sales-books");
-    const payload = (await response.json().catch(() => ({}))) as {
-      error?: string;
-      books?: DirectionSalesBook[];
-    };
+    try {
+      const response = await commissionsFetch("/api/direction/sales-books");
+      const payload = (await response.json().catch(() => ({}))) as {
+        error?: string;
+        books?: DirectionSalesBook[];
+      };
 
-    if (!response.ok) {
+      if (!response.ok) {
+        setBooks([]);
+        setErrorMessage(payload.error ?? "Impossible de charger les livres autorisés.");
+        return;
+      }
+
+      setBooks(Array.isArray(payload.books) ? payload.books : []);
+    } catch {
       setBooks([]);
-      setErrorMessage(payload.error ?? "Impossible de charger les livres autorisés.");
+      setErrorMessage("Impossible de charger les livres autorisés.");
+    } finally {
       setLoading(false);
-      return;
     }
-
-    setBooks(Array.isArray(payload.books) ? payload.books : []);
-    setLoading(false);
   }, []);
 
   useEffect(() => {
-    if (accessLoading || !user || !canUseCommissions) return;
+    if (
+      !shouldLoadDirectionSalesBooks({
+        accessLoading,
+        userPresent: Boolean(user),
+        canUseCommissions,
+      })
+    ) {
+      return;
+    }
     void loadBooks();
   }, [accessLoading, canUseCommissions, loadBooks, user]);
 
@@ -84,7 +101,13 @@ export default function DirectionCommissionsPage() {
     );
   }, [books]);
 
-  if (accessLoading || (!errorMessage && !canUseCommissions && !!user) || (canUseCommissions && loading)) {
+  if (
+    shouldShowDirectionCommissionsLoading({
+      accessLoading,
+      canUseCommissions,
+      booksLoading: loading,
+    })
+  ) {
     return (
       <TagoraLoadingScreen isLoading message="Chargement des livres de ventes autorisés..." fullScreen />
     );
