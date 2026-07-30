@@ -11,6 +11,7 @@ import { AppRole, getUserRole } from "@/app/lib/auth/roles";
 import {
   AppPermission,
   getUserPermissions,
+  hasUserPermission,
 } from "@/app/lib/auth/permissions";
 import {
   buildAppSessionCookieWriteDebug,
@@ -169,8 +170,8 @@ export function useCurrentAccess() {
   }, []);
 
   const hasPermission = useCallback(
-    (permission: AppPermission) => state.permissions.includes(permission),
-    [state.permissions]
+    (permission: AppPermission) => hasUserPermission(state.user, permission),
+    [state.user]
   );
 
   return {
