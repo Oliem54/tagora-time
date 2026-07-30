@@ -4,46 +4,43 @@ import Link from "next/link";
 import AdminFinanceGate from "@/app/components/admin/AdminFinanceGate";
 import AuthenticatedPageHeader from "@/app/components/ui/AuthenticatedPageHeader";
 import AppCard from "@/app/components/ui/AppCard";
-import { ADMIN_FINANCE_ROUTE_PREFIXES } from "@/app/lib/auth/admin-finance";
 
 const FINANCE_MODULE_LINKS = [
-  { href: "/admin/paie", label: "Paie (synthese)", description: "Vue payroll_company_summary." },
+  {
+    href: "/admin/paie",
+    label: "Paie (synthèse)",
+    description: "Synthèse des heures et des montants de paie par compagnie.",
+  },
   {
     href: "/admin/paie-compagnies",
-    label: "Repartition Oliem / Titan",
-    description: "Detail des heures par compagnie et ventilation Oliem / Titan.",
+    label: "Répartition Oliem / Titan",
+    description: "Détail des heures par compagnie et ventilation Oliem / Titan.",
   },
   {
     href: "/admin/temps-titan-finance",
-    label: "Journal des heures et couts",
+    label: "Journal des heures et coûts",
     description: "Saisie des heures, taux horaires, marges et refacturation intercompagnies.",
   },
   {
     href: "/admin/facturation-titan",
     label: "Refacturation intercompagnies",
-    description: "Montants a refacturer entre Oliem et Titan par entree.",
+    description: "Montants à refacturer entre Oliem et Titan par entrée.",
   },
   {
     href: "/admin/commissions",
     label: "Commissions & objectifs",
-    description: "Objectifs de vente, regles et suivi des commissions.",
+    description: "Objectifs de vente, règles et suivi des commissions.",
   },
 ] as const;
 
 export default function AdminRemunerationPage() {
   return (
-    <AdminFinanceGate moduleLabel="Finance & remuneration">
+    <AdminFinanceGate moduleLabel="Finance & rémunération">
       <main className="page-container">
         <AuthenticatedPageHeader
-          title="Finance & remuneration"
-          subtitle="Hub admin pour paie, heures par compagnie, refacturation intercompagnies et donnees financieres reservees a l administration."
+          title="Finance & rémunération"
+          subtitle="Accédez aux outils administratifs de paie, de répartition, de coûts et de commissions."
         />
-
-        <p className="tagora-note" style={{ marginTop: 0, lineHeight: 1.55 }}>
-          Phase 1 : les ecrans financiers existants sont reutilises sous /admin avec protection role
-          admin. Un module remuneration dedie (salaire annuel, avances, ventilation 50/50, etc.)
-          sera ajoute dans une phase ulterieure.
-        </p>
 
         <div
           className="ui-grid-auto"
@@ -60,10 +57,6 @@ export default function AdminRemunerationPage() {
             </AppCard>
           ))}
         </div>
-
-        <p className="tagora-note" style={{ marginTop: 24, fontSize: "0.85rem" }}>
-          Prefixes routes finance admin : {ADMIN_FINANCE_ROUTE_PREFIXES.join(", ")}
-        </p>
       </main>
     </AdminFinanceGate>
   );
