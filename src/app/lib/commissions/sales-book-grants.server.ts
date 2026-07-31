@@ -2,6 +2,7 @@ import "server-only";
 
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { getAuthenticatedRequestUser } from "@/app/lib/account-requests.server";
 import { mapDirectionObjectiveOperationalRow } from "@/app/api/direction/commissions/_lib";
 import { createAdminSupabaseClient } from "@/app/lib/supabase/admin";
@@ -108,7 +109,7 @@ export async function requireEmployeSalesBookAccess(req: NextRequest) {
 }
 
 export async function loadActiveGrantOwnerChauffeurIds(
-  supabase: ReturnType<typeof createAdminSupabaseClient>,
+  supabase: SupabaseClient,
   viewerUserId: string
 ) {
   const { data, error } = await supabase
@@ -132,7 +133,7 @@ export async function loadActiveGrantOwnerChauffeurIds(
 }
 
 export async function hasActiveGrantForChauffeur(
-  supabase: ReturnType<typeof createAdminSupabaseClient>,
+  supabase: SupabaseClient,
   viewerUserId: string,
   chauffeurId: number
 ) {
@@ -167,7 +168,7 @@ function aggregateEntryStats(entries: Array<Record<string, unknown>>) {
 }
 
 export async function loadEmployeeSalesBookObjectives(
-  supabase: ReturnType<typeof createAdminSupabaseClient>,
+  supabase: SupabaseClient,
   chauffeurId: number
 ): Promise<EmployeeSalesBookObjectiveRow[]> {
   const objectivesRes = await supabase
@@ -233,7 +234,7 @@ export async function loadEmployeeSalesBookObjectives(
 }
 
 export async function loadDirectionGrantedOperationalObjectives(
-  supabase: ReturnType<typeof createAdminSupabaseClient>,
+  supabase: SupabaseClient,
   viewerUserId: string,
   options?: { chauffeurId?: number | null }
 ) {

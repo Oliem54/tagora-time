@@ -411,7 +411,39 @@ describe("admin create objective form — business cases payloads", () => {
     expect(result.payload.rules[0]).not.toHaveProperty("per_unit_amount");
   });
 
-  it("22. no technical identifiers in user-facing form copy", () => {
+  it("22. team objective requires organization_id UUID", () => {
+    const missing = validateAndBuildAdminCreateObjectivePayload(
+      baseForm({
+        chauffeur_id: "",
+        team_name: "Equipe A",
+        organization_id: "",
+        target_amount: "1000",
+        rule_type: "fixed",
+        fixed_amount: "50",
+      }),
+      false
+    );
+    expect(missing.ok).toBe(false);
+
+    const org = "11111111-1111-4111-8111-111111111111";
+    const ok = validateAndBuildAdminCreateObjectivePayload(
+      baseForm({
+        chauffeur_id: "",
+        team_name: "Equipe A",
+        organization_id: org,
+        target_amount: "1000",
+        rule_type: "fixed",
+        fixed_amount: "50",
+      }),
+      false
+    );
+    expect(ok.ok).toBe(true);
+    if (!ok.ok) return;
+    expect(ok.payload.organization_id).toBe(org);
+    expect(ok.payload.chauffeur_id).toBeNull();
+  });
+
+  it("23. no technical identifiers in user-facing form copy", () => {
     for (const option of [
       ...TARGET_TYPE_FORM_OPTIONS,
       ...COMMISSION_BASIS_FORM_OPTIONS,

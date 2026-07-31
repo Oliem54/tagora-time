@@ -1,8 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   loadChauffeurLabels,
   requireAdminFinanceCommissionsAccess,
 } from "@/app/api/direction/commissions/_lib";
+import {
+  assertUserHasActiveOrganizationMembership,
+  normalizeOrganizationUuid,
+  rejectsGrantIdentityRetarget,
+} from "@/app/lib/auth/organization-access.server";
 import { mapCommissionBookAccessGrantRecord } from "@/app/lib/commissions/sales-book-grants.server";
 import {
   isCommissionBookGrantId,
@@ -16,6 +22,31 @@ function asText(value: unknown) {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
+}
+
+async function resolveOwnerOrganizationId(
+  supabase: SupabaseClient,
+  ownerChauffeurId: number
+) {
+  const ownerRes = await supabase
+    .from("chauffeurs")
+    .select("id, organization_id")
+    .eq("id", ownerChauffeurId)
+    .maybeSingle();
+  if (ownerRes.error || !ownerRes.data) {
+    return { ok: false as const, status: 404 as const, error: "Employe proprietaire introuvable." };
+  }
+  const organizationId = normalizeOrganizationUuid(
+    (ownerRes.data as { organization_id?: unknown }).organization_id
+  );
+  if (!organizationId) {
+    return {
+      ok: false as const,
+      status: 403 as const,
+      error: "Employe sans organization_id UUID — ecriture refusee.",
+    };
+  }
+  return { ok: true as const, organizationId };
 }
 
 export async function PATCH(
@@ -34,6 +65,16 @@ export async function PATCH(
     }
 
     const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
+    if (rejectsGrantIdentityRetarget(body)) {
+      return NextResponse.json(
+        {
+          error:
+            "Modification de owner_chauffeur_id ou viewer_user_id interdite. Creez un nouveau grant.",
+        },
+        { status: 400 }
+      );
+    }
+
     const revokeRequested = isRevokeRequestedInBody(body);
 
     const existingRes = await supabase
@@ -48,6 +89,11 @@ export async function PATCH(
 
     const existingRow = existingRes.data as Record<string, unknown>;
     const existingRevokedAt = normalizeCommissionTimestamp(existingRow.revoked_at);
+    const ownerChauffeurId = Math.trunc(Number(existingRow.owner_chauffeur_id));
+    const viewerUserId =
+      typeof existingRow.viewer_user_id === "string"
+        ? existingRow.viewer_user_id.trim()
+        : "";
 
     if (revokeRequested) {
       if (existingRevokedAt) {
@@ -143,6 +189,29 @@ export async function PATCH(
       return NextResponse.json(
         { error: "Modification de can_view/can_edit non autorisee en V1." },
         { status: 400 }
+      );
+    }
+
+    // Non-revoke updates (notes/expires/reactivate): viewer must still share owner org.
+    if (
+      !Number.isFinite(ownerChauffeurId) ||
+      ownerChauffeurId <= 0 ||
+      !viewerUserId
+    ) {
+      return NextResponse.json({ error: "Grant invalide." }, { status: 400 });
+    }
+    const ownerOrg = await resolveOwnerOrganizationId(supabase, ownerChauffeurId);
+    if (!ownerOrg.ok) {
+      return NextResponse.json({ error: ownerOrg.error }, { status: ownerOrg.status });
+    }
+    const viewerMembership = await assertUserHasActiveOrganizationMembership(
+      viewerUserId,
+      ownerOrg.organizationId
+    );
+    if (!viewerMembership.ok) {
+      return NextResponse.json(
+        { error: viewerMembership.error },
+        { status: viewerMembership.status }
       );
     }
 

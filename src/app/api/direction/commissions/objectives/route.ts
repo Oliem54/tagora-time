@@ -12,7 +12,6 @@ import {
   toCommissionRuleInsertPayload,
 } from "@/app/lib/commissions/commission-rules.server";
 import {
-  assertChauffeurInCompany,
   getUserDisplayName,
   loadChauffeurLabels,
   mapDirectionObjectiveOperationalRow,
@@ -22,6 +21,14 @@ import {
   resolveCommissionsCompanyContext,
 } from "@/app/api/direction/commissions/_lib";
 import { hasAdminFinanceAccess } from "@/app/lib/auth/admin-finance";
+import {
+  assertAuthenticatedOrganizationAccess,
+  assertChauffeurOrganizationAccess,
+  getAuthenticatedOrganizationMemberships,
+  rejectsTextTenantAuthority,
+  resolveObjectiveWriteOrganizationId,
+  resolveRequestedOrganizationId,
+} from "@/app/lib/auth/organization-access.server";
 import { loadDirectionGrantedOperationalObjectives } from "@/app/lib/commissions/sales-book-grants.server";
 
 function asText(value: unknown) {
@@ -92,9 +99,19 @@ export async function POST(req: NextRequest) {
   try {
     const auth = await requireAdminFinanceCommissionsAccess(req);
     if (!auth.ok) return auth.response;
-    const { supabase, user } = auth;
+    const { supabase, user, accessToken } = auth;
 
     const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
+    if (rejectsTextTenantAuthority(body)) {
+      return NextResponse.json(
+        {
+          error:
+            "company_context, primary_company et user_metadata ne sont pas des autorites tenant.",
+        },
+        { status: 400 }
+      );
+    }
+
     const title = asText(body.title);
     const period_start = asText(body.period_start);
     const period_end = asText(body.period_end);
@@ -123,27 +140,68 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Nombre de ventes cible invalide." }, { status: 400 });
     }
 
-    const publish = body.publish === true;
-    const actorName = getUserDisplayName(user);
-    // Jamais body.company_context — source de vérité = claims serveur.
-    const company_context = resolveCommissionsCompanyContext(user);
+    const memberships = await getAuthenticatedOrganizationMemberships(user.id);
+    if (!memberships.ok) {
+      return NextResponse.json({ error: memberships.error }, { status: memberships.status });
+    }
 
+    let chauffeurOrganizationId: string | null = null;
     if (chauffeur_id) {
-      const chauffeurCheck = await assertChauffeurInCompany(
+      const chauffeurCheck = await assertChauffeurOrganizationAccess({
         supabase,
-        Math.trunc(chauffeur_id),
-        company_context
-      );
+        accessToken,
+        userId: user.id,
+        chauffeurId: Math.trunc(chauffeur_id),
+      });
       if (!chauffeurCheck.ok) {
-        return NextResponse.json({ error: chauffeurCheck.error }, { status: 403 });
+        return NextResponse.json(
+          { error: chauffeurCheck.error },
+          { status: chauffeurCheck.status }
+        );
+      }
+      chauffeurOrganizationId = chauffeurCheck.organizationId;
+    }
+
+    const tenantResolution = resolveObjectiveWriteOrganizationId({
+      chauffeurId: chauffeur_id ? Math.trunc(chauffeur_id) : null,
+      chauffeurOrganizationId,
+      requestedOrganizationId: body.organization_id,
+    });
+    if (!tenantResolution.ok) {
+      return NextResponse.json(
+        { error: tenantResolution.error },
+        { status: tenantResolution.status }
+      );
+    }
+
+    if (tenantResolution.mode === "team") {
+      const access = await assertAuthenticatedOrganizationAccess({
+        accessToken,
+        userId: user.id,
+        organizationId: tenantResolution.organizationId,
+      });
+      if (!access.ok) {
+        return NextResponse.json({ error: access.error }, { status: access.status });
+      }
+      const requested = resolveRequestedOrganizationId({
+        requestedOrganizationId: tenantResolution.organizationId,
+        memberships: memberships.memberships,
+      });
+      if (!requested.ok) {
+        return NextResponse.json({ error: requested.error }, { status: requested.status });
       }
     }
+
+    const publish = body.publish === true;
+    const actorName = getUserDisplayName(user);
+    // Informational legacy text only — not tenant authority.
+    const company_context = resolveCommissionsCompanyContext(user);
 
     const objectivePayload = {
       title,
       description: asText(body.description),
       chauffeur_id: chauffeur_id ? Math.trunc(chauffeur_id) : null,
-      team_name,
+      team_name: chauffeur_id ? null : team_name,
       period_start,
       period_end,
       target_type,
@@ -153,6 +211,7 @@ export async function POST(req: NextRequest) {
       achieved_sales_count: Math.trunc(asNumber(body.achieved_sales_count) ?? 0),
       status: publish ? "active" : "draft",
       company_context,
+      organization_id: tenantResolution.organizationId,
       created_by: user.id,
       created_by_name: actorName,
       updated_by: user.id,

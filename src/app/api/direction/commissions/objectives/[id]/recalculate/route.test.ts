@@ -216,7 +216,7 @@ describe("recalculate route POST auth and tenant", () => {
     expect(res.status).toBe(403);
   });
 
-  it("returns 404 when objective is missing", async () => {
+  it("returns 404 when objective is missing (RLS / authenticated client)", async () => {
     const eqs: Array<[string, unknown]> = [];
     const supabase = {
       from: vi.fn((table: string) => {
@@ -230,22 +230,23 @@ describe("recalculate route POST auth and tenant", () => {
       ok: true,
       user: adminUser("oliem_solutions"),
       role: "admin",
+      accessToken: "test-token",
       supabase,
     });
 
     const res = await POST(makeRequest(), { params: Promise.resolve({ id: "missing" }) });
     expect(res.status).toBe(404);
-    expect(eqs).toContainEqual(["company_context", "oliem_solutions"]);
+    expect(eqs).toContainEqual(["id", "missing"]);
+    expect(eqs).not.toContainEqual(["company_context", "oliem_solutions"]);
     const body = await res.json();
     expect(body.error).toMatch(/introuvable/i);
   });
 
-  it("returns 404 for cross-tenant objective (company filter)", async () => {
+  it("returns 404 for cross-tenant objective hidden by RLS", async () => {
     const eqs: Array<[string, unknown]> = [];
     const supabase = {
       from: vi.fn((table: string) => {
         if (table === "sales_objectives") {
-          // Filter by company → no row for other tenant
           return chainable({ data: null, error: null }, eqs);
         }
         return chainable({ data: [], error: null });
@@ -255,6 +256,7 @@ describe("recalculate route POST auth and tenant", () => {
       ok: true,
       user: adminUser("oliem_solutions"),
       role: "admin",
+      accessToken: "test-token",
       supabase,
     });
 
@@ -263,12 +265,12 @@ describe("recalculate route POST auth and tenant", () => {
     });
     expect(res.status).toBe(404);
     expect(eqs).toContainEqual(["id", "obj-other-tenant"]);
-    expect(eqs).toContainEqual(["company_context", "oliem_solutions"]);
+    expect(eqs).not.toContainEqual(["company_context", "oliem_solutions"]);
   });
 });
 
-describe("recalculate route source defense (F3 secondary)", () => {
-  it("uses buildEstimatedCommissionEntries, company_context filter, not salesBasisForObjective", () => {
+describe("recalculate route source defense (tenant UUID)", () => {
+  it("uses authenticated path helpers, not company_context authority", () => {
     const source = readFileSync(
       join(
         process.cwd(),
@@ -278,19 +280,22 @@ describe("recalculate route source defense (F3 secondary)", () => {
     );
     expect(source).toMatch(/buildEstimatedCommissionEntries/);
     expect(source).toMatch(/requireAdminFinanceCommissionsAccess/);
-    expect(source).toMatch(/resolveCommissionsCompanyContext/);
-    expect(source).toMatch(/company_context/);
+    expect(source).toMatch(/organization_id/);
     expect(source).toMatch(/computeProgressPercent/);
     expect(source).not.toMatch(/salesBasisForObjective/);
+    expect(source).not.toMatch(/resolveCommissionsCompanyContext/);
+    expect(source).not.toMatch(/createAdminSupabaseClient/);
   });
 
-  it("create route ignores body.company_context and asserts chauffeur org", () => {
+  it("create route uses organization UUID membership asserts", () => {
     const source = readFileSync(
       join(process.cwd(), "src/app/api/direction/commissions/objectives/route.ts"),
       "utf8"
     );
-    expect(source).toMatch(/resolveCommissionsCompanyContext/);
-    expect(source).toMatch(/assertChauffeurInCompany/);
+    expect(source).toMatch(/assertChauffeurOrganizationAccess/);
+    expect(source).toMatch(/resolveObjectiveWriteOrganizationId/);
+    expect(source).toMatch(/rejectsTextTenantAuthority/);
+    expect(source).not.toMatch(/assertChauffeurInCompany/);
     expect(source).not.toMatch(/company_context:\s*asText\(body\.company_context\)/);
   });
 });

@@ -12,34 +12,33 @@ import {
   mapRuleRow,
   mapEntryRow,
   requireAdminFinanceCommissionsAccess,
-  resolveCommissionsCompanyContext,
+  type CommissionsSupabaseClient,
 } from "@/app/api/direction/commissions/_lib";
-import { createAdminSupabaseClient } from "@/app/lib/supabase/admin";
+import { normalizeOrganizationUuid } from "@/app/lib/auth/organization-access.shared";
 
 async function loadObjectiveBundle(
-  supabase: ReturnType<typeof createAdminSupabaseClient>,
-  objectiveId: string,
-  companyContext: string
+  supabase: CommissionsSupabaseClient,
+  objectiveId: string
 ) {
   const objectiveRes = await supabase
     .from("sales_objectives")
     .select("*")
     .eq("id", objectiveId)
-    .eq("company_context", companyContext)
     .maybeSingle();
 
   if (objectiveRes.error || !objectiveRes.data) {
     return { error: objectiveRes.error?.message ?? "Objectif introuvable." } as const;
   }
 
-  const chauffeurId = Number((objectiveRes.data as Record<string, unknown>).chauffeur_id);
+  const record = objectiveRes.data as Record<string, unknown>;
+  const chauffeurId = Number(record.chauffeur_id);
   const labelMap = await loadChauffeurLabels(
     supabase,
     Number.isFinite(chauffeurId) && chauffeurId > 0 ? [chauffeurId] : []
   );
 
   const objective = mapObjectiveRow(
-    objectiveRes.data as Record<string, unknown>,
+    record,
     Number.isFinite(chauffeurId) ? labelMap.get(chauffeurId) ?? null : null
   );
 
@@ -63,6 +62,7 @@ async function loadObjectiveBundle(
 
   return {
     objective,
+    organizationId: normalizeOrganizationUuid(record.organization_id),
     rules,
     entries: (entriesRes.data ?? []).map((row) => mapEntryRow(row as Record<string, unknown>)),
   } as const;
@@ -73,20 +73,28 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    // Isolation tenant / rôles : helpers d'autorisation existants uniquement.
+    // Human-triggered sync recalculation — authenticated client + RLS (no service_role).
     const auth = await requireAdminFinanceCommissionsAccess(req);
     if (!auth.ok) return auth.response;
-    const { supabase, user } = auth;
+    const { supabase } = auth;
     const { id } = await params;
     const todayIso = todayIsoLocal();
-    const companyContext = resolveCommissionsCompanyContext(user);
 
-    const bundle = await loadObjectiveBundle(supabase, id, companyContext);
+    const bundle = await loadObjectiveBundle(supabase, id);
     if ("error" in bundle) {
       return NextResponse.json({ error: bundle.error }, { status: 404 });
     }
 
-    // Progression = uniquement target_type + cibles/réalisés (indépendant de commission_basis).
+    if (!bundle.objective.chauffeur_id && !bundle.organizationId) {
+      return NextResponse.json(
+        {
+          error:
+            "Objectif d'equipe sans organization_id UUID — recalcul refuse.",
+        },
+        { status: 400 }
+      );
+    }
+
     const computed_status = deriveObjectiveStatus(bundle.objective, todayIso);
     const persistedStatus =
       bundle.objective.status === "draft" || bundle.objective.status === "cancelled"
@@ -96,8 +104,7 @@ export async function POST(
     await supabase
       .from("sales_objectives")
       .update({ status: persistedStatus })
-      .eq("id", id)
-      .eq("company_context", companyContext);
+      .eq("id", id);
 
     await supabase
       .from("commission_entries")
@@ -110,14 +117,16 @@ export async function POST(
 
     let newEntries;
     try {
-      // resolveCommissionBasis(rule.commission_basis) + calculateRuleCommission.
       newEntries = buildEstimatedCommissionEntries({
         objectiveId: id,
         objective: bundle.objective,
         rules: bundle.rules,
         objectiveAchieved,
         assigneeLabel,
-      });
+      }).map((entry) => ({
+        ...entry,
+        organization_id: bundle.organizationId,
+      }));
     } catch (error) {
       return NextResponse.json(
         { error: error instanceof Error ? error.message : "Regle de commission invalide." },
@@ -132,7 +141,7 @@ export async function POST(
       }
     }
 
-    const refreshed = await loadObjectiveBundle(supabase, id, companyContext);
+    const refreshed = await loadObjectiveBundle(supabase, id);
     if ("error" in refreshed) {
       return NextResponse.json({ error: refreshed.error }, { status: 404 });
     }

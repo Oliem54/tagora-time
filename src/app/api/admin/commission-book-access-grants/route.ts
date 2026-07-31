@@ -3,10 +3,15 @@ import {
   loadChauffeurLabels,
   requireAdminFinanceCommissionsAccess,
 } from "@/app/api/direction/commissions/_lib";
+import {
+  assertChauffeurOrganizationAccess,
+  assertUserHasActiveOrganizationMembership,
+} from "@/app/lib/auth/organization-access.server";
 import { validateAuthorizedViewerAuthUser } from "@/app/lib/commissions/commission-book-authorized-viewers.shared";
 import {
   mapCommissionBookAccessGrantRecord,
 } from "@/app/lib/commissions/sales-book-grants.server";
+import { createAdminSupabaseClient } from "@/app/lib/supabase/admin";
 
 export const dynamic = "force-dynamic";
 
@@ -29,11 +34,10 @@ function parseActiveFilter(value: string | null) {
   return null;
 }
 
-async function resolveAuthorizedViewerUserId(
-  supabase: ReturnType<typeof import("@/app/lib/supabase/admin").createAdminSupabaseClient>,
-  viewerUserId: string
-) {
-  const { data, error } = await supabase.auth.admin.getUserById(viewerUserId);
+async function resolveAuthorizedViewerUserId(viewerUserId: string) {
+  // Auth Admin API requires service_role — table writes still use authenticated client.
+  const admin = createAdminSupabaseClient();
+  const { data, error } = await admin.auth.admin.getUserById(viewerUserId);
   if (error || !data.user) {
     return { ok: false as const, error: "Personne autorisée introuvable." };
   }
@@ -119,7 +123,7 @@ export async function POST(req: NextRequest) {
   try {
     const auth = await requireAdminFinanceCommissionsAccess(req);
     if (!auth.ok) return auth.response;
-    const { supabase, user } = auth;
+    const { supabase, user, accessToken } = auth;
 
     const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
     const ownerChauffeurId = asNumber(body.owner_chauffeur_id);
@@ -131,6 +135,19 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         { error: "owner_chauffeur_id et viewer_user_id sont requis." },
         { status: 400 }
+      );
+    }
+
+    const ownerAccess = await assertChauffeurOrganizationAccess({
+      supabase,
+      accessToken,
+      userId: user.id,
+      chauffeurId: Math.trunc(ownerChauffeurId),
+    });
+    if (!ownerAccess.ok) {
+      return NextResponse.json(
+        { error: ownerAccess.error },
+        { status: ownerAccess.status }
       );
     }
 
@@ -159,9 +176,21 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const viewerResolution = await resolveAuthorizedViewerUserId(supabase, viewerUserId);
+    const viewerResolution = await resolveAuthorizedViewerUserId(viewerUserId);
     if (!viewerResolution.ok) {
       return NextResponse.json({ error: viewerResolution.error }, { status: 400 });
+    }
+
+    // Tenant authority for viewer = organization_memberships only (same org as owner).
+    const viewerMembership = await assertUserHasActiveOrganizationMembership(
+      viewerUserId,
+      ownerAccess.organizationId
+    );
+    if (!viewerMembership.ok) {
+      return NextResponse.json(
+        { error: viewerMembership.error },
+        { status: viewerMembership.status }
+      );
     }
 
     const duplicateRes = await supabase

@@ -14,8 +14,13 @@ import {
   mapObjectiveRow,
   requireAdminFinanceCommissionsAccess,
   requireCommissionsAccess,
+  type CommissionsSupabaseClient,
 } from "@/app/api/direction/commissions/_lib";
 import { hasAdminFinanceAccess } from "@/app/lib/auth/admin-finance";
+import {
+  assertChauffeurOrganizationAccess,
+  rejectsTextTenantAuthority,
+} from "@/app/lib/auth/organization-access.server";
 import { loadDirectionGrantedOperationalObjectives } from "@/app/lib/commissions/sales-book-grants.server";
 
 function asText(value: unknown) {
@@ -31,7 +36,7 @@ function asNumber(value: unknown) {
 }
 
 async function loadGrantedDirectionObjective(
-  supabase: ReturnType<typeof import("@/app/lib/supabase/admin").createAdminSupabaseClient>,
+  supabase: CommissionsSupabaseClient,
   viewerUserId: string,
   objectiveId: string
 ) {
@@ -132,9 +137,28 @@ export async function PATCH(
   try {
     const auth = await requireAdminFinanceCommissionsAccess(req);
     if (!auth.ok) return auth.response;
-    const { supabase, user } = auth;
+    const { supabase, user, accessToken } = auth;
     const { id } = await params;
     const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
+    if (rejectsTextTenantAuthority(body) || body.organization_id !== undefined) {
+      return NextResponse.json(
+        {
+          error:
+            "Modification de company_context / primary_company / user_metadata / organization_id refusee via PATCH.",
+        },
+        { status: 400 }
+      );
+    }
+
+    const existingRes = await supabase
+      .from("sales_objectives")
+      .select("id, chauffeur_id, organization_id")
+      .eq("id", id)
+      .maybeSingle();
+    if (existingRes.error || !existingRes.data) {
+      return NextResponse.json({ error: "Objectif introuvable." }, { status: 404 });
+    }
+
     const actorName = getUserDisplayName(user);
 
     const patch: Record<string, unknown> = {
@@ -145,12 +169,26 @@ export async function PATCH(
     if (body.title !== undefined) patch.title = asText(body.title);
     if (body.description !== undefined) patch.description = asText(body.description);
     if (body.team_name !== undefined) patch.team_name = asText(body.team_name);
-    if (body.company_context !== undefined) patch.company_context = asText(body.company_context);
     if (body.period_start !== undefined) patch.period_start = asText(body.period_start);
     if (body.period_end !== undefined) patch.period_end = asText(body.period_end);
     if (body.chauffeur_id !== undefined) {
       const parsed = asNumber(body.chauffeur_id);
-      patch.chauffeur_id = parsed ? Math.trunc(parsed) : null;
+      const nextChauffeurId = parsed ? Math.trunc(parsed) : null;
+      if (nextChauffeurId) {
+        const chauffeurCheck = await assertChauffeurOrganizationAccess({
+          supabase,
+          accessToken,
+          userId: user.id,
+          chauffeurId: nextChauffeurId,
+        });
+        if (!chauffeurCheck.ok) {
+          return NextResponse.json(
+            { error: chauffeurCheck.error },
+            { status: chauffeurCheck.status }
+          );
+        }
+      }
+      patch.chauffeur_id = nextChauffeurId;
     }
     if (body.target_type !== undefined) {
       const targetType = normalizeTargetType(body.target_type);
@@ -183,7 +221,7 @@ export async function PATCH(
     if (updateRes.error || !updateRes.data) {
       return NextResponse.json(
         { error: updateRes.error?.message ?? "Mise a jour impossible." },
-        { status: 400 }
+        { status: updateRes.error ? 400 : 404 }
       );
     }
 

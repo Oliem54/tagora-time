@@ -14,6 +14,8 @@ export type AdminCreateObjectiveFormState = {
   description: string;
   chauffeur_id: string;
   team_name: string;
+  /** organizations.id UUID — required for team objectives; ignored as authority for personal. */
+  organization_id: string;
   period_start: string;
   period_end: string;
   target_type: TargetType;
@@ -44,6 +46,7 @@ export type AdminCreateObjectivePayload = {
   description: string;
   chauffeur_id: number | null;
   team_name: string;
+  organization_id?: string | null;
   period_start: string;
   period_end: string;
   target_type: TargetType;
@@ -89,6 +92,7 @@ export function emptyAdminCreateObjectiveForm(
     description: "",
     chauffeur_id: "",
     team_name: "",
+    organization_id: "",
     period_start: dates.period_start,
     period_end: dates.period_end,
     target_type: "amount",
@@ -227,6 +231,12 @@ export function validateAndBuildAdminCreateObjectivePayload(
       error: "Assignez un employé ou une équipe.",
     };
   }
+  if (!form.chauffeur_id && form.team_name.trim() && !form.organization_id.trim()) {
+    return {
+      ok: false,
+      error: "Sélectionnez une organisation (UUID) pour un objectif d’équipe.",
+    };
+  }
 
   const targetType =
     form.target_type === "sales_count" || form.target_type === "amount"
@@ -344,7 +354,10 @@ export function validateAndBuildAdminCreateObjectivePayload(
     title,
     description: form.description.trim(),
     chauffeur_id: form.chauffeur_id ? Number(form.chauffeur_id) : null,
-    team_name: form.team_name.trim(),
+    team_name: form.chauffeur_id ? "" : form.team_name.trim(),
+    organization_id: form.chauffeur_id
+      ? null
+      : form.organization_id.trim() || null,
     period_start: form.period_start,
     period_end: form.period_end,
     target_type: targetType,

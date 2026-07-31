@@ -52,10 +52,16 @@ import {
   validateAndBuildAdminCreateObjectivePayload,
   type AdminCreateObjectiveFormState,
 } from "@/app/lib/commissions/admin-create-objective-form.shared";
+import { resolveSingleMembershipOrganizationPreselect } from "@/app/lib/auth/organization-access.shared";
 
 type ChauffeurOption = {
   id: number;
   label: string;
+};
+
+type OrganizationOption = {
+  id: string;
+  display_name: string;
 };
 
 type AdminRuleDisplayRow = CommissionRuleDisplayInput & {
@@ -113,6 +119,7 @@ export default function AdminCommissionsPageClient() {
     Record<string, AdminRuleDisplayRow[]>
   >({});
   const [chauffeurs, setChauffeurs] = useState<ChauffeurOption[]>([]);
+  const [organizations, setOrganizations] = useState<OrganizationOption[]>([]);
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [createForm, setCreateForm] = useState<AdminCreateObjectiveFormState>(() => emptyForm());
   const [actionKey, setActionKey] = useState<string | null>(null);
@@ -122,10 +129,11 @@ export default function AdminCommissionsPageClient() {
     setMessage("");
     setMessageType(null);
 
-    const [summaryRes, objectivesRes, entriesRes, chauffeursRes] = await Promise.all([
+    const [summaryRes, objectivesRes, entriesRes, orgsRes, chauffeursRes] = await Promise.all([
       commissionsFetch("/api/direction/commissions/summary"),
       commissionsFetch("/api/direction/commissions/objectives"),
       commissionsFetch("/api/direction/commissions/entries"),
+      commissionsFetch("/api/admin/commissions/organizations"),
       supabase
         .from("chauffeurs")
         .select("id, nom, prenom, nom_complet, actif")
@@ -144,6 +152,23 @@ export default function AdminCommissionsPageClient() {
       entries?: CommissionEntryRow[];
       error?: string;
     };
+    const orgsJson = (await orgsRes.json().catch(() => ({}))) as {
+      organizations?: OrganizationOption[];
+      error?: string;
+    };
+    if (orgsRes.ok && Array.isArray(orgsJson.organizations)) {
+      const nextOrgs = orgsJson.organizations;
+      setOrganizations(nextOrgs);
+      setCreateForm((prev) => {
+        if (prev.organization_id) return prev;
+        const preselect = resolveSingleMembershipOrganizationPreselect(
+          nextOrgs.map((row) => ({ organizationId: row.id }))
+        );
+        return preselect ? { ...prev, organization_id: preselect } : prev;
+      });
+    } else {
+      setOrganizations([]);
+    }
 
     if (!summaryRes.ok || !objectivesRes.ok || !entriesRes.ok) {
       setSummary(null);
@@ -508,6 +533,29 @@ export default function AdminCommissionsPageClient() {
                 placeholder="Ex.: Equipe showroom"
               />
             </label>
+            {!createForm.chauffeur_id ? (
+              <label className="tagora-field">
+                <span className="tagora-label">Organisation (objectif d’équipe)</span>
+                <select
+                  className="tagora-input"
+                  value={createForm.organization_id}
+                  onChange={(e) =>
+                    setCreateForm({ ...createForm, organization_id: e.target.value })
+                  }
+                >
+                  <option value="">— Choisir une organisation —</option>
+                  {organizations.map((org) => (
+                    <option key={org.id} value={org.id}>
+                      {org.display_name}
+                    </option>
+                  ))}
+                </select>
+                <span className="tagora-note">
+                  Clé = UUID organisations.id. Présélection uniquement s’il n’existe qu’une
+                  membership active.
+                </span>
+              </label>
+            ) : null}
             <label className="tagora-field">
               <span className="tagora-label">Debut periode</span>
               <input

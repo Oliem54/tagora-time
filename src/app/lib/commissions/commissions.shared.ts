@@ -54,6 +54,8 @@ export type SalesObjectiveRow = {
   achieved_sales_count: number;
   status: ObjectiveStatus;
   company_context: string | null;
+  /** Canonical tenant UUID (organizations.id). Authority for team rows. */
+  organization_id?: string | null;
   created_by_name: string | null;
   updated_by_name: string | null;
   created_at: string;

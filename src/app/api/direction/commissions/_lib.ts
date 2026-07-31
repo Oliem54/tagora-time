@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import type { User } from "@supabase/supabase-js";
+import type { SupabaseClient, User } from "@supabase/supabase-js";
 import {
   getAuthenticatedRequestUser,
   getRequestAccessToken,
@@ -12,7 +12,7 @@ import {
   readRequestHostname,
   shouldBlockJwtAal1ForMandatoryMfaRole,
 } from "@/app/lib/auth/mfa.shared";
-import { createAdminSupabaseClient } from "@/app/lib/supabase/admin";
+import { createAuthenticatedServerSupabaseClient } from "@/app/lib/supabase/authenticated-server";
 import { parseTierConfig } from "@/app/lib/commissions/calculate.server";
 import {
   DEFAULT_COMMISSION_BASIS,
@@ -24,6 +24,8 @@ import {
 import { resolveCompanyContext } from "@/app/lib/timeclock-api.shared";
 
 export const dynamic = "force-dynamic";
+
+export type CommissionsSupabaseClient = SupabaseClient;
 
 export async function requireCommissionsAccess(req: NextRequest) {
   const { user, role } = await getAuthenticatedRequestUser(req);
@@ -49,6 +51,12 @@ export async function requireCommissionsAccess(req: NextRequest) {
     };
   }
   const token = getRequestAccessToken(req).token;
+  if (!token) {
+    return {
+      ok: false as const,
+      response: NextResponse.json({ error: "Authentification requise." }, { status: 401 }),
+    };
+  }
   if (
     shouldBlockJwtAal1ForMandatoryMfaRole({
       role,
@@ -68,7 +76,14 @@ export async function requireCommissionsAccess(req: NextRequest) {
       ),
     };
   }
-  return { ok: true as const, user, role, supabase: createAdminSupabaseClient() };
+  return {
+    ok: true as const,
+    user,
+    role,
+    accessToken: token,
+    // Human DB path: JWT-scoped client so auth.uid() + RLS apply.
+    supabase: createAuthenticatedServerSupabaseClient(token),
+  };
 }
 
 export async function requireAdminFinanceCommissionsAccess(req: NextRequest) {
@@ -96,8 +111,8 @@ export function getUserDisplayName(user: { email?: string | null; user_metadata?
 }
 
 /**
- * Organisation commissions : exclusivement depuis le JWT authentifié.
- * Ne jamais accepter company_context / organization_id provenant du navigateur.
+ * Legacy text company_context for informational/display fields only.
+ * Not an authorization authority — use organization UUID memberships instead.
  */
 export function resolveCommissionsCompanyContext(user: User): string {
   return resolveCompanyContext(user, null);
@@ -111,33 +126,6 @@ export function chauffeurMatchesCompanyContext(
   const org = normalizeCompany(companyContext);
   if (!chauffeurCompany || !org) return false;
   return chauffeurCompany === org;
-}
-
-export async function assertChauffeurInCompany(
-  supabase: ReturnType<typeof createAdminSupabaseClient>,
-  chauffeurId: number,
-  companyContext: string
-): Promise<{ ok: true } | { ok: false; error: string }> {
-  const { data, error } = await supabase
-    .from("chauffeurs")
-    .select("id, primary_company")
-    .eq("id", chauffeurId)
-    .maybeSingle();
-
-  if (error || !data) {
-    return { ok: false, error: "Employe introuvable." };
-  }
-
-  if (
-    !chauffeurMatchesCompanyContext(
-      (data as { primary_company?: unknown }).primary_company,
-      companyContext
-    )
-  ) {
-    return { ok: false, error: "Employe hors organisation." };
-  }
-
-  return { ok: true };
 }
 
 function asNumber(value: unknown): number | null {
@@ -166,6 +154,10 @@ export function mapObjectiveRow(
     achieved_sales_count: Math.trunc(asNumber(row.achieved_sales_count) ?? 0),
     status: String(row.status ?? "draft") as SalesObjectiveRow["status"],
     company_context: typeof row.company_context === "string" ? row.company_context : null,
+    organization_id:
+      typeof row.organization_id === "string" && row.organization_id.trim()
+        ? row.organization_id.trim().toLowerCase()
+        : null,
     created_by_name: typeof row.created_by_name === "string" ? row.created_by_name : null,
     updated_by_name: typeof row.updated_by_name === "string" ? row.updated_by_name : null,
     created_at: String(row.created_at ?? ""),
@@ -252,7 +244,7 @@ export type ChauffeurProfileSummary = {
 };
 
 export async function loadChauffeurProfiles(
-  supabase: ReturnType<typeof createAdminSupabaseClient>,
+  supabase: CommissionsSupabaseClient,
   ids: number[]
 ) {
   const unique = Array.from(new Set(ids.filter((id) => Number.isFinite(id) && id > 0)));
@@ -280,7 +272,7 @@ export async function loadChauffeurProfiles(
 }
 
 export async function loadChauffeurLabels(
-  supabase: ReturnType<typeof createAdminSupabaseClient>,
+  supabase: CommissionsSupabaseClient,
   ids: number[]
 ) {
   const profiles = await loadChauffeurProfiles(supabase, ids);
