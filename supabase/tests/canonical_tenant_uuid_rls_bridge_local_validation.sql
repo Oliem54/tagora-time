@@ -1,5 +1,7 @@
 -- Local validation: canonical tenant UUID RLS bridge (Option C) + team tenant.
--- Requires migration 20260730190000 applied on a disposable local DB.
+-- Requires BOTH migrations on a disposable local DB:
+--   20260730190000_canonical_tenant_uuid_rls_bridge.sql (schema)
+--   20260730191000_canonical_tenant_uuid_rls_hardening.sql (helpers/RLS/grants)
 -- Transactional: BEGIN … ROLLBACK — no persistent fixtures/helpers.
 -- Do not run against staging or production.
 
