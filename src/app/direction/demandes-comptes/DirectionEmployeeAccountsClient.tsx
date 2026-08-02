@@ -6,12 +6,7 @@ import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ArrowLeft,
-  CircleAlert,
-  Clock3,
   LayoutDashboard,
-  Mail,
-  OctagonX,
-  UserCheck,
   UserPlus,
 } from "lucide-react";
 import FeedbackMessage from "@/app/components/FeedbackMessage";
@@ -33,8 +28,6 @@ import {
   type AccountRequestCompany,
 } from "@/app/lib/account-requests.shared";
 import { supabase } from "@/app/lib/supabase/client";
-import TagoraStatCard from "@/app/components/TagoraStatCard";
-import type { TagoraStatTone } from "@/app/components/tagora-stat-tone";
 import AccountRequestCreateModal, {
   type CreateAccountPayload,
 } from "./AccountRequestCreateModal";
@@ -52,11 +45,11 @@ type RequestRole = "employe" | "direction" | "admin";
 
 const fallbackPermissions = [...accountRequestPermissionOptions];
 
-function formatRole(role: RequestRole | null | undefined) {
+function formatRole(role: RequestRole | string | null | undefined) {
   if (role === "admin") return "Admin";
   if (role === "direction") return "Direction";
-  if (role === "employe") return "Employe";
-  return "Non defini";
+  if (role === "employe") return "Employé";
+  return "Non défini";
 }
 
 function getViewerRoleLabel(role: string | null | undefined) {
@@ -65,29 +58,6 @@ function getViewerRoleLabel(role: string | null | undefined) {
   if (role === "manager") return "Manager";
   if (role === "employe" || role === "employee") return "Employe";
   return null;
-}
-
-function formatDate(value: string | null | undefined) {
-  if (!value) return "-";
-
-  return new Intl.DateTimeFormat("fr-CA", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(new Date(value));
-}
-
-function formatPermissions(values: string[] | null | undefined) {
-  return values && values.length > 0
-    ? values
-        .map((value) => {
-          const match = accountRequestPermissionOptions.find((item) => item.value === value);
-          return match?.label ?? value;
-        })
-        .join(", ")
-    : "Aucune";
 }
 
 function buildApiErrorMessage(payload: unknown, fallback: string) {
@@ -117,12 +87,12 @@ function buildApiErrorMessage(payload: unknown, fallback: string) {
 }
 
 function getStatusLabel(status: AccountAccessStatus, request?: AccountAccessRequestRecord) {
-  if (request && isAccessDisabledRequest(request)) return "Accès désactivé";
+  if (request && isAccessDisabledRequest(request)) return "Inactif (portail)";
   if (status === "active") return "Actif";
   if (status === "invited") return "Invité";
   if (status === "refused") return "Refusé";
   if (status === "error") return "Erreur";
-  return "En attente";
+  return "Demande en attente";
 }
 
 function getStatusTone(status: AccountAccessStatus, request?: AccountAccessRequestRecord) {
@@ -145,14 +115,56 @@ function getSuccessMessage(action: AccountAccessAction) {
   return "Traitement relance avec succes.";
 }
 
-function accountStatTone(
-  tone: "pending" | "invited" | "active" | "refused" | "error"
-): TagoraStatTone {
-  if (tone === "pending") return "orange";
-  if (tone === "invited") return "blue";
-  if (tone === "active") return "green";
-  if (tone === "refused") return "red";
-  return "orange";
+const STATUS_FILTER_OPTIONS: Array<{ value: AccountAccessListFilter; label: string }> = [
+  { value: "all", label: "Tous" },
+  { value: "pending", label: "En attente" },
+  { value: "invited", label: "Invités" },
+  { value: "active", label: "Actifs" },
+  { value: "disabled", label: "Inactifs" },
+  { value: "refused", label: "Refusés" },
+  { value: "error", label: "Erreurs" },
+];
+
+function AccountRequestsFilterBar({
+  statusFilter,
+  counts,
+  total,
+  onSelect,
+}: {
+  statusFilter: AccountAccessListFilter;
+  counts: {
+    pending: number;
+    invited: number;
+    active: number;
+    disabled: number;
+    refused: number;
+    error: number;
+  };
+  total: number;
+  onSelect: (value: AccountAccessListFilter) => void;
+}) {
+  return (
+    <div className="accounts-premium-filter-bar" role="tablist" aria-label="Filtrer les demandes">
+      {STATUS_FILTER_OPTIONS.map((option) => {
+        const count = option.value === "all" ? total : counts[option.value];
+        return (
+          <button
+            key={option.value}
+            type="button"
+            role="tab"
+            aria-selected={statusFilter === option.value}
+            className={`accounts-premium-filter-chip${
+              statusFilter === option.value ? " accounts-premium-filter-chip--active" : ""
+            }`}
+            onClick={() => onSelect(option.value)}
+          >
+            <span>{option.label}</span>
+            <span className="accounts-premium-filter-chip__count">{count}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
 }
 
 
@@ -814,31 +826,28 @@ export default function DirectionEmployeeAccountsClient() {
   }
 
   return (
-    <main className="tagora-app-shell account-requests-page">
-      <div className="tagora-app-content account-requests-premium-layout">
-        <section className="account-requests-premium-hero">
-          <div className="account-requests-premium-logo-card">
+    <main className="tagora-app-shell account-requests-page account-requests-page--2027">
+      <div className="tagora-app-content account-requests-premium-layout account-requests-premium-layout--2027">
+        <section className="account-requests-premium-hero accounts-premium-hero--lite">
+          <div className="account-requests-premium-logo-card accounts-premium-logo-card--lite">
             <Image
               src="/logo.png"
               alt="Logo TAGORA"
-              width={220}
-              height={110}
+              width={140}
+              height={70}
               priority
               className="account-requests-premium-logo"
             />
           </div>
 
           <div className="account-requests-premium-hero-copy">
-            <h1 className="account-requests-premium-title">
-              Demandes de comptes · Gestion des accès
-            </h1>
+            <h1 className="account-requests-premium-title">Demandes de comptes</h1>
             <p className="account-requests-premium-description">
-              Gérez les demandes de comptes, les accès portail et les liaisons avec les fiches
-              employés.
+              Suivez les demandes d&apos;accès et leur lien avec les fiches employés.
             </p>
           </div>
 
-          <div className="account-requests-premium-hero-actions">
+          <div className="account-requests-premium-hero-actions accounts-premium-hero-actions--compact">
             {user?.email ? <UserIdentityBadge value={user.email} roleLabel={viewerRoleLabel} /> : null}
             <Link
               href="/direction/comptes-employes"
@@ -863,59 +872,24 @@ export default function DirectionEmployeeAccountsClient() {
           </div>
         </section>
 
-        <div className="tagora-stat-grid tagora-stat-grid--five" style={{ marginBottom: 10 }}>
-          <TagoraStatCard
-            title="En attente"
-            value={counts.pending}
-            tone={accountStatTone("pending")}
-            icon={<Clock3 strokeWidth={1.9} aria-hidden />}
-          />
-          <TagoraStatCard
-            title="Invités"
-            value={counts.invited}
-            tone={accountStatTone("invited")}
-            icon={<Mail strokeWidth={1.9} aria-hidden />}
-          />
-          <TagoraStatCard
-            title="Actifs"
-            value={counts.active}
-            tone={accountStatTone("active")}
-            icon={<UserCheck strokeWidth={1.9} aria-hidden />}
-          />
-          <TagoraStatCard
-            title="Refusés"
-            value={counts.refused}
-            tone={accountStatTone("refused")}
-            icon={<OctagonX strokeWidth={1.9} aria-hidden />}
-          />
-          <TagoraStatCard
-            title="Erreurs"
-            value={counts.error}
-            tone={accountStatTone("error")}
-            icon={<CircleAlert strokeWidth={1.9} aria-hidden />}
-          />
-        </div>
+        <AccountRequestsFilterBar
+          statusFilter={statusFilter}
+          total={sortedRequests.length}
+          counts={{
+            pending: counts.pending,
+            invited: counts.invited,
+            active: counts.active,
+            disabled: counts.disabled,
+            refused: counts.refused,
+            error: counts.error,
+          }}
+          onSelect={setStatusFilter}
+        />
 
         <FeedbackMessage message={message} type={messageType} />
 
-        <section className="account-requests-premium-shell">
-          <div className="account-requests-premium-toolbar">
-            <label className="tagora-field account-requests-status-filter" style={{ marginBottom: 0 }}>
-              <span className="tagora-label">Filtrer par statut</span>
-              <select
-                className="tagora-input"
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value as AccountAccessListFilter)}
-              >
-                <option value="all">Tous ({sortedRequests.length})</option>
-                <option value="pending">En attente ({counts.pending})</option>
-                <option value="invited">Invités ({counts.invited})</option>
-                <option value="active">Actifs ({counts.active})</option>
-                <option value="disabled">Désactivés ({counts.disabled})</option>
-                <option value="refused">Refusés ({counts.refused})</option>
-                <option value="error">Erreurs ({counts.error})</option>
-              </select>
-            </label>
+        <section className="account-requests-premium-shell accounts-premium-shell--lite">
+          <div className="account-requests-premium-toolbar accounts-premium-toolbar--lite">
             {canEditRequestDetails ? (
               <button
                 type="button"
@@ -951,27 +925,19 @@ export default function DirectionEmployeeAccountsClient() {
           ) : (
             <>
             <div className="account-requests-premium-table-wrap account-requests-premium-table-wrap--desktop">
-              <table className="account-requests-premium-table">
+              <table className="account-requests-premium-table account-requests-premium-table--demandes-lite">
                 <colgroup>
-                  <col style={{ width: "17%" }} />
-                  <col style={{ width: "9%" }} />
-                  <col style={{ width: "13%" }} />
-                  <col style={{ width: "10%" }} />
+                  <col style={{ width: "36%" }} />
                   <col style={{ width: "18%" }} />
-                  <col style={{ width: "10%" }} />
-                  <col style={{ width: "10%" }} />
-                  <col style={{ width: "23%" }} />
+                  <col style={{ width: "22%" }} />
+                  <col style={{ width: "14%" }} />
                 </colgroup>
                 <thead>
                   <tr>
                     <th>Demandeur</th>
-                    <th>Portail</th>
-                    <th>Acces</th>
-                    <th>Compte</th>
-                    <th>Fiche employe</th>
-                    <th>Derniere connexion</th>
-                    <th>Cree le</th>
-                    <th>Actions</th>
+                    <th>Statut</th>
+                    <th>Fiche employé</th>
+                    <th>Action</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -981,33 +947,15 @@ export default function DirectionEmployeeAccountsClient() {
                         <div className="account-requests-requester">
                           <div className="account-requests-requester-name">{request.full_name}</div>
                           <div className="account-requests-requester-meta">{request.email}</div>
-                          <div className="account-requests-requester-meta">
-                            {request.phone || "Telephone non fourni"}
+                          <div className="account-requests-requester-meta account-requests-requester-meta--sub">
+                            {formatRole(request.portal_source)} ·{" "}
+                            {formatRole((request.assigned_role ?? request.requested_role) as RequestRole)} ·{" "}
+                            {getCompanyLabel(request.company as AccountRequestCompany)}
                           </div>
                         </div>
                       </td>
                       <td>
-                        <div className="account-requests-cell-stack">
-                          <span className="account-requests-cell-main">
-                            {formatRole(request.portal_source)}
-                          </span>
-                          <span className="account-requests-cell-sub">
-                            {getCompanyLabel(request.company as AccountRequestCompany)}
-                          </span>
-                        </div>
-                      </td>
-                      <td>
-                        <div className="account-requests-cell-stack">
-                          <span className="account-requests-cell-main">
-                            {formatRole((request.assigned_role ?? request.requested_role) as RequestRole)}
-                          </span>
-                          <span className="account-requests-cell-sub">
-                            {formatPermissions(request.assigned_permissions ?? request.requested_permissions)}
-                          </span>
-                        </div>
-                      </td>
-                      <td>
-                        <div className="account-requests-cell-stack">
+                        <div className="account-requests-cell-stack account-requests-cell-stack--compact">
                           <div className="account-requests-cell-badge-row">
                             <StatusBadge
                               label={getStatusLabel(request.status, request)}
@@ -1020,38 +968,31 @@ export default function DirectionEmployeeAccountsClient() {
                           <span className="account-requests-cell-sub">
                             {getAccountRequestPortalSummaryLabel(request) ??
                               (request.existing_account?.exists
-                                ? "Compte detecte"
-                                : "Compte a creer")}
+                                ? "Compte détecté"
+                                : "Compte à créer")}
                           </span>
                         </div>
                       </td>
                       <td className="account-requests-cell-employee">
                         <EmployeeLinkCellContent request={request} />
                       </td>
-                      <td className="account-requests-cell-date">
-                        {formatDate(request.existing_account?.lastSignInAt)}
-                      </td>
-                      <td className="account-requests-cell-date">
-                        {formatDate(request.created_at)}
-                      </td>
                       <td>
-                        <div className="account-requests-cell-actions">
-                          <AccountRequestRowActions
-                            request={request}
-                            onManage={() => setManagingRequestId(request.id)}
-                            onDelete={() => void deleteRequest(request)}
-                            onDisableAccess={() => void disableRequestAccess(request)}
-                            onReactivateAccess={() => void reactivateRequestAccess(request)}
-                            onReconcile={() => void reconcileExistingAccount(request)}
-                            deleting={deletingRequestId === request.id}
-                            disabling={disablingRequestId === request.id}
-                            reactivating={reactivatingRequestId === request.id}
-                            reconciling={reconcilingRequestId === request.id}
-                            canDelete={canManageRoles}
-                            canManage={canOpenManage}
-                            canManageRoles={canManageRoles}
-                          />
-                        </div>
+                        <AccountRequestRowActions
+                          request={request}
+                          onManage={() => setManagingRequestId(request.id)}
+                          onDelete={() => void deleteRequest(request)}
+                          onDisableAccess={() => void disableRequestAccess(request)}
+                          onReactivateAccess={() => void reactivateRequestAccess(request)}
+                          onReconcile={() => void reconcileExistingAccount(request)}
+                          deleting={deletingRequestId === request.id}
+                          disabling={disablingRequestId === request.id}
+                          reactivating={reactivatingRequestId === request.id}
+                          reconciling={reconcilingRequestId === request.id}
+                          canDelete={canManageRoles}
+                          canManage={canOpenManage}
+                          canManageRoles={canManageRoles}
+                          variant="compact"
+                        />
                       </td>
                     </tr>
                   ))}

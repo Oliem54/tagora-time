@@ -20,6 +20,7 @@ export default function AccountRequestRowActions({
   canDelete,
   canManage,
   canManageRoles,
+  variant = "full",
   layout = "table",
 }: {
   request: AccountAccessRequestRecord;
@@ -35,6 +36,7 @@ export default function AccountRequestRowActions({
   canDelete?: boolean;
   canManage?: boolean;
   canManageRoles?: boolean;
+  variant?: "full" | "compact";
   layout?: "table" | "mobile";
 }) {
   const isMobile = layout === "mobile";
@@ -43,6 +45,34 @@ export default function AccountRequestRowActions({
   const isExistingEmployee = request.employee_link?.status === "existing";
   const showReconcile =
     Boolean(canManageRoles && onReconcile) && canReconcileExistingAccountRequest(request);
+  const isCompact = variant === "compact" && !isMobile;
+
+  if (isCompact) {
+    return (
+      <div className="account-requests-cell-actions account-requests-cell-actions--compact">
+        {canManage ? (
+          <button
+            type="button"
+            className="account-requests-action-button account-requests-action-button-primary account-requests-action-button--table-primary"
+            onClick={onManage}
+          >
+            <Settings2 size={13} strokeWidth={2} />
+            Gérer
+          </button>
+        ) : null}
+        {showReconcile ? (
+          <button
+            type="button"
+            className="account-requests-action-button account-requests-action-button-text"
+            onClick={onReconcile}
+            disabled={Boolean(reconciling)}
+          >
+            {reconciling ? "Réconciliation…" : "Réconcilier"}
+          </button>
+        ) : null}
+      </div>
+    );
+  }
 
   return (
     <div

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildEmployeeAccountsRegistryDiagnostic,
   buildRegistryEntryFromParts,
+  canDissociatePortalEntry,
   deriveRegistryTabs,
   matchesRegistryTab,
 } from "@/app/lib/employee-accounts-registry.shared";
@@ -154,7 +155,7 @@ describe("employee-accounts-registry.shared", () => {
 
     expect(entry.diagnostic.staleChauffeurMetadata).toBe(true);
     expect(entry.authLinked).toBe(false);
-    expect(entry.derivedStatus).toBe("Metadata chauffeur obsolète");
+    expect(entry.derivedStatus).toBe("Conflit (metadata)");
     expect(entry.tabs).toContain("conflict");
     expect(entry.tabs).not.toContain("orphan");
     expect(matchesRegistryTab(entry, "conflict")).toBe(true);
@@ -187,11 +188,97 @@ describe("employee-accounts-registry.shared", () => {
 
     expect(entry.diagnostic.staleChauffeurMetadata).toBe(true);
     expect(entry.authLinked).toBe(false);
-    expect(entry.derivedStatus).toBe("Metadata chauffeur obsolète");
+    expect(entry.derivedStatus).toBe("Conflit (metadata)");
     expect(matchesRegistryTab(entry, "orphan")).toBe(true);
     expect(matchesRegistryTab(entry, "active")).toBe(false);
     expect(entry.conflictIndicators.some((item) => item.includes("chauffeur_id obsolète"))).toBe(
       true
     );
+  });
+
+  it("allows dissociation for linked employee and portal account", () => {
+    const entry = buildRegistryEntryFromParts({
+      registryKey: "employee:linked",
+      displayName: "Linked User",
+      email: "linked@example.com",
+      chauffeur: {
+        id: 3,
+        nom: "Linked User",
+        courriel: "linked@example.com",
+        telephone: null,
+        actif: true,
+        auth_user_id: "auth-linked",
+      },
+      authUser: {
+        id: "auth-linked",
+        email: "linked@example.com",
+        app_metadata: { role: "employe", chauffeur_id: 3 },
+        user_metadata: {},
+        aud: "authenticated",
+        created_at: "",
+      },
+      accountRequest: null,
+      authUserFoundForProfile: true,
+    });
+
+    expect(canDissociatePortalEntry(entry)).toBe(true);
+  });
+
+  it("allows dissociation for orphan portal account without employee profile", () => {
+    const entry = buildRegistryEntryFromParts({
+      registryKey: "auth:orphan",
+      displayName: "Orphan Auth",
+      email: "orphan@example.com",
+      chauffeur: null,
+      authUser: {
+        id: "auth-orphan",
+        email: "orphan@example.com",
+        app_metadata: { role: "employe" },
+        user_metadata: {},
+        aud: "authenticated",
+        created_at: "",
+      },
+      accountRequest: null,
+      authUserFoundForProfile: false,
+    });
+
+    expect(entry.derivedStatus).toBe("Orphelin (portail)");
+    expect(canDissociatePortalEntry(entry)).toBe(true);
+  });
+
+  it("does not offer dissociation when no portal link exists", () => {
+    const entry = buildRegistryEntryFromParts({
+      registryKey: "request:pending-only",
+      displayName: "Pending Only",
+      email: "pending@example.com",
+      chauffeur: null,
+      authUser: null,
+      accountRequest: {
+        id: "pending-only",
+        full_name: "Pending Only",
+        email: "pending@example.com",
+        phone: null,
+        company: "oliem_solutions",
+        portal_source: "employe",
+        requested_role: "employe",
+        requested_permissions: [],
+        message: null,
+        status: "pending",
+        assigned_role: null,
+        assigned_permissions: [],
+        review_note: null,
+        reviewed_by: null,
+        reviewed_at: null,
+        invited_user_id: null,
+        review_lock_token: null,
+        review_started_at: null,
+        last_error: null,
+        audit_log: [],
+        created_at: "2026-01-01T00:00:00.000Z",
+      },
+      authUserFoundForProfile: false,
+    });
+
+    expect(canDissociatePortalEntry(entry)).toBe(false);
   });
 });

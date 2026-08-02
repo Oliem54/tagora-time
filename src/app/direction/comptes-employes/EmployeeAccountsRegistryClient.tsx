@@ -12,22 +12,17 @@ import {
 } from "react";
 import {
   AlertTriangle,
-  Archive,
   ArrowLeft,
-  Clock3,
   ExternalLink,
   Search,
-  UserCheck,
-  UserX,
   Users,
 } from "lucide-react";
 import FeedbackMessage from "@/app/components/FeedbackMessage";
-import TagoraStatCard from "@/app/components/TagoraStatCard";
-import type { TagoraStatTone } from "@/app/components/tagora-stat-tone";
 import StatusBadge from "@/app/components/ui/StatusBadge";
 import UserIdentityBadge from "@/app/components/ui/UserIdentityBadge";
 import { useCurrentAccess } from "@/app/hooks/useCurrentAccess";
 import {
+  canDissociatePortalEntry,
   matchesRegistryTab,
   type EmployeeAccountsRegistryEntry,
   type EmployeeAccountsRegistryTab,
@@ -37,22 +32,13 @@ import { supabase } from "@/app/lib/supabase/client";
 const TAB_OPTIONS: Array<{
   value: EmployeeAccountsRegistryTab;
   label: string;
-  tone: TagoraStatTone;
 }> = [
-  { value: "active", label: "Actifs", tone: "green" },
-  { value: "pending", label: "En attente", tone: "blue" },
-  { value: "archived", label: "Archivés", tone: "slate" },
-  { value: "orphan", label: "Orphelins", tone: "orange" },
-  { value: "conflict", label: "Conflits", tone: "red" },
+  { value: "active", label: "Actifs" },
+  { value: "pending", label: "En attente" },
+  { value: "archived", label: "Archivés" },
+  { value: "orphan", label: "Orphelins" },
+  { value: "conflict", label: "Conflits" },
 ];
-
-const TAB_ICONS: Record<EmployeeAccountsRegistryTab, ReactNode> = {
-  active: <UserCheck strokeWidth={1.9} aria-hidden />,
-  pending: <Clock3 strokeWidth={1.9} aria-hidden />,
-  archived: <Archive strokeWidth={1.9} aria-hidden />,
-  orphan: <UserX strokeWidth={1.9} aria-hidden />,
-  conflict: <AlertTriangle strokeWidth={1.9} aria-hidden />,
-};
 
 function boolLabel(value: boolean | null | undefined) {
   if (value === true) return "Oui";
@@ -60,42 +46,85 @@ function boolLabel(value: boolean | null | undefined) {
   return "—";
 }
 
-function BoolCell({ value }: { value: boolean | null | undefined }) {
-  const label = boolLabel(value);
-  const tone =
-    value === true ? "employee-accounts-registry-bool--yes" : value === false ? "employee-accounts-registry-bool--no" : "employee-accounts-registry-bool--na";
-
-  return (
-    <span className={`employee-accounts-registry-bool ${tone}`} aria-label={label}>
-      {label}
-    </span>
-  );
-}
-
 function getDerivedStatusTone(status: string) {
   if (status === "Actif") return "success" as const;
-  if (status === "Accès désactivé" || status === "Refusé") return "danger" as const;
-  if (status === "Conflit" || status === "Erreur") return "warning" as const;
-  if (status === "Orphelin auth" || status === "Orphelin fiche") return "warning" as const;
-  if (status === "En attente" || status === "Invité") return "info" as const;
+  if (
+    status === "Inactif (portail)" ||
+    status === "Inactif (fiche)" ||
+    status === "Refusé"
+  ) {
+    return "danger" as const;
+  }
+  if (status === "Conflit" || status === "Conflit (metadata)" || status === "Erreur") {
+    return "warning" as const;
+  }
+  if (status === "Orphelin (portail)" || status === "Orphelin (fiche)") {
+    return "warning" as const;
+  }
+  if (status === "Demande en attente" || status === "Invité") return "info" as const;
   return "default" as const;
+}
+
+function RegistrySummaryCell({ entry }: { entry: EmployeeAccountsRegistryEntry }) {
+  const conflictCount = entry.conflictIndicators.length;
+
+  return (
+    <div className="employee-accounts-registry-summary">
+      <span
+        className={`employee-accounts-registry-summary-chip${
+          entry.employeeProfileActive === true
+            ? " employee-accounts-registry-summary-chip--ok"
+            : entry.employeeProfileActive === false
+              ? " employee-accounts-registry-summary-chip--off"
+              : ""
+        }`}
+      >
+        Fiche {boolLabel(entry.employeeProfileActive)}
+      </span>
+      <span
+        className={`employee-accounts-registry-summary-chip${
+          entry.authLinked
+            ? " employee-accounts-registry-summary-chip--ok"
+            : entry.accessDisabled
+              ? " employee-accounts-registry-summary-chip--off"
+              : ""
+        }`}
+      >
+        Portail {entry.authLinked ? "lié" : entry.accessDisabled ? "inactif" : "non lié"}
+      </span>
+      {entry.hasAccountRequest ? (
+        <span className="employee-accounts-registry-summary-chip">Demande</span>
+      ) : null}
+      {conflictCount > 0 ? (
+        <span className="employee-accounts-registry-summary-chip employee-accounts-registry-summary-chip--alert">
+          <AlertTriangle size={12} aria-hidden />
+          {conflictCount} alerte{conflictCount > 1 ? "s" : ""}
+        </span>
+      ) : null}
+    </div>
+  );
 }
 
 function RegistryDiagnosticPanel({
   entry,
   onClose,
+  onDissociate,
+  dissociating,
 }: {
   entry: EmployeeAccountsRegistryEntry;
   onClose: () => void;
+  onDissociate?: () => void;
+  dissociating?: boolean;
 }) {
   const diagnostic = entry.diagnostic;
+  const showDissociate = canDissociatePortalEntry(entry) && onDissociate;
 
   return (
-    <div className="employee-accounts-registry-diagnostic-panel" role="region" aria-label="Diagnostic compte employé">
+    <div className="employee-accounts-registry-diagnostic-panel" role="region" aria-label="Détail du compte employé">
       <div className="employee-accounts-registry-diagnostic-panel__head">
         <div>
           <h2 className="employee-accounts-registry-diagnostic-panel__title">
-            Diagnostic — {entry.displayName}
+            {entry.displayName}
           </h2>
           <p className="employee-accounts-registry-diagnostic-panel__subtitle">
             {entry.email ?? "Courriel non disponible"}
@@ -110,46 +139,40 @@ function RegistryDiagnosticPanel({
         </button>
       </div>
 
-      <dl className="employee-accounts-registry-diagnostic-grid">
-        <div>
-          <dt>Statut dérivé</dt>
-          <dd>{entry.derivedStatus}</dd>
-        </div>
-        <div>
-          <dt>Courriel</dt>
-          <dd>{entry.email ?? "—"}</dd>
-        </div>
-        <div>
-          <dt>Fiche RH active</dt>
-          <dd>{boolLabel(entry.employeeProfileActive)}</dd>
-        </div>
-        <div>
-          <dt>Auth lié</dt>
-          <dd>{boolLabel(entry.authLinked)}</dd>
-        </div>
+      <div className="employee-accounts-registry-diagnostic-highlights">
+        <StatusBadge
+          label={entry.derivedStatus}
+          tone={getDerivedStatusTone(entry.derivedStatus)}
+        />
+        <span className="employee-accounts-registry-diagnostic-highlights__meta">
+          Fiche {boolLabel(entry.employeeProfileActive)} · Portail {boolLabel(entry.authLinked)}
+        </span>
+      </div>
+
+      <dl className="employee-accounts-registry-diagnostic-grid employee-accounts-registry-diagnostic-grid--compact">
         <div>
           <dt>Demande compte</dt>
           <dd>{diagnostic.accountRequestStatus ?? "Aucune"}</dd>
         </div>
         <div>
-          <dt>Accès désactivé</dt>
+          <dt>Portail inactif</dt>
           <dd>{boolLabel(diagnostic.accessDisabled)}</dd>
         </div>
         <div>
-          <dt>Fiche RH inactive</dt>
+          <dt>Fiche employé inactive</dt>
           <dd>{boolLabel(diagnostic.employeeProfileInactive)}</dd>
         </div>
         <div>
-          <dt>Auth sans chauffeur</dt>
+          <dt>Portail sans fiche</dt>
           <dd>{boolLabel(diagnostic.authUserWithoutChauffeur)}</dd>
         </div>
         <div>
-          <dt>Metadata chauffeur obsolète</dt>
-          <dd>{boolLabel(diagnostic.staleChauffeurMetadata)}</dd>
+          <dt>Fiche sans portail</dt>
+          <dd>{boolLabel(diagnostic.chauffeurWithoutAuthUser)}</dd>
         </div>
         <div>
-          <dt>Chauffeur sans auth</dt>
-          <dd>{boolLabel(diagnostic.chauffeurWithoutAuthUser)}</dd>
+          <dt>Lien obsolète</dt>
+          <dd>{boolLabel(diagnostic.staleChauffeurMetadata)}</dd>
         </div>
         <div>
           <dt>Courriel divergent</dt>
@@ -158,10 +181,6 @@ function RegistryDiagnosticPanel({
         <div>
           <dt>Téléphone divergent</dt>
           <dd>{boolLabel(diagnostic.phoneDivergent)}</dd>
-        </div>
-        <div>
-          <dt>MFA (phase future)</dt>
-          <dd>{diagnostic.futureMfaStatus}</dd>
         </div>
       </dl>
 
@@ -181,6 +200,16 @@ function RegistryDiagnosticPanel({
       )}
 
       <div className="employee-accounts-registry-diagnostic-links">
+        {showDissociate ? (
+          <button
+            type="button"
+            className="employee-accounts-registry-action-btn employee-accounts-registry-action-btn--danger"
+            onClick={onDissociate}
+            disabled={dissociating}
+          >
+            {dissociating ? "Dissociation…" : "Dissocier le portail"}
+          </button>
+        ) : null}
         {entry.chauffeurId ? (
           <Link
             href={`/direction/ressources/employes/${entry.chauffeurId}`}
@@ -204,14 +233,6 @@ function RegistryDiagnosticPanel({
   );
 }
 
-const TAB_LABELS: Record<EmployeeAccountsRegistryTab, string> = {
-  active: "Actifs",
-  pending: "En attente",
-  archived: "Archivés",
-  orphan: "Orphelins",
-  conflict: "Conflits",
-};
-
 function RegistryMobileField({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div className="account-requests-mobile-card__field">
@@ -221,27 +242,77 @@ function RegistryMobileField({ label, children }: { label: string; children: Rea
   );
 }
 
+function RegistryFilterBar({
+  activeTab,
+  tabCounts,
+  onSelect,
+}: {
+  activeTab: EmployeeAccountsRegistryTab;
+  tabCounts: Record<EmployeeAccountsRegistryTab, number>;
+  onSelect: (tab: EmployeeAccountsRegistryTab) => void;
+}) {
+  return (
+    <div className="accounts-premium-filter-bar" role="tablist" aria-label="Filtrer le registre">
+      {TAB_OPTIONS.map((tab) => (
+        <button
+          key={tab.value}
+          type="button"
+          role="tab"
+          aria-selected={activeTab === tab.value}
+          className={`accounts-premium-filter-chip${
+            activeTab === tab.value ? " accounts-premium-filter-chip--active" : ""
+          }`}
+          onClick={() => onSelect(tab.value)}
+        >
+          <span>{tab.label}</span>
+          <span className="accounts-premium-filter-chip__count">{tabCounts[tab.value]}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function RegistryRowActions({
   entry,
   isExpanded,
   onToggleDiagnostic,
+  onDissociate,
+  dissociating,
   layout = "table",
 }: {
   entry: EmployeeAccountsRegistryEntry;
   isExpanded: boolean;
   onToggleDiagnostic: () => void;
+  onDissociate?: () => void;
+  dissociating?: boolean;
   layout?: "table" | "mobile";
 }) {
   const hasFicheLink = Boolean(entry.chauffeurId);
   const hasDemandeLink = Boolean(entry.accountRequestId);
   const isMobile = layout === "mobile";
+  const showDissociate = canDissociatePortalEntry(entry) && onDissociate;
+
+  if (!isMobile) {
+    return (
+      <div className="employee-accounts-registry-actions employee-accounts-registry-actions--table">
+        <button
+          type="button"
+          className={`employee-accounts-registry-action-btn employee-accounts-registry-action-btn--compact${
+            isExpanded
+              ? " employee-accounts-registry-action-btn--primary"
+              : " employee-accounts-registry-action-btn--secondary"
+          }`}
+          onClick={onToggleDiagnostic}
+          aria-expanded={isExpanded}
+        >
+          {isExpanded ? "Masquer" : "Détail"}
+        </button>
+      </div>
+    );
+  }
 
   return (
-    <div
-      className={`employee-accounts-registry-actions${
-        isMobile ? " employee-accounts-registry-actions--mobile" : ""
-      }`}
-    >
+    <div className="employee-accounts-registry-actions employee-accounts-registry-actions--mobile">
       <button
         type="button"
         className={`employee-accounts-registry-action-btn employee-accounts-registry-action-btn--compact${
@@ -252,8 +323,19 @@ function RegistryRowActions({
         onClick={onToggleDiagnostic}
         aria-expanded={isExpanded}
       >
-        {isExpanded ? "Masquer" : "Diagnostic"}
+        {isExpanded ? "Masquer" : "Détail"}
       </button>
+
+      {showDissociate ? (
+        <button
+          type="button"
+          className="employee-accounts-registry-action-btn employee-accounts-registry-action-btn--compact employee-accounts-registry-action-btn--danger-subtle"
+          onClick={onDissociate}
+          disabled={dissociating}
+        >
+          {dissociating ? "Dissociation…" : "Dissocier"}
+        </button>
+      ) : null}
 
       {hasFicheLink ? (
         <Link
@@ -278,20 +360,17 @@ function RegistryRowActions({
 
 function RegistryEntryMobileCard({
   entry,
-  activeTab,
   isExpanded,
   onToggleDiagnostic,
+  onDissociate,
+  dissociating,
 }: {
   entry: EmployeeAccountsRegistryEntry;
-  activeTab: EmployeeAccountsRegistryTab;
   isExpanded: boolean;
   onToggleDiagnostic: () => void;
+  onDissociate?: () => void;
+  dissociating?: boolean;
 }) {
-  const diagnosticSummary =
-    entry.conflictIndicators.length > 0
-      ? entry.conflictIndicators.slice(0, 2).join(" · ")
-      : "Aucune incohérence détectée";
-
   return (
     <article className="account-requests-mobile-card">
       <header className="account-requests-mobile-card__head">
@@ -302,21 +381,10 @@ function RegistryEntryMobileCard({
         />
       </header>
 
-      <div className="account-requests-mobile-card__fields">
+      <div className="account-requests-mobile-card__fields employee-accounts-registry-mobile-summary">
         <RegistryMobileField label="Courriel">{entry.email ?? "—"}</RegistryMobileField>
-        <RegistryMobileField label="Onglet">{TAB_LABELS[activeTab]}</RegistryMobileField>
-        <RegistryMobileField label="Fiche RH">
-          {boolLabel(entry.employeeProfileActive)}
-        </RegistryMobileField>
-        <RegistryMobileField label="Auth lié">{boolLabel(entry.authLinked)}</RegistryMobileField>
-        <RegistryMobileField label="Demande">{boolLabel(entry.hasAccountRequest)}</RegistryMobileField>
-        <RegistryMobileField label="Diagnostics">
-          {diagnosticSummary}
-          {entry.conflictIndicators.length > 2 ? (
-            <span className="account-requests-mobile-card__sub">
-              +{entry.conflictIndicators.length - 2} autre(s)
-            </span>
-          ) : null}
+        <RegistryMobileField label="Synthèse">
+          <RegistrySummaryCell entry={entry} />
         </RegistryMobileField>
       </div>
 
@@ -325,6 +393,8 @@ function RegistryEntryMobileCard({
           entry={entry}
           isExpanded={isExpanded}
           onToggleDiagnostic={onToggleDiagnostic}
+          onDissociate={onDissociate}
+          dissociating={dissociating}
           layout="mobile"
         />
       </div>
@@ -334,7 +404,12 @@ function RegistryEntryMobileCard({
           id={`registry-diagnostic-${entry.registryKey}`}
           className="employee-accounts-registry-mobile-diagnostic"
         >
-          <RegistryDiagnosticPanel entry={entry} onClose={onToggleDiagnostic} />
+          <RegistryDiagnosticPanel
+            entry={entry}
+            onClose={onToggleDiagnostic}
+            onDissociate={onDissociate}
+            dissociating={dissociating}
+          />
         </div>
       ) : null}
     </article>
@@ -343,41 +418,35 @@ function RegistryEntryMobileCard({
 
 function RegistryEntryRows({
   filteredEntries,
-  activeTab,
   diagnosticEntryKey,
   toggleDiagnostic,
+  onDissociate,
+  dissociatingKey,
 }: {
   filteredEntries: EmployeeAccountsRegistryEntry[];
-  activeTab: EmployeeAccountsRegistryTab;
   diagnosticEntryKey: string | null;
   toggleDiagnostic: (registryKey: string) => void;
+  onDissociate: (entry: EmployeeAccountsRegistryEntry) => void;
+  dissociatingKey: string | null;
 }) {
   return (
     <>
       <div className="account-requests-premium-table-wrap account-requests-premium-table-wrap--desktop">
-        <table className="account-requests-premium-table account-requests-premium-table--registry">
+        <table className="account-requests-premium-table account-requests-premium-table--registry account-requests-premium-table--registry-lite">
           <colgroup>
-            <col style={{ width: "20%" }} />
-            <col style={{ width: "11%" }} />
-            <col style={{ width: "7%" }} />
-            <col style={{ width: "7%" }} />
-            <col style={{ width: "7%" }} />
-            <col style={{ width: "8%" }} />
-            <col style={{ width: "7%" }} />
-            <col style={{ width: "7%" }} />
+            <col style={{ width: "34%" }} />
             <col style={{ width: "18%" }} />
+            <col style={{ width: "34%" }} />
+            <col style={{ width: "14%" }} />
           </colgroup>
           <thead>
             <tr>
-              <th>Employé / courriel</th>
-              <th>Statut dérivé</th>
-              <th className="employee-accounts-registry-cell--center">Fiche RH</th>
-              <th className="employee-accounts-registry-cell--center">Auth</th>
-              <th className="employee-accounts-registry-cell--center">Demande</th>
-              <th className="employee-accounts-registry-cell--center">Désactivé</th>
-              <th className="employee-accounts-registry-cell--center">Tél.</th>
-              <th className="employee-accounts-registry-cell--center">Conflits</th>
-              <th className="employee-accounts-registry-cell--center employee-accounts-registry-cell--actions">Actions</th>
+              <th>Employé</th>
+              <th>Statut</th>
+              <th>Synthèse</th>
+              <th className="employee-accounts-registry-cell--center employee-accounts-registry-cell--actions">
+                Action
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -405,41 +474,16 @@ function RegistryEntryRows({
                         tone={getDerivedStatusTone(entry.derivedStatus)}
                       />
                     </td>
-                    <td className="employee-accounts-registry-cell--center">
-                      <BoolCell value={entry.employeeProfileActive} />
-                    </td>
-                    <td className="employee-accounts-registry-cell--center">
-                      <BoolCell value={entry.authLinked} />
-                    </td>
-                    <td className="employee-accounts-registry-cell--center">
-                      <BoolCell value={entry.hasAccountRequest} />
-                    </td>
-                    <td className="employee-accounts-registry-cell--center">
-                      <BoolCell value={entry.accessDisabled} />
-                    </td>
-                    <td className="employee-accounts-registry-cell--center">
-                      <BoolCell value={entry.profilePhonePresent} />
-                    </td>
-                    <td className="employee-accounts-registry-cell--center">
-                      {entry.conflictIndicators.length > 0 ? (
-                        <span
-                          className="employee-accounts-registry-conflict-badge"
-                          title={entry.conflictIndicators.join(" · ")}
-                        >
-                          <AlertTriangle size={14} aria-hidden />
-                          {entry.conflictIndicators.length}
-                        </span>
-                      ) : (
-                        <span className="employee-accounts-registry-bool employee-accounts-registry-bool--na">
-                          —
-                        </span>
-                      )}
+                    <td>
+                      <RegistrySummaryCell entry={entry} />
                     </td>
                     <td className="employee-accounts-registry-cell--center employee-accounts-registry-cell--actions">
                       <RegistryRowActions
                         entry={entry}
                         isExpanded={isExpanded}
                         onToggleDiagnostic={() => toggleDiagnostic(entry.registryKey)}
+                        onDissociate={() => onDissociate(entry)}
+                        dissociating={dissociatingKey === entry.registryKey}
                       />
                     </td>
                   </tr>
@@ -448,10 +492,12 @@ function RegistryEntryRows({
                       id={`registry-diagnostic-${entry.registryKey}`}
                       className="employee-accounts-registry-diagnostic-row"
                     >
-                      <td colSpan={9}>
+                      <td colSpan={4}>
                         <RegistryDiagnosticPanel
                           entry={entry}
                           onClose={() => toggleDiagnostic(entry.registryKey)}
+                          onDissociate={() => onDissociate(entry)}
+                          dissociating={dissociatingKey === entry.registryKey}
                         />
                       </td>
                     </tr>
@@ -468,9 +514,10 @@ function RegistryEntryRows({
           <RegistryEntryMobileCard
             key={entry.registryKey}
             entry={entry}
-            activeTab={activeTab}
             isExpanded={diagnosticEntryKey === entry.registryKey}
             onToggleDiagnostic={() => toggleDiagnostic(entry.registryKey)}
+            onDissociate={() => onDissociate(entry)}
+            dissociating={dissociatingKey === entry.registryKey}
           />
         ))}
       </div>
@@ -491,6 +538,7 @@ export default function EmployeeAccountsRegistryClient() {
   const [message, setMessage] = useState("");
   const [messageType, setMessageType] = useState<"success" | "error" | null>(null);
   const [diagnosticEntryKey, setDiagnosticEntryKey] = useState<string | null>(null);
+  const [dissociatingKey, setDissociatingKey] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -618,6 +666,71 @@ export default function EmployeeAccountsRegistryClient() {
     setDiagnosticEntryKey((current) => (current === registryKey ? null : registryKey));
   }, []);
 
+  const handleDissociatePortal = useCallback(
+    async (entry: EmployeeAccountsRegistryEntry) => {
+      if (!accessToken || !canDissociatePortalEntry(entry)) {
+        return;
+      }
+
+      const employeeLabel = entry.displayName.trim() || "Employé";
+      const emailLabel = entry.email?.trim() || "courriel non disponible";
+      const confirmed = window.confirm(
+        `Dissocier le portail pour ${employeeLabel} (${emailLabel}) ?\n\n` +
+          "Le lien entre la fiche employé et le compte portail sera retiré. " +
+          "Le compte utilisateur Auth ne sera pas supprimé. La fiche employé sera conservée."
+      );
+
+      if (!confirmed) {
+        return;
+      }
+
+      setDissociatingKey(entry.registryKey);
+      setMessage("");
+      setMessageType(null);
+
+      try {
+        const response = await fetch("/api/direction/comptes-employes/dissociate-portal", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            "Content-Type": "application/json",
+            "x-account-requests-client": "browser-authenticated",
+          },
+          body: JSON.stringify({
+            chauffeurId: entry.chauffeurId,
+            authUserId: entry.authUserId,
+          }),
+        });
+
+        const payload = (await response.json()) as {
+          success?: boolean;
+          message?: string;
+          error?: string;
+        };
+
+        if (!response.ok || !payload.success) {
+          setMessage(payload.error ?? "Impossible de dissocier le portail.");
+          setMessageType("error");
+          return;
+        }
+
+        setMessage(
+          payload.message ??
+            "Le portail a été dissocié. La fiche employé existe toujours. Le compte utilisateur n'a pas été supprimé."
+        );
+        setMessageType("success");
+        setDiagnosticEntryKey(null);
+        await fetchRegistry();
+      } catch {
+        setMessage("Impossible de dissocier le portail pour le moment.");
+        setMessageType("error");
+      } finally {
+        setDissociatingKey(null);
+      }
+    },
+    [accessToken, fetchRegistry]
+  );
+
   const sessionOrAccessLoading = accessLoading || !sessionReady;
   const registryLoading = sessionOrAccessLoading || loading;
   const showEmptyState = fetchAttempted && !registryLoading && filteredEntries.length === 0;
@@ -644,14 +757,14 @@ export default function EmployeeAccountsRegistryClient() {
 
   return (
     <main className="tagora-app-shell account-requests-page employee-accounts-registry-page">
-      <div className="tagora-app-content account-requests-premium-layout">
-        <section className="account-requests-premium-hero employee-accounts-registry-hero">
+      <div className="tagora-app-content account-requests-premium-layout account-requests-premium-layout--2027">
+        <section className="account-requests-premium-hero employee-accounts-registry-hero accounts-premium-hero--lite">
           <div className="account-requests-premium-logo-card employee-accounts-registry-logo-card">
             <Image
               src="/logo.png"
               alt="Logo TAGORA"
-              width={180}
-              height={90}
+              width={140}
+              height={70}
               priority
               className="account-requests-premium-logo"
             />
@@ -660,11 +773,11 @@ export default function EmployeeAccountsRegistryClient() {
           <div className="account-requests-premium-hero-copy">
             <h1 className="account-requests-premium-title">Comptes employés</h1>
             <p className="account-requests-premium-description">
-              Registre global des accès portail, fiches employés et diagnostics de cohérence.
+              Vue d&apos;ensemble des accès portail et des fiches employés.
             </p>
           </div>
 
-          <div className="account-requests-premium-hero-actions">
+          <div className="account-requests-premium-hero-actions accounts-premium-hero-actions--compact">
             {user?.email ? (
               <UserIdentityBadge
                 value={user.email}
@@ -692,29 +805,16 @@ export default function EmployeeAccountsRegistryClient() {
           </div>
         </section>
 
-        <div className="tagora-stat-grid tagora-stat-grid--five employee-accounts-registry-stat-grid">
-          {TAB_OPTIONS.map((tab) => (
-            <button
-              key={tab.value}
-              type="button"
-              className={`employee-accounts-registry-stat-button${activeTab === tab.value ? " employee-accounts-registry-stat-button--active" : ""}`}
-              onClick={() => setActiveTab(tab.value)}
-            >
-              <TagoraStatCard
-                title={tab.label}
-                value={tabCounts[tab.value]}
-                tone={tab.tone}
-                icon={TAB_ICONS[tab.value]}
-                iconSize="sm"
-              />
-            </button>
-          ))}
-        </div>
+        <RegistryFilterBar
+          activeTab={activeTab}
+          tabCounts={tabCounts}
+          onSelect={setActiveTab}
+        />
 
         <FeedbackMessage message={message} type={messageType} />
 
-        <section className="account-requests-premium-shell employee-accounts-registry-shell">
-          <div className="employee-accounts-registry-toolbar">
+        <section className="account-requests-premium-shell employee-accounts-registry-shell accounts-premium-shell--lite">
+          <div className="employee-accounts-registry-toolbar accounts-premium-toolbar--lite">
             <label className="tagora-field employee-accounts-registry-search">
               <span className="tagora-label">Rechercher</span>
               <div className="employee-accounts-registry-search__field">
@@ -753,16 +853,18 @@ export default function EmployeeAccountsRegistryClient() {
           ) : (
             <RegistryEntryRows
               filteredEntries={filteredEntries}
-              activeTab={activeTab}
               diagnosticEntryKey={diagnosticEntryKey}
               toggleDiagnostic={toggleDiagnostic}
+              onDissociate={(entry) => void handleDissociatePortal(entry)}
+              dissociatingKey={dissociatingKey}
             />
           )}
         </section>
 
         <p className="tagora-note employee-accounts-registry-footnote">
           <Users size={14} aria-hidden />
-          Phase 1 — lecture seule. Aucune action destructive sur cette page.
+          Fiche employé et compte portail restent distincts. Ouvrez le détail pour les actions
+          avancées.
         </p>
       </div>
     </main>
