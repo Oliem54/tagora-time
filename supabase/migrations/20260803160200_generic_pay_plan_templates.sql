@@ -21,7 +21,10 @@ create table if not exists public.compensation_plan_templates (
   created_by uuid null references auth.users (id) on delete set null,
   archived_at timestamptz null,
   constraint compensation_plan_templates_code_format_check
-    check (template_code = public.normalize_pay_plan_code(template_code)),
+    check (
+      public.normalize_pay_plan_code(template_code) is not null
+      and template_code = public.normalize_pay_plan_code(template_code)
+    ),
   constraint compensation_plan_templates_display_name_check
     check (pg_catalog.char_length(pg_catalog.btrim(display_name)) between 1 and 120),
   constraint compensation_plan_templates_status_check

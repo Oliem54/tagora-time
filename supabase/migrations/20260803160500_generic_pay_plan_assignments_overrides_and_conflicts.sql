@@ -127,12 +127,18 @@ create table if not exists public.compensation_assignment_scopes (
   constraint compensation_assignment_scopes_product_code_check
     check (
       product_category_code is null
-      or product_category_code = public.normalize_pay_plan_code(product_category_code)
+      or (
+        public.normalize_pay_plan_code(product_category_code) is not null
+        and product_category_code = public.normalize_pay_plan_code(product_category_code)
+      )
     ),
   constraint compensation_assignment_scopes_scope_code_check
     check (
       scope_code is null
-      or scope_code = public.normalize_pay_plan_code(scope_code)
+      or (
+        public.normalize_pay_plan_code(scope_code) is not null
+        and scope_code = public.normalize_pay_plan_code(scope_code)
+      )
     )
 );
 
