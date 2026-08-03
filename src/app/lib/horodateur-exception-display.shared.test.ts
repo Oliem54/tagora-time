@@ -103,7 +103,6 @@ describe("resolveHorodateurExceptionDisplay", () => {
         email: null,
       },
       event: {
-        event_type: "dinner_fin",
         occurred_at: "2026-06-03T12:30:00-04:00",
       },
     });

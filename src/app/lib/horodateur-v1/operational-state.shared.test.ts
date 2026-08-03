@@ -28,6 +28,7 @@ const vincentProfile: HorodateurPhase1EmployeeProfile = {
   email: "blouin20100@gmail.com",
   phoneNumber: "4184566725",
   active: true,
+  scheduleActive: true,
   primaryCompany: "oliem_solutions",
   scheduleStart: "07:00:00",
   scheduleEnd: "15:30:00",
