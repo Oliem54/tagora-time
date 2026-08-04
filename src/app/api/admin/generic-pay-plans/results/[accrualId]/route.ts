@@ -6,7 +6,10 @@ import {
   requireGenericPayPlanAdminAccess,
   resolvePayPlanOrganization,
 } from "@/app/lib/commissions/generic-pay-plan.server";
-import { decodeGenericPayPlanTrace } from "@/app/lib/commissions/generic-pay-plan.shared";
+import {
+  decodeGenericPayPlanTrace,
+  resolvePayPlanBeneficiaryDisplay,
+} from "@/app/lib/commissions/generic-pay-plan.shared";
 
 export const dynamic = "force-dynamic";
 
@@ -60,11 +63,30 @@ export async function GET(req: NextRequest, context: Params) {
     .eq("id", accrual.compensation_event_id)
     .maybeSingle();
 
+  const { data: chauffeur } = await gate.auth.supabase
+    .from("chauffeurs")
+    .select("id, nom, courriel, organization_id")
+    .eq("id", trace.employee_id)
+    .eq("organization_id", org.organizationId)
+    .maybeSingle();
+
+  const beneficiary = resolvePayPlanBeneficiaryDisplay({
+    employeeId: trace.employee_id,
+    displayName: typeof chauffeur?.nom === "string" ? chauffeur.nom : null,
+    email: typeof chauffeur?.courriel === "string" ? chauffeur.courriel : null,
+    sourceOrganizationId:
+      typeof chauffeur?.organization_id === "string"
+        ? chauffeur.organization_id
+        : null,
+    expectedOrganizationId: org.organizationId,
+  });
+
   return NextResponse.json({
     organization_id: org.organizationId,
     accrual,
     event,
     trace,
+    beneficiary,
   });
 }
 

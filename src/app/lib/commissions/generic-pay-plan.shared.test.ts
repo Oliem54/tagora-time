@@ -11,6 +11,7 @@ import {
   decodeGenericPayPlanTrace,
   encodeGenericPayPlanTrace,
   normalizePayPlanCode,
+  resolvePayPlanBeneficiaryDisplay,
   validateAndNormalizeTemplateCode,
   validatePlanDisplayName,
 } from "@/app/lib/commissions/generic-pay-plan.shared";
@@ -177,5 +178,88 @@ describe("generic pay plan 6F shared", () => {
         version_id: "v1",
       }).ok
     ).toBe(false);
+  });
+
+  it("displays Yves as primary beneficiary when name is available", () => {
+    const display = resolvePayPlanBeneficiaryDisplay({
+      employeeId: 2,
+      displayName: "Yves",
+    });
+    expect(display.primary).toBe("Yves");
+    expect(display.secondary).toBe("Employé #2");
+    expect(display.usedTechnicalFallback).toBe(false);
+  });
+
+  it("keeps the internal employee identifier as secondary info", () => {
+    const display = resolvePayPlanBeneficiaryDisplay({
+      employeeId: 2,
+      displayName: "Yves Tremblay",
+    });
+    expect(display.employeeId).toBe(2);
+    expect(display.secondary).toBe("Employé #2");
+  });
+
+  it("falls back to email when name is absent", () => {
+    const display = resolvePayPlanBeneficiaryDisplay({
+      employeeId: 2,
+      displayName: "  ",
+      email: "yves@example.com",
+    });
+    expect(display.primary).toBe("yves@example.com");
+    expect(display.secondary).toBe("Employé #2");
+  });
+
+  it("uses technical fallback only as last resort", () => {
+    const display = resolvePayPlanBeneficiaryDisplay({
+      employeeId: 2,
+    });
+    expect(display.primary).toBe("Employé #2");
+    expect(display.secondary).toBeNull();
+    expect(display.usedTechnicalFallback).toBe(true);
+  });
+
+  it("rejects cross-tenant beneficiary name sources", () => {
+    const display = resolvePayPlanBeneficiaryDisplay({
+      employeeId: 2,
+      displayName: "Yves",
+      sourceOrganizationId: "11111111-1111-1111-1111-111111111111",
+      expectedOrganizationId: "22222222-2222-2222-2222-222222222222",
+    });
+    expect(display.primary).toBe("Employé #2");
+    expect(display.usedTechnicalFallback).toBe(true);
+  });
+
+  it("leaves calculated amount and traceability unchanged by beneficiary display", () => {
+    const trace = {
+      template_id: "t1",
+      template_code: "qa_6f_plan",
+      template_name: "Plan QA",
+      version_id: "v1",
+      version_number: 1,
+      rule_module_id: "r1",
+      rule_kind: "percentage_of_eligible_sales",
+      rule_name: "5%",
+      assignment_id: "a1",
+      employee_id: 2,
+      organization_id: "11111111-1111-1111-1111-111111111111",
+      basis_amount: 1000,
+      rate_percent: 5,
+      fixed_amount: null,
+      calculated_amount: 50,
+      event_id: "e1",
+      accrual_id: "c1",
+      processed_at: "2026-08-04T12:00:00.000Z",
+    };
+    const before = encodeGenericPayPlanTrace(trace);
+    const display = resolvePayPlanBeneficiaryDisplay({
+      employeeId: trace.employee_id,
+      displayName: "Yves",
+    });
+    const after = decodeGenericPayPlanTrace(before);
+    expect(display.primary).toBe("Yves");
+    expect(after?.calculated_amount).toBe(50);
+    expect(after?.accrual_id).toBe("c1");
+    expect(after?.event_id).toBe("e1");
+    expect(before).toBe(encodeGenericPayPlanTrace(trace));
   });
 });

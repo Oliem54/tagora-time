@@ -7,7 +7,11 @@ import AdminCommissionsNavigation from "@/app/components/admin/AdminCommissionsN
 import AuthenticatedPageHeader from "@/app/components/ui/AuthenticatedPageHeader";
 import SectionCard from "@/app/components/ui/SectionCard";
 import { commissionsFetch } from "@/app/lib/commissions/commissions-api.client";
-import type { GenericPayPlanTrace } from "@/app/lib/commissions/generic-pay-plan.shared";
+import {
+  resolvePayPlanBeneficiaryDisplay,
+  type GenericPayPlanTrace,
+  type PayPlanBeneficiaryDisplay,
+} from "@/app/lib/commissions/generic-pay-plan.shared";
 import {
   formatCad,
   formatFrDateTime,
@@ -26,6 +30,8 @@ export default function GenericPayPlanResultClient({ accrualId }: Props) {
   const [success, setSuccess] = useState<string | null>(null);
   const [status, setStatus] = useState<string>("");
   const [trace, setTrace] = useState<GenericPayPlanTrace | null>(null);
+  const [beneficiary, setBeneficiary] =
+    useState<PayPlanBeneficiaryDisplay | null>(null);
   const [eventLabel, setEventLabel] = useState<string>("");
   const [busy, setBusy] = useState(false);
 
@@ -45,6 +51,7 @@ export default function GenericPayPlanResultClient({ accrualId }: Props) {
         accrual?: { status?: string };
         event?: { label?: string | null; external_reference?: string | null };
         trace?: GenericPayPlanTrace;
+        beneficiary?: PayPlanBeneficiaryDisplay;
       };
       if (cancelled) return;
       setLoading(false);
@@ -53,7 +60,16 @@ export default function GenericPayPlanResultClient({ accrualId }: Props) {
         return;
       }
       setStatus(String(json.accrual?.status || ""));
-      setTrace(json.trace || null);
+      const nextTrace = json.trace || null;
+      setTrace(nextTrace);
+      setBeneficiary(
+        json.beneficiary ||
+          (nextTrace
+            ? resolvePayPlanBeneficiaryDisplay({
+                employeeId: nextTrace.employee_id,
+              })
+            : null)
+      );
       setEventLabel(
         json.event?.label ||
           json.event?.external_reference ||
@@ -136,7 +152,25 @@ export default function GenericPayPlanResultClient({ accrualId }: Props) {
             <SectionCard title="Détail explicatif">
               <dl style={{ margin: 0 }}>
                 <PayPlanDetailRow label="Bénéficiaire">
-                  Employé #{trace.employee_id}
+                  <div style={{ display: "grid", gap: 4 }}>
+                    <span>
+                      {beneficiary?.primary ||
+                        resolvePayPlanBeneficiaryDisplay({
+                          employeeId: trace.employee_id,
+                        }).primary}
+                    </span>
+                    {beneficiary?.secondary ? (
+                      <span
+                        style={{
+                          fontSize: 13,
+                          fontWeight: 600,
+                          color: "#6b7280",
+                        }}
+                      >
+                        {beneficiary.secondary}
+                      </span>
+                    ) : null}
+                  </div>
                 </PayPlanDetailRow>
                 <PayPlanDetailRow label="Événement">{eventLabel}</PayPlanDetailRow>
                 <PayPlanDetailRow label="Plan">

@@ -217,6 +217,83 @@ export function buildQaExternalReference(suffix: string): string {
   return `${GENERIC_PAY_PLAN_TRACE_PREFIX}${clean || "run"}`;
 }
 
+export type PayPlanBeneficiaryNameInput = {
+  employeeId: number;
+  displayName?: string | null;
+  firstName?: string | null;
+  email?: string | null;
+  sourceOrganizationId?: string | null;
+  expectedOrganizationId?: string | null;
+};
+
+export type PayPlanBeneficiaryDisplay = {
+  primary: string;
+  secondary: string | null;
+  employeeId: number;
+  usedTechnicalFallback: boolean;
+};
+
+/**
+ * Résolution d’affichage du bénéficiaire (UI uniquement).
+ * Ordre : nom / prénom / courriel / identifiant technique.
+ */
+export function resolvePayPlanBeneficiaryDisplay(
+  input: PayPlanBeneficiaryNameInput
+): PayPlanBeneficiaryDisplay {
+  const employeeId = Math.trunc(Number(input.employeeId));
+  const technical =
+    Number.isInteger(employeeId) && employeeId > 0
+      ? `Employé #${employeeId}`
+      : "Employé inconnu";
+
+  const sourceOrg = String(input.sourceOrganizationId || "").trim();
+  const expectedOrg = String(input.expectedOrganizationId || "").trim();
+  if (sourceOrg && expectedOrg && sourceOrg !== expectedOrg) {
+    return {
+      primary: technical,
+      secondary: null,
+      employeeId,
+      usedTechnicalFallback: true,
+    };
+  }
+
+  const displayName = String(input.displayName || "").trim();
+  const firstName = String(input.firstName || "").trim();
+  const email = String(input.email || "").trim();
+
+  if (displayName) {
+    return {
+      primary: displayName,
+      secondary: technical,
+      employeeId,
+      usedTechnicalFallback: false,
+    };
+  }
+  if (firstName) {
+    return {
+      primary: firstName,
+      secondary: technical,
+      employeeId,
+      usedTechnicalFallback: false,
+    };
+  }
+  if (email) {
+    return {
+      primary: email,
+      secondary: technical,
+      employeeId,
+      usedTechnicalFallback: false,
+    };
+  }
+
+  return {
+    primary: technical,
+    secondary: null,
+    employeeId,
+    usedTechnicalFallback: true,
+  };
+}
+
 function roundMoney(value: number): number {
   return Math.round(value * 100) / 100;
 }
