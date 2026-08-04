@@ -8,6 +8,13 @@ import AuthenticatedPageHeader from "@/app/components/ui/AuthenticatedPageHeader
 import SectionCard from "@/app/components/ui/SectionCard";
 import { commissionsFetch } from "@/app/lib/commissions/commissions-api.client";
 import type { GenericPayPlanTrace } from "@/app/lib/commissions/generic-pay-plan.shared";
+import {
+  formatCad,
+  formatFrDateTime,
+  PayPlanDetailRow,
+  PayPlanResultAmount,
+  PayPlanStatusBadge,
+} from "@/app/admin/commissions/plans/pay-plan-readability";
 
 type Props = { accrualId: string };
 
@@ -93,6 +100,13 @@ export default function GenericPayPlanResultClient({ accrualId }: Props) {
     );
   }
 
+  const rateOrFixed =
+    trace?.rate_percent != null
+      ? `${trace.rate_percent} %`
+      : trace?.fixed_amount != null
+        ? formatCad(trace.fixed_amount)
+        : "—";
+
   return (
     <main className="page-container">
       <AuthenticatedPageHeader
@@ -101,14 +115,14 @@ export default function GenericPayPlanResultClient({ accrualId }: Props) {
         navigation={<AdminCommissionsNavigation variant="commissions" />}
       />
 
-      <div className="ui-stack" style={{ marginTop: 20, gap: 16 }}>
+      <div className="ui-stack" style={{ marginTop: 20, gap: 20 }}>
         {error ? (
-          <p role="alert" style={{ color: "#b91c1c" }}>
+          <p role="alert" style={{ color: "#b91c1c", fontWeight: 700 }}>
             {error}
           </p>
         ) : null}
         {success ? (
-          <p role="status" style={{ color: "#166534" }}>
+          <p role="status" style={{ color: "#166534", fontWeight: 700 }}>
             {success}
           </p>
         ) : null}
@@ -116,79 +130,58 @@ export default function GenericPayPlanResultClient({ accrualId }: Props) {
         {!trace ? (
           <p className="ui-text-muted">Aucune trace disponible.</p>
         ) : (
-          <SectionCard title="Détail explicatif">
-            <dl className="ui-stack" style={{ gap: 8 }}>
-              <div>
-                <dt className="ui-text-muted">Bénéficiaire</dt>
-                <dd>Employé #{trace.employee_id}</dd>
-              </div>
-              <div>
-                <dt className="ui-text-muted">Événement</dt>
-                <dd>{eventLabel}</dd>
-              </div>
-              <div>
-                <dt className="ui-text-muted">Plan</dt>
-                <dd>
+          <>
+            <PayPlanResultAmount amount={trace.calculated_amount} />
+
+            <SectionCard title="Détail explicatif">
+              <dl style={{ margin: 0 }}>
+                <PayPlanDetailRow label="Bénéficiaire">
+                  Employé #{trace.employee_id}
+                </PayPlanDetailRow>
+                <PayPlanDetailRow label="Événement">{eventLabel}</PayPlanDetailRow>
+                <PayPlanDetailRow label="Plan">
                   {trace.template_name} ({trace.template_code})
-                </dd>
-              </div>
-              <div>
-                <dt className="ui-text-muted">Version</dt>
-                <dd>v{trace.version_number}</dd>
-              </div>
-              <div>
-                <dt className="ui-text-muted">Règle</dt>
-                <dd>
-                  {trace.rule_name} · {trace.rule_kind}
-                </dd>
-              </div>
-              <div>
-                <dt className="ui-text-muted">Base de calcul</dt>
-                <dd>{trace.basis_amount.toFixed(2)}</dd>
-              </div>
-              <div>
-                <dt className="ui-text-muted">Taux / montant</dt>
-                <dd>
-                  {trace.rate_percent != null
-                    ? `${trace.rate_percent} %`
-                    : trace.fixed_amount != null
-                      ? trace.fixed_amount.toFixed(2)
-                      : "—"}
-                </dd>
-              </div>
-              <div>
-                <dt className="ui-text-muted">Résultat</dt>
-                <dd>
-                  <strong>{trace.calculated_amount.toFixed(2)}</strong>
-                </dd>
-              </div>
-              <div>
-                <dt className="ui-text-muted">Statut</dt>
-                <dd>{status}</dd>
-              </div>
-              <div>
-                <dt className="ui-text-muted">Traité le</dt>
-                <dd>{new Date(trace.processed_at).toLocaleString("fr-CA")}</dd>
-              </div>
-              <div>
-                <dt className="ui-text-muted">Traçabilité</dt>
-                <dd>
-                  {trace.accrual_id} / {trace.event_id}
-                </dd>
-              </div>
-            </dl>
-          </SectionCard>
+                </PayPlanDetailRow>
+                <PayPlanDetailRow label="Version">
+                  v{trace.version_number}
+                </PayPlanDetailRow>
+                <PayPlanDetailRow label="Règle">
+                  {trace.rule_name}
+                </PayPlanDetailRow>
+                <PayPlanDetailRow label="Base de calcul">
+                  {formatCad(trace.basis_amount)}
+                </PayPlanDetailRow>
+                <PayPlanDetailRow label="Taux">{rateOrFixed}</PayPlanDetailRow>
+                <PayPlanDetailRow label="Résultat">
+                  {formatCad(trace.calculated_amount)}
+                </PayPlanDetailRow>
+                <PayPlanDetailRow label="Statut">
+                  {status ? <PayPlanStatusBadge status={status} /> : "—"}
+                </PayPlanDetailRow>
+                <PayPlanDetailRow label="Date de traitement">
+                  {formatFrDateTime(trace.processed_at)}
+                </PayPlanDetailRow>
+                <PayPlanDetailRow label="Identifiant de traçabilité" last>
+                  <span style={{ wordBreak: "break-all" }}>
+                    {trace.accrual_id} / {trace.event_id}
+                  </span>
+                </PayPlanDetailRow>
+              </dl>
+            </SectionCard>
+          </>
         )}
 
         {status && status !== "validated" ? (
-          <button
-            type="button"
-            className="tagora-dark-action"
-            disabled={busy}
-            onClick={() => void validateResult()}
-          >
-            {busy ? "Validation…" : "Valider le résultat"}
-          </button>
+          <div>
+            <button
+              type="button"
+              className="tagora-dark-action"
+              disabled={busy}
+              onClick={() => void validateResult()}
+            >
+              {busy ? "Validation…" : "Valider le résultat"}
+            </button>
+          </div>
         ) : null}
 
         {trace ? (

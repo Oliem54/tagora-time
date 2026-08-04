@@ -7,6 +7,13 @@ import AdminCommissionsNavigation from "@/app/components/admin/AdminCommissionsN
 import AuthenticatedPageHeader from "@/app/components/ui/AuthenticatedPageHeader";
 import SectionCard from "@/app/components/ui/SectionCard";
 import { commissionsFetch } from "@/app/lib/commissions/commissions-api.client";
+import {
+  formatFrDate,
+  PayPlanField,
+  PayPlanFieldStack,
+  PayPlanMetaLine,
+  PayPlanStatusBadge,
+} from "@/app/admin/commissions/plans/pay-plan-readability";
 
 type DetailProps = { templateId: string };
 
@@ -137,7 +144,7 @@ export default function GenericPayPlanDetailClient({ templateId }: DetailProps) 
   if (!template) {
     return (
       <main className="page-container">
-        <p role="alert" style={{ color: "#b91c1c" }}>
+        <p role="alert" style={{ color: "#b91c1c", fontWeight: 700 }}>
           {error || "Plan introuvable."}
         </p>
         <Link href="/admin/commissions/plans">Retour à la liste</Link>
@@ -145,15 +152,20 @@ export default function GenericPayPlanDetailClient({ templateId }: DetailProps) 
     );
   }
 
+  const versionEffectiveFrom =
+    workingVersion?.effective_from != null
+      ? String(workingVersion.effective_from)
+      : null;
+
   return (
     <main className="page-container">
       <AuthenticatedPageHeader
         title={String(template.display_name)}
-        subtitle={`${String(template.template_code)} · ${String(template.status)}`}
+        subtitle={`Code ${String(template.template_code)}`}
         navigation={<AdminCommissionsNavigation variant="commissions" />}
       />
 
-      <div className="ui-stack" style={{ marginTop: 20, gap: 16 }}>
+      <div className="ui-stack" style={{ marginTop: 20, gap: 20 }}>
         <p>
           <Link
             href={`/admin/commissions/plans?organization_id=${encodeURIComponent(organizationId)}`}
@@ -162,191 +174,254 @@ export default function GenericPayPlanDetailClient({ templateId }: DetailProps) 
           </Link>
         </p>
 
+        <div
+          style={{
+            display: "flex",
+            gap: 12,
+            flexWrap: "wrap",
+            alignItems: "center",
+          }}
+        >
+          <PayPlanStatusBadge status={String(template.status)} />
+          <span style={{ fontWeight: 700, color: "#111827" }}>
+            {String(template.template_code)}
+          </span>
+        </div>
+
         {error ? (
-          <p role="alert" style={{ color: "#b91c1c" }}>
+          <p role="alert" style={{ color: "#b91c1c", fontWeight: 700 }}>
             {error}
           </p>
         ) : null}
         {success ? (
-          <p role="status" style={{ color: "#166534" }}>
+          <p role="status" style={{ color: "#166534", fontWeight: 700 }}>
             {success}
           </p>
         ) : null}
 
         <SectionCard title="1. Version">
-          {workingVersion ? (
-            <p>
-              Version v{String(workingVersion.version_number)} ·{" "}
-              <strong>{String(workingVersion.status)}</strong>
-            </p>
-          ) : (
-            <p className="ui-text-muted">Aucune version. Créez un brouillon.</p>
-          )}
-          <div className="ui-stack" style={{ gap: 10, maxWidth: 420, marginTop: 12 }}>
-            <label className="ui-stack-xs">
-              <span>Date d’effet</span>
+          <PayPlanFieldStack>
+            {workingVersion ? (
+              <div
+                style={{
+                  display: "grid",
+                  gap: 12,
+                  gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
+                }}
+              >
+                <PayPlanMetaLine
+                  label="Numéro"
+                  value={`v${String(workingVersion.version_number)}`}
+                />
+                <div style={{ display: "grid", gap: 6 }}>
+                  <span
+                    style={{
+                      fontSize: 13,
+                      fontWeight: 600,
+                      color: "#6b7280",
+                    }}
+                  >
+                    Statut
+                  </span>
+                  <PayPlanStatusBadge status={String(workingVersion.status)} />
+                </div>
+                {versionEffectiveFrom ? (
+                  <PayPlanMetaLine
+                    label="Date d’effet"
+                    value={formatFrDate(versionEffectiveFrom)}
+                  />
+                ) : null}
+              </div>
+            ) : (
+              <p className="ui-text-muted">Aucune version. Créez un brouillon.</p>
+            )}
+            <PayPlanField label="Date d’effet">
               <input
                 type="date"
                 value={effectiveFrom}
                 onChange={(e) => setEffectiveFrom(e.target.value)}
               />
-            </label>
+            </PayPlanField>
             {!draftVersion ? (
-              <button
-                type="button"
-                className="tagora-dark-action"
-                disabled={busy}
-                onClick={() =>
-                  void run("Création de version", () =>
-                    commissionsFetch(
-                      `/api/admin/generic-pay-plans/${templateId}/versions`,
-                      {
-                        method: "POST",
-                        body: JSON.stringify({
-                          organization_id: organizationId,
-                          effective_from: effectiveFrom,
-                        }),
-                      }
+              <div>
+                <button
+                  type="button"
+                  className="tagora-dark-action"
+                  disabled={busy}
+                  onClick={() =>
+                    void run("Création de version", () =>
+                      commissionsFetch(
+                        `/api/admin/generic-pay-plans/${templateId}/versions`,
+                        {
+                          method: "POST",
+                          body: JSON.stringify({
+                            organization_id: organizationId,
+                            effective_from: effectiveFrom,
+                          }),
+                        }
+                      )
                     )
-                  )
-                }
-              >
-                Créer une version brouillon
-              </button>
+                  }
+                >
+                  Créer une version brouillon
+                </button>
+              </div>
             ) : (
-              <button
-                type="button"
-                className="tagora-dark-action"
-                disabled={busy}
-                onClick={() =>
-                  void run("Activation", () =>
-                    commissionsFetch(
-                      `/api/admin/generic-pay-plans/versions/${draftVersion.id}/activate`,
-                      {
-                        method: "POST",
-                        body: JSON.stringify({
-                          organization_id: organizationId,
-                          effective_from: effectiveFrom,
-                        }),
-                      }
+              <div>
+                <button
+                  type="button"
+                  className="tagora-dark-action"
+                  disabled={busy}
+                  onClick={() =>
+                    void run("Activation", () =>
+                      commissionsFetch(
+                        `/api/admin/generic-pay-plans/versions/${draftVersion.id}/activate`,
+                        {
+                          method: "POST",
+                          body: JSON.stringify({
+                            organization_id: organizationId,
+                            effective_from: effectiveFrom,
+                          }),
+                        }
+                      )
                     )
-                  )
-                }
-              >
-                Activer la version
-              </button>
+                  }
+                >
+                  Activer la version
+                </button>
+              </div>
             )}
-          </div>
+          </PayPlanFieldStack>
         </SectionCard>
 
         <SectionCard title="2. Règle et condition / palier">
-          {primaryRule ? (
-            <p>
-              Règle : <strong>{String(primaryRule.display_name)}</strong> (
-              {String(primaryRule.rule_kind)})
-            </p>
-          ) : (
-            <p className="ui-text-muted">Aucune règle sur la version courante.</p>
-          )}
-          <div className="ui-stack" style={{ gap: 10, maxWidth: 420, marginTop: 12 }}>
-            <label className="ui-stack-xs">
-              <span>Pourcentage</span>
+          <PayPlanFieldStack>
+            {primaryRule ? (
+              <div
+                style={{
+                  display: "grid",
+                  gap: 12,
+                  gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
+                }}
+              >
+                <PayPlanMetaLine
+                  label="Règle"
+                  value={String(primaryRule.display_name)}
+                />
+                <PayPlanMetaLine
+                  label="Type"
+                  value={String(primaryRule.rule_kind)}
+                />
+              </div>
+            ) : (
+              <p className="ui-text-muted">Aucune règle sur la version courante.</p>
+            )}
+            <PayPlanField label="Pourcentage">
               <input
                 value={ratePercent}
                 onChange={(e) => setRatePercent(e.target.value)}
                 inputMode="decimal"
               />
-            </label>
+            </PayPlanField>
             {draftVersion && !primaryRule ? (
-              <button
-                type="button"
-                className="tagora-dark-action"
-                disabled={busy}
-                onClick={() =>
-                  void run("Création de règle", () =>
-                    commissionsFetch(
-                      `/api/admin/generic-pay-plans/versions/${draftVersion.id}/rules`,
-                      {
-                        method: "POST",
-                        body: JSON.stringify({
-                          organization_id: organizationId,
-                          rule_kind: "percentage_of_eligible_sales",
-                          rate_percent: Number(ratePercent),
-                          display_name: `${ratePercent} % des ventes`,
-                        }),
-                      }
+              <div>
+                <button
+                  type="button"
+                  className="tagora-dark-action"
+                  disabled={busy}
+                  onClick={() =>
+                    void run("Création de règle", () =>
+                      commissionsFetch(
+                        `/api/admin/generic-pay-plans/versions/${draftVersion.id}/rules`,
+                        {
+                          method: "POST",
+                          body: JSON.stringify({
+                            organization_id: organizationId,
+                            rule_kind: "percentage_of_eligible_sales",
+                            rate_percent: Number(ratePercent),
+                            display_name: `${ratePercent} % des ventes`,
+                          }),
+                        }
+                      )
                     )
-                  )
-                }
-              >
-                Ajouter la règle pourcentage
-              </button>
+                  }
+                >
+                  Ajouter la règle pourcentage
+                </button>
+              </div>
             ) : null}
             {draftVersion && primaryRule ? (
               <>
-                <label className="ui-stack-xs">
-                  <span>Volume minimum</span>
+                <PayPlanField label="Volume minimum">
                   <input
                     value={minimumVolume}
                     onChange={(e) => setMinimumVolume(e.target.value)}
                     inputMode="decimal"
                   />
-                </label>
-                <button
-                  type="button"
-                  className="tagora-dark-outline-action"
-                  disabled={busy || conditions.some((c) => c.rule_module_id === primaryRule.id)}
-                  onClick={() =>
-                    void run("Création de condition", () =>
-                      commissionsFetch(
-                        `/api/admin/generic-pay-plans/rules/${primaryRule.id}/conditions`,
-                        {
-                          method: "POST",
-                          body: JSON.stringify({
-                            organization_id: organizationId,
-                            minimum_volume: Number(minimumVolume),
-                          }),
-                        }
+                </PayPlanField>
+                <div>
+                  <button
+                    type="button"
+                    className="tagora-dark-outline-action"
+                    disabled={
+                      busy ||
+                      conditions.some((c) => c.rule_module_id === primaryRule.id)
+                    }
+                    onClick={() =>
+                      void run("Création de condition", () =>
+                        commissionsFetch(
+                          `/api/admin/generic-pay-plans/rules/${primaryRule.id}/conditions`,
+                          {
+                            method: "POST",
+                            body: JSON.stringify({
+                              organization_id: organizationId,
+                              minimum_volume: Number(minimumVolume),
+                            }),
+                          }
+                        )
                       )
-                    )
-                  }
-                >
-                  Ajouter la condition
-                </button>
-                <label className="ui-stack-xs">
-                  <span>Seuil de palier</span>
+                    }
+                  >
+                    Ajouter la condition
+                  </button>
+                </div>
+                <PayPlanField label="Seuil de palier">
                   <input
                     value={tierThreshold}
                     onChange={(e) => setTierThreshold(e.target.value)}
                     inputMode="decimal"
                   />
-                </label>
-                <button
-                  type="button"
-                  className="tagora-dark-outline-action"
-                  disabled={busy || tiers.some((t) => t.rule_module_id === primaryRule.id)}
-                  onClick={() =>
-                    void run("Création de palier", () =>
-                      commissionsFetch(
-                        `/api/admin/generic-pay-plans/rules/${primaryRule.id}/tiers`,
-                        {
-                          method: "POST",
-                          body: JSON.stringify({
-                            organization_id: organizationId,
-                            threshold_from: Number(tierThreshold),
-                            rate_percent: Number(ratePercent),
-                            tier_order: 0,
-                          }),
-                        }
+                </PayPlanField>
+                <div>
+                  <button
+                    type="button"
+                    className="tagora-dark-outline-action"
+                    disabled={
+                      busy || tiers.some((t) => t.rule_module_id === primaryRule.id)
+                    }
+                    onClick={() =>
+                      void run("Création de palier", () =>
+                        commissionsFetch(
+                          `/api/admin/generic-pay-plans/rules/${primaryRule.id}/tiers`,
+                          {
+                            method: "POST",
+                            body: JSON.stringify({
+                              organization_id: organizationId,
+                              threshold_from: Number(tierThreshold),
+                              rate_percent: Number(ratePercent),
+                              tier_order: 0,
+                            }),
+                          }
+                        )
                       )
-                    )
-                  }
-                >
-                  Ajouter un palier
-                </button>
+                    }
+                  >
+                    Ajouter un palier
+                  </button>
+                </div>
               </>
             ) : null}
-          </div>
+          </PayPlanFieldStack>
         </SectionCard>
 
         <SectionCard title="3. Affectation">
@@ -355,9 +430,8 @@ export default function GenericPayPlanDetailClient({ templateId }: DetailProps) 
               Activez d’abord la version pour pouvoir affecter le plan.
             </p>
           ) : (
-            <div className="ui-stack" style={{ gap: 10, maxWidth: 420 }}>
-              <label className="ui-stack-xs">
-                <span>Représentant</span>
+            <PayPlanFieldStack>
+              <PayPlanField label="Représentant">
                 <select
                   value={employeeId}
                   onChange={(e) => setEmployeeId(e.target.value)}
@@ -369,35 +443,38 @@ export default function GenericPayPlanDetailClient({ templateId }: DetailProps) 
                     </option>
                   ))}
                 </select>
-              </label>
+              </PayPlanField>
               {activeAssignment ? (
-                <p>
-                  Affectation active : employé #{String(activeAssignment.employee_id)}
-                </p>
+                <PayPlanMetaLine
+                  label="Affectation active"
+                  value={`Employé #${String(activeAssignment.employee_id)}`}
+                />
               ) : (
-                <button
-                  type="button"
-                  className="tagora-dark-action"
-                  disabled={busy || !employeeId}
-                  onClick={() =>
-                    void run("Affectation", () =>
-                      commissionsFetch("/api/admin/generic-pay-plans/assignments", {
-                        method: "POST",
-                        body: JSON.stringify({
-                          organization_id: organizationId,
-                          employee_id: Number(employeeId),
-                          plan_version_id: activeVersion.id,
-                          effective_from: effectiveFrom,
-                          processing_frequency: "per_sale",
-                        }),
-                      })
-                    )
-                  }
-                >
-                  Affecter le plan
-                </button>
+                <div>
+                  <button
+                    type="button"
+                    className="tagora-dark-action"
+                    disabled={busy || !employeeId}
+                    onClick={() =>
+                      void run("Affectation", () =>
+                        commissionsFetch("/api/admin/generic-pay-plans/assignments", {
+                          method: "POST",
+                          body: JSON.stringify({
+                            organization_id: organizationId,
+                            employee_id: Number(employeeId),
+                            plan_version_id: activeVersion.id,
+                            effective_from: effectiveFrom,
+                            processing_frequency: "per_sale",
+                          }),
+                        })
+                      )
+                    }
+                  >
+                    Affecter le plan
+                  </button>
+                </div>
               )}
-            </div>
+            </PayPlanFieldStack>
           )}
         </SectionCard>
 
@@ -407,63 +484,65 @@ export default function GenericPayPlanDetailClient({ templateId }: DetailProps) 
               Créez une affectation active pour lancer le calcul.
             </p>
           ) : (
-            <div className="ui-stack" style={{ gap: 10, maxWidth: 420 }}>
-              <label className="ui-stack-xs">
-                <span>Montant de vente</span>
+            <PayPlanFieldStack>
+              <PayPlanField label="Montant de vente">
                 <input
                   value={saleAmount}
                   onChange={(e) => setSaleAmount(e.target.value)}
                   inputMode="decimal"
                 />
-              </label>
-              <label className="ui-stack-xs">
-                <span>Date de vente</span>
+              </PayPlanField>
+              <PayPlanField label="Date de vente">
                 <input
                   type="date"
                   value={soldAt}
                   onChange={(e) => setSoldAt(e.target.value)}
                 />
-              </label>
-              <button
-                type="button"
-                className="tagora-dark-action"
-                disabled={busy}
-                onClick={() =>
-                  void run("Traitement", async () => {
-                    const res = await commissionsFetch(
-                      "/api/admin/generic-pay-plans/process",
-                      {
-                        method: "POST",
-                        body: JSON.stringify({
-                          organization_id: organizationId,
-                          assignment_id: activeAssignment.id,
-                          sale_amount: Number(saleAmount),
-                          sold_at: soldAt,
-                          external_reference_suffix: "ui",
-                        }),
+              </PayPlanField>
+              <div>
+                <button
+                  type="button"
+                  className="tagora-dark-action"
+                  disabled={busy}
+                  onClick={() =>
+                    void run("Traitement", async () => {
+                      const res = await commissionsFetch(
+                        "/api/admin/generic-pay-plans/process",
+                        {
+                          method: "POST",
+                          body: JSON.stringify({
+                            organization_id: organizationId,
+                            assignment_id: activeAssignment.id,
+                            sale_amount: Number(saleAmount),
+                            sold_at: soldAt,
+                            external_reference_suffix: "ui",
+                          }),
+                        }
+                      );
+                      const json = (await res.json().catch(() => ({}))) as {
+                        accrual_id?: string;
+                      };
+                      if (res.ok && json.accrual_id) {
+                        setLastAccrualId(json.accrual_id);
                       }
-                    );
-                    const json = (await res.json().catch(() => ({}))) as {
-                      accrual_id?: string;
-                    };
-                    if (res.ok && json.accrual_id) {
-                      setLastAccrualId(json.accrual_id);
-                    }
-                    return res;
-                  })
-                }
-              >
-                Calculer la commission
-              </button>
-              {lastAccrualId ? (
-                <Link
-                  href={`/admin/commissions/plans/results/${lastAccrualId}?organization_id=${encodeURIComponent(organizationId)}`}
-                  className="tagora-dark-outline-action tagora-page-navigation-button"
+                      return res;
+                    })
+                  }
                 >
-                  Ouvrir le résultat
-                </Link>
+                  Calculer la commission
+                </button>
+              </div>
+              {lastAccrualId ? (
+                <div>
+                  <Link
+                    href={`/admin/commissions/plans/results/${lastAccrualId}?organization_id=${encodeURIComponent(organizationId)}`}
+                    className="tagora-dark-outline-action tagora-page-navigation-button"
+                  >
+                    Ouvrir le résultat
+                  </Link>
+                </div>
               ) : null}
-            </div>
+            </PayPlanFieldStack>
           )}
         </SectionCard>
       </div>
