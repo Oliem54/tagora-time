@@ -35,6 +35,12 @@ import {
   type RecentPayPlanResultItem,
 } from "@/app/admin/commissions/recent-pay-plan-results.shared";
 import {
+  ALL_SELLERS_KEY,
+  buildCommissionSellerOptions,
+  filterCommissionsBySeller,
+  groupCommissionsBySeller,
+} from "@/app/admin/commissions/commission-seller-filter.shared";
+import {
   formatCad as formatCadPayPlan,
   formatFrDateTime,
   PayPlanStatusBadge,
@@ -151,6 +157,7 @@ export default function AdminCommissionsPageClient() {
   const [commissionFilter, setCommissionFilter] = useState<
     "all" | "pending_validation" | "paid" | "estimated"
   >("all");
+  const [sellerFilter, setSellerFilter] = useState<string>(ALL_SELLERS_KEY);
   const [recentPayPlanResults, setRecentPayPlanResults] = useState<
     RecentPayPlanResultItem[]
   >([]);
@@ -321,10 +328,31 @@ export default function AdminCommissionsPageClient() {
     ).slice(0, 6);
   }, [createForm.organization_id, organizations, recentPayPlanResults]);
 
-  const filteredEntries = useMemo(() => {
+  const statusFilteredEntries = useMemo(() => {
     if (commissionFilter === "all") return entries;
     return entries.filter((entry) => entry.status === commissionFilter);
   }, [commissionFilter, entries]);
+
+  const sellerOptions = useMemo(
+    () => buildCommissionSellerOptions(statusFilteredEntries),
+    [statusFilteredEntries]
+  );
+
+  const filteredEntries = useMemo(
+    () => filterCommissionsBySeller(statusFilteredEntries, sellerFilter),
+    [sellerFilter, statusFilteredEntries]
+  );
+
+  const groupedEntries = useMemo(
+    () => groupCommissionsBySeller(filteredEntries),
+    [filteredEntries]
+  );
+
+  useEffect(() => {
+    if (sellerFilter === ALL_SELLERS_KEY) return;
+    if (sellerOptions.some((option) => option.key === sellerFilter)) return;
+    setSellerFilter(ALL_SELLERS_KEY);
+  }, [sellerFilter, sellerOptions]);
 
   const kpiCards = useMemo(
     () => [
@@ -1105,155 +1133,240 @@ export default function AdminCommissionsPageClient() {
         <SectionCard
           id="commissions-a-valider"
           title="Commissions"
-          subtitle="Estimées, à valider et payées."
+          subtitle="Estimées, à valider et payées — filtrables par vendeur."
         >
           <div id="commissions-estimees" />
           <div id="commissions-payees" />
           <div
             style={{
-              display: "flex",
-              flexWrap: "wrap",
-              gap: 8,
-              marginBottom: 12,
+              display: "grid",
+              gap: 12,
+              marginBottom: 16,
             }}
           >
-            {(
-              [
-                ["all", "Toutes"],
-                ["estimated", "Estimées"],
-                ["pending_validation", "À valider"],
-                ["paid", "Payées"],
-              ] as const
-            ).map(([value, label]) => (
-              <button
-                key={value}
-                type="button"
-                className={
-                  commissionFilter === value
-                    ? "tagora-dark-action"
-                    : "tagora-dark-outline-action"
-                }
-                onClick={() => setCommissionFilter(value)}
+            <div
+              style={{
+                display: "flex",
+                flexWrap: "wrap",
+                gap: 8,
+              }}
+            >
+              {(
+                [
+                  ["all", "Toutes"],
+                  ["estimated", "Estimées"],
+                  ["pending_validation", "À valider"],
+                  ["paid", "Payées"],
+                ] as const
+              ).map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  className={
+                    commissionFilter === value
+                      ? "tagora-dark-action"
+                      : "tagora-dark-outline-action"
+                  }
+                  onClick={() => setCommissionFilter(value)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            <label
+              style={{
+                display: "grid",
+                gap: 6,
+                maxWidth: 360,
+              }}
+            >
+              <span
+                style={{
+                  fontSize: 12,
+                  fontWeight: 700,
+                  letterSpacing: "0.04em",
+                  textTransform: "uppercase",
+                  color: "#64748b",
+                }}
               >
-                {label}
-              </button>
-            ))}
+                Vendeur / représentant
+              </span>
+              <select
+                className="tagora-input"
+                value={sellerFilter}
+                onChange={(event) => setSellerFilter(event.target.value)}
+              >
+                <option value={ALL_SELLERS_KEY}>Tous les vendeurs</option>
+                {sellerOptions.map((option) => (
+                  <option key={option.key} value={option.key}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
           </div>
           {filteredEntries.length === 0 ? (
-            <p className="ui-text-muted">Aucune commission dans ce filtre.</p>
+            <p className="ui-text-muted">
+              Aucune commission pour ce statut et ce vendeur.
+            </p>
           ) : (
-            <div className="commissions-list">
-              {filteredEntries.map((entry) => (
-                <AppCard key={entry.id} className="commissions-list-item">
-                  <div className="commissions-list-head">
-                    <div style={{ display: "grid", gap: 6 }}>
-                      <strong style={{ fontSize: 17, color: "#0f172a" }}>
-                        {entry.assignee_label || entry.label}
-                      </strong>
-                      <p className="ui-text-muted" style={{ margin: 0 }}>
-                        {entry.objective_title || "Objectif"} · {entry.period_start} →{" "}
-                        {entry.period_end}
-                      </p>
-                    </div>
-                    <StatusBadge
-                      label={COMMISSION_STATUS_LABELS[entry.status]}
-                      tone={commissionStatusTone(entry.status)}
-                    />
-                  </div>
+            <div className="commissions-list" style={{ gap: 18 }}>
+              {groupedEntries.map((group) => (
+                <div key={group.key} style={{ display: "grid", gap: 12 }}>
                   <div
                     style={{
-                      display: "grid",
+                      display: "flex",
+                      justifyContent: "space-between",
                       gap: 12,
-                      gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
-                      marginTop: 12,
+                      flexWrap: "wrap",
+                      alignItems: "center",
+                      padding: "10px 12px",
+                      borderRadius: 12,
+                      background: "#f8fafc",
+                      border: "1px solid #e2e8f0",
                     }}
                   >
-                    <CommissionAmount
-                      label="Montant"
-                      amountLabel={formatCad(entry.calculated_amount)}
-                    />
-                    <div style={{ display: "grid", gap: 4 }}>
-                      <span className="ui-text-muted" style={{ fontSize: 12 }}>
-                        Base de calcul
-                      </span>
-                      <strong style={{ color: "#0f172a" }}>
-                        {formatCommissionBasisDisplay(
-                          entry.sales_basis_amount,
-                          entry.rule_id
-                            ? (rulesById[entry.rule_id]?.commission_basis ?? null)
-                            : null
-                        )}
-                      </strong>
-                    </div>
-                    {entry.rule_id && rulesById[entry.rule_id] ? (
-                      <div style={{ display: "grid", gap: 4 }}>
-                        <span className="ui-text-muted" style={{ fontSize: 12 }}>
-                          Règle
-                        </span>
-                        <strong style={{ color: "#0f172a" }}>
-                          {formatRuleTypeLabel(rulesById[entry.rule_id].rule_type)} ·{" "}
-                          {formatCommissionRuleValue(rulesById[entry.rule_id])}
-                        </strong>
-                      </div>
-                    ) : null}
-                    {entry.validated_at ? (
-                      <div style={{ display: "grid", gap: 4 }}>
-                        <span className="ui-text-muted" style={{ fontSize: 12 }}>
-                          Validée
-                        </span>
-                        <strong style={{ color: "#0f172a" }}>
-                          {new Date(entry.validated_at).toLocaleString("fr-CA")}
-                        </strong>
-                      </div>
-                    ) : null}
-                    {entry.paid_at ? (
-                      <div style={{ display: "grid", gap: 4 }}>
-                        <span className="ui-text-muted" style={{ fontSize: 12 }}>
-                          Payée
-                        </span>
-                        <strong style={{ color: "#0f172a" }}>
-                          {new Date(entry.paid_at).toLocaleString("fr-CA")}
-                        </strong>
-                      </div>
-                    ) : null}
+                    <strong style={{ fontSize: 16, color: "#0f172a" }}>
+                      {group.label}
+                    </strong>
+                    <span className="ui-text-muted" style={{ fontWeight: 700 }}>
+                      {group.entries.length} commission
+                      {group.entries.length > 1 ? "s" : ""}
+                    </span>
                   </div>
-                  <CommissionActionGroup
-                    primary={
-                      entry.status === "pending_validation" ? (
-                        <button
-                          type="button"
-                          className="tagora-dark-action"
-                          disabled={actionKey != null}
-                          onClick={() => void patchEntry(entry.id, "pay")}
-                        >
-                          Marquer payée
-                        </button>
-                      ) : entry.status === "estimated" ? (
-                        <button
-                          type="button"
-                          className="tagora-dark-action"
-                          disabled={actionKey != null}
-                          onClick={() => void patchEntry(entry.id, "validate")}
-                        >
-                          Envoyer à valider
-                        </button>
-                      ) : null
-                    }
-                    secondary={
-                      entry.status === "estimated" ||
-                      entry.status === "pending_validation" ? (
-                        <button
-                          type="button"
-                          className="tagora-dark-outline-action"
-                          disabled={actionKey != null}
-                          onClick={() => void patchEntry(entry.id, "cancel")}
-                        >
-                          Annuler
-                        </button>
-                      ) : null
-                    }
-                  />
-                </AppCard>
+                  {group.entries.map((entry) => (
+                    <AppCard key={entry.id} className="commissions-list-item">
+                      <div className="commissions-list-head">
+                        <div style={{ display: "grid", gap: 6 }}>
+                          <strong style={{ fontSize: 17, color: "#0f172a" }}>
+                            {entry.assignee_label || entry.label}
+                          </strong>
+                          <p className="ui-text-muted" style={{ margin: 0 }}>
+                            {entry.objective_title || "Objectif"} ·{" "}
+                            {entry.period_start} → {entry.period_end}
+                          </p>
+                        </div>
+                        <StatusBadge
+                          label={COMMISSION_STATUS_LABELS[entry.status]}
+                          tone={commissionStatusTone(entry.status)}
+                        />
+                      </div>
+                      <div
+                        style={{
+                          display: "grid",
+                          gap: 12,
+                          gridTemplateColumns:
+                            "repeat(auto-fit, minmax(140px, 1fr))",
+                          marginTop: 12,
+                        }}
+                      >
+                        <CommissionAmount
+                          label="Montant"
+                          amountLabel={formatCad(entry.calculated_amount)}
+                        />
+                        <div style={{ display: "grid", gap: 4 }}>
+                          <span className="ui-text-muted" style={{ fontSize: 12 }}>
+                            Base de calcul
+                          </span>
+                          <strong style={{ color: "#0f172a" }}>
+                            {formatCommissionBasisDisplay(
+                              entry.sales_basis_amount,
+                              entry.rule_id
+                                ? (rulesById[entry.rule_id]?.commission_basis ??
+                                  null)
+                                : null
+                            )}
+                          </strong>
+                        </div>
+                        {entry.rule_id && rulesById[entry.rule_id] ? (
+                          <div style={{ display: "grid", gap: 4 }}>
+                            <span
+                              className="ui-text-muted"
+                              style={{ fontSize: 12 }}
+                            >
+                              Règle
+                            </span>
+                            <strong style={{ color: "#0f172a" }}>
+                              {formatRuleTypeLabel(
+                                rulesById[entry.rule_id].rule_type
+                              )}{" "}
+                              ·{" "}
+                              {formatCommissionRuleValue(
+                                rulesById[entry.rule_id]
+                              )}
+                            </strong>
+                          </div>
+                        ) : null}
+                        {entry.validated_at ? (
+                          <div style={{ display: "grid", gap: 4 }}>
+                            <span
+                              className="ui-text-muted"
+                              style={{ fontSize: 12 }}
+                            >
+                              Validée
+                            </span>
+                            <strong style={{ color: "#0f172a" }}>
+                              {new Date(entry.validated_at).toLocaleString(
+                                "fr-CA"
+                              )}
+                            </strong>
+                          </div>
+                        ) : null}
+                        {entry.paid_at ? (
+                          <div style={{ display: "grid", gap: 4 }}>
+                            <span
+                              className="ui-text-muted"
+                              style={{ fontSize: 12 }}
+                            >
+                              Payée
+                            </span>
+                            <strong style={{ color: "#0f172a" }}>
+                              {new Date(entry.paid_at).toLocaleString("fr-CA")}
+                            </strong>
+                          </div>
+                        ) : null}
+                      </div>
+                      <CommissionActionGroup
+                        primary={
+                          entry.status === "pending_validation" ? (
+                            <button
+                              type="button"
+                              className="tagora-dark-action"
+                              disabled={actionKey != null}
+                              onClick={() => void patchEntry(entry.id, "pay")}
+                            >
+                              Marquer payée
+                            </button>
+                          ) : entry.status === "estimated" ? (
+                            <button
+                              type="button"
+                              className="tagora-dark-action"
+                              disabled={actionKey != null}
+                              onClick={() =>
+                                void patchEntry(entry.id, "validate")
+                              }
+                            >
+                              Envoyer à valider
+                            </button>
+                          ) : null
+                        }
+                        secondary={
+                          entry.status === "estimated" ||
+                          entry.status === "pending_validation" ? (
+                            <button
+                              type="button"
+                              className="tagora-dark-outline-action"
+                              disabled={actionKey != null}
+                              onClick={() => void patchEntry(entry.id, "cancel")}
+                            >
+                              Annuler
+                            </button>
+                          ) : null
+                        }
+                      />
+                    </AppCard>
+                  ))}
+                </div>
               ))}
             </div>
           )}
