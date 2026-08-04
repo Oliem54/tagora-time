@@ -477,6 +477,18 @@ export default function AdminCommissionsPageClient() {
         </AppCard>
       </Link>
 
+      <Link href="/admin/commissions/plans" className="admin-commissions-access-link">
+        <AppCard tone="elevated" className="admin-commissions-access-card">
+          <div>
+            <div style={{ fontWeight: 800 }}>Plans de rémunération</div>
+            <p className="tagora-note" style={{ margin: "6px 0 0" }}>
+              Créer un modèle, configurer une version, affecter un représentant et calculer une commission.
+            </p>
+          </div>
+          <span className="tagora-dark-action admin-commissions-access-cta">Ouvrir</span>
+        </AppCard>
+      </Link>
+
       <section className="admin-commissions-metric-grid">
         {kpiCards.map((card) => (
           <AdminCommissionsMetricCard

@@ -31,6 +31,12 @@ const FINANCE_MODULE_LINKS = [
     label: "Commissions & objectifs",
     description: "Objectifs de vente, règles et suivi des commissions.",
   },
+  {
+    href: "/admin/commissions/plans",
+    label: "Plans de rémunération",
+    description:
+      "Modèles génériques, versions, affectations et calcul de commission.",
+  },
 ] as const;
 
 export default function AdminRemunerationPage() {
