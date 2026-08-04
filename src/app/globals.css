@@ -2483,7 +2483,7 @@ select {
   display: flex;
   flex-direction: column;
   justify-content: center;
-  gap: 6px;
+  gap: 4px;
   align-self: center;
   min-height: 0;
 }
@@ -2501,11 +2501,11 @@ select {
 [data-header-variant="premium-2027"] .ui-page-header-title {
   margin: 0;
   padding: 0;
-  font-size: 1.0625rem !important;
-  font-weight: 500 !important;
-  line-height: 1.32 !important;
-  letter-spacing: 0.012em !important;
-  color: rgba(255, 255, 255, 0.93) !important;
+  font-size: 1.1875rem !important;
+  font-weight: 600 !important;
+  line-height: 1.28 !important;
+  letter-spacing: -0.01em !important;
+  color: rgba(255, 255, 255, 0.95) !important;
   max-width: none;
   text-wrap: balance;
   font-synthesis: none;
@@ -2543,7 +2543,7 @@ select {
 }
 
 .ui-page-header-premium-2027 .ui-page-header-navigation {
-  margin-top: 8px;
+  margin-top: 6px;
   padding-top: 8px;
   border-top: 1px solid rgba(255, 255, 255, 0.08);
 }

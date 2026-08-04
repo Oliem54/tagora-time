@@ -83,7 +83,7 @@ export function CommissionModuleSubnav({
     href: string;
     label: string;
   }> = [
-    { key: "dashboard", href: "/admin/commissions", label: "Tableau Commissions" },
+    { key: "dashboard", href: "/admin/commissions", label: "Tableau" },
     {
       key: "objectives",
       href: "/admin/commissions#objectifs",
@@ -92,12 +92,12 @@ export function CommissionModuleSubnav({
     {
       key: "plans",
       href: "/admin/commissions/plans",
-      label: "Plans de rémunération",
+      label: "Plans",
     },
     {
       key: "results",
       href: "/admin/commissions#resultats-plans",
-      label: "Résultats de commission",
+      label: "Résultats",
     },
     {
       key: "pending",
@@ -107,12 +107,12 @@ export function CommissionModuleSubnav({
     {
       key: "paid",
       href: "/admin/commissions#commissions-payees",
-      label: "Commissions payées",
+      label: "Payées",
     },
     {
       key: "books",
       href: "/admin/commissions/acces-direction",
-      label: "Partage des livres",
+      label: "Livres",
     },
   ];
 

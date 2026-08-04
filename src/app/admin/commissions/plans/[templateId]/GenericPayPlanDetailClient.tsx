@@ -179,9 +179,8 @@ export default function GenericPayPlanDetailClient({ templateId }: DetailProps) 
     <main className="page-container">
       <AuthenticatedPageHeader
         className="ui-page-header-premium-2027"
-        eyebrow="Finance · Administration"
         title={String(template.display_name)}
-        subtitle={`Code ${String(template.template_code)}`}
+        subtitle={String(template.template_code)}
         showNavigation={false}
         navigation={<AdminCommissionsNavigation variant="plans" />}
       />
@@ -191,30 +190,17 @@ export default function GenericPayPlanDetailClient({ templateId }: DetailProps) 
           links={[
             {
               href: `/admin/commissions/plans?organization_id=${encodeURIComponent(organizationId)}`,
-              label: "Retour aux plans",
-            },
-            {
-              href: "/admin/commissions",
-              label: "Retour au tableau Commissions",
+              label: "Tous les plans",
             },
             ...(resultAccrualId
               ? [
                   {
                     href: `/admin/commissions/plans/results/${resultAccrualId}?organization_id=${encodeURIComponent(organizationId)}`,
-                    label: "Voir le dernier résultat",
+                    label: "Dernier résultat",
                     primary: true as const,
                   },
-                  {
-                    href: "/admin/commissions#resultats-plans",
-                    label: "Voir tous les résultats",
-                  },
                 ]
-              : [
-                  {
-                    href: "/admin/commissions#resultats-plans",
-                    label: "Voir tous les résultats",
-                  },
-                ]),
+              : []),
           ]}
         />
 

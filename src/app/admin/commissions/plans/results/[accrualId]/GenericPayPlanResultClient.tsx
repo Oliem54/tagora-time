@@ -154,9 +154,7 @@ export default function GenericPayPlanResultClient({ accrualId }: Props) {
     <main className="page-container">
       <AuthenticatedPageHeader
         className="ui-page-header-premium-2027"
-        eyebrow="Finance · Administration"
         title="Résultat de commission"
-        subtitle="Détail du calcul et validation humaine"
         showNavigation={false}
         navigation={<AdminCommissionsNavigation variant="result" />}
       />
@@ -176,14 +174,6 @@ export default function GenericPayPlanResultClient({ accrualId }: Props) {
             {
               href: `/admin/commissions/plans?organization_id=${encodeURIComponent(organizationId)}`,
               label: "Tous les plans",
-            },
-            {
-              href: "/admin/commissions#resultats-plans",
-              label: "Tous les résultats",
-            },
-            {
-              href: "/admin/commissions",
-              label: "Tableau Commissions",
             },
           ]}
         />

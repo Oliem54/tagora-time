@@ -639,19 +639,14 @@ export default function AdminCommissionsPageClient() {
     <main className="page-container commissions-page">
       <AuthenticatedPageHeader
         className="ui-page-header-premium-2027"
-        eyebrow="Finance · Administration"
         title="Commissions et objectifs"
-        subtitle="Créez des objectifs, gérez les plans et validez les commissions."
         showNavigation={false}
         navigation={<AdminCommissionsNavigation variant="commissions" />}
       />
 
       {message && messageType ? <FeedbackMessage message={message} type={messageType} /> : null}
 
-      <SectionCard
-        title="Actions rapides"
-        subtitle="Les actions principales du module, en un clic."
-      >
+      <SectionCard title="Actions rapides">
         <CommissionQuickActions actions={quickActions} />
       </SectionCard>
 
@@ -671,11 +666,7 @@ export default function AdminCommissionsPageClient() {
         ))}
       </section>
 
-      <SectionCard
-        id="resultats-plans"
-        title="Derniers résultats de commission"
-        subtitle="Retrouvez rapidement un résultat de plan, dont le QA 50,00 $."
-      >
+      <SectionCard id="resultats-plans" title="Derniers résultats">
         {scopedRecentPayPlanResults.length === 0 ? (
           <p className="ui-text-muted">
             Aucun résultat de plan mémorisé pour le moment. Calculez une commission
@@ -742,7 +733,7 @@ export default function AdminCommissionsPageClient() {
       </div>
 
       {showCreateForm ? (
-        <SectionCard title="Créer un objectif" subtitle="Saisie admin finance (montants et règles).">
+        <SectionCard title="Créer un objectif">
           <div className="commissions-form-grid">
             <label className="tagora-field">
               <span className="tagora-label">Titre</span>
@@ -1023,11 +1014,7 @@ export default function AdminCommissionsPageClient() {
       ) : null}
 
       <div className="commissions-panels">
-        <SectionCard
-          id="objectifs"
-          title="Objectifs"
-          subtitle="Performance par employé, représentant ou équipe."
-        >
+        <SectionCard id="objectifs" title="Objectifs">
           {objectives.length === 0 ? (
             <p className="ui-text-muted">
               Aucun objectif pour le moment. Utilisez « Nouvel objectif ».
@@ -1134,7 +1121,6 @@ export default function AdminCommissionsPageClient() {
           id="commissions-a-valider"
           className="commissions-panel-card"
           title="Commissions"
-          subtitle="Estimées, à valider et payées — filtrables par vendeur."
         >
           <div id="commissions-estimees" className="commissions-anchor" />
           <div id="commissions-payees" className="commissions-anchor" />

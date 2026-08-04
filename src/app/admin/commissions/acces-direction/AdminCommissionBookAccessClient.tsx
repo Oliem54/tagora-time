@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { BookOpen, EyeOff, KeyRound, Shield, UserCheck, Users } from "lucide-react";
 import AdminCommissionsNavigation from "@/app/components/admin/AdminCommissionsNavigation";
@@ -450,21 +449,10 @@ export default function AdminCommissionBookAccessClient() {
     <main className="page-container admin-grants-page">
       <AuthenticatedPageHeader
         className="ui-page-header-premium-2027"
-        eyebrow="Finance · Administration"
-        title="Partage des livres de ventes"
-        subtitle="Configurer qui peut consulter un livre, sans montants confidentiels."
+        title="Partage des livres"
         showNavigation={false}
         navigation={<AdminCommissionsNavigation variant="acces-direction" />}
       />
-
-      <div style={{ marginTop: 16, marginBottom: 8 }}>
-        <Link
-          href="/admin/commissions"
-          className="tagora-dark-outline-action tagora-page-navigation-button"
-        >
-          Retour au tableau Commissions
-        </Link>
-      </div>
 
       {message && messageType ? <FeedbackMessage message={message} type={messageType} /> : null}
 
@@ -554,7 +542,6 @@ export default function AdminCommissionBookAccessClient() {
       {showCreateForm ? (
         <SectionCard
           title="Ajouter une personne autorisée"
-          subtitle="Consultation seule — chaque accès est individuel et révocable."
         >
           {hasSalesObjectives === false ? (
             <p className="tagora-note admin-grants-form-note">
@@ -645,10 +632,7 @@ export default function AdminCommissionBookAccessClient() {
         </SectionCard>
       ) : null}
 
-      <SectionCard
-        title="Accès enregistrés"
-        subtitle="Historique des partages actifs et révoqués."
-      >
+      <SectionCard title="Accès enregistrés">
         {grants.length === 0 ? (
           <div className="admin-grants-empty-state">
             <BookOpen size={28} aria-hidden />

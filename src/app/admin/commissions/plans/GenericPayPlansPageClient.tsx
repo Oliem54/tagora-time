@@ -150,9 +150,7 @@ export default function GenericPayPlansPageClient() {
     <main className="page-container">
       <AuthenticatedPageHeader
         className="ui-page-header-premium-2027"
-        eyebrow="Finance · Administration"
         title="Plans de rémunération"
-        subtitle="Créez un modèle, configurez une version, affectez-la, puis calculez une commission."
         showNavigation={false}
         navigation={<AdminCommissionsNavigation variant="plans" />}
       />
@@ -160,9 +158,8 @@ export default function GenericPayPlansPageClient() {
       <div className="ui-stack" style={{ marginTop: 20, gap: 24 }}>
         <CommissionNavButtons
           links={[
-            { href: "/admin/commissions", label: "Retour au tableau Commissions" },
             { href: "/admin/commissions/plans#nouveau-plan", label: "Créer un plan", primary: true },
-            { href: "/admin/commissions#resultats-plans", label: "Voir les résultats" },
+            { href: "/admin/commissions#resultats-plans", label: "Résultats" },
           ]}
         />
 
