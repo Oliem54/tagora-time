@@ -1132,25 +1132,14 @@ export default function AdminCommissionsPageClient() {
 
         <SectionCard
           id="commissions-a-valider"
+          className="commissions-panel-card"
           title="Commissions"
           subtitle="Estimées, à valider et payées — filtrables par vendeur."
         >
-          <div id="commissions-estimees" />
-          <div id="commissions-payees" />
-          <div
-            style={{
-              display: "grid",
-              gap: 12,
-              marginBottom: 16,
-            }}
-          >
-            <div
-              style={{
-                display: "flex",
-                flexWrap: "wrap",
-                gap: 8,
-              }}
-            >
+          <div id="commissions-estimees" className="commissions-anchor" />
+          <div id="commissions-payees" className="commissions-anchor" />
+          <div className="commissions-controls">
+            <div className="commissions-status-filters">
               {(
                 [
                   ["all", "Toutes"],
@@ -1173,24 +1162,8 @@ export default function AdminCommissionsPageClient() {
                 </button>
               ))}
             </div>
-            <label
-              style={{
-                display: "grid",
-                gap: 6,
-                maxWidth: 360,
-              }}
-            >
-              <span
-                style={{
-                  fontSize: 12,
-                  fontWeight: 700,
-                  letterSpacing: "0.04em",
-                  textTransform: "uppercase",
-                  color: "#64748b",
-                }}
-              >
-                Vendeur / représentant
-              </span>
+            <label className="commissions-seller-filter">
+              <span>Vendeur / représentant</span>
               <select
                 className="tagora-input"
                 value={sellerFilter}
@@ -1206,9 +1179,13 @@ export default function AdminCommissionsPageClient() {
             </label>
           </div>
           {filteredEntries.length === 0 ? (
-            <p className="ui-text-muted">
-              Aucune commission pour ce statut et ce vendeur.
-            </p>
+            <div className="commissions-empty-state" role="status">
+              <strong>Aucune commission à afficher</strong>
+              <p>
+                Aucun résultat pour ce statut et ce vendeur. Changez le filtre
+                ou revenez plus tard.
+              </p>
+            </div>
           ) : (
             <div className="commissions-list" style={{ gap: 18 }}>
               {groupedEntries.map((group) => (
@@ -1424,6 +1401,71 @@ export default function AdminCommissionsPageClient() {
           display: grid;
           grid-template-columns: repeat(2, minmax(0, 1fr));
           gap: 16px;
+          align-items: start;
+        }
+        :global(.commissions-panel-card.ui-section-card) {
+          align-content: start;
+          align-self: start;
+        }
+        :global(.commissions-panel-card .ui-section-card-body) {
+          align-content: start;
+          gap: 14px;
+        }
+        .commissions-anchor {
+          width: 0;
+          height: 0;
+          margin: 0;
+          padding: 0;
+          overflow: hidden;
+          pointer-events: none;
+        }
+        .commissions-controls {
+          display: grid;
+          gap: 12px;
+          padding: 12px;
+          border: 1px solid #e2e8f0;
+          border-radius: 14px;
+          background: #f8fafc;
+        }
+        .commissions-status-filters {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 8px;
+        }
+        .commissions-seller-filter {
+          display: grid;
+          gap: 6px;
+          max-width: 360px;
+        }
+        .commissions-seller-filter span {
+          font-size: 12px;
+          font-weight: 700;
+          letter-spacing: 0.04em;
+          text-transform: uppercase;
+          color: #64748b;
+        }
+        .commissions-empty-state {
+          display: grid;
+          gap: 8px;
+          place-content: center;
+          justify-items: center;
+          text-align: center;
+          min-height: 180px;
+          padding: 28px 20px;
+          border: 1px dashed #d1d9e6;
+          border-radius: 14px;
+          background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+        }
+        .commissions-empty-state strong {
+          font-size: 16px;
+          color: #0f172a;
+        }
+        .commissions-empty-state p {
+          margin: 0;
+          max-width: 360px;
+          color: #64748b;
+          line-height: 1.5;
+          font-size: 14px;
         }
         .commissions-list {
           display: grid;
