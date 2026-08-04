@@ -14,6 +14,13 @@ import {
   PayPlanMetaLine,
   PayPlanStatusBadge,
 } from "@/app/admin/commissions/plans/pay-plan-readability";
+import { CommissionNavButtons } from "@/app/admin/commissions/commission-module-ui";
+import {
+  filterRecentPayPlanResultsForOrganization,
+  readRecentPayPlanResults,
+  writeRecentPayPlanResult,
+} from "@/app/admin/commissions/recent-pay-plan-results.shared";
+import { resolvePayPlanBeneficiaryDisplay } from "@/app/lib/commissions/generic-pay-plan.shared";
 
 type DetailProps = { templateId: string };
 
@@ -45,6 +52,15 @@ export default function GenericPayPlanDetailClient({ templateId }: DetailProps) 
   const [soldAt, setSoldAt] = useState(new Date().toISOString().slice(0, 10));
   const [busy, setBusy] = useState(false);
   const [lastAccrualId, setLastAccrualId] = useState<string | null>(null);
+
+  const rememberedLastAccrualId = useMemo(() => {
+    if (!organizationId || !templateId) return null;
+    const latest = filterRecentPayPlanResultsForOrganization(
+      readRecentPayPlanResults(),
+      organizationId
+    ).find((row) => row.templateId === templateId);
+    return latest?.accrualId || null;
+  }, [organizationId, templateId]);
 
   const draftVersion = useMemo(
     () => versions.find((row) => row.status === "draft") || null,
@@ -157,22 +173,50 @@ export default function GenericPayPlanDetailClient({ templateId }: DetailProps) 
       ? String(workingVersion.effective_from)
       : null;
 
+  const resultAccrualId = lastAccrualId || rememberedLastAccrualId;
+
   return (
     <main className="page-container">
       <AuthenticatedPageHeader
+        className="ui-page-header-premium-2027"
+        eyebrow="Finance · Administration"
         title={String(template.display_name)}
         subtitle={`Code ${String(template.template_code)}`}
-        navigation={<AdminCommissionsNavigation variant="commissions" />}
+        showNavigation={false}
+        navigation={<AdminCommissionsNavigation variant="plans" />}
       />
 
       <div className="ui-stack" style={{ marginTop: 20, gap: 20 }}>
-        <p>
-          <Link
-            href={`/admin/commissions/plans?organization_id=${encodeURIComponent(organizationId)}`}
-          >
-            ← Tous les plans
-          </Link>
-        </p>
+        <CommissionNavButtons
+          links={[
+            {
+              href: `/admin/commissions/plans?organization_id=${encodeURIComponent(organizationId)}`,
+              label: "Retour aux plans",
+            },
+            {
+              href: "/admin/commissions",
+              label: "Retour au tableau Commissions",
+            },
+            ...(resultAccrualId
+              ? [
+                  {
+                    href: `/admin/commissions/plans/results/${resultAccrualId}?organization_id=${encodeURIComponent(organizationId)}`,
+                    label: "Voir le dernier résultat",
+                    primary: true as const,
+                  },
+                  {
+                    href: "/admin/commissions#resultats-plans",
+                    label: "Voir tous les résultats",
+                  },
+                ]
+              : [
+                  {
+                    href: "/admin/commissions#resultats-plans",
+                    label: "Voir tous les résultats",
+                  },
+                ]),
+          ]}
+        />
 
         <div
           style={{
@@ -478,7 +522,7 @@ export default function GenericPayPlanDetailClient({ templateId }: DetailProps) 
           )}
         </SectionCard>
 
-        <SectionCard title="4. Traiter une vente et vérifier">
+        <SectionCard id="traitement" title="4. Traiter une vente et vérifier">
           {!activeAssignment ? (
             <p className="ui-text-muted">
               Créez une affectation active pour lancer le calcul.
@@ -521,9 +565,32 @@ export default function GenericPayPlanDetailClient({ templateId }: DetailProps) 
                       );
                       const json = (await res.json().catch(() => ({}))) as {
                         accrual_id?: string;
+                        calculated_amount?: number;
+                        status?: string;
+                        employee_id?: number;
                       };
                       if (res.ok && json.accrual_id) {
                         setLastAccrualId(json.accrual_id);
+                        const employee = employees.find(
+                          (row) => row.id === Number(activeAssignment.employee_id)
+                        );
+                        const beneficiary = resolvePayPlanBeneficiaryDisplay({
+                          employeeId: Number(activeAssignment.employee_id),
+                          displayName: employee?.label || null,
+                        });
+                        writeRecentPayPlanResult({
+                          accrualId: json.accrual_id,
+                          organizationId,
+                          templateId,
+                          beneficiaryPrimary: beneficiary.primary,
+                          planName: String(template.display_name),
+                          amount:
+                            typeof json.calculated_amount === "number"
+                              ? json.calculated_amount
+                              : Number(saleAmount) * (Number(ratePercent) / 100),
+                          status: String(json.status || "calculated"),
+                          processedAt: new Date().toISOString(),
+                        });
                       }
                       return res;
                     })
@@ -532,13 +599,13 @@ export default function GenericPayPlanDetailClient({ templateId }: DetailProps) 
                   Calculer la commission
                 </button>
               </div>
-              {lastAccrualId ? (
+              {resultAccrualId ? (
                 <div>
                   <Link
-                    href={`/admin/commissions/plans/results/${lastAccrualId}?organization_id=${encodeURIComponent(organizationId)}`}
+                    href={`/admin/commissions/plans/results/${resultAccrualId}?organization_id=${encodeURIComponent(organizationId)}`}
                     className="tagora-dark-outline-action tagora-page-navigation-button"
                   >
-                    Ouvrir le résultat
+                    Voir le résultat
                   </Link>
                 </div>
               ) : null}

@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import AdminCommissionsNavigation from "@/app/components/admin/AdminCommissionsNavigation";
@@ -19,6 +18,8 @@ import {
   PayPlanResultAmount,
   PayPlanStatusBadge,
 } from "@/app/admin/commissions/plans/pay-plan-readability";
+import { CommissionNavButtons } from "@/app/admin/commissions/commission-module-ui";
+import { writeRecentPayPlanResult } from "@/app/admin/commissions/recent-pay-plan-results.shared";
 
 type Props = { accrualId: string };
 
@@ -59,22 +60,35 @@ export default function GenericPayPlanResultClient({ accrualId }: Props) {
         setError(json.error || "Résultat introuvable.");
         return;
       }
-      setStatus(String(json.accrual?.status || ""));
+      const nextStatus = String(json.accrual?.status || "");
+      setStatus(nextStatus);
       const nextTrace = json.trace || null;
       setTrace(nextTrace);
-      setBeneficiary(
+      const nextBeneficiary =
         json.beneficiary ||
-          (nextTrace
-            ? resolvePayPlanBeneficiaryDisplay({
-                employeeId: nextTrace.employee_id,
-              })
-            : null)
-      );
+        (nextTrace
+          ? resolvePayPlanBeneficiaryDisplay({
+              employeeId: nextTrace.employee_id,
+            })
+          : null);
+      setBeneficiary(nextBeneficiary);
       setEventLabel(
         json.event?.label ||
           json.event?.external_reference ||
           "Événement de vente"
       );
+      if (nextTrace && nextBeneficiary) {
+        writeRecentPayPlanResult({
+          accrualId: nextTrace.accrual_id || accrualId,
+          organizationId,
+          templateId: nextTrace.template_id,
+          beneficiaryPrimary: nextBeneficiary.primary,
+          planName: nextTrace.template_name,
+          amount: nextTrace.calculated_amount,
+          status: nextStatus || "calculated",
+          processedAt: nextTrace.processed_at,
+        });
+      }
     })();
     return () => {
       cancelled = true;
@@ -104,8 +118,21 @@ export default function GenericPayPlanResultClient({ accrualId }: Props) {
       setError(json.error || "Validation impossible.");
       return;
     }
-    setStatus(String(json.accrual?.status || "validated"));
-    setSuccess("Résultat validé.");
+    const nextStatus = String(json.accrual?.status || "validated");
+    setStatus(nextStatus);
+    setSuccess("Résultat validé");
+    if (trace && beneficiary) {
+      writeRecentPayPlanResult({
+        accrualId: trace.accrual_id || accrualId,
+        organizationId,
+        templateId: trace.template_id,
+        beneficiaryPrimary: beneficiary.primary,
+        planName: trace.template_name,
+        amount: trace.calculated_amount,
+        status: nextStatus,
+        processedAt: trace.processed_at,
+      });
+    }
   }
 
   if (loading) {
@@ -126,12 +153,41 @@ export default function GenericPayPlanResultClient({ accrualId }: Props) {
   return (
     <main className="page-container">
       <AuthenticatedPageHeader
+        className="ui-page-header-premium-2027"
+        eyebrow="Finance · Administration"
         title="Résultat de commission"
         subtitle="Détail du calcul et validation humaine"
-        navigation={<AdminCommissionsNavigation variant="commissions" />}
+        showNavigation={false}
+        navigation={<AdminCommissionsNavigation variant="result" />}
       />
 
       <div className="ui-stack" style={{ marginTop: 20, gap: 20 }}>
+        <CommissionNavButtons
+          links={[
+            ...(trace
+              ? [
+                  {
+                    href: `/admin/commissions/plans/${trace.template_id}?organization_id=${encodeURIComponent(organizationId)}`,
+                    label: "Retour au plan",
+                    primary: true as const,
+                  },
+                ]
+              : []),
+            {
+              href: `/admin/commissions/plans?organization_id=${encodeURIComponent(organizationId)}`,
+              label: "Tous les plans",
+            },
+            {
+              href: "/admin/commissions#resultats-plans",
+              label: "Tous les résultats",
+            },
+            {
+              href: "/admin/commissions",
+              label: "Tableau Commissions",
+            },
+          ]}
+        />
+
         {error ? (
           <p role="alert" style={{ color: "#b91c1c", fontWeight: 700 }}>
             {error}
@@ -216,14 +272,6 @@ export default function GenericPayPlanResultClient({ accrualId }: Props) {
               {busy ? "Validation…" : "Valider le résultat"}
             </button>
           </div>
-        ) : null}
-
-        {trace ? (
-          <Link
-            href={`/admin/commissions/plans/${trace.template_id}?organization_id=${encodeURIComponent(organizationId)}`}
-          >
-            Retour au plan
-          </Link>
         ) : null}
       </div>
     </main>

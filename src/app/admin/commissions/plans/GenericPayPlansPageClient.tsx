@@ -15,6 +15,11 @@ import {
   PayPlanMetaLine,
   PayPlanStatusBadge,
 } from "@/app/admin/commissions/plans/pay-plan-readability";
+import { CommissionNavButtons } from "@/app/admin/commissions/commission-module-ui";
+import {
+  filterRecentPayPlanResultsForOrganization,
+  readRecentPayPlanResults,
+} from "@/app/admin/commissions/recent-pay-plan-results.shared";
 
 type OrganizationOption = { id: string; display_name: string };
 
@@ -134,15 +139,33 @@ export default function GenericPayPlansPageClient() {
     }
   }
 
+  const recentForOrg = organizationId
+    ? filterRecentPayPlanResultsForOrganization(
+        readRecentPayPlanResults(),
+        organizationId
+      )
+    : [];
+
   return (
     <main className="page-container">
       <AuthenticatedPageHeader
+        className="ui-page-header-premium-2027"
+        eyebrow="Finance · Administration"
         title="Plans de rémunération"
         subtitle="Créez un modèle, configurez une version, affectez-la, puis calculez une commission."
-        navigation={<AdminCommissionsNavigation variant="commissions" />}
+        showNavigation={false}
+        navigation={<AdminCommissionsNavigation variant="plans" />}
       />
 
       <div className="ui-stack" style={{ marginTop: 20, gap: 24 }}>
+        <CommissionNavButtons
+          links={[
+            { href: "/admin/commissions", label: "Retour au tableau Commissions" },
+            { href: "/admin/commissions/plans#nouveau-plan", label: "Créer un plan", primary: true },
+            { href: "/admin/commissions#resultats-plans", label: "Voir les résultats" },
+          ]}
+        />
+
         <SectionCard title="Organisation">
           <PayPlanField label="Organisation">
             <select
@@ -174,7 +197,7 @@ export default function GenericPayPlansPageClient() {
           </p>
         ) : null}
 
-        <SectionCard title="Nouveau plan">
+        <SectionCard id="nouveau-plan" title="Nouveau plan">
           <form onSubmit={createPlan}>
             <PayPlanFieldStack>
               <PayPlanField label="Nom">
@@ -268,12 +291,33 @@ export default function GenericPayPlansPageClient() {
                         />
                       </div>
                     </div>
-                    <Link
-                      href={`/admin/commissions/plans/${template.id}?organization_id=${encodeURIComponent(organizationId)}`}
-                      className="tagora-dark-action tagora-page-navigation-button"
-                    >
-                      Ouvrir
-                    </Link>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                      <Link
+                        href={`/admin/commissions/plans/${template.id}?organization_id=${encodeURIComponent(organizationId)}`}
+                        className="tagora-dark-action tagora-page-navigation-button"
+                      >
+                        Ouvrir le plan
+                      </Link>
+                      {(() => {
+                        const latest = recentForOrg.find(
+                          (row) => row.templateId === template.id
+                        );
+                        return latest ? (
+                          <Link
+                            href={`/admin/commissions/plans/results/${latest.accrualId}?organization_id=${encodeURIComponent(organizationId)}`}
+                            className="tagora-dark-outline-action tagora-page-navigation-button"
+                          >
+                            Voir le dernier résultat
+                          </Link>
+                        ) : null;
+                      })()}
+                      <Link
+                        href="/admin/commissions#resultats-plans"
+                        className="tagora-dark-outline-action tagora-page-navigation-button"
+                      >
+                        Voir tous les résultats
+                      </Link>
+                    </div>
                   </div>
                 </AppCard>
               ))}

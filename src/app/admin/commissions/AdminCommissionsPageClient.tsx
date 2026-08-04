@@ -2,7 +2,16 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { KeyRound } from "lucide-react";
+import {
+  BadgeCheck,
+  Banknote,
+  ClipboardList,
+  KeyRound,
+  LayoutList,
+  PlusCircle,
+  Target,
+  WalletCards,
+} from "lucide-react";
 import FeedbackMessage from "@/app/components/FeedbackMessage";
 import AdminCommissionsNavigation from "@/app/components/admin/AdminCommissionsNavigation";
 import AdminCommissionsMetricCard from "@/app/components/admin/AdminCommissionsMetricCard";
@@ -14,6 +23,22 @@ import TagoraLoadingScreen from "@/app/components/ui/TagoraLoadingScreen";
 import { supabase } from "@/app/lib/supabase/client";
 import { useCurrentAccess } from "@/app/hooks/useCurrentAccess";
 import { commissionsFetch } from "@/app/lib/commissions/commissions-api.client";
+import {
+  CommissionActionGroup,
+  CommissionAmount,
+  CommissionProgressBar,
+  CommissionQuickActions,
+} from "@/app/admin/commissions/commission-module-ui";
+import {
+  filterRecentPayPlanResultsForOrganization,
+  readRecentPayPlanResults,
+  type RecentPayPlanResultItem,
+} from "@/app/admin/commissions/recent-pay-plan-results.shared";
+import {
+  formatCad as formatCadPayPlan,
+  formatFrDateTime,
+  PayPlanStatusBadge,
+} from "@/app/admin/commissions/plans/pay-plan-readability";
 import {
   COMMISSION_STATUS_LABELS,
   OBJECTIVE_STATUS_LABELS,
@@ -123,6 +148,12 @@ export default function AdminCommissionsPageClient() {
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [createForm, setCreateForm] = useState<AdminCreateObjectiveFormState>(() => emptyForm());
   const [actionKey, setActionKey] = useState<string | null>(null);
+  const [commissionFilter, setCommissionFilter] = useState<
+    "all" | "pending_validation" | "paid" | "estimated"
+  >("all");
+  const [recentPayPlanResults, setRecentPayPlanResults] = useState<
+    RecentPayPlanResultItem[]
+  >([]);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -250,28 +281,155 @@ export default function AdminCommissionsPageClient() {
     void loadData();
   }, [accessLoading, loadData, user]);
 
+  useEffect(() => {
+    setRecentPayPlanResults(readRecentPayPlanResults());
+  }, [loading]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const applyHash = () => {
+      const hash = window.location.hash.replace("#", "");
+      if (hash === "nouvel-objectif") {
+        setShowCreateForm(true);
+        setCommissionFilter("all");
+      } else if (hash === "commissions-a-valider") {
+        setCommissionFilter("pending_validation");
+      } else if (hash === "commissions-payees") {
+        setCommissionFilter("paid");
+      } else if (hash === "commissions-estimees") {
+        setCommissionFilter("estimated");
+      } else if (hash === "objectifs" || hash === "resultats-plans") {
+        setCommissionFilter("all");
+      }
+      if (!hash) return;
+      window.requestAnimationFrame(() => {
+        const el = document.getElementById(hash);
+        if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
+    };
+    applyHash();
+    window.addEventListener("hashchange", applyHash);
+    return () => window.removeEventListener("hashchange", applyHash);
+  }, []);
+
+  const scopedRecentPayPlanResults = useMemo(() => {
+    const orgId = createForm.organization_id || organizations[0]?.id || "";
+    if (!orgId) return recentPayPlanResults.slice(0, 6);
+    return filterRecentPayPlanResultsForOrganization(
+      recentPayPlanResults,
+      orgId
+    ).slice(0, 6);
+  }, [createForm.organization_id, organizations, recentPayPlanResults]);
+
+  const filteredEntries = useMemo(() => {
+    if (commissionFilter === "all") return entries;
+    return entries.filter((entry) => entry.status === commissionFilter);
+  }, [commissionFilter, entries]);
+
   const kpiCards = useMemo(
     () => [
-      { label: "Objectifs actifs", value: String(summary?.activeObjectives ?? 0), valueIsCurrency: false },
-      { label: "Objectifs atteints", value: String(summary?.achievedObjectives ?? 0), valueIsCurrency: false },
-      { label: "Objectifs en retard", value: String(summary?.behindObjectives ?? 0), valueIsCurrency: false },
       {
-        label: "Commissions estimees",
+        label: "Objectifs actifs",
+        value: String(summary?.activeObjectives ?? 0),
+        valueIsCurrency: false,
+        href: "/admin/commissions#objectifs",
+      },
+      {
+        label: "Objectifs atteints",
+        value: String(summary?.achievedObjectives ?? 0),
+        valueIsCurrency: false,
+        href: "/admin/commissions#objectifs",
+      },
+      {
+        label: "Objectifs en retard",
+        value: String(summary?.behindObjectives ?? 0),
+        valueIsCurrency: false,
+        href: "/admin/commissions#objectifs",
+      },
+      {
+        label: "Commissions estimées",
         value: formatCad(summary?.estimatedCommissions ?? 0),
         valueIsCurrency: true,
+        href: "/admin/commissions#commissions-estimees",
       },
       {
-        label: "A valider",
+        label: "À valider",
         value: formatCad(summary?.pendingValidationCommissions ?? 0),
         valueIsCurrency: true,
+        href: "/admin/commissions#commissions-a-valider",
       },
       {
-        label: "Commissions payees",
+        label: "Commissions payées",
         value: formatCad(summary?.paidCommissions ?? 0),
         valueIsCurrency: true,
+        href: "/admin/commissions#commissions-payees",
       },
     ],
     [summary]
+  );
+
+  const quickActions = useMemo(
+    () => [
+      {
+        key: "new-objective",
+        href: "/admin/commissions#nouvel-objectif",
+        title: "Nouvel objectif",
+        description: "Créer un objectif de vente en une étape.",
+        icon: PlusCircle,
+        primary: true,
+      },
+      {
+        key: "manage-objectives",
+        href: "/admin/commissions#objectifs",
+        title: "Gérer les objectifs",
+        description: "Voir la progression et saisir une réalisation.",
+        icon: Target,
+      },
+      {
+        key: "create-plan",
+        href: "/admin/commissions/plans#nouveau-plan",
+        title: "Créer un plan",
+        description: "Démarrer un modèle de rémunération.",
+        icon: WalletCards,
+      },
+      {
+        key: "manage-plans",
+        href: "/admin/commissions/plans",
+        title: "Gérer les plans",
+        description: "Versions, règles, affectations et calcul.",
+        icon: LayoutList,
+        primary: true,
+      },
+      {
+        key: "results",
+        href: "/admin/commissions#resultats-plans",
+        title: "Voir les résultats",
+        description: "Retrouver rapidement les commissions calculées.",
+        icon: ClipboardList,
+      },
+      {
+        key: "pending",
+        href: "/admin/commissions#commissions-a-valider",
+        title: "Commissions à valider",
+        description: "Traiter les montants en attente.",
+        icon: BadgeCheck,
+      },
+      {
+        key: "paid",
+        href: "/admin/commissions#commissions-payees",
+        title: "Commissions payées",
+        description: "Consulter l’historique payé.",
+        icon: Banknote,
+      },
+      {
+        key: "books",
+        href: "/admin/commissions/acces-direction",
+        title: "Partage des livres de ventes",
+        description: "Configurer les accès de consultation.",
+        icon: KeyRound,
+      },
+    ],
+    []
   );
 
   async function createObjective(publish: boolean) {
@@ -293,7 +451,7 @@ export default function AdminCommissionsPageClient() {
 
       setShowCreateForm(false);
       setCreateForm(emptyForm());
-      setMessage(publish ? "Objectif publie." : "Objectif enregistre en brouillon.");
+      setMessage(publish ? "Objectif créé" : "Objectif créé");
       setMessageType("success");
       await loadData();
     } catch (error) {
@@ -324,11 +482,11 @@ export default function AdminCommissionsPageClient() {
       });
       const payload = (await res.json().catch(() => ({}))) as { error?: string };
       if (!res.ok) throw new Error(payload.error || "Mise a jour impossible.");
-      setMessage("Realise mis a jour.");
+      setMessage("Réalisation enregistrée");
       setMessageType("success");
       await loadData();
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Erreur saisie realise.");
+      setMessage(error instanceof Error ? error.message : "Erreur saisie réalisée.");
       setMessageType("error");
     } finally {
       setActionKey(null);
@@ -454,53 +612,98 @@ export default function AdminCommissionsPageClient() {
       <AuthenticatedPageHeader
         className="ui-page-header-premium-2027"
         eyebrow="Finance · Administration"
-        title="Commissions"
-        subtitle="Objectifs, regles, validation et paiement."
+        title="Commissions et objectifs"
+        subtitle="Créez des objectifs, gérez les plans et validez les commissions."
         showNavigation={false}
         navigation={<AdminCommissionsNavigation variant="commissions" />}
       />
 
       {message && messageType ? <FeedbackMessage message={message} type={messageType} /> : null}
 
-      <Link href="/admin/commissions/acces-direction" className="admin-commissions-access-link">
-        <AppCard tone="elevated" className="admin-commissions-access-card">
-          <div className="admin-commissions-access-icon" aria-hidden>
-            <KeyRound size={20} />
-          </div>
-          <div>
-            <div style={{ fontWeight: 800 }}>Partage des livres de ventes</div>
-            <p className="tagora-note" style={{ margin: "6px 0 0" }}>
-              Configurer les personnes autorisées à consulter un livre, sans montants confidentiels.
-            </p>
-          </div>
-          <span className="tagora-dark-action admin-commissions-access-cta">Ouvrir</span>
-        </AppCard>
-      </Link>
+      <SectionCard
+        title="Actions rapides"
+        subtitle="Les actions principales du module, en un clic."
+      >
+        <CommissionQuickActions actions={quickActions} />
+      </SectionCard>
 
-      <Link href="/admin/commissions/plans" className="admin-commissions-access-link">
-        <AppCard tone="elevated" className="admin-commissions-access-card">
-          <div>
-            <div style={{ fontWeight: 800 }}>Plans de rémunération</div>
-            <p className="tagora-note" style={{ margin: "6px 0 0" }}>
-              Créer un modèle, configurer une version, affecter un représentant et calculer une commission.
-            </p>
-          </div>
-          <span className="tagora-dark-action admin-commissions-access-cta">Ouvrir</span>
-        </AppCard>
-      </Link>
-
-      <section className="admin-commissions-metric-grid">
+      <section className="admin-commissions-metric-grid" aria-label="Indicateurs">
         {kpiCards.map((card) => (
-          <AdminCommissionsMetricCard
+          <Link
             key={card.label}
-            label={card.label}
-            value={card.value}
-            valueIsCurrency={card.valueIsCurrency}
-          />
+            href={card.href}
+            style={{ textDecoration: "none", color: "inherit" }}
+          >
+            <AdminCommissionsMetricCard
+              label={card.label}
+              value={card.value}
+              valueIsCurrency={card.valueIsCurrency}
+            />
+          </Link>
         ))}
       </section>
 
-      <div className="commissions-toolbar">
+      <SectionCard
+        id="resultats-plans"
+        title="Derniers résultats de commission"
+        subtitle="Retrouvez rapidement un résultat de plan, dont le QA 50,00 $."
+      >
+        {scopedRecentPayPlanResults.length === 0 ? (
+          <p className="ui-text-muted">
+            Aucun résultat de plan mémorisé pour le moment. Calculez une commission
+            depuis un plan pour l’afficher ici.
+          </p>
+        ) : (
+          <div className="commissions-list">
+            {scopedRecentPayPlanResults.map((result) => (
+              <AppCard key={`${result.organizationId}-${result.accrualId}`}>
+                <div className="commissions-list-head">
+                  <div style={{ display: "grid", gap: 6 }}>
+                    <strong style={{ fontSize: 17, color: "#0f172a" }}>
+                      {result.beneficiaryPrimary}
+                    </strong>
+                    <span className="ui-text-muted">{result.planName}</span>
+                  </div>
+                  <PayPlanStatusBadge status={result.status} />
+                </div>
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    gap: 12,
+                    flexWrap: "wrap",
+                    alignItems: "end",
+                    marginTop: 12,
+                  }}
+                >
+                  <CommissionAmount
+                    label="Montant"
+                    amountLabel={formatCadPayPlan(result.amount)}
+                  />
+                  <div style={{ display: "grid", gap: 4 }}>
+                    <span className="ui-text-muted" style={{ fontSize: 12 }}>
+                      Date
+                    </span>
+                    <strong style={{ color: "#0f172a" }}>
+                      {result.processedAt
+                        ? formatFrDateTime(result.processedAt)
+                        : "—"}
+                    </strong>
+                  </div>
+                  <Link
+                    href={`/admin/commissions/plans/results/${result.accrualId}?organization_id=${encodeURIComponent(result.organizationId)}`}
+                    className="tagora-dark-action tagora-page-navigation-button"
+                  >
+                    Voir le résultat
+                  </Link>
+                </div>
+              </AppCard>
+            ))}
+          </div>
+        )}
+      </SectionCard>
+
+      <div className="commissions-toolbar" id="nouvel-objectif">
         <button
           type="button"
           className="tagora-dark-action"
@@ -511,7 +714,7 @@ export default function AdminCommissionsPageClient() {
       </div>
 
       {showCreateForm ? (
-        <SectionCard title="Creer un objectif" subtitle="Saisie admin finance (montants et regles).">
+        <SectionCard title="Créer un objectif" subtitle="Saisie admin finance (montants et règles).">
           <div className="commissions-form-grid">
             <label className="tagora-field">
               <span className="tagora-label">Titre</span>
@@ -792,20 +995,34 @@ export default function AdminCommissionsPageClient() {
       ) : null}
 
       <div className="commissions-panels">
-        <SectionCard title="Objectifs" subtitle="Performance par employe, representant ou equipe.">
+        <SectionCard
+          id="objectifs"
+          title="Objectifs"
+          subtitle="Performance par employé, représentant ou équipe."
+        >
           {objectives.length === 0 ? (
-            <p className="ui-text-muted">Aucun objectif pour le moment.</p>
+            <p className="ui-text-muted">
+              Aucun objectif pour le moment. Utilisez « Nouvel objectif ».
+            </p>
           ) : (
             <div className="commissions-list">
               {objectives.map((objective) => {
                 const status = objective.computed_status ?? objective.status;
+                const summaryRules = summarizeObjectiveRulesForDisplay(
+                  rulesByObjectiveId[objective.id] ?? []
+                );
                 return (
                   <AppCard key={objective.id} className="commissions-list-item">
                     <div className="commissions-list-head">
-                      <div>
-                        <strong>{objective.title}</strong>
-                        <p className="ui-text-muted">
-                          {assigneeLabel(objective)} · {objective.period_start} → {objective.period_end}
+                      <div style={{ display: "grid", gap: 6 }}>
+                        <strong style={{ fontSize: 17, color: "#0f172a" }}>
+                          {objective.title}
+                        </strong>
+                        <p className="ui-text-muted" style={{ margin: 0 }}>
+                          {assigneeLabel(objective)}
+                        </p>
+                        <p className="ui-text-muted" style={{ margin: 0 }}>
+                          {objective.period_start} → {objective.period_end}
                         </p>
                       </div>
                       <StatusBadge
@@ -814,71 +1031,70 @@ export default function AdminCommissionsPageClient() {
                       />
                     </div>
                     <div className="commissions-list-meta">
-                      <span>Type de cible: {formatTargetTypeLabel(objective.target_type)}</span>
-                      <span>Cible: {formatTargetValue(objective)}</span>
-                      <span>Realise: {formatAchievedValue(objective)}</span>
-                      <span>Progression: {objective.progress_percent ?? 0}%</span>
-                      {(() => {
-                        const summaryRules = summarizeObjectiveRulesForDisplay(
-                          rulesByObjectiveId[objective.id] ?? []
-                        );
-                        return (
-                          <>
-                            <span>Mode: {summaryRules.ruleTypeLabel}</span>
-                            <span>Base: {summaryRules.basisLabel}</span>
-                            {summaryRules.ruleValueLabel !== "—" ? (
-                              <span>Detail: {summaryRules.ruleValueLabel}</span>
-                            ) : null}
-                          </>
-                        );
-                      })()}
-                    </div>
-                    <div className="commissions-list-actions">
-                      <button
-                        type="button"
-                        className="tagora-dark-outline-action"
-                        disabled={actionKey != null}
-                        onClick={() => void editObjective(objective)}
-                      >
-                        Modifier
-                      </button>
-                      {objective.status === "draft" ? (
-                        <button
-                          type="button"
-                          className="tagora-dark-outline-action"
-                          disabled={actionKey != null}
-                          onClick={() => void publishObjective(objective.id)}
-                        >
-                          Publier
-                        </button>
-                      ) : null}
-                      <button
-                        type="button"
-                        className="tagora-dark-outline-action"
-                        disabled={actionKey != null}
-                        onClick={() => void updateAchieved(objective)}
-                      >
-                        Saisir realise
-                      </button>
-                      <button
-                        type="button"
-                        className="tagora-dark-outline-action"
-                        disabled={actionKey != null}
-                        onClick={() => void recalculateObjective(objective.id)}
-                      >
-                        Recalculer
-                      </button>
-                      {status !== "cancelled" ? (
-                        <button
-                          type="button"
-                          className="tagora-dark-outline-action"
-                          disabled={actionKey != null}
-                          onClick={() => void cancelObjective(objective.id)}
-                        >
-                          Annuler objectif
-                        </button>
+                      <span>Type de cible : {formatTargetTypeLabel(objective.target_type)}</span>
+                      <span>Cible : {formatTargetValue(objective)}</span>
+                      <span>Réalisé : {formatAchievedValue(objective)}</span>
+                      <span>Mode : {summaryRules.ruleTypeLabel}</span>
+                      <span>Base : {summaryRules.basisLabel}</span>
+                      {summaryRules.ruleValueLabel !== "—" ? (
+                        <span>Détail : {summaryRules.ruleValueLabel}</span>
                       ) : null}
                     </div>
+                    <div style={{ marginTop: 12 }}>
+                      <CommissionProgressBar percent={objective.progress_percent ?? 0} />
+                    </div>
+                    <CommissionActionGroup
+                      primary={
+                        <button
+                          type="button"
+                          className="tagora-dark-action"
+                          disabled={actionKey != null}
+                          onClick={() => void updateAchieved(objective)}
+                        >
+                          Saisir une réalisation
+                        </button>
+                      }
+                      secondary={
+                        <>
+                          <button
+                            type="button"
+                            className="tagora-dark-outline-action"
+                            disabled={actionKey != null}
+                            onClick={() => void editObjective(objective)}
+                          >
+                            Modifier l’objectif
+                          </button>
+                          {objective.status === "draft" ? (
+                            <button
+                              type="button"
+                              className="tagora-dark-outline-action"
+                              disabled={actionKey != null}
+                              onClick={() => void publishObjective(objective.id)}
+                            >
+                              Publier
+                            </button>
+                          ) : null}
+                          <button
+                            type="button"
+                            className="tagora-dark-outline-action"
+                            disabled={actionKey != null}
+                            onClick={() => void recalculateObjective(objective.id)}
+                          >
+                            Recalculer
+                          </button>
+                          {status !== "cancelled" ? (
+                            <button
+                              type="button"
+                              className="tagora-dark-outline-action"
+                              disabled={actionKey != null}
+                              onClick={() => void cancelObjective(objective.id)}
+                            >
+                              Annuler
+                            </button>
+                          ) : null}
+                        </>
+                      }
+                    />
                   </AppCard>
                 );
               })}
@@ -886,87 +1102,157 @@ export default function AdminCommissionsPageClient() {
           )}
         </SectionCard>
 
-        <SectionCard title="Commissions" subtitle="Estimees, a valider et payees.">
-          {entries.length === 0 ? (
-            <p className="ui-text-muted">Aucune commission calculee.</p>
+        <SectionCard
+          id="commissions-a-valider"
+          title="Commissions"
+          subtitle="Estimées, à valider et payées."
+        >
+          <div id="commissions-estimees" />
+          <div id="commissions-payees" />
+          <div
+            style={{
+              display: "flex",
+              flexWrap: "wrap",
+              gap: 8,
+              marginBottom: 12,
+            }}
+          >
+            {(
+              [
+                ["all", "Toutes"],
+                ["estimated", "Estimées"],
+                ["pending_validation", "À valider"],
+                ["paid", "Payées"],
+              ] as const
+            ).map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                className={
+                  commissionFilter === value
+                    ? "tagora-dark-action"
+                    : "tagora-dark-outline-action"
+                }
+                onClick={() => setCommissionFilter(value)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          {filteredEntries.length === 0 ? (
+            <p className="ui-text-muted">Aucune commission dans ce filtre.</p>
           ) : (
             <div className="commissions-list">
-              {entries.map((entry) => (
+              {filteredEntries.map((entry) => (
                 <AppCard key={entry.id} className="commissions-list-item">
                   <div className="commissions-list-head">
-                    <div>
-                      <strong>{entry.label}</strong>
-                      <p className="ui-text-muted">
+                    <div style={{ display: "grid", gap: 6 }}>
+                      <strong style={{ fontSize: 17, color: "#0f172a" }}>
+                        {entry.assignee_label || entry.label}
+                      </strong>
+                      <p className="ui-text-muted" style={{ margin: 0 }}>
                         {entry.objective_title || "Objectif"} · {entry.period_start} →{" "}
                         {entry.period_end}
                       </p>
-                      {entry.assignee_label ? (
-                        <p className="ui-text-muted">{entry.assignee_label}</p>
-                      ) : null}
                     </div>
                     <StatusBadge
                       label={COMMISSION_STATUS_LABELS[entry.status]}
                       tone={commissionStatusTone(entry.status)}
                     />
                   </div>
-                  <div className="commissions-list-meta">
+                  <div
+                    style={{
+                      display: "grid",
+                      gap: 12,
+                      gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
+                      marginTop: 12,
+                    }}
+                  >
+                    <CommissionAmount
+                      label="Montant"
+                      amountLabel={formatCad(entry.calculated_amount)}
+                    />
+                    <div style={{ display: "grid", gap: 4 }}>
+                      <span className="ui-text-muted" style={{ fontSize: 12 }}>
+                        Base de calcul
+                      </span>
+                      <strong style={{ color: "#0f172a" }}>
+                        {formatCommissionBasisDisplay(
+                          entry.sales_basis_amount,
+                          entry.rule_id
+                            ? (rulesById[entry.rule_id]?.commission_basis ?? null)
+                            : null
+                        )}
+                      </strong>
+                    </div>
                     {entry.rule_id && rulesById[entry.rule_id] ? (
-                      <>
-                        <span>
-                          Mode: {formatRuleTypeLabel(rulesById[entry.rule_id].rule_type)}
+                      <div style={{ display: "grid", gap: 4 }}>
+                        <span className="ui-text-muted" style={{ fontSize: 12 }}>
+                          Règle
                         </span>
-                        <span>
-                          Detail: {formatCommissionRuleValue(rulesById[entry.rule_id])}
-                        </span>
-                      </>
+                        <strong style={{ color: "#0f172a" }}>
+                          {formatRuleTypeLabel(rulesById[entry.rule_id].rule_type)} ·{" "}
+                          {formatCommissionRuleValue(rulesById[entry.rule_id])}
+                        </strong>
+                      </div>
                     ) : null}
-                    <span>
-                      Base:{" "}
-                      {formatCommissionBasisDisplay(
-                        entry.sales_basis_amount,
-                        entry.rule_id ? (rulesById[entry.rule_id]?.commission_basis ?? null) : null
-                      )}
-                    </span>
-                    <span>Montant: {formatCad(entry.calculated_amount)}</span>
                     {entry.validated_at ? (
-                      <span>Validee: {new Date(entry.validated_at).toLocaleString("fr-CA")}</span>
+                      <div style={{ display: "grid", gap: 4 }}>
+                        <span className="ui-text-muted" style={{ fontSize: 12 }}>
+                          Validée
+                        </span>
+                        <strong style={{ color: "#0f172a" }}>
+                          {new Date(entry.validated_at).toLocaleString("fr-CA")}
+                        </strong>
+                      </div>
                     ) : null}
                     {entry.paid_at ? (
-                      <span>Payee: {new Date(entry.paid_at).toLocaleString("fr-CA")}</span>
+                      <div style={{ display: "grid", gap: 4 }}>
+                        <span className="ui-text-muted" style={{ fontSize: 12 }}>
+                          Payée
+                        </span>
+                        <strong style={{ color: "#0f172a" }}>
+                          {new Date(entry.paid_at).toLocaleString("fr-CA")}
+                        </strong>
+                      </div>
                     ) : null}
                   </div>
-                  <div className="commissions-list-actions">
-                    {entry.status === "estimated" ? (
-                      <button
-                        type="button"
-                        className="tagora-dark-outline-action"
-                        disabled={actionKey != null}
-                        onClick={() => void patchEntry(entry.id, "validate")}
-                      >
-                        Marquer a valider
-                      </button>
-                    ) : null}
-                    {entry.status === "pending_validation" ? (
-                      <button
-                        type="button"
-                        className="tagora-dark-action"
-                        disabled={actionKey != null}
-                        onClick={() => void patchEntry(entry.id, "pay")}
-                      >
-                        Marquer payee
-                      </button>
-                    ) : null}
-                    {entry.status === "estimated" || entry.status === "pending_validation" ? (
-                      <button
-                        type="button"
-                        className="tagora-dark-outline-action"
-                        disabled={actionKey != null}
-                        onClick={() => void patchEntry(entry.id, "cancel")}
-                      >
-                        Annuler
-                      </button>
-                    ) : null}
-                  </div>
+                  <CommissionActionGroup
+                    primary={
+                      entry.status === "pending_validation" ? (
+                        <button
+                          type="button"
+                          className="tagora-dark-action"
+                          disabled={actionKey != null}
+                          onClick={() => void patchEntry(entry.id, "pay")}
+                        >
+                          Marquer payée
+                        </button>
+                      ) : entry.status === "estimated" ? (
+                        <button
+                          type="button"
+                          className="tagora-dark-action"
+                          disabled={actionKey != null}
+                          onClick={() => void patchEntry(entry.id, "validate")}
+                        >
+                          Envoyer à valider
+                        </button>
+                      ) : null
+                    }
+                    secondary={
+                      entry.status === "estimated" ||
+                      entry.status === "pending_validation" ? (
+                        <button
+                          type="button"
+                          className="tagora-dark-outline-action"
+                          disabled={actionKey != null}
+                          onClick={() => void patchEntry(entry.id, "cancel")}
+                        >
+                          Annuler
+                        </button>
+                      ) : null
+                    }
+                  />
                 </AppCard>
               ))}
             </div>
