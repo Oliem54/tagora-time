@@ -5,16 +5,11 @@ import type { CSSProperties, ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
 import AppCard from "@/app/components/ui/AppCard";
 
-const quickGridStyle: CSSProperties = {
-  display: "grid",
-  gap: 12,
-  gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
-};
-
 const actionCardStyle: CSSProperties = {
   display: "grid",
   gap: 8,
   minHeight: 112,
+  height: "100%",
   textDecoration: "none",
   color: "inherit",
 };
@@ -170,7 +165,7 @@ export function CommissionQuickActions({
   actions: CommissionQuickAction[];
 }) {
   return (
-    <div style={quickGridStyle}>
+    <div className="commission-quick-actions-grid">
       {actions.map((action) => {
         const Icon = action.icon;
         return (
@@ -204,6 +199,26 @@ export function CommissionQuickActions({
           </Link>
         );
       })}
+      <style jsx>{`
+        .commission-quick-actions-grid {
+          display: grid;
+          gap: 12px;
+          align-items: stretch;
+          grid-template-columns: repeat(4, minmax(0, 1fr));
+        }
+
+        @media (max-width: 1100px) {
+          .commission-quick-actions-grid {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+          }
+        }
+
+        @media (max-width: 640px) {
+          .commission-quick-actions-grid {
+            grid-template-columns: minmax(0, 1fr);
+          }
+        }
+      `}</style>
     </div>
   );
 }
