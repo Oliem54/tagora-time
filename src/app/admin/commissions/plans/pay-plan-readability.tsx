@@ -208,6 +208,7 @@ export function payPlanStatusLabel(status: string): string {
     calculated: "Calculé",
     under_review: "À valider",
     validated: "Validée",
+    paid: "Payée",
     approved: "Approuvée",
     rejected: "Refusée",
   };
@@ -218,7 +219,12 @@ export function payPlanStatusTone(
   status: string
 ): "default" | "info" | "success" | "warning" | "danger" {
   const normalized = status.trim().toLowerCase();
-  if (normalized === "active" || normalized === "validated" || normalized === "approved") {
+  if (
+    normalized === "active" ||
+    normalized === "validated" ||
+    normalized === "paid" ||
+    normalized === "approved"
+  ) {
     return "success";
   }
   if (normalized === "draft" || normalized === "pending" || normalized === "calculated") {

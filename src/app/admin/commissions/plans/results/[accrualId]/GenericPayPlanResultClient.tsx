@@ -12,6 +12,11 @@ import {
   type PayPlanBeneficiaryDisplay,
 } from "@/app/lib/commissions/generic-pay-plan.shared";
 import {
+  canShowMarkAsPaidAction,
+  MARK_AS_PAID_BUTTON_LABEL,
+  MARK_AS_PAID_CONFIRM_MESSAGE,
+} from "@/app/lib/commissions/pay-plan-accrual-payment.shared";
+import {
   formatCad,
   formatFrDateTime,
   PayPlanDetailRow,
@@ -30,6 +35,8 @@ export default function GenericPayPlanResultClient({ accrualId }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [status, setStatus] = useState<string>("");
+  const [paidAt, setPaidAt] = useState<string | null>(null);
+  const [paidByDisplay, setPaidByDisplay] = useState<string | null>(null);
   const [trace, setTrace] = useState<GenericPayPlanTrace | null>(null);
   const [beneficiary, setBeneficiary] =
     useState<PayPlanBeneficiaryDisplay | null>(null);
@@ -49,10 +56,15 @@ export default function GenericPayPlanResultClient({ accrualId }: Props) {
       );
       const json = (await res.json().catch(() => ({}))) as {
         error?: string;
-        accrual?: { status?: string };
+        accrual?: {
+          status?: string;
+          paid_at?: string | null;
+          paid_by?: string | null;
+        };
         event?: { label?: string | null; external_reference?: string | null };
         trace?: GenericPayPlanTrace;
         beneficiary?: PayPlanBeneficiaryDisplay;
+        paid_by_display?: string | null;
       };
       if (cancelled) return;
       setLoading(false);
@@ -62,6 +74,16 @@ export default function GenericPayPlanResultClient({ accrualId }: Props) {
       }
       const nextStatus = String(json.accrual?.status || "");
       setStatus(nextStatus);
+      setPaidAt(
+        typeof json.accrual?.paid_at === "string" && json.accrual.paid_at
+          ? json.accrual.paid_at
+          : null
+      );
+      setPaidByDisplay(
+        typeof json.paid_by_display === "string" && json.paid_by_display
+          ? json.paid_by_display
+          : null
+      );
       const nextTrace = json.trace || null;
       setTrace(nextTrace);
       const nextBeneficiary =
@@ -100,7 +122,27 @@ export default function GenericPayPlanResultClient({ accrualId }: Props) {
     };
   }, [accrualId, organizationId]);
 
+  function syncLocalResult(nextStatus: string) {
+    if (!trace || !beneficiary) return;
+    writeRecentPayPlanResult({
+      accrualId: trace.accrual_id || accrualId,
+      organizationId,
+      templateId: trace.template_id,
+      employeeId: beneficiary.employeeId,
+      beneficiaryPrimary: beneficiary.primary,
+      beneficiarySecondary: beneficiary.secondary,
+      planName: trace.template_name,
+      versionLabel: `Version ${trace.version_number}`,
+      ruleName: trace.rule_name,
+      basisAmount: trace.basis_amount,
+      amount: trace.calculated_amount,
+      status: nextStatus,
+      processedAt: trace.processed_at,
+    });
+  }
+
   async function validateResult() {
+    if (busy) return;
     setBusy(true);
     setError(null);
     setSuccess(null);
@@ -126,23 +168,56 @@ export default function GenericPayPlanResultClient({ accrualId }: Props) {
     const nextStatus = String(json.accrual?.status || "validated");
     setStatus(nextStatus);
     setSuccess("Résultat validé");
-    if (trace && beneficiary) {
-      writeRecentPayPlanResult({
-        accrualId: trace.accrual_id || accrualId,
-        organizationId,
-        templateId: trace.template_id,
-        employeeId: beneficiary.employeeId,
-        beneficiaryPrimary: beneficiary.primary,
-        beneficiarySecondary: beneficiary.secondary,
-        planName: trace.template_name,
-        versionLabel: `Version ${trace.version_number}`,
-        ruleName: trace.rule_name,
-        basisAmount: trace.basis_amount,
-        amount: trace.calculated_amount,
-        status: nextStatus,
-        processedAt: trace.processed_at,
-      });
+    syncLocalResult(nextStatus);
+  }
+
+  async function markAsPaid() {
+    if (busy || !canShowMarkAsPaidAction(status)) return;
+    if (!window.confirm(MARK_AS_PAID_CONFIRM_MESSAGE)) return;
+    setBusy(true);
+    setError(null);
+    setSuccess(null);
+    const res = await commissionsFetch(
+      `/api/admin/generic-pay-plans/results/${accrualId}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({
+          organization_id: organizationId,
+          action: "pay",
+        }),
+      }
+    );
+    const json = (await res.json().catch(() => ({}))) as {
+      error?: string;
+      accrual?: {
+        status?: string;
+        paid_at?: string | null;
+        paid_by?: string | null;
+      };
+      paid_by_display?: string | null;
+      idempotent?: boolean;
+    };
+    setBusy(false);
+    if (!res.ok) {
+      setError(json.error || "Marquage payé impossible.");
+      return;
     }
+    const nextStatus = String(json.accrual?.status || "paid");
+    setStatus(nextStatus);
+    setPaidAt(
+      typeof json.accrual?.paid_at === "string" && json.accrual.paid_at
+        ? json.accrual.paid_at
+        : null
+    );
+    if (typeof json.accrual?.paid_by === "string" && json.accrual.paid_by) {
+      setPaidByDisplay(`Utilisateur ${json.accrual.paid_by.slice(0, 8)}…`);
+    }
+    setSuccess(
+      json.idempotent
+        ? "Résultat déjà marqué comme payé"
+        : "Résultat marqué comme payé"
+    );
+    syncLocalResult(nextStatus);
   }
 
   if (loading) {
@@ -159,6 +234,9 @@ export default function GenericPayPlanResultClient({ accrualId }: Props) {
       : trace?.fixed_amount != null
         ? formatCad(trace.fixed_amount)
         : "—";
+
+  const showValidate = Boolean(status && status !== "validated" && status !== "paid");
+  const showMarkPaid = canShowMarkAsPaidAction(status);
 
   return (
     <main className="page-container">
@@ -187,7 +265,11 @@ export default function GenericPayPlanResultClient({ accrualId }: Props) {
               : []),
             {
               href: "/admin/commissions",
-              label: "Retour au tableau",
+              label: "Commissions",
+            },
+            {
+              href: "/admin/commissions#commissions-payees",
+              label: "Commissions payées",
             },
           ]}
         />
@@ -198,22 +280,19 @@ export default function GenericPayPlanResultClient({ accrualId }: Props) {
           </p>
         ) : null}
         {success ? (
-          <p role="status" style={{ color: "#166534", fontWeight: 700 }}>
+          <p role="status" style={{ color: "#047857", fontWeight: 700 }}>
             {success}
           </p>
         ) : null}
 
-        {!trace ? (
-          <p className="ui-text-muted">Aucune trace disponible.</p>
-        ) : (
+        {trace ? (
           <>
             <PayPlanResultAmount amount={trace.calculated_amount} />
-
-            <SectionCard title="Détail explicatif">
+            <SectionCard title="Détail du résultat">
               <dl style={{ margin: 0 }}>
                 <PayPlanDetailRow label="Bénéficiaire">
-                  <div style={{ display: "grid", gap: 4 }}>
-                    <span>
+                  <div style={{ display: "grid", gap: 2 }}>
+                    <span style={{ fontWeight: 800, color: "#0f172a" }}>
                       {beneficiary?.primary ||
                         resolvePayPlanBeneficiaryDisplay({
                           employeeId: trace.employee_id,
@@ -252,6 +331,16 @@ export default function GenericPayPlanResultClient({ accrualId }: Props) {
                 <PayPlanDetailRow label="Statut">
                   {status ? <PayPlanStatusBadge status={status} /> : "—"}
                 </PayPlanDetailRow>
+                {paidAt ? (
+                  <PayPlanDetailRow label="Date de paiement">
+                    {formatFrDateTime(paidAt)}
+                  </PayPlanDetailRow>
+                ) : null}
+                {paidByDisplay ? (
+                  <PayPlanDetailRow label="Confirmé par">
+                    {paidByDisplay}
+                  </PayPlanDetailRow>
+                ) : null}
                 <PayPlanDetailRow label="Date de traitement">
                   {formatFrDateTime(trace.processed_at)}
                 </PayPlanDetailRow>
@@ -263,9 +352,9 @@ export default function GenericPayPlanResultClient({ accrualId }: Props) {
               </dl>
             </SectionCard>
           </>
-        )}
+        ) : null}
 
-        {status && status !== "validated" ? (
+        {showValidate ? (
           <div>
             <button
               type="button"
@@ -274,6 +363,19 @@ export default function GenericPayPlanResultClient({ accrualId }: Props) {
               onClick={() => void validateResult()}
             >
               {busy ? "Validation…" : "Valider le résultat"}
+            </button>
+          </div>
+        ) : null}
+
+        {showMarkPaid ? (
+          <div>
+            <button
+              type="button"
+              className="tagora-dark-action"
+              disabled={busy}
+              onClick={() => void markAsPaid()}
+            >
+              {busy ? "Confirmation…" : MARK_AS_PAID_BUTTON_LABEL}
             </button>
           </div>
         ) : null}

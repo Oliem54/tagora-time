@@ -55,6 +55,12 @@ import {
   PENDING_VALIDATION_ZONE_TITLE,
 } from "@/app/admin/commissions/pending-validation-workflow.shared";
 import {
+  filterPaidPayPlanResults,
+  PAID_PLAN_RESULTS_EMPTY,
+  PAID_PLAN_RESULTS_SECTION_SUBTITLE,
+  PAID_PLAN_RESULTS_SECTION_TITLE,
+} from "@/app/lib/commissions/pay-plan-accrual-payment.shared";
+import {
   formatCad as formatCadPayPlan,
   formatFrDateTime,
   PayPlanStatusBadge,
@@ -470,7 +476,16 @@ export default function AdminCommissionsPageClient() {
     [scopedRecentPayPlanResults]
   );
 
+  const paidPayPlanResults = useMemo(
+    () => filterPaidPayPlanResults(scopedRecentPayPlanResults),
+    [scopedRecentPayPlanResults]
+  );
+
   const generalPayPlanResults = useMemo(() => {
+    if (commissionFilter === "paid") {
+      // Section dédiée « Résultats de plans payés » (pas mélangée aux objectifs).
+      return paidPayPlanResults;
+    }
     if (commissionFilter !== "pending_validation") {
       return scopedRecentPayPlanResults;
     }
@@ -478,7 +493,9 @@ export default function AdminCommissionsPageClient() {
     return scopedRecentPayPlanResults.filter(
       (result) => !isPayPlanResultPendingValidation(result)
     );
-  }, [commissionFilter, scopedRecentPayPlanResults]);
+  }, [commissionFilter, paidPayPlanResults, scopedRecentPayPlanResults]);
+
+  const isPaidCommissionsWorkflow = commissionFilter === "paid";
 
   const statusFilteredEntries = useMemo(() => {
     if (commissionFilter === "all") return entries;
@@ -858,9 +875,17 @@ export default function AdminCommissionsPageClient() {
 
       {!isPendingValidationWorkflow ? (
         <SectionCard
-          id="resultats-plans"
-          title="Résultats des plans de rémunération"
-          subtitle="Commissions calculées depuis les plans — distinctes des commissions d’objectifs."
+          id={isPaidCommissionsWorkflow ? "resultats-plans-payes" : "resultats-plans"}
+          title={
+            isPaidCommissionsWorkflow
+              ? PAID_PLAN_RESULTS_SECTION_TITLE
+              : "Résultats des plans de rémunération"
+          }
+          subtitle={
+            isPaidCommissionsWorkflow
+              ? PAID_PLAN_RESULTS_SECTION_SUBTITLE
+              : "Commissions calculées depuis les plans — distinctes des commissions d’objectifs."
+          }
         >
           {planResultsLoading ? (
             <p className="ui-text-muted">Chargement des résultats de plans…</p>
@@ -876,7 +901,9 @@ export default function AdminCommissionsPageClient() {
             </div>
           ) : generalPayPlanResults.length === 0 ? (
             <p className="ui-text-muted">
-              Aucun résultat persistant trouvé pour l’organisation active.
+              {isPaidCommissionsWorkflow
+                ? PAID_PLAN_RESULTS_EMPTY
+                : "Aucun résultat persistant trouvé pour l’organisation active."}
             </p>
           ) : (
             <div className="commissions-list">
@@ -1375,7 +1402,9 @@ export default function AdminCommissionsPageClient() {
           subtitle={
             isPendingValidationWorkflow
               ? "Deux catégories distinctes : résultats de plans et commissions d’objectifs."
-              : "Estimées, à valider et payées — distinctes des résultats de plans."
+              : isPaidCommissionsWorkflow
+                ? "Commissions d’objectifs payées — distinctes des résultats de plans payés ci-dessus."
+                : "Estimées, à valider et payées — distinctes des résultats de plans."
           }
         >
           <div id="commissions-estimees" className="commissions-anchor" />

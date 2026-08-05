@@ -9,10 +9,16 @@ import {
   PAY_PLAN_NEW_DRAFT_BUTTON_LABEL,
   PAY_PLAN_NEW_DRAFT_DATE_LABEL,
   PAY_PLAN_NEW_DRAFT_PANEL_TITLE,
+  payPlanStatusLabel,
   resolvePayPlanCalendarDate,
 } from "@/app/admin/commissions/plans/pay-plan-readability";
 
 describe("pay plan detail readability", () => {
+  it("labels paid status as Payée", () => {
+    expect(payPlanStatusLabel("paid")).toBe("Payée");
+    expect(payPlanStatusLabel("validated")).toBe("Validée");
+  });
+
   it("labels percentage_of_eligible_sales in French", () => {
     expect(formatPayPlanRuleKindLabel("percentage_of_eligible_sales")).toBe(
       "Pourcentage des ventes admissibles"
