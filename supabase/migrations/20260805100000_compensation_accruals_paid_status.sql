@@ -18,8 +18,9 @@ alter table if exists public.compensation_accruals
 alter table if exists public.compensation_accruals
   add column if not exists paid_at timestamptz null;
 
+-- Preserve the payment actor reference: an Auth user referenced by a paid accrual cannot be hard-deleted.
 alter table if exists public.compensation_accruals
-  add column if not exists paid_by uuid null references auth.users (id) on delete set null;
+  add column if not exists paid_by uuid null references auth.users (id) on delete restrict;
 
 comment on column public.compensation_accruals.paid_at is
   'Horodatage serveur du passage validated → paid (confirmation manuelle).';

@@ -315,7 +315,6 @@ describe("migration paid metadata CHECK (source, no DB)", () => {
     expect(migration).toMatch(/'paid'/);
     expect(migration).toMatch(/paid_at timestamptz/i);
     expect(migration).toMatch(/paid_by uuid/i);
-    expect(migration).toMatch(/references auth\.users \(id\) on delete set null/i);
     expect(migration).toMatch(
       /compensation_accruals_paid_metadata_check/
     );
@@ -330,9 +329,24 @@ describe("migration paid metadata CHECK (source, no DB)", () => {
     );
   });
 
+  it("paid_by FK conserve l’acteur via ON DELETE RESTRICT", () => {
+    expect(migration).toMatch(
+      /paid_by uuid null references auth\.users \(id\) on delete restrict/i
+    );
+    expect(migration).toMatch(
+      /Preserve the payment actor reference: an Auth user referenced by a paid accrual cannot be hard-deleted\./
+    );
+    expect(migration).not.toMatch(
+      /paid_by uuid null references auth\.users \(id\) on delete set null/i
+    );
+    expect(
+      migration.match(/paid_by uuid null references auth\.users \(id\)/gi)?.length
+    ).toBe(1);
+  });
+
   it("aucun backfill / UPDATE / DELETE de données", () => {
     expect(migration).not.toMatch(/\bupdate\b/i);
-    expect(migration).not.toMatch(/\bdelete\b(?!\s+set\s+null)/i);
+    expect(migration).not.toMatch(/^\s*delete\b/im);
     expect(migration).not.toMatch(/\binsert\b/i);
     expect(migration).not.toMatch(/backfill/i);
     expect(migration).not.toMatch(/production/i);
