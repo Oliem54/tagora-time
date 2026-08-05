@@ -15,12 +15,36 @@ import {
   buildAccrualPayPatch,
   evaluateAccrualPayTransition,
   evaluateAccrualValidateTransition,
+  isTraceInOrganization,
   permissionForAccrualAction,
+  resolvePaidByDisplayName,
 } from "@/app/lib/commissions/pay-plan-accrual-payment.shared";
+import { createAdminSupabaseClient } from "@/app/lib/supabase/admin";
 
 export const dynamic = "force-dynamic";
 
 type Params = { params: Promise<{ accrualId: string }> };
+
+async function resolvePaidByDisplay(userId: string | null): Promise<string | null> {
+  const id = String(userId || "").trim();
+  if (!id) return null;
+  try {
+    const admin = createAdminSupabaseClient();
+    const { data, error } = await admin.auth.admin.getUserById(id);
+    if (error || !data.user) {
+      return resolvePaidByDisplayName({ userId: id });
+    }
+    const meta = data.user.user_metadata ?? {};
+    return resolvePaidByDisplayName({
+      userId: id,
+      fullName: typeof meta.full_name === "string" ? meta.full_name : null,
+      name: typeof meta.name === "string" ? meta.name : null,
+      email: data.user.email ?? null,
+    });
+  } catch {
+    return resolvePaidByDisplayName({ userId: id });
+  }
+}
 
 export async function GET(req: NextRequest, context: Params) {
   const gate = await requireGenericPayPlanAdminAccess(req);
@@ -60,7 +84,10 @@ export async function GET(req: NextRequest, context: Params) {
   }
 
   const trace = decodeGenericPayPlanTrace(accrual.label);
-  if (!trace || trace.organization_id !== org.organizationId) {
+  if (
+    !trace ||
+    !isTraceInOrganization(trace.organization_id, org.organizationId)
+  ) {
     return NextResponse.json({ error: "Résultat introuvable." }, { status: 404 });
   }
 
@@ -92,9 +119,7 @@ export async function GET(req: NextRequest, context: Params) {
     typeof accrual.paid_by === "string" && accrual.paid_by.trim()
       ? accrual.paid_by.trim()
       : null;
-  const paidByDisplay = paidBy
-    ? `Utilisateur ${paidBy.slice(0, 8)}…`
-    : null;
+  const paidByDisplay = await resolvePaidByDisplay(paidBy);
 
   return NextResponse.json({
     organization_id: org.organizationId,
@@ -147,7 +172,10 @@ export async function PATCH(req: NextRequest, context: Params) {
     return NextResponse.json({ error: "Résultat introuvable." }, { status: 404 });
   }
   const trace = decodeGenericPayPlanTrace(accrual.label);
-  if (!trace || trace.organization_id !== org.organizationId) {
+  if (
+    !trace ||
+    !isTraceInOrganization(trace.organization_id, org.organizationId)
+  ) {
     return NextResponse.json({ error: "Résultat introuvable." }, { status: 404 });
   }
 
@@ -161,10 +189,15 @@ export async function PATCH(req: NextRequest, context: Params) {
     }
 
     if (decision.mode === "idempotent") {
+      const paidBy =
+        typeof accrual.paid_by === "string" && accrual.paid_by.trim()
+          ? accrual.paid_by.trim()
+          : null;
       return NextResponse.json({
         accrual,
         trace,
         idempotent: true,
+        paid_by_display: await resolvePaidByDisplay(paidBy),
       });
     }
 
@@ -197,7 +230,25 @@ export async function PATCH(req: NextRequest, context: Params) {
       }),
     ]);
 
-    return NextResponse.json({ accrual: updated, trace, idempotent: false });
+    const paidByDisplay = resolvePaidByDisplayName({
+      userId: gate.auth.user.id,
+      fullName:
+        typeof gate.auth.user.user_metadata?.full_name === "string"
+          ? gate.auth.user.user_metadata.full_name
+          : null,
+      name:
+        typeof gate.auth.user.user_metadata?.name === "string"
+          ? gate.auth.user.user_metadata.name
+          : null,
+      email: gate.auth.user.email ?? null,
+    });
+
+    return NextResponse.json({
+      accrual: updated,
+      trace,
+      idempotent: false,
+      paid_by_display: paidByDisplay,
+    });
   }
 
   // action === "validate"

@@ -13,8 +13,11 @@ import {
 } from "@/app/lib/commissions/generic-pay-plan.shared";
 import {
   canShowMarkAsPaidAction,
+  formatMarkAsPaidConfirmation,
   MARK_AS_PAID_BUTTON_LABEL,
-  MARK_AS_PAID_CONFIRM_MESSAGE,
+  MARK_AS_PAID_CANCEL_ACTION_LABEL,
+  MARK_AS_PAID_CONFIRM_ACTION_LABEL,
+  PAID_BY_CONFIRMED_BY_LABEL,
 } from "@/app/lib/commissions/pay-plan-accrual-payment.shared";
 import {
   formatCad,
@@ -42,6 +45,7 @@ export default function GenericPayPlanResultClient({ accrualId }: Props) {
     useState<PayPlanBeneficiaryDisplay | null>(null);
   const [eventLabel, setEventLabel] = useState<string>("");
   const [busy, setBusy] = useState(false);
+  const [confirmPayOpen, setConfirmPayOpen] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -74,16 +78,16 @@ export default function GenericPayPlanResultClient({ accrualId }: Props) {
       }
       const nextStatus = String(json.accrual?.status || "");
       setStatus(nextStatus);
-      setPaidAt(
+      const nextPaidAt =
         typeof json.accrual?.paid_at === "string" && json.accrual.paid_at
           ? json.accrual.paid_at
-          : null
-      );
-      setPaidByDisplay(
+          : null;
+      setPaidAt(nextPaidAt);
+      const nextPaidByDisplay =
         typeof json.paid_by_display === "string" && json.paid_by_display
           ? json.paid_by_display
-          : null
-      );
+          : null;
+      setPaidByDisplay(nextPaidByDisplay);
       const nextTrace = json.trace || null;
       setTrace(nextTrace);
       const nextBeneficiary =
@@ -114,6 +118,8 @@ export default function GenericPayPlanResultClient({ accrualId }: Props) {
           amount: nextTrace.calculated_amount,
           status: nextStatus || "calculated",
           processedAt: nextTrace.processed_at,
+          paidAt: nextPaidAt,
+          paidByDisplay: nextPaidByDisplay,
         });
       }
     })();
@@ -122,7 +128,11 @@ export default function GenericPayPlanResultClient({ accrualId }: Props) {
     };
   }, [accrualId, organizationId]);
 
-  function syncLocalResult(nextStatus: string) {
+  function syncLocalResult(
+    nextStatus: string,
+    nextPaidAt: string | null = null,
+    nextPaidByDisplay: string | null = null
+  ) {
     if (!trace || !beneficiary) return;
     writeRecentPayPlanResult({
       accrualId: trace.accrual_id || accrualId,
@@ -138,6 +148,8 @@ export default function GenericPayPlanResultClient({ accrualId }: Props) {
       amount: trace.calculated_amount,
       status: nextStatus,
       processedAt: trace.processed_at,
+      paidAt: nextPaidAt,
+      paidByDisplay: nextPaidByDisplay,
     });
   }
 
@@ -171,9 +183,19 @@ export default function GenericPayPlanResultClient({ accrualId }: Props) {
     syncLocalResult(nextStatus);
   }
 
-  async function markAsPaid() {
+  function openPayConfirmation() {
     if (busy || !canShowMarkAsPaidAction(status)) return;
-    if (!window.confirm(MARK_AS_PAID_CONFIRM_MESSAGE)) return;
+    setError(null);
+    setConfirmPayOpen(true);
+  }
+
+  function cancelPayConfirmation() {
+    if (busy) return;
+    setConfirmPayOpen(false);
+  }
+
+  async function confirmMarkAsPaid() {
+    if (busy || !canShowMarkAsPaidAction(status)) return;
     setBusy(true);
     setError(null);
     setSuccess(null);
@@ -203,21 +225,24 @@ export default function GenericPayPlanResultClient({ accrualId }: Props) {
       return;
     }
     const nextStatus = String(json.accrual?.status || "paid");
-    setStatus(nextStatus);
-    setPaidAt(
+    const nextPaidAt =
       typeof json.accrual?.paid_at === "string" && json.accrual.paid_at
         ? json.accrual.paid_at
-        : null
-    );
-    if (typeof json.accrual?.paid_by === "string" && json.accrual.paid_by) {
-      setPaidByDisplay(`Utilisateur ${json.accrual.paid_by.slice(0, 8)}…`);
-    }
+        : null;
+    const nextPaidByDisplay =
+      typeof json.paid_by_display === "string" && json.paid_by_display
+        ? json.paid_by_display
+        : null;
+    setStatus(nextStatus);
+    setPaidAt(nextPaidAt);
+    setPaidByDisplay(nextPaidByDisplay);
+    setConfirmPayOpen(false);
     setSuccess(
       json.idempotent
         ? "Résultat déjà marqué comme payé"
         : "Résultat marqué comme payé"
     );
-    syncLocalResult(nextStatus);
+    syncLocalResult(nextStatus, nextPaidAt, nextPaidByDisplay);
   }
 
   if (loading) {
@@ -237,6 +262,18 @@ export default function GenericPayPlanResultClient({ accrualId }: Props) {
 
   const showValidate = Boolean(status && status !== "validated" && status !== "paid");
   const showMarkPaid = canShowMarkAsPaidAction(status);
+  const sellerName =
+    beneficiary?.primary ||
+    (trace
+      ? resolvePayPlanBeneficiaryDisplay({
+          employeeId: trace.employee_id,
+        }).primary
+      : "le vendeur");
+  const amountLabel = formatCad(trace?.calculated_amount ?? 0);
+  const confirmationMessage = formatMarkAsPaidConfirmation({
+    amountLabel,
+    sellerName,
+  });
 
   return (
     <main className="page-container">
@@ -293,10 +330,7 @@ export default function GenericPayPlanResultClient({ accrualId }: Props) {
                 <PayPlanDetailRow label="Bénéficiaire">
                   <div style={{ display: "grid", gap: 2 }}>
                     <span style={{ fontWeight: 800, color: "#0f172a" }}>
-                      {beneficiary?.primary ||
-                        resolvePayPlanBeneficiaryDisplay({
-                          employeeId: trace.employee_id,
-                        }).primary}
+                      {sellerName}
                     </span>
                     {beneficiary?.secondary ? (
                       <span
@@ -337,7 +371,7 @@ export default function GenericPayPlanResultClient({ accrualId }: Props) {
                   </PayPlanDetailRow>
                 ) : null}
                 {paidByDisplay ? (
-                  <PayPlanDetailRow label="Confirmé par">
+                  <PayPlanDetailRow label={PAID_BY_CONFIRMED_BY_LABEL}>
                     {paidByDisplay}
                   </PayPlanDetailRow>
                 ) : null}
@@ -373,13 +407,89 @@ export default function GenericPayPlanResultClient({ accrualId }: Props) {
               type="button"
               className="tagora-dark-action"
               disabled={busy}
-              onClick={() => void markAsPaid()}
+              onClick={openPayConfirmation}
             >
-              {busy ? "Confirmation…" : MARK_AS_PAID_BUTTON_LABEL}
+              {MARK_AS_PAID_BUTTON_LABEL}
             </button>
           </div>
         ) : null}
       </div>
+
+      {confirmPayOpen ? (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="mark-as-paid-confirm-title"
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 50,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 16,
+            background: "rgba(15, 23, 42, 0.45)",
+          }}
+          onClick={(event) => {
+            if (event.target === event.currentTarget) {
+              cancelPayConfirmation();
+            }
+          }}
+        >
+          <div
+            style={{
+              width: "min(440px, 100%)",
+              borderRadius: 16,
+              background: "#ffffff",
+              border: "1px solid #e2e8f0",
+              boxShadow: "0 18px 40px rgba(15, 23, 42, 0.18)",
+              padding: 20,
+              display: "grid",
+              gap: 16,
+            }}
+          >
+            <h2
+              id="mark-as-paid-confirm-title"
+              style={{
+                margin: 0,
+                fontSize: 18,
+                fontWeight: 800,
+                color: "#0f172a",
+                lineHeight: 1.35,
+              }}
+            >
+              {confirmationMessage}
+            </h2>
+            <div
+              style={{
+                display: "flex",
+                flexWrap: "wrap",
+                gap: 10,
+                justifyContent: "flex-end",
+              }}
+            >
+              <button
+                type="button"
+                className="tagora-dark-outline-action"
+                disabled={busy}
+                onClick={cancelPayConfirmation}
+              >
+                {MARK_AS_PAID_CANCEL_ACTION_LABEL}
+              </button>
+              <button
+                type="button"
+                className="tagora-dark-action"
+                disabled={busy}
+                onClick={() => void confirmMarkAsPaid()}
+              >
+                {busy
+                  ? "Confirmation…"
+                  : MARK_AS_PAID_CONFIRM_ACTION_LABEL}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </main>
   );
 }

@@ -1,5 +1,5 @@
 -- TAGORA Time — Accruals: statut paid + horodatage paiement (plans de rémunération).
--- Migration locale uniquement — ne pas appliquer en staging/production sans GO Martin.
+-- Migration locale uniquement — ne pas appliquer hors GO Martin.
 -- Hors scope: calcul, commission_entries, paiement bancaire.
 
 begin;
@@ -26,6 +26,24 @@ comment on column public.compensation_accruals.paid_at is
 
 comment on column public.compensation_accruals.paid_by is
   'Utilisateur ayant confirmé le paiement (pas un versement bancaire).';
+
+alter table if exists public.compensation_accruals
+  drop constraint if exists compensation_accruals_paid_metadata_check;
+
+alter table if exists public.compensation_accruals
+  add constraint compensation_accruals_paid_metadata_check check (
+    (
+      status = 'paid'
+      and paid_at is not null
+      and paid_by is not null
+    )
+    or
+    (
+      status <> 'paid'
+      and paid_at is null
+      and paid_by is null
+    )
+  );
 
 -- ---------------------------------------------------------------------------
 -- compensation_accrual_status_history : autoriser paid dans from/to

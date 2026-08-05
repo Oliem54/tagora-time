@@ -23,6 +23,10 @@ export type RecentPayPlanResultItem = {
   amount: number;
   status: string;
   processedAt: string;
+  /** Horodatage paiement (affichage liste Payées) — optionnel. */
+  paidAt?: string | null;
+  /** Identité humaine du confirmateur — optionnel. */
+  paidByDisplay?: string | null;
 };
 
 const STORAGE_KEY = "tagora.admin.pay_plan_recent_results.v1";
@@ -65,6 +69,14 @@ function normalizeItem(
     status: String(item.status || "").trim() || "calculated",
     processedAt:
       String(item.processedAt || "").trim() || new Date().toISOString(),
+    paidAt:
+      item.paidAt == null || item.paidAt === ""
+        ? null
+        : String(item.paidAt).trim(),
+    paidByDisplay:
+      item.paidByDisplay == null || item.paidByDisplay === ""
+        ? null
+        : String(item.paidByDisplay).trim(),
   };
 }
 
@@ -135,6 +147,8 @@ export function toPersistedPayPlanResultItem(input: {
   organizationId: string;
   status: string;
   createdAt?: string;
+  paidAt?: string | null;
+  paidByDisplay?: string | null;
   trace: GenericPayPlanTrace;
   beneficiary: PayPlanBeneficiaryDisplay;
 }): RecentPayPlanResultItem {
@@ -164,6 +178,14 @@ export function toPersistedPayPlanResultItem(input: {
       String(input.trace.processed_at || "").trim() ||
       String(input.createdAt || "").trim() ||
       new Date().toISOString(),
+    paidAt:
+      input.paidAt == null || input.paidAt === ""
+        ? null
+        : String(input.paidAt).trim(),
+    paidByDisplay:
+      input.paidByDisplay == null || input.paidByDisplay === ""
+        ? null
+        : String(input.paidByDisplay).trim(),
   };
 }
 

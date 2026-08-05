@@ -5,10 +5,12 @@ import {
   resolvePayPlanOrganization,
 } from "@/app/lib/commissions/generic-pay-plan.server";
 import { decodeGenericPayPlanTrace } from "@/app/lib/commissions/generic-pay-plan.shared";
+import { resolvePaidByDisplayName } from "@/app/lib/commissions/pay-plan-accrual-payment.shared";
 import {
   resolvePersistedListBeneficiary,
   toPersistedPayPlanResultItem,
 } from "@/app/admin/commissions/recent-pay-plan-results.shared";
+import { createAdminSupabaseClient } from "@/app/lib/supabase/admin";
 
 export const dynamic = "force-dynamic";
 
@@ -59,7 +61,7 @@ export async function GET(req: NextRequest) {
   const { data: accruals, error } = await gate.auth.supabase
     .from("compensation_accruals")
     .select(
-      "id, label, status, calculated_amount, sales_basis_amount, rule_name, created_at, updated_at"
+      "id, label, status, calculated_amount, sales_basis_amount, rule_name, created_at, updated_at, paid_at, paid_by"
     )
     .eq("component", "commission")
     .order("created_at", { ascending: false })
@@ -96,6 +98,8 @@ export async function GET(req: NextRequest) {
           rule_name: string;
           created_at: string;
           updated_at: string;
+          paid_at: string | null;
+          paid_by: string | null;
         };
         trace: NonNullable<ReturnType<typeof decodeGenericPayPlanTrace>>;
       } => item != null
@@ -139,6 +143,45 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  const paidByIds = Array.from(
+    new Set(
+      decoded
+        .map((item) =>
+          typeof item.row.paid_by === "string" ? item.row.paid_by.trim() : ""
+        )
+        .filter(Boolean)
+    )
+  );
+  const paidByDisplayById = new Map<string, string>();
+  if (paidByIds.length > 0) {
+    const admin = createAdminSupabaseClient();
+    await Promise.all(
+      paidByIds.map(async (userId) => {
+        const { data, error: userError } = await admin.auth.admin.getUserById(
+          userId
+        );
+        if (userError || !data.user) {
+          paidByDisplayById.set(
+            userId,
+            resolvePaidByDisplayName({ userId })
+          );
+          return;
+        }
+        const meta = data.user.user_metadata ?? {};
+        paidByDisplayById.set(
+          userId,
+          resolvePaidByDisplayName({
+            userId,
+            fullName:
+              typeof meta.full_name === "string" ? meta.full_name : null,
+            name: typeof meta.name === "string" ? meta.name : null,
+            email: data.user.email ?? null,
+          })
+        );
+      })
+    );
+  }
+
   const results = decoded.map(({ row, trace }) => {
     const chauffeur = chauffeurById.get(Number(trace.employee_id));
     const beneficiary = resolvePersistedListBeneficiary({
@@ -148,11 +191,23 @@ export async function GET(req: NextRequest) {
       sourceOrganizationId: chauffeur?.organization_id ?? null,
       expectedOrganizationId: org.organizationId,
     });
+    const paidBy =
+      typeof row.paid_by === "string" && row.paid_by.trim()
+        ? row.paid_by.trim()
+        : null;
     return toPersistedPayPlanResultItem({
       accrualId: String(row.id),
       organizationId: org.organizationId,
       status: String(row.status || "calculated"),
       createdAt: String(row.created_at || ""),
+      paidAt:
+        typeof row.paid_at === "string" && row.paid_at.trim()
+          ? row.paid_at.trim()
+          : null,
+      paidByDisplay: paidBy
+        ? paidByDisplayById.get(paidBy) ||
+          resolvePaidByDisplayName({ userId: paidBy })
+        : null,
       trace,
       beneficiary,
     });

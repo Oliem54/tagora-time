@@ -56,6 +56,12 @@ import {
 } from "@/app/admin/commissions/pending-validation-workflow.shared";
 import {
   filterPaidPayPlanResults,
+  filterPayPlanResultsBySellerKey,
+  formatPaidCategoryCounts,
+  PAID_BY_CONFIRMED_BY_LABEL,
+  PAID_OBJECTIVE_COMMISSIONS_EMPTY,
+  PAID_OBJECTIVE_COMMISSIONS_SECTION_TITLE,
+  PAID_PLAN_RESULT_CTA_LABEL,
   PAID_PLAN_RESULTS_EMPTY,
   PAID_PLAN_RESULTS_SECTION_SUBTITLE,
   PAID_PLAN_RESULTS_SECTION_TITLE,
@@ -483,8 +489,8 @@ export default function AdminCommissionsPageClient() {
 
   const generalPayPlanResults = useMemo(() => {
     if (commissionFilter === "paid") {
-      // Section dédiée « Résultats de plans payés » (pas mélangée aux objectifs).
-      return paidPayPlanResults;
+      // Les plans payés sont listés dans la zone Payées (deux catégories).
+      return [];
     }
     if (commissionFilter !== "pending_validation") {
       return scopedRecentPayPlanResults;
@@ -493,7 +499,7 @@ export default function AdminCommissionsPageClient() {
     return scopedRecentPayPlanResults.filter(
       (result) => !isPayPlanResultPendingValidation(result)
     );
-  }, [commissionFilter, paidPayPlanResults, scopedRecentPayPlanResults]);
+  }, [commissionFilter, scopedRecentPayPlanResults]);
 
   const isPaidCommissionsWorkflow = commissionFilter === "paid";
 
@@ -541,6 +547,11 @@ export default function AdminCommissionsPageClient() {
     [sellerFilter, statusFilteredEntries]
   );
 
+  const filteredPaidPayPlanResults = useMemo(
+    () => filterPayPlanResultsBySellerKey(paidPayPlanResults, sellerFilter),
+    [paidPayPlanResults, sellerFilter]
+  );
+
   const pendingValidationCounts = useMemo(
     () =>
       formatPendingValidationCategoryCounts(
@@ -548,6 +559,15 @@ export default function AdminCommissionsPageClient() {
         filteredEntries.length
       ),
     [filteredEntries.length, pendingPayPlanResults.length]
+  );
+
+  const paidCategoryCounts = useMemo(
+    () =>
+      formatPaidCategoryCounts(
+        filteredPaidPayPlanResults.length,
+        filteredEntries.length
+      ),
+    [filteredEntries.length, filteredPaidPayPlanResults.length]
   );
 
   const groupedEntries = useMemo(
@@ -873,19 +893,11 @@ export default function AdminCommissionsPageClient() {
         ))}
       </section>
 
-      {!isPendingValidationWorkflow ? (
+      {!isPendingValidationWorkflow && !isPaidCommissionsWorkflow ? (
         <SectionCard
-          id={isPaidCommissionsWorkflow ? "resultats-plans-payes" : "resultats-plans"}
-          title={
-            isPaidCommissionsWorkflow
-              ? PAID_PLAN_RESULTS_SECTION_TITLE
-              : "Résultats des plans de rémunération"
-          }
-          subtitle={
-            isPaidCommissionsWorkflow
-              ? PAID_PLAN_RESULTS_SECTION_SUBTITLE
-              : "Commissions calculées depuis les plans — distinctes des commissions d’objectifs."
-          }
+          id="resultats-plans"
+          title="Résultats des plans de rémunération"
+          subtitle="Commissions calculées depuis les plans — distinctes des commissions d’objectifs."
         >
           {planResultsLoading ? (
             <p className="ui-text-muted">Chargement des résultats de plans…</p>
@@ -901,9 +913,7 @@ export default function AdminCommissionsPageClient() {
             </div>
           ) : generalPayPlanResults.length === 0 ? (
             <p className="ui-text-muted">
-              {isPaidCommissionsWorkflow
-                ? PAID_PLAN_RESULTS_EMPTY
-                : "Aucun résultat persistant trouvé pour l’organisation active."}
+              Aucun résultat persistant trouvé pour l’organisation active.
             </p>
           ) : (
             <div className="commissions-list">
@@ -1397,18 +1407,23 @@ export default function AdminCommissionsPageClient() {
           title={
             isPendingValidationWorkflow
               ? PENDING_VALIDATION_ZONE_TITLE
-              : "Commissions liées aux objectifs"
+              : isPaidCommissionsWorkflow
+                ? "Commissions payées"
+                : "Commissions liées aux objectifs"
           }
           subtitle={
             isPendingValidationWorkflow
               ? "Deux catégories distinctes : résultats de plans et commissions d’objectifs."
               : isPaidCommissionsWorkflow
-                ? "Commissions d’objectifs payées — distinctes des résultats de plans payés ci-dessus."
+                ? "Deux catégories distinctes : résultats de plans payés et commissions d’objectifs payées."
                 : "Estimées, à valider et payées — distinctes des résultats de plans."
           }
         >
           <div id="commissions-estimees" className="commissions-anchor" />
           <div id="commissions-payees" className="commissions-anchor" />
+          {isPaidCommissionsWorkflow ? (
+            <div id="resultats-plans-payes" className="commissions-anchor" />
+          ) : null}
           <div className="commissions-controls">
             <div className="commissions-status-filters">
               {(
@@ -1450,7 +1465,250 @@ export default function AdminCommissionsPageClient() {
             </label>
           </div>
 
-          {isPendingValidationWorkflow ? (
+          {isPaidCommissionsWorkflow ? (
+            <div style={{ display: "grid", gap: 20 }}>
+              <div
+                style={{
+                  display: "flex",
+                  flexWrap: "wrap",
+                  gap: 10,
+                }}
+              >
+                <span
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    padding: "6px 10px",
+                    borderRadius: 10,
+                    background: "#e2e8f0",
+                    color: "#0f172a",
+                    fontSize: 13,
+                    fontWeight: 700,
+                  }}
+                >
+                  {paidCategoryCounts.plansLabel}
+                </span>
+                <span
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    padding: "6px 10px",
+                    borderRadius: 10,
+                    background: "#f1f5f9",
+                    color: "#334155",
+                    fontSize: 13,
+                    fontWeight: 700,
+                  }}
+                >
+                  {paidCategoryCounts.objectivesLabel}
+                </span>
+              </div>
+
+              <div
+                style={{
+                  display: "grid",
+                  gap: 12,
+                  padding: "14px 16px",
+                  borderRadius: 12,
+                  border: "1px solid #dbe3ef",
+                  background: "#f8fafc",
+                }}
+              >
+                <strong style={{ fontSize: 15, color: "#0f172a" }}>
+                  {PAID_PLAN_RESULTS_SECTION_TITLE}
+                </strong>
+                <p className="ui-text-muted" style={{ margin: 0, fontSize: 13 }}>
+                  {PAID_PLAN_RESULTS_SECTION_SUBTITLE}
+                </p>
+                {planResultsLoading ? (
+                  <p className="ui-text-muted" style={{ margin: 0 }}>
+                    Chargement des résultats de plans…
+                  </p>
+                ) : filteredPaidPayPlanResults.length === 0 ? (
+                  <div className="commissions-empty-state" role="status">
+                    <strong>{PAID_PLAN_RESULTS_EMPTY}</strong>
+                  </div>
+                ) : (
+                  <div className="commissions-list">
+                    {filteredPaidPayPlanResults.map((result) => (
+                      <AppCard
+                        key={`paid-${result.organizationId}-${result.accrualId}`}
+                      >
+                        <div className="commissions-list-head">
+                          <div style={{ display: "grid", gap: 6 }}>
+                            <strong style={{ fontSize: 17, color: "#0f172a" }}>
+                              {result.beneficiaryPrimary}
+                            </strong>
+                            {result.beneficiarySecondary ? (
+                              <span className="ui-text-muted">
+                                {result.beneficiarySecondary}
+                              </span>
+                            ) : null}
+                            <span className="ui-text-muted">
+                              {result.planName}
+                            </span>
+                          </div>
+                          <PayPlanStatusBadge status={result.status} />
+                        </div>
+                        <div
+                          style={{
+                            display: "flex",
+                            justifyContent: "space-between",
+                            gap: 12,
+                            flexWrap: "wrap",
+                            alignItems: "end",
+                            marginTop: 12,
+                          }}
+                        >
+                          <CommissionAmount
+                            label="Commission"
+                            amountLabel={formatCadPayPlan(result.amount)}
+                          />
+                          <div style={{ display: "grid", gap: 4 }}>
+                            <span
+                              className="ui-text-muted"
+                              style={{ fontSize: 12 }}
+                            >
+                              Date de paiement
+                            </span>
+                            <strong style={{ color: "#0f172a" }}>
+                              {result.paidAt
+                                ? formatFrDateTime(result.paidAt)
+                                : "—"}
+                            </strong>
+                          </div>
+                          <div style={{ display: "grid", gap: 4 }}>
+                            <span
+                              className="ui-text-muted"
+                              style={{ fontSize: 12 }}
+                            >
+                              {PAID_BY_CONFIRMED_BY_LABEL}
+                            </span>
+                            <strong style={{ color: "#0f172a" }}>
+                              {result.paidByDisplay || "—"}
+                            </strong>
+                          </div>
+                          <Link
+                            href={`/admin/commissions/plans/results/${result.accrualId}?organization_id=${encodeURIComponent(result.organizationId)}`}
+                            className="tagora-dark-action tagora-page-navigation-button"
+                          >
+                            {PAID_PLAN_RESULT_CTA_LABEL}
+                          </Link>
+                        </div>
+                      </AppCard>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div
+                style={{
+                  display: "grid",
+                  gap: 12,
+                  padding: "14px 16px",
+                  borderRadius: 12,
+                  border: "1px solid #e2e8f0",
+                  background: "#ffffff",
+                }}
+              >
+                <strong style={{ fontSize: 15, color: "#0f172a" }}>
+                  {PAID_OBJECTIVE_COMMISSIONS_SECTION_TITLE}
+                </strong>
+                {filteredEntries.length === 0 ? (
+                  <div className="commissions-empty-state" role="status">
+                    <strong>{PAID_OBJECTIVE_COMMISSIONS_EMPTY}</strong>
+                  </div>
+                ) : (
+                  <div className="commissions-list" style={{ gap: 18 }}>
+                    {groupedEntries.map((group) => (
+                      <div key={group.key} style={{ display: "grid", gap: 12 }}>
+                        <div
+                          style={{
+                            display: "flex",
+                            justifyContent: "space-between",
+                            gap: 12,
+                            flexWrap: "wrap",
+                            alignItems: "center",
+                            padding: "10px 12px",
+                            borderRadius: 12,
+                            background: "#f8fafc",
+                            border: "1px solid #e2e8f0",
+                          }}
+                        >
+                          <strong style={{ fontSize: 16, color: "#0f172a" }}>
+                            {group.label}
+                          </strong>
+                          <span
+                            className="ui-text-muted"
+                            style={{ fontWeight: 700 }}
+                          >
+                            {group.entries.length} commission
+                            {group.entries.length > 1 ? "s" : ""}
+                          </span>
+                        </div>
+                        {group.entries.map((entry) => (
+                          <AppCard
+                            key={entry.id}
+                            className="commissions-list-item"
+                          >
+                            <div className="commissions-list-head">
+                              <div style={{ display: "grid", gap: 6 }}>
+                                <strong
+                                  style={{ fontSize: 17, color: "#0f172a" }}
+                                >
+                                  {entry.assignee_label || entry.label}
+                                </strong>
+                                <p
+                                  className="ui-text-muted"
+                                  style={{ margin: 0 }}
+                                >
+                                  {entry.objective_title || "Objectif"} ·{" "}
+                                  {entry.period_start} → {entry.period_end}
+                                </p>
+                              </div>
+                              <StatusBadge
+                                label={COMMISSION_STATUS_LABELS[entry.status]}
+                                tone={commissionStatusTone(entry.status)}
+                              />
+                            </div>
+                            <div
+                              style={{
+                                display: "grid",
+                                gap: 12,
+                                gridTemplateColumns:
+                                  "repeat(auto-fit, minmax(140px, 1fr))",
+                                marginTop: 12,
+                              }}
+                            >
+                              <CommissionAmount
+                                label="Montant"
+                                amountLabel={formatCad(entry.calculated_amount)}
+                              />
+                              {entry.paid_at ? (
+                                <div style={{ display: "grid", gap: 4 }}>
+                                  <span
+                                    className="ui-text-muted"
+                                    style={{ fontSize: 12 }}
+                                  >
+                                    Payée
+                                  </span>
+                                  <strong style={{ color: "#0f172a" }}>
+                                    {new Date(entry.paid_at).toLocaleString(
+                                      "fr-CA"
+                                    )}
+                                  </strong>
+                                </div>
+                              ) : null}
+                            </div>
+                          </AppCard>
+                        ))}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          ) : isPendingValidationWorkflow ? (
             <div style={{ display: "grid", gap: 20 }}>
               <div
                 style={{

@@ -112,8 +112,7 @@ export function evaluateAccrualPayTransition(
     return {
       ok: false,
       statusCode: 409,
-      error:
-        "Seul un résultat validé peut être marqué comme payé.",
+      error: "Seul un résultat validé peut être marqué comme payé.",
     };
   }
   return {
@@ -235,11 +234,112 @@ export function filterPaidPayPlanResults<T extends { status: string }>(
   return results.filter((result) => isPayPlanAccrualPaid(result.status));
 }
 
+export function filterPayPlanResultsBySellerKey<
+  T extends { employeeId: number | null },
+>(results: T[], sellerKey: string): T[] {
+  const key = String(sellerKey || "all").trim();
+  if (!key || key === "all") return results;
+  return results.filter((result) => {
+    const employeeId = Number(result.employeeId);
+    if (!Number.isInteger(employeeId) || employeeId <= 0) return false;
+    return `employee:${employeeId}` === key;
+  });
+}
+
+/**
+ * Identité d’affichage du payeur — même ordre que getUserDisplayName commissions.
+ * Fallback UUID masqué uniquement si aucune identité humaine.
+ */
+export function resolvePaidByDisplayName(input: {
+  userId: string;
+  fullName?: string | null;
+  name?: string | null;
+  email?: string | null;
+}): string {
+  const userId = String(input.userId || "").trim();
+  const fullName = String(input.fullName || "").trim();
+  if (fullName) return fullName;
+  const name = String(input.name || "").trim();
+  if (name) return name;
+  const email = String(input.email || "").trim();
+  if (email) {
+    const at = email.indexOf("@");
+    if (at > 1) {
+      return `${email.slice(0, 2)}…${email.slice(at)}`;
+    }
+    return email;
+  }
+  if (userId.length >= 8) {
+    return `Utilisateur ${userId.slice(0, 8)}…`;
+  }
+  return userId ? `Utilisateur ${userId}` : "Utilisateur inconnu";
+}
+
+export function formatMarkAsPaidConfirmation(input: {
+  amountLabel: string;
+  sellerName: string;
+}): string {
+  const amount = String(input.amountLabel || "").trim() || "—";
+  const seller = String(input.sellerName || "").trim() || "le vendeur";
+  return `Marquer cette commission de ${amount} pour ${seller} comme payée?`;
+}
+
+/** Contrat metadata paid (miroir CHECK SQL, testable sans DB). */
+export function isPaidMetadataConsistent(input: {
+  status: unknown;
+  paidAt: unknown;
+  paidBy: unknown;
+}): boolean {
+  const status = normalizeAccrualStatus(input.status);
+  const paidAt =
+    input.paidAt == null || input.paidAt === ""
+      ? null
+      : String(input.paidAt).trim();
+  const paidBy =
+    input.paidBy == null || input.paidBy === ""
+      ? null
+      : String(input.paidBy).trim();
+  if (status === "paid") {
+    return Boolean(paidAt && paidBy);
+  }
+  return paidAt == null && paidBy == null;
+}
+
+export function isTraceInOrganization(
+  traceOrganizationId: unknown,
+  expectedOrganizationId: unknown
+): boolean {
+  const a = String(traceOrganizationId || "").trim();
+  const b = String(expectedOrganizationId || "").trim();
+  return Boolean(a && b && a === b);
+}
+
 export const MARK_AS_PAID_BUTTON_LABEL = "Marquer comme payée";
-export const MARK_AS_PAID_CONFIRM_MESSAGE =
-  "Confirmer que ce résultat de plan est payé ? Cette action enregistre une confirmation manuelle (aucun paiement bancaire).";
+export const MARK_AS_PAID_CONFIRM_ACTION_LABEL = "Confirmer le paiement";
+export const MARK_AS_PAID_CANCEL_ACTION_LABEL = "Annuler";
 export const PAID_PLAN_RESULTS_SECTION_TITLE = "Résultats de plans payés";
 export const PAID_PLAN_RESULTS_SECTION_SUBTITLE =
   "Confirmations de paiement des plans — distinctes des commissions d’objectifs payées.";
 export const PAID_PLAN_RESULTS_EMPTY =
-  "Aucun résultat de plan marqué comme payé pour l’organisation active.";
+  "Aucun résultat de plan marqué comme payé.";
+export const PAID_OBJECTIVE_COMMISSIONS_EMPTY =
+  "Aucune commission liée aux objectifs payée.";
+export const PAID_OBJECTIVE_COMMISSIONS_SECTION_TITLE =
+  "Commissions liées aux objectifs payées";
+export const PAID_PLAN_RESULT_CTA_LABEL = "Voir la commission";
+export const PAID_BY_CONFIRMED_BY_LABEL = "Paiement confirmé par";
+
+export function formatPaidCategoryCounts(
+  planCount: number,
+  objectiveCount: number
+): {
+  plansLabel: string;
+  objectivesLabel: string;
+} {
+  const plans = Math.max(0, Math.trunc(Number(planCount) || 0));
+  const objectives = Math.max(0, Math.trunc(Number(objectiveCount) || 0));
+  return {
+    plansLabel: `Résultats de plans payés : ${plans}`,
+    objectivesLabel: `Commissions d’objectifs payées : ${objectives}`,
+  };
+}
