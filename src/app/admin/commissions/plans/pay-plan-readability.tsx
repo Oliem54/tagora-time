@@ -54,47 +54,92 @@ export function formatCad(amount: number): string {
   }).format(amount);
 }
 
+const FR_CA_MONTHS = [
+  "janvier",
+  "février",
+  "mars",
+  "avril",
+  "mai",
+  "juin",
+  "juillet",
+  "août",
+  "septembre",
+  "octobre",
+  "novembre",
+  "décembre",
+] as const;
+
 /**
- * Affiche une date calendaire métier en fr-CA.
- * Les valeurs ISO avec heure/offset (ex. 2026-08-05T00:00:00.000Z) sont
- * traitées comme le jour calendaire YYYY-MM-DD, jamais comme un instant UTC
- * (évite le décalage au jour précédent en Amérique du Nord).
+ * Extrait le jour calendaire métier YYYY-MM-DD.
+ * Ne convertit jamais une date sans heure en instant local (évite le jour précédent).
  */
-export function formatFrDate(value: string): string {
-  const raw = String(value || "").trim();
-  if (!raw) return "—";
-  const calendarDay = /^(\d{4})-(\d{2})-(\d{2})/.exec(raw);
-  if (!calendarDay) {
-    const fallback = new Date(raw);
-    if (Number.isNaN(fallback.getTime())) return raw;
-    return fallback.toLocaleDateString("fr-CA", {
-      year: "numeric",
-      month: "long",
-      day: "numeric",
-    });
+export function resolvePayPlanCalendarDate(value: unknown): string | null {
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    const y = value.getUTCFullYear();
+    const m = String(value.getUTCMonth() + 1).padStart(2, "0");
+    const d = String(value.getUTCDate()).padStart(2, "0");
+    return `${y}-${m}-${d}`;
   }
-  const year = Number(calendarDay[1]);
-  const monthIndex = Number(calendarDay[2]) - 1;
-  const day = Number(calendarDay[3]);
+
+  const raw = String(value ?? "").trim();
+  if (!raw) return null;
+
+  const isoDay = /^(\d{4})-(\d{2})-(\d{2})/.exec(raw);
+  if (isoDay) {
+    return `${isoDay[1]}-${isoDay[2]}-${isoDay[3]}`;
+  }
+
+  // Ex. String(new Date("2026-08-05T00:00:00.000Z")) en Amérique du Nord
+  // → "Tue Aug 04 2026 20:00:00 GMT-0400" — récupérer le jour UTC métier.
+  const parsed = Date.parse(raw);
+  if (!Number.isNaN(parsed)) {
+    const dt = new Date(parsed);
+    const y = dt.getUTCFullYear();
+    const m = String(dt.getUTCMonth() + 1).padStart(2, "0");
+    const d = String(dt.getUTCDate()).padStart(2, "0");
+    return `${y}-${m}-${d}`;
+  }
+
+  return null;
+}
+
+/** Formate YYYY-MM-DD en libellé fr-CA sans passer par un instant timezone. */
+export function formatPayPlanCalendarDayLabel(ymd: string): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(ymd.trim());
+  if (!match) return ymd;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
   if (
     !Number.isInteger(year) ||
-    !Number.isInteger(monthIndex) ||
+    !Number.isInteger(month) ||
     !Number.isInteger(day) ||
-    monthIndex < 0 ||
-    monthIndex > 11 ||
+    month < 1 ||
+    month > 12 ||
     day < 1 ||
     day > 31
   ) {
-    return raw;
+    return ymd;
   }
-  // Constructeur local (année, mois, jour) — pas d’instant UTC.
-  const date = new Date(year, monthIndex, day);
-  if (Number.isNaN(date.getTime())) return raw;
-  return date.toLocaleDateString("fr-CA", {
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-  });
+  return `${day} ${FR_CA_MONTHS[month - 1]} ${year}`;
+}
+
+/**
+ * Chemin d’affichage du résumé « Date d’effet » (MetaLine à droite).
+ * Entrée : workingVersion.effective_from (API).
+ */
+export function formatPayPlanVersionSummaryDate(value: unknown): string {
+  const ymd = resolvePayPlanCalendarDate(value);
+  if (!ymd) return "—";
+  return formatPayPlanCalendarDayLabel(ymd);
+}
+
+/**
+ * Affiche une date calendaire métier en fr-CA.
+ * Les valeurs ISO avec heure/offset sont ramenées au jour calendaire YYYY-MM-DD.
+ */
+export function formatFrDate(value: string): string {
+  return formatPayPlanVersionSummaryDate(value);
 }
 
 /** Libellés humains pour les types de règle (affichage uniquement). */

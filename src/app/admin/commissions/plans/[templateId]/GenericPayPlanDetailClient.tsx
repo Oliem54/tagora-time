@@ -8,8 +8,8 @@ import AuthenticatedPageHeader from "@/app/components/ui/AuthenticatedPageHeader
 import SectionCard from "@/app/components/ui/SectionCard";
 import { commissionsFetch } from "@/app/lib/commissions/commissions-api.client";
 import {
-  formatFrDate,
   formatPayPlanRuleKindLabel,
+  formatPayPlanVersionSummaryDate,
   PayPlanDateField,
   PayPlanField,
   PayPlanFieldStack,
@@ -200,11 +200,6 @@ export default function GenericPayPlanDetailClient({ templateId }: DetailProps) 
     );
   }
 
-  const versionEffectiveFrom =
-    workingVersion?.effective_from != null
-      ? String(workingVersion.effective_from)
-      : null;
-
   const resultAccrualId =
     lastAccrualId || persistedLastAccrualId || rememberedLastAccrualId;
 
@@ -296,10 +291,13 @@ export default function GenericPayPlanDetailClient({ templateId }: DetailProps) 
                   </span>
                   <PayPlanStatusBadge status={String(workingVersion.status)} />
                 </div>
-                {versionEffectiveFrom ? (
+                {workingVersion.effective_from != null &&
+                String(workingVersion.effective_from).trim() !== "" ? (
                   <PayPlanMetaLine
                     label="Date d’effet"
-                    value={formatFrDate(versionEffectiveFrom)}
+                    value={formatPayPlanVersionSummaryDate(
+                      workingVersion.effective_from
+                    )}
                   />
                 ) : null}
               </div>
