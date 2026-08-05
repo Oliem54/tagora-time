@@ -17,8 +17,11 @@ import {
 import { CommissionNavButtons } from "@/app/admin/commissions/commission-module-ui";
 import {
   filterRecentPayPlanResultsForOrganization,
+  filterRecentPayPlanResultsForTemplate,
   readRecentPayPlanResults,
   writeRecentPayPlanResult,
+  writeRecentPayPlanResults,
+  type RecentPayPlanResultItem,
 } from "@/app/admin/commissions/recent-pay-plan-results.shared";
 import { resolvePayPlanBeneficiaryDisplay } from "@/app/lib/commissions/generic-pay-plan.shared";
 
@@ -52,13 +55,19 @@ export default function GenericPayPlanDetailClient({ templateId }: DetailProps) 
   const [soldAt, setSoldAt] = useState(new Date().toISOString().slice(0, 10));
   const [busy, setBusy] = useState(false);
   const [lastAccrualId, setLastAccrualId] = useState<string | null>(null);
+  const [persistedLastAccrualId, setPersistedLastAccrualId] = useState<
+    string | null
+  >(null);
 
   const rememberedLastAccrualId = useMemo(() => {
     if (!organizationId || !templateId) return null;
-    const latest = filterRecentPayPlanResultsForOrganization(
-      readRecentPayPlanResults(),
-      organizationId
-    ).find((row) => row.templateId === templateId);
+    const latest = filterRecentPayPlanResultsForTemplate(
+      filterRecentPayPlanResultsForOrganization(
+        readRecentPayPlanResults(),
+        organizationId
+      ),
+      templateId
+    )[0];
     return latest?.accrualId || null;
   }, [organizationId, templateId]);
 
@@ -94,12 +103,15 @@ export default function GenericPayPlanDetailClient({ templateId }: DetailProps) 
     }
     setLoading(true);
     setError(null);
-    const [detailRes, employeesRes] = await Promise.all([
+    const [detailRes, employeesRes, resultsRes] = await Promise.all([
       commissionsFetch(
         `/api/admin/generic-pay-plans/${templateId}?organization_id=${encodeURIComponent(organizationId)}`
       ),
       commissionsFetch(
         `/api/admin/generic-pay-plans/employees?organization_id=${encodeURIComponent(organizationId)}`
+      ),
+      commissionsFetch(
+        `/api/admin/generic-pay-plans/results?organization_id=${encodeURIComponent(organizationId)}&template_id=${encodeURIComponent(templateId)}`
       ),
     ]);
     const detail = (await detailRes.json().catch(() => ({}))) as Record<
@@ -109,6 +121,9 @@ export default function GenericPayPlanDetailClient({ templateId }: DetailProps) 
     const employeesJson = (await employeesRes.json().catch(() => ({}))) as {
       employees?: Employee[];
       error?: string;
+    };
+    const resultsJson = (await resultsRes.json().catch(() => ({}))) as {
+      results?: RecentPayPlanResultItem[];
     };
     setLoading(false);
     if (!detailRes.ok) {
@@ -123,6 +138,12 @@ export default function GenericPayPlanDetailClient({ templateId }: DetailProps) 
     setAssignments((detail.assignments as Record<string, unknown>[]) || []);
     if (employeesRes.ok) {
       setEmployees(employeesJson.employees || []);
+    }
+    if (resultsRes.ok && Array.isArray(resultsJson.results)) {
+      writeRecentPayPlanResults(resultsJson.results);
+      setPersistedLastAccrualId(resultsJson.results[0]?.accrualId || null);
+    } else {
+      setPersistedLastAccrualId(null);
     }
   }, [organizationId, templateId]);
 
@@ -173,7 +194,8 @@ export default function GenericPayPlanDetailClient({ templateId }: DetailProps) 
       ? String(workingVersion.effective_from)
       : null;
 
-  const resultAccrualId = lastAccrualId || rememberedLastAccrualId;
+  const resultAccrualId =
+    lastAccrualId || persistedLastAccrualId || rememberedLastAccrualId;
 
   return (
     <main className="page-container">
@@ -196,11 +218,19 @@ export default function GenericPayPlanDetailClient({ templateId }: DetailProps) 
               ? [
                   {
                     href: `/admin/commissions/plans/results/${resultAccrualId}?organization_id=${encodeURIComponent(organizationId)}`,
-                    label: "Dernier résultat",
+                    label: "Voir le dernier résultat",
                     primary: true as const,
                   },
                 ]
               : []),
+            {
+              href: "/admin/commissions#resultats-plans",
+              label: "Retour aux résultats",
+            },
+            {
+              href: "/admin/commissions",
+              label: "Retour au tableau",
+            },
           ]}
         />
 
@@ -569,7 +599,15 @@ export default function GenericPayPlanDetailClient({ templateId }: DetailProps) 
                           organizationId,
                           templateId,
                           beneficiaryPrimary: beneficiary.primary,
+                          beneficiarySecondary: beneficiary.secondary,
                           planName: String(template.display_name),
+                          versionLabel: activeVersion
+                            ? `Version ${String(activeVersion.version_number)}`
+                            : "—",
+                          ruleName: primaryRule
+                            ? String(primaryRule.display_name || "—")
+                            : "—",
+                          basisAmount: Number(saleAmount) || 0,
                           amount:
                             typeof json.calculated_amount === "number"
                               ? json.calculated_amount

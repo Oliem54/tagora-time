@@ -31,7 +31,7 @@ import {
 } from "@/app/admin/commissions/commission-module-ui";
 import {
   filterRecentPayPlanResultsForOrganization,
-  readRecentPayPlanResults,
+  writeRecentPayPlanResults,
   type RecentPayPlanResultItem,
 } from "@/app/admin/commissions/recent-pay-plan-results.shared";
 import {
@@ -161,6 +161,33 @@ export default function AdminCommissionsPageClient() {
   const [recentPayPlanResults, setRecentPayPlanResults] = useState<
     RecentPayPlanResultItem[]
   >([]);
+  const [planResultsLoading, setPlanResultsLoading] = useState(false);
+
+  const loadPersistedPlanResults = useCallback(async (organizationId: string) => {
+    const orgId = String(organizationId || "").trim();
+    if (!orgId) {
+      setRecentPayPlanResults([]);
+      return;
+    }
+    setPlanResultsLoading(true);
+    try {
+      const res = await commissionsFetch(
+        `/api/admin/generic-pay-plans/results?organization_id=${encodeURIComponent(orgId)}`
+      );
+      const json = (await res.json().catch(() => ({}))) as {
+        results?: RecentPayPlanResultItem[];
+        error?: string;
+      };
+      if (!res.ok || !Array.isArray(json.results)) {
+        setRecentPayPlanResults([]);
+        return;
+      }
+      setRecentPayPlanResults(json.results);
+      writeRecentPayPlanResults(json.results);
+    } finally {
+      setPlanResultsLoading(false);
+    }
+  }, []);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -194,15 +221,22 @@ export default function AdminCommissionsPageClient() {
       organizations?: OrganizationOption[];
       error?: string;
     };
+    let resolvedOrgId = "";
     if (orgsRes.ok && Array.isArray(orgsJson.organizations)) {
       const nextOrgs = orgsJson.organizations;
       setOrganizations(nextOrgs);
       setCreateForm((prev) => {
-        if (prev.organization_id) return prev;
+        if (prev.organization_id) {
+          resolvedOrgId = prev.organization_id;
+          return prev;
+        }
         const preselect = resolveSingleMembershipOrganizationPreselect(
           nextOrgs.map((row) => ({ organizationId: row.id }))
         );
-        return preselect ? { ...prev, organization_id: preselect } : prev;
+        resolvedOrgId = preselect || nextOrgs[0]?.id || "";
+        return resolvedOrgId
+          ? { ...prev, organization_id: resolvedOrgId }
+          : prev;
       });
     } else {
       setOrganizations([]);
@@ -280,17 +314,14 @@ export default function AdminCommissionsPageClient() {
       setChauffeurs([]);
     }
 
+    await loadPersistedPlanResults(resolvedOrgId);
     setLoading(false);
-  }, []);
+  }, [loadPersistedPlanResults]);
 
   useEffect(() => {
     if (accessLoading || !user) return;
     void loadData();
   }, [accessLoading, loadData, user]);
-
-  useEffect(() => {
-    setRecentPayPlanResults(readRecentPayPlanResults());
-  }, [loading]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -321,11 +352,11 @@ export default function AdminCommissionsPageClient() {
 
   const scopedRecentPayPlanResults = useMemo(() => {
     const orgId = createForm.organization_id || organizations[0]?.id || "";
-    if (!orgId) return recentPayPlanResults.slice(0, 6);
+    if (!orgId) return recentPayPlanResults.slice(0, 12);
     return filterRecentPayPlanResultsForOrganization(
       recentPayPlanResults,
       orgId
-    ).slice(0, 6);
+    ).slice(0, 12);
   }, [createForm.organization_id, organizations, recentPayPlanResults]);
 
   const statusFilteredEntries = useMemo(() => {
@@ -666,11 +697,17 @@ export default function AdminCommissionsPageClient() {
         ))}
       </section>
 
-      <SectionCard id="resultats-plans" title="Derniers résultats">
-        {scopedRecentPayPlanResults.length === 0 ? (
+      <SectionCard
+        id="resultats-plans"
+        title="Résultats des plans de rémunération"
+        subtitle="Commissions calculées depuis les plans — distinctes des commissions d’objectifs."
+      >
+        {planResultsLoading ? (
+          <p className="ui-text-muted">Chargement des résultats de plans…</p>
+        ) : scopedRecentPayPlanResults.length === 0 ? (
           <p className="ui-text-muted">
-            Aucun résultat de plan mémorisé pour le moment. Calculez une commission
-            depuis un plan pour l’afficher ici.
+            Aucun résultat de plan pour le moment. Calculez une commission depuis
+            un plan pour l’afficher ici.
           </p>
         ) : (
           <div className="commissions-list">
@@ -681,9 +718,36 @@ export default function AdminCommissionsPageClient() {
                     <strong style={{ fontSize: 17, color: "#0f172a" }}>
                       {result.beneficiaryPrimary}
                     </strong>
+                    {result.beneficiarySecondary ? (
+                      <span className="ui-text-muted">
+                        {result.beneficiarySecondary}
+                      </span>
+                    ) : null}
                     <span className="ui-text-muted">{result.planName}</span>
                   </div>
                   <PayPlanStatusBadge status={result.status} />
+                </div>
+                <div
+                  style={{
+                    display: "grid",
+                    gap: 8,
+                    marginTop: 12,
+                    fontSize: 13,
+                    color: "#475569",
+                  }}
+                >
+                  <div>
+                    <strong style={{ color: "#0f172a" }}>Version :</strong>{" "}
+                    {result.versionLabel}
+                  </div>
+                  <div>
+                    <strong style={{ color: "#0f172a" }}>Règle :</strong>{" "}
+                    {result.ruleName}
+                  </div>
+                  <div>
+                    <strong style={{ color: "#0f172a" }}>Base :</strong>{" "}
+                    {formatCadPayPlan(result.basisAmount)}
+                  </div>
                 </div>
                 <div
                   style={{
@@ -696,7 +760,7 @@ export default function AdminCommissionsPageClient() {
                   }}
                 >
                   <CommissionAmount
-                    label="Montant"
+                    label="Commission"
                     amountLabel={formatCadPayPlan(result.amount)}
                   />
                   <div style={{ display: "grid", gap: 4 }}>
@@ -709,12 +773,20 @@ export default function AdminCommissionsPageClient() {
                         : "—"}
                     </strong>
                   </div>
-                  <Link
-                    href={`/admin/commissions/plans/results/${result.accrualId}?organization_id=${encodeURIComponent(result.organizationId)}`}
-                    className="tagora-dark-action tagora-page-navigation-button"
-                  >
-                    Voir le résultat
-                  </Link>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                    <Link
+                      href={`/admin/commissions/plans/results/${result.accrualId}?organization_id=${encodeURIComponent(result.organizationId)}`}
+                      className="tagora-dark-action tagora-page-navigation-button"
+                    >
+                      Voir la commission
+                    </Link>
+                    <Link
+                      href={`/admin/commissions/plans/${result.templateId}?organization_id=${encodeURIComponent(result.organizationId)}`}
+                      className="tagora-dark-outline-action tagora-page-navigation-button"
+                    >
+                      Ouvrir le plan
+                    </Link>
+                  </div>
                 </div>
               </AppCard>
             ))}
@@ -773,9 +845,11 @@ export default function AdminCommissionsPageClient() {
                 <select
                   className="tagora-input"
                   value={createForm.organization_id}
-                  onChange={(e) =>
-                    setCreateForm({ ...createForm, organization_id: e.target.value })
-                  }
+                  onChange={(e) => {
+                    const nextOrg = e.target.value;
+                    setCreateForm({ ...createForm, organization_id: nextOrg });
+                    void loadPersistedPlanResults(nextOrg);
+                  }}
                 >
                   <option value="">— Choisir une organisation —</option>
                   {organizations.map((org) => (
@@ -1120,7 +1194,8 @@ export default function AdminCommissionsPageClient() {
         <SectionCard
           id="commissions-a-valider"
           className="commissions-panel-card"
-          title="Commissions"
+          title="Commissions liées aux objectifs"
+          subtitle="Estimées, à valider et payées — distinctes des résultats de plans."
         >
           <div id="commissions-estimees" className="commissions-anchor" />
           <div id="commissions-payees" className="commissions-anchor" />

@@ -83,7 +83,11 @@ export default function GenericPayPlanResultClient({ accrualId }: Props) {
           organizationId,
           templateId: nextTrace.template_id,
           beneficiaryPrimary: nextBeneficiary.primary,
+          beneficiarySecondary: nextBeneficiary.secondary,
           planName: nextTrace.template_name,
+          versionLabel: `Version ${nextTrace.version_number}`,
+          ruleName: nextTrace.rule_name,
+          basisAmount: nextTrace.basis_amount,
           amount: nextTrace.calculated_amount,
           status: nextStatus || "calculated",
           processedAt: nextTrace.processed_at,
@@ -127,7 +131,11 @@ export default function GenericPayPlanResultClient({ accrualId }: Props) {
         organizationId,
         templateId: trace.template_id,
         beneficiaryPrimary: beneficiary.primary,
+        beneficiarySecondary: beneficiary.secondary,
         planName: trace.template_name,
+        versionLabel: `Version ${trace.version_number}`,
+        ruleName: trace.rule_name,
+        basisAmount: trace.basis_amount,
         amount: trace.calculated_amount,
         status: nextStatus,
         processedAt: trace.processed_at,
@@ -162,18 +170,22 @@ export default function GenericPayPlanResultClient({ accrualId }: Props) {
       <div className="ui-stack" style={{ marginTop: 20, gap: 20 }}>
         <CommissionNavButtons
           links={[
+            {
+              href: "/admin/commissions#resultats-plans",
+              label: "Retour aux résultats",
+              primary: true as const,
+            },
             ...(trace
               ? [
                   {
                     href: `/admin/commissions/plans/${trace.template_id}?organization_id=${encodeURIComponent(organizationId)}`,
-                    label: "Retour au plan",
-                    primary: true as const,
+                    label: "Ouvrir le plan",
                   },
                 ]
               : []),
             {
-              href: `/admin/commissions/plans?organization_id=${encodeURIComponent(organizationId)}`,
-              label: "Tous les plans",
+              href: "/admin/commissions",
+              label: "Retour au tableau",
             },
           ]}
         />

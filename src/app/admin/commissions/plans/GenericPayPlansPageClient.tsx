@@ -17,8 +17,8 @@ import {
 } from "@/app/admin/commissions/plans/pay-plan-readability";
 import { CommissionNavButtons } from "@/app/admin/commissions/commission-module-ui";
 import {
-  filterRecentPayPlanResultsForOrganization,
-  readRecentPayPlanResults,
+  writeRecentPayPlanResults,
+  type RecentPayPlanResultItem,
 } from "@/app/admin/commissions/recent-pay-plan-results.shared";
 
 type OrganizationOption = { id: string; display_name: string };
@@ -43,20 +43,32 @@ export default function GenericPayPlansPageClient() {
   const [description, setDescription] = useState("");
   const [saving, setSaving] = useState(false);
   const [success, setSuccess] = useState<string | null>(null);
+  const [recentForOrg, setRecentForOrg] = useState<RecentPayPlanResultItem[]>(
+    []
+  );
 
   const load = useCallback(async (orgId: string) => {
     if (!orgId) {
       setTemplates([]);
+      setRecentForOrg([]);
       return;
     }
     setLoading(true);
     setError(null);
-    const res = await commissionsFetch(
-      `/api/admin/generic-pay-plans?organization_id=${encodeURIComponent(orgId)}`
-    );
+    const [res, resultsRes] = await Promise.all([
+      commissionsFetch(
+        `/api/admin/generic-pay-plans?organization_id=${encodeURIComponent(orgId)}`
+      ),
+      commissionsFetch(
+        `/api/admin/generic-pay-plans/results?organization_id=${encodeURIComponent(orgId)}`
+      ),
+    ]);
     const json = (await res.json().catch(() => ({}))) as {
       error?: string;
       templates?: TemplateRow[];
+    };
+    const resultsJson = (await resultsRes.json().catch(() => ({}))) as {
+      results?: RecentPayPlanResultItem[];
     };
     setLoading(false);
     if (!res.ok) {
@@ -64,6 +76,12 @@ export default function GenericPayPlansPageClient() {
       return;
     }
     setTemplates(json.templates || []);
+    if (resultsRes.ok && Array.isArray(resultsJson.results)) {
+      setRecentForOrg(resultsJson.results);
+      writeRecentPayPlanResults(resultsJson.results);
+    } else {
+      setRecentForOrg([]);
+    }
   }, []);
 
   useEffect(() => {
@@ -138,13 +156,6 @@ export default function GenericPayPlansPageClient() {
       window.location.href = `/admin/commissions/plans/${json.template.id}?organization_id=${encodeURIComponent(organizationId)}`;
     }
   }
-
-  const recentForOrg = organizationId
-    ? filterRecentPayPlanResultsForOrganization(
-        readRecentPayPlanResults(),
-        organizationId
-      )
-    : [];
 
   return (
     <main className="page-container">

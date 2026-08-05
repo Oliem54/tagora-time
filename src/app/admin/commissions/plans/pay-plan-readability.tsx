@@ -85,9 +85,10 @@ export function payPlanStatusLabel(status: string): string {
     archived: "Archivé",
     pending: "En attente",
     calculated: "Calculé",
-    validated: "Validé",
-    approved: "Approuvé",
-    rejected: "Refusé",
+    under_review: "À valider",
+    validated: "Validée",
+    approved: "Approuvée",
+    rejected: "Refusée",
   };
   return labels[normalized] || status;
 }
