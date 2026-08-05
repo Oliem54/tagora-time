@@ -55,13 +55,65 @@ export function formatCad(amount: number): string {
 }
 
 export function formatFrDate(value: string): string {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
+  const raw = String(value || "").trim();
+  if (!raw) return "—";
+  const dayOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(raw);
+  const date = dayOnly
+    ? new Date(
+        Number(dayOnly[1]),
+        Number(dayOnly[2]) - 1,
+        Number(dayOnly[3])
+      )
+    : new Date(raw);
+  if (Number.isNaN(date.getTime())) return raw;
   return date.toLocaleDateString("fr-CA", {
     year: "numeric",
     month: "long",
     day: "numeric",
   });
+}
+
+/** Libellés humains pour les types de règle (affichage uniquement). */
+export function formatPayPlanRuleKindLabel(ruleKind: unknown): string {
+  const key = String(ruleKind || "").trim();
+  if (!key) return "Type inconnu";
+  const labels: Record<string, string> = {
+    percentage_of_eligible_sales: "Pourcentage des ventes admissibles",
+    fixed_amount_per_unit: "Montant fixe par unité",
+    percentage_of_gross_profit: "Pourcentage du profit brut",
+    minimum_guarantee: "Garantie minimale",
+    progressive_profit_tiers: "Paliers progressifs de profit",
+    retroactive_volume_tier: "Palier de volume rétroactif",
+    non_retroactive_volume_tier: "Palier de volume non rétroactif",
+    monthly_volume_bonus: "Bonification mensuelle de volume",
+    annual_volume_bonus: "Bonification annuelle de volume",
+    account_opening_bonus: "Bonification d’ouverture de compte",
+    full_price_bonus: "Bonification plein prix",
+    financing_bonus: "Bonification financement",
+    extended_warranty_bonus: "Bonification garantie prolongée",
+    margin_threshold: "Seuil de marge",
+    account_class_rate: "Taux par classe de compte",
+    product_category_rate: "Taux par catégorie de produit",
+    company_rate: "Taux par compagnie",
+    sales_channel_rate: "Taux par canal de vente",
+    shared_sale_split: "Partage de vente",
+    recoverable_advance: "Avance récupérable",
+    advance_waterfall: "Cascade d’avances",
+    adjustment: "Ajustement",
+    reversal: "Contrepassation",
+    credit: "Crédit",
+    return: "Retour",
+    manual_approval: "Approbation manuelle",
+    accounting_confirmation: "Confirmation comptable",
+    training_entry_exclusion: "Exclusion entrée de formation",
+  };
+  if (labels[key]) return labels[key];
+  const humanized = key
+    .replace(/[_-]+/g, " ")
+    .trim()
+    .replace(/\s+/g, " ");
+  if (!humanized) return "Type inconnu";
+  return humanized.charAt(0).toUpperCase() + humanized.slice(1);
 }
 
 export function formatFrDateTime(value: string): string {
@@ -125,15 +177,42 @@ export function PayPlanFieldStack({ children }: { children: ReactNode }) {
 export function PayPlanField({
   label,
   children,
+  hint,
 }: {
   label: string;
   children: ReactNode;
+  hint?: ReactNode;
 }) {
   return (
     <label style={{ display: "grid", gap: 6, maxWidth: 520 }}>
       <span style={labelStyle}>{label}</span>
       {children}
+      {hint ? (
+        <span style={{ fontSize: 13, fontWeight: 600, color: "#475569" }}>
+          {hint}
+        </span>
+      ) : null}
     </label>
+  );
+}
+
+export function PayPlanDateField({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  onChange: (next: string) => void;
+}) {
+  return (
+    <PayPlanField label={label} hint={`Lecture : ${formatFrDate(value)}`}>
+      <input
+        type="date"
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+      />
+    </PayPlanField>
   );
 }
 

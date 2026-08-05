@@ -9,6 +9,8 @@ import SectionCard from "@/app/components/ui/SectionCard";
 import { commissionsFetch } from "@/app/lib/commissions/commissions-api.client";
 import {
   formatFrDate,
+  formatPayPlanRuleKindLabel,
+  PayPlanDateField,
   PayPlanField,
   PayPlanFieldStack,
   PayPlanMetaLine,
@@ -94,6 +96,15 @@ export default function GenericPayPlanDetailClient({ templateId }: DetailProps) 
       ) || null,
     [assignments, activeVersion]
   );
+  const activeAssignmentBeneficiary = useMemo(() => {
+    if (!activeAssignment) return null;
+    const employeeId = Number(activeAssignment.employee_id);
+    const employee = employees.find((row) => row.id === employeeId);
+    return resolvePayPlanBeneficiaryDisplay({
+      employeeId,
+      displayName: employee?.label || null,
+    });
+  }, [activeAssignment, employees]);
 
   const reload = useCallback(async () => {
     if (!organizationId) {
@@ -295,13 +306,11 @@ export default function GenericPayPlanDetailClient({ templateId }: DetailProps) 
             ) : (
               <p className="ui-text-muted">Aucune version. Créez un brouillon.</p>
             )}
-            <PayPlanField label="Date d’effet">
-              <input
-                type="date"
-                value={effectiveFrom}
-                onChange={(e) => setEffectiveFrom(e.target.value)}
-              />
-            </PayPlanField>
+            <PayPlanDateField
+              label="Date d’effet"
+              value={effectiveFrom}
+              onChange={setEffectiveFrom}
+            />
             {!draftVersion ? (
               <div>
                 <button
@@ -370,7 +379,7 @@ export default function GenericPayPlanDetailClient({ templateId }: DetailProps) 
                 />
                 <PayPlanMetaLine
                   label="Type"
-                  value={String(primaryRule.rule_kind)}
+                  value={formatPayPlanRuleKindLabel(primaryRule.rule_kind)}
                 />
               </div>
             ) : (
@@ -491,48 +500,79 @@ export default function GenericPayPlanDetailClient({ templateId }: DetailProps) 
             </p>
           ) : (
             <PayPlanFieldStack>
-              <PayPlanField label="Représentant">
-                <select
-                  value={employeeId}
-                  onChange={(e) => setEmployeeId(e.target.value)}
+              {activeAssignment && activeAssignmentBeneficiary ? (
+                <div
+                  style={{
+                    display: "grid",
+                    gap: 8,
+                    padding: "12px 14px",
+                    borderRadius: 12,
+                    border: "1px solid #dbe3ef",
+                    background: "#f8fafc",
+                  }}
                 >
-                  <option value="">Sélectionner…</option>
-                  {employees.map((employee) => (
-                    <option key={employee.id} value={employee.id}>
-                      {employee.label}
-                    </option>
-                  ))}
-                </select>
-              </PayPlanField>
-              {activeAssignment ? (
-                <PayPlanMetaLine
-                  label="Affectation active"
-                  value={`Employé #${String(activeAssignment.employee_id)}`}
-                />
-              ) : (
-                <div>
-                  <button
-                    type="button"
-                    className="tagora-dark-action"
-                    disabled={busy || !employeeId}
-                    onClick={() =>
-                      void run("Affectation", () =>
-                        commissionsFetch("/api/admin/generic-pay-plans/assignments", {
-                          method: "POST",
-                          body: JSON.stringify({
-                            organization_id: organizationId,
-                            employee_id: Number(employeeId),
-                            plan_version_id: activeVersion.id,
-                            effective_from: effectiveFrom,
-                            processing_frequency: "per_sale",
-                          }),
-                        })
-                      )
-                    }
+                  <span
+                    style={{
+                      fontSize: 12,
+                      fontWeight: 700,
+                      letterSpacing: "0.04em",
+                      textTransform: "uppercase",
+                      color: "#64748b",
+                    }}
                   >
-                    Affecter le plan
-                  </button>
+                    Affectation active
+                  </span>
+                  <strong style={{ fontSize: 17, color: "#0f172a" }}>
+                    {activeAssignmentBeneficiary.primary}
+                  </strong>
+                  {activeAssignmentBeneficiary.secondary ? (
+                    <span className="ui-text-muted">
+                      {activeAssignmentBeneficiary.secondary}
+                    </span>
+                  ) : null}
                 </div>
+              ) : (
+                <>
+                  <PayPlanField label="Ajouter une affectation">
+                    <select
+                      value={employeeId}
+                      onChange={(e) => setEmployeeId(e.target.value)}
+                    >
+                      <option value="">Sélectionner un représentant…</option>
+                      {employees.map((employee) => (
+                        <option key={employee.id} value={employee.id}>
+                          {employee.label}
+                        </option>
+                      ))}
+                    </select>
+                  </PayPlanField>
+                  <div>
+                    <button
+                      type="button"
+                      className="tagora-dark-action"
+                      disabled={busy || !employeeId}
+                      onClick={() =>
+                        void run("Affectation", () =>
+                          commissionsFetch(
+                            "/api/admin/generic-pay-plans/assignments",
+                            {
+                              method: "POST",
+                              body: JSON.stringify({
+                                organization_id: organizationId,
+                                employee_id: Number(employeeId),
+                                plan_version_id: activeVersion.id,
+                                effective_from: effectiveFrom,
+                                processing_frequency: "per_sale",
+                              }),
+                            }
+                          )
+                        )
+                      }
+                    >
+                      Affecter le plan
+                    </button>
+                  </div>
+                </>
               )}
             </PayPlanFieldStack>
           )}
@@ -552,13 +592,11 @@ export default function GenericPayPlanDetailClient({ templateId }: DetailProps) 
                   inputMode="decimal"
                 />
               </PayPlanField>
-              <PayPlanField label="Date de vente">
-                <input
-                  type="date"
-                  value={soldAt}
-                  onChange={(e) => setSoldAt(e.target.value)}
-                />
-              </PayPlanField>
+              <PayPlanDateField
+                label="Date de vente"
+                value={soldAt}
+                onChange={setSoldAt}
+              />
               <div>
                 <button
                   type="button"
