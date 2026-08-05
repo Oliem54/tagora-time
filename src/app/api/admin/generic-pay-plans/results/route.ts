@@ -4,28 +4,15 @@ import {
   requireGenericPayPlanAdminAccess,
   resolvePayPlanOrganization,
 } from "@/app/lib/commissions/generic-pay-plan.server";
+import { decodeGenericPayPlanTrace } from "@/app/lib/commissions/generic-pay-plan.shared";
 import {
-  decodeGenericPayPlanTrace,
-  resolvePayPlanBeneficiaryDisplay,
-} from "@/app/lib/commissions/generic-pay-plan.shared";
-import { toPersistedPayPlanResultItem } from "@/app/admin/commissions/recent-pay-plan-results.shared";
+  resolvePersistedListBeneficiary,
+  toPersistedPayPlanResultItem,
+} from "@/app/admin/commissions/recent-pay-plan-results.shared";
 
 export const dynamic = "force-dynamic";
 
 const LIST_LIMIT = 80;
-
-function chauffeurDisplayName(row: {
-  nom?: string | null;
-  prenom?: string | null;
-  nom_complet?: string | null;
-}): string | null {
-  const full = String(row.nom_complet || "").trim();
-  if (full) return full;
-  const composed = [row.prenom, row.nom].filter(Boolean).join(" ").trim();
-  if (composed) return composed;
-  const nom = String(row.nom || "").trim();
-  return nom || null;
-}
 
 export async function GET(req: NextRequest) {
   const gate = await requireGenericPayPlanAdminAccess(req);
@@ -122,19 +109,19 @@ export async function GET(req: NextRequest) {
     )
   );
 
+  // Aligné sur la fiche détail : id, nom, courriel, organization_id uniquement.
   const chauffeurById = new Map<
     number,
     {
       nom: string | null;
       courriel: string | null;
       organization_id: string | null;
-      displayName: string | null;
     }
   >();
   if (employeeIds.length > 0) {
     const { data: chauffeurs } = await gate.auth.supabase
       .from("chauffeurs")
-      .select("id, nom, prenom, nom_complet, courriel, organization_id")
+      .select("id, nom, courriel, organization_id")
       .eq("organization_id", org.organizationId)
       .in("id", employeeIds);
     for (const chauffeur of chauffeurs ?? []) {
@@ -148,17 +135,16 @@ export async function GET(req: NextRequest) {
           typeof chauffeur.organization_id === "string"
             ? chauffeur.organization_id
             : null,
-        displayName: chauffeurDisplayName(chauffeur),
       });
     }
   }
 
   const results = decoded.map(({ row, trace }) => {
     const chauffeur = chauffeurById.get(Number(trace.employee_id));
-    const beneficiary = resolvePayPlanBeneficiaryDisplay({
+    const beneficiary = resolvePersistedListBeneficiary({
       employeeId: trace.employee_id,
-      displayName: chauffeur?.displayName ?? chauffeur?.nom ?? null,
-      email: chauffeur?.courriel ?? null,
+      nom: chauffeur?.nom ?? null,
+      courriel: chauffeur?.courriel ?? null,
       sourceOrganizationId: chauffeur?.organization_id ?? null,
       expectedOrganizationId: org.organizationId,
     });

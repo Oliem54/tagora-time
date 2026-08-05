@@ -32,6 +32,7 @@ import {
 import {
   filterRecentPayPlanResultsForOrganization,
   readRecentPayPlanResults,
+  withResolvedBeneficiaryNames,
   writeRecentPayPlanResults,
   type RecentPayPlanResultItem,
 } from "@/app/admin/commissions/recent-pay-plan-results.shared";
@@ -225,46 +226,59 @@ export default function AdminCommissionsPageClient() {
     []
   );
 
-  const loadPersistedPlanResults = useCallback(async (organizationId: string) => {
-    const orgId = String(organizationId || "").trim();
-    if (!orgId) {
-      setRecentPayPlanResults([]);
-      setPlanResultsErrorCode("RESULTS_ORG_MISSING");
-      return;
-    }
-    setPlanResultsLoading(true);
-    setPlanResultsErrorCode(null);
-    try {
-      const res = await commissionsFetch(
-        `/api/admin/generic-pay-plans/results?organization_id=${encodeURIComponent(orgId)}`
-      );
-      const json = (await res.json().catch(() => ({}))) as {
-        results?: RecentPayPlanResultItem[];
-        error?: string;
-        diagnostic_code?: string;
-      };
-      if (!res.ok) {
+  const loadPersistedPlanResults = useCallback(
+    async (
+      organizationId: string,
+      chauffeurOptions: ChauffeurOption[] = []
+    ) => {
+      const orgId = String(organizationId || "").trim();
+      if (!orgId) {
         setRecentPayPlanResults([]);
-        setPlanResultsErrorCode(
-          String(json.diagnostic_code || `RESULTS_HTTP_${res.status}`)
-        );
+        setPlanResultsErrorCode("RESULTS_ORG_MISSING");
         return;
       }
-      if (!Array.isArray(json.results)) {
-        setRecentPayPlanResults([]);
-        setPlanResultsErrorCode("RESULTS_INVALID_PAYLOAD");
-        return;
-      }
-      setRecentPayPlanResults(json.results);
-      writeRecentPayPlanResults(json.results);
+      setPlanResultsLoading(true);
       setPlanResultsErrorCode(null);
-    } catch {
-      setRecentPayPlanResults([]);
-      setPlanResultsErrorCode("RESULTS_NETWORK");
-    } finally {
-      setPlanResultsLoading(false);
-    }
-  }, []);
+      try {
+        const res = await commissionsFetch(
+          `/api/admin/generic-pay-plans/results?organization_id=${encodeURIComponent(orgId)}`
+        );
+        const json = (await res.json().catch(() => ({}))) as {
+          results?: RecentPayPlanResultItem[];
+          error?: string;
+          diagnostic_code?: string;
+        };
+        if (!res.ok) {
+          setRecentPayPlanResults([]);
+          setPlanResultsErrorCode(
+            String(json.diagnostic_code || `RESULTS_HTTP_${res.status}`)
+          );
+          return;
+        }
+        if (!Array.isArray(json.results)) {
+          setRecentPayPlanResults([]);
+          setPlanResultsErrorCode("RESULTS_INVALID_PAYLOAD");
+          return;
+        }
+        const namesByEmployeeId = new Map(
+          chauffeurOptions.map((row) => [row.id, row.label] as const)
+        );
+        const enriched = withResolvedBeneficiaryNames(
+          json.results,
+          namesByEmployeeId
+        );
+        setRecentPayPlanResults(enriched);
+        writeRecentPayPlanResults(enriched);
+        setPlanResultsErrorCode(null);
+      } catch {
+        setRecentPayPlanResults([]);
+        setPlanResultsErrorCode("RESULTS_NETWORK");
+      } finally {
+        setPlanResultsLoading(false);
+      }
+    },
+    []
+  );
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -381,7 +395,8 @@ export default function AdminCommissionsPageClient() {
           const label = String(
             record.nom_complet ||
               [record.prenom, record.nom].filter(Boolean).join(" ") ||
-              `#${id}`
+              record.nom ||
+              `Employé #${id}`
           ).trim();
           return Number.isFinite(id) ? { id, label } : null;
         })
@@ -392,7 +407,7 @@ export default function AdminCommissionsPageClient() {
     }
 
     await Promise.all([
-      loadPersistedPlanResults(resolvedOrgId),
+      loadPersistedPlanResults(resolvedOrgId, nextChauffeurs),
       loadPlanAssigneeSellers(resolvedOrgId, nextChauffeurs),
     ]);
     setLoading(false);
@@ -963,7 +978,7 @@ export default function AdminCommissionsPageClient() {
                   onChange={(e) => {
                     const nextOrg = e.target.value;
                     setCreateForm({ ...createForm, organization_id: nextOrg });
-                    void loadPersistedPlanResults(nextOrg);
+                    void loadPersistedPlanResults(nextOrg, chauffeurs);
                     void loadPlanAssigneeSellers(nextOrg, chauffeurs);
                   }}
                 >

@@ -3,9 +3,10 @@
  * Aucun impact calcul.
  */
 
-import type {
-  GenericPayPlanTrace,
-  PayPlanBeneficiaryDisplay,
+import {
+  resolvePayPlanBeneficiaryDisplay,
+  type GenericPayPlanTrace,
+  type PayPlanBeneficiaryDisplay,
 } from "@/app/lib/commissions/generic-pay-plan.shared";
 
 export type RecentPayPlanResultItem = {
@@ -65,6 +66,68 @@ function normalizeItem(
     processedAt:
       String(item.processedAt || "").trim() || new Date().toISOString(),
   };
+}
+
+/**
+ * Même résolution que la fiche détail résultat :
+ * nom (chauffeurs.nom) → courriel → Employé #id.
+ */
+export function resolvePersistedListBeneficiary(input: {
+  employeeId: number;
+  nom?: string | null;
+  courriel?: string | null;
+  sourceOrganizationId?: string | null;
+  expectedOrganizationId: string;
+}): PayPlanBeneficiaryDisplay {
+  return resolvePayPlanBeneficiaryDisplay({
+    employeeId: input.employeeId,
+    displayName: input.nom,
+    email: input.courriel,
+    sourceOrganizationId: input.sourceOrganizationId,
+    expectedOrganizationId: input.expectedOrganizationId,
+  });
+}
+
+export function withResolvedBeneficiaryNames(
+  results: RecentPayPlanResultItem[],
+  namesByEmployeeId: Map<number, string> | Record<number, string>
+): RecentPayPlanResultItem[] {
+  const lookup = (employeeId: number): string => {
+    if (namesByEmployeeId instanceof Map) {
+      return String(namesByEmployeeId.get(employeeId) || "").trim();
+    }
+    return String(namesByEmployeeId[employeeId] || "").trim();
+  };
+
+  return results.map((result) => {
+    const employeeId = Number(result.employeeId);
+    if (!Number.isInteger(employeeId) || employeeId <= 0) return result;
+    const technical = `Employé #${employeeId}`;
+    const primary = String(result.beneficiaryPrimary || "").trim();
+    const primaryIsTechnical =
+      !primary ||
+      primary === technical ||
+      /^employé\s*#\d+$/i.test(primary);
+    if (!primaryIsTechnical) {
+      return {
+        ...result,
+        beneficiarySecondary: result.beneficiarySecondary || technical,
+      };
+    }
+    const resolvedName = lookup(employeeId);
+    if (!resolvedName || resolvedName === technical) {
+      return {
+        ...result,
+        beneficiaryPrimary: technical,
+        beneficiarySecondary: null,
+      };
+    }
+    return {
+      ...result,
+      beneficiaryPrimary: resolvedName,
+      beneficiarySecondary: technical,
+    };
+  });
 }
 
 export function toPersistedPayPlanResultItem(input: {

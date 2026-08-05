@@ -3,7 +3,9 @@ import {
   filterRecentPayPlanResultsForOrganization,
   filterRecentPayPlanResultsForTemplate,
   rememberRecentPayPlanResult,
+  resolvePersistedListBeneficiary,
   toPersistedPayPlanResultItem,
+  withResolvedBeneficiaryNames,
   type RecentPayPlanResultItem,
 } from "@/app/admin/commissions/recent-pay-plan-results.shared";
 
@@ -76,6 +78,46 @@ describe("recent pay plan results memory", () => {
       [sample]
     );
     expect(next).toHaveLength(1);
+  });
+
+  it("resolves list beneficiary like detail page: Yves + Employé #2", () => {
+    const beneficiary = resolvePersistedListBeneficiary({
+      employeeId: 2,
+      nom: "Yves",
+      courriel: null,
+      sourceOrganizationId: "org-a",
+      expectedOrganizationId: "org-a",
+    });
+    expect(beneficiary.primary).toBe("Yves");
+    expect(beneficiary.secondary).toBe("Employé #2");
+    expect(beneficiary.usedTechnicalFallback).toBe(false);
+  });
+
+  it("keeps technical fallback only when name is unavailable", () => {
+    const beneficiary = resolvePersistedListBeneficiary({
+      employeeId: 2,
+      nom: "  ",
+      courriel: null,
+      expectedOrganizationId: "org-a",
+    });
+    expect(beneficiary.primary).toBe("Employé #2");
+    expect(beneficiary.secondary).toBeNull();
+    expect(beneficiary.usedTechnicalFallback).toBe(true);
+  });
+
+  it("enriches list cards that only have Employé #2 with Yves", () => {
+    const enriched = withResolvedBeneficiaryNames(
+      [
+        {
+          ...sample,
+          beneficiaryPrimary: "Employé #2",
+          beneficiarySecondary: null,
+        },
+      ],
+      new Map([[2, "Yves"]])
+    );
+    expect(enriched[0]?.beneficiaryPrimary).toBe("Yves");
+    expect(enriched[0]?.beneficiarySecondary).toBe("Employé #2");
   });
 
   it("maps persisted accrual trace to Yves QA card fields", () => {
