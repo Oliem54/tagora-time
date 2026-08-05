@@ -54,17 +54,41 @@ export function formatCad(amount: number): string {
   }).format(amount);
 }
 
+/**
+ * Affiche une date calendaire métier en fr-CA.
+ * Les valeurs ISO avec heure/offset (ex. 2026-08-05T00:00:00.000Z) sont
+ * traitées comme le jour calendaire YYYY-MM-DD, jamais comme un instant UTC
+ * (évite le décalage au jour précédent en Amérique du Nord).
+ */
 export function formatFrDate(value: string): string {
   const raw = String(value || "").trim();
   if (!raw) return "—";
-  const dayOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(raw);
-  const date = dayOnly
-    ? new Date(
-        Number(dayOnly[1]),
-        Number(dayOnly[2]) - 1,
-        Number(dayOnly[3])
-      )
-    : new Date(raw);
+  const calendarDay = /^(\d{4})-(\d{2})-(\d{2})/.exec(raw);
+  if (!calendarDay) {
+    const fallback = new Date(raw);
+    if (Number.isNaN(fallback.getTime())) return raw;
+    return fallback.toLocaleDateString("fr-CA", {
+      year: "numeric",
+      month: "long",
+      day: "numeric",
+    });
+  }
+  const year = Number(calendarDay[1]);
+  const monthIndex = Number(calendarDay[2]) - 1;
+  const day = Number(calendarDay[3]);
+  if (
+    !Number.isInteger(year) ||
+    !Number.isInteger(monthIndex) ||
+    !Number.isInteger(day) ||
+    monthIndex < 0 ||
+    monthIndex > 11 ||
+    day < 1 ||
+    day > 31
+  ) {
+    return raw;
+  }
+  // Constructeur local (année, mois, jour) — pas d’instant UTC.
+  const date = new Date(year, monthIndex, day);
   if (Number.isNaN(date.getTime())) return raw;
   return date.toLocaleDateString("fr-CA", {
     year: "numeric",
