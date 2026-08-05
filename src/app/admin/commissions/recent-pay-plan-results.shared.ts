@@ -27,6 +27,10 @@ export type RecentPayPlanResultItem = {
   paidAt?: string | null;
   /** Identité humaine du confirmateur — optionnel. */
   paidByDisplay?: string | null;
+  payrollReference?: string | null;
+  payrollPeriodStart?: string | null;
+  payrollPeriodEnd?: string | null;
+  payrollPayDate?: string | null;
 };
 
 const STORAGE_KEY = "tagora.admin.pay_plan_recent_results.v1";
@@ -77,6 +81,22 @@ function normalizeItem(
       item.paidByDisplay == null || item.paidByDisplay === ""
         ? null
         : String(item.paidByDisplay).trim(),
+    payrollReference:
+      item.payrollReference == null || item.payrollReference === ""
+        ? null
+        : String(item.payrollReference).trim(),
+    payrollPeriodStart:
+      item.payrollPeriodStart == null || item.payrollPeriodStart === ""
+        ? null
+        : String(item.payrollPeriodStart).trim(),
+    payrollPeriodEnd:
+      item.payrollPeriodEnd == null || item.payrollPeriodEnd === ""
+        ? null
+        : String(item.payrollPeriodEnd).trim(),
+    payrollPayDate:
+      item.payrollPayDate == null || item.payrollPayDate === ""
+        ? null
+        : String(item.payrollPayDate).trim(),
   };
 }
 
@@ -149,6 +169,10 @@ export function toPersistedPayPlanResultItem(input: {
   createdAt?: string;
   paidAt?: string | null;
   paidByDisplay?: string | null;
+  payrollReference?: string | null;
+  payrollPeriodStart?: string | null;
+  payrollPeriodEnd?: string | null;
+  payrollPayDate?: string | null;
   trace: GenericPayPlanTrace;
   beneficiary: PayPlanBeneficiaryDisplay;
 }): RecentPayPlanResultItem {
@@ -186,6 +210,22 @@ export function toPersistedPayPlanResultItem(input: {
       input.paidByDisplay == null || input.paidByDisplay === ""
         ? null
         : String(input.paidByDisplay).trim(),
+    payrollReference:
+      input.payrollReference == null || input.payrollReference === ""
+        ? null
+        : String(input.payrollReference).trim(),
+    payrollPeriodStart:
+      input.payrollPeriodStart == null || input.payrollPeriodStart === ""
+        ? null
+        : String(input.payrollPeriodStart).trim(),
+    payrollPeriodEnd:
+      input.payrollPeriodEnd == null || input.payrollPeriodEnd === ""
+        ? null
+        : String(input.payrollPeriodEnd).trim(),
+    payrollPayDate:
+      input.payrollPayDate == null || input.payrollPayDate === ""
+        ? null
+        : String(input.payrollPayDate).trim(),
   };
 }
 

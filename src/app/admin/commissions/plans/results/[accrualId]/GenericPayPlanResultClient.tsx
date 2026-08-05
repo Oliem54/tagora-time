@@ -13,11 +13,22 @@ import {
 } from "@/app/lib/commissions/generic-pay-plan.shared";
 import {
   canShowMarkAsPaidAction,
+  formatIsoDateFrCa,
   formatMarkAsPaidConfirmation,
+  formatPayrollPeriodLabel,
+  hasCompletePayrollProof,
+  LEGACY_PAYROLL_REFERENCE_MISSING,
   MARK_AS_PAID_BUTTON_LABEL,
   MARK_AS_PAID_CANCEL_ACTION_LABEL,
   MARK_AS_PAID_CONFIRM_ACTION_LABEL,
   PAID_BY_CONFIRMED_BY_LABEL,
+  PAID_SUCCESS_CARD_TITLE,
+  parsePayrollProofInput,
+  PAYROLL_PAY_DATE_FIELD_LABEL,
+  PAYROLL_PERIOD_END_FIELD_LABEL,
+  PAYROLL_PERIOD_START_FIELD_LABEL,
+  PAYROLL_REFERENCE_FIELD_LABEL,
+  type PayrollProofField,
 } from "@/app/lib/commissions/pay-plan-accrual-payment.shared";
 import {
   formatCad,
@@ -31,21 +42,67 @@ import { writeRecentPayPlanResult } from "@/app/admin/commissions/recent-pay-pla
 
 type Props = { accrualId: string };
 
+type FieldErrors = Partial<Record<PayrollProofField, string>>;
+
 export default function GenericPayPlanResultClient({ accrualId }: Props) {
   const searchParams = useSearchParams();
   const organizationId = searchParams.get("organization_id") || "";
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
   const [status, setStatus] = useState<string>("");
   const [paidAt, setPaidAt] = useState<string | null>(null);
   const [paidByDisplay, setPaidByDisplay] = useState<string | null>(null);
+  const [payrollReference, setPayrollReference] = useState<string | null>(null);
+  const [payrollPeriodStart, setPayrollPeriodStart] = useState<string | null>(
+    null
+  );
+  const [payrollPeriodEnd, setPayrollPeriodEnd] = useState<string | null>(null);
+  const [payrollPayDate, setPayrollPayDate] = useState<string | null>(null);
   const [trace, setTrace] = useState<GenericPayPlanTrace | null>(null);
   const [beneficiary, setBeneficiary] =
     useState<PayPlanBeneficiaryDisplay | null>(null);
   const [eventLabel, setEventLabel] = useState<string>("");
   const [busy, setBusy] = useState(false);
   const [confirmPayOpen, setConfirmPayOpen] = useState(false);
+  const [showPaidSuccessCard, setShowPaidSuccessCard] = useState(false);
+  const [formReference, setFormReference] = useState("");
+  const [formPeriodStart, setFormPeriodStart] = useState("");
+  const [formPeriodEnd, setFormPeriodEnd] = useState("");
+  const [formPayDate, setFormPayDate] = useState("");
+  const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
+
+  function persistLocal(input: {
+    nextStatus: string;
+    nextPaidAt?: string | null;
+    nextPaidByDisplay?: string | null;
+    nextPayrollReference?: string | null;
+    nextPayrollPeriodStart?: string | null;
+    nextPayrollPeriodEnd?: string | null;
+    nextPayrollPayDate?: string | null;
+  }) {
+    if (!trace || !beneficiary) return;
+    writeRecentPayPlanResult({
+      accrualId: trace.accrual_id || accrualId,
+      organizationId,
+      templateId: trace.template_id,
+      employeeId: beneficiary.employeeId,
+      beneficiaryPrimary: beneficiary.primary,
+      beneficiarySecondary: beneficiary.secondary,
+      planName: trace.template_name,
+      versionLabel: `Version ${trace.version_number}`,
+      ruleName: trace.rule_name,
+      basisAmount: trace.basis_amount,
+      amount: trace.calculated_amount,
+      status: input.nextStatus,
+      processedAt: trace.processed_at,
+      paidAt: input.nextPaidAt ?? null,
+      paidByDisplay: input.nextPaidByDisplay ?? null,
+      payrollReference: input.nextPayrollReference ?? null,
+      payrollPeriodStart: input.nextPayrollPeriodStart ?? null,
+      payrollPeriodEnd: input.nextPayrollPeriodEnd ?? null,
+      payrollPayDate: input.nextPayrollPayDate ?? null,
+    });
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -64,6 +121,10 @@ export default function GenericPayPlanResultClient({ accrualId }: Props) {
           status?: string;
           paid_at?: string | null;
           paid_by?: string | null;
+          payroll_reference?: string | null;
+          payroll_period_start?: string | null;
+          payroll_period_end?: string | null;
+          payroll_pay_date?: string | null;
         };
         event?: { label?: string | null; external_reference?: string | null };
         trace?: GenericPayPlanTrace;
@@ -88,6 +149,30 @@ export default function GenericPayPlanResultClient({ accrualId }: Props) {
           ? json.paid_by_display
           : null;
       setPaidByDisplay(nextPaidByDisplay);
+      const nextPayrollReference =
+        typeof json.accrual?.payroll_reference === "string" &&
+        json.accrual.payroll_reference.trim()
+          ? json.accrual.payroll_reference.trim()
+          : null;
+      const nextPayrollPeriodStart =
+        typeof json.accrual?.payroll_period_start === "string" &&
+        json.accrual.payroll_period_start.trim()
+          ? json.accrual.payroll_period_start.trim()
+          : null;
+      const nextPayrollPeriodEnd =
+        typeof json.accrual?.payroll_period_end === "string" &&
+        json.accrual.payroll_period_end.trim()
+          ? json.accrual.payroll_period_end.trim()
+          : null;
+      const nextPayrollPayDate =
+        typeof json.accrual?.payroll_pay_date === "string" &&
+        json.accrual.payroll_pay_date.trim()
+          ? json.accrual.payroll_pay_date.trim()
+          : null;
+      setPayrollReference(nextPayrollReference);
+      setPayrollPeriodStart(nextPayrollPeriodStart);
+      setPayrollPeriodEnd(nextPayrollPeriodEnd);
+      setPayrollPayDate(nextPayrollPayDate);
       const nextTrace = json.trace || null;
       setTrace(nextTrace);
       const nextBeneficiary =
@@ -120,6 +205,10 @@ export default function GenericPayPlanResultClient({ accrualId }: Props) {
           processedAt: nextTrace.processed_at,
           paidAt: nextPaidAt,
           paidByDisplay: nextPaidByDisplay,
+          payrollReference: nextPayrollReference,
+          payrollPeriodStart: nextPayrollPeriodStart,
+          payrollPeriodEnd: nextPayrollPeriodEnd,
+          payrollPayDate: nextPayrollPayDate,
         });
       }
     })();
@@ -128,36 +217,11 @@ export default function GenericPayPlanResultClient({ accrualId }: Props) {
     };
   }, [accrualId, organizationId]);
 
-  function syncLocalResult(
-    nextStatus: string,
-    nextPaidAt: string | null = null,
-    nextPaidByDisplay: string | null = null
-  ) {
-    if (!trace || !beneficiary) return;
-    writeRecentPayPlanResult({
-      accrualId: trace.accrual_id || accrualId,
-      organizationId,
-      templateId: trace.template_id,
-      employeeId: beneficiary.employeeId,
-      beneficiaryPrimary: beneficiary.primary,
-      beneficiarySecondary: beneficiary.secondary,
-      planName: trace.template_name,
-      versionLabel: `Version ${trace.version_number}`,
-      ruleName: trace.rule_name,
-      basisAmount: trace.basis_amount,
-      amount: trace.calculated_amount,
-      status: nextStatus,
-      processedAt: trace.processed_at,
-      paidAt: nextPaidAt,
-      paidByDisplay: nextPaidByDisplay,
-    });
-  }
-
   async function validateResult() {
     if (busy) return;
     setBusy(true);
     setError(null);
-    setSuccess(null);
+    setShowPaidSuccessCard(false);
     const res = await commissionsFetch(
       `/api/admin/generic-pay-plans/results/${accrualId}`,
       {
@@ -179,26 +243,37 @@ export default function GenericPayPlanResultClient({ accrualId }: Props) {
     }
     const nextStatus = String(json.accrual?.status || "validated");
     setStatus(nextStatus);
-    setSuccess("Résultat validé");
-    syncLocalResult(nextStatus);
+    persistLocal({ nextStatus });
   }
 
   function openPayConfirmation() {
     if (busy || !canShowMarkAsPaidAction(status)) return;
     setError(null);
+    setFieldErrors({});
     setConfirmPayOpen(true);
   }
 
   function cancelPayConfirmation() {
     if (busy) return;
     setConfirmPayOpen(false);
+    setFieldErrors({});
   }
 
   async function confirmMarkAsPaid() {
     if (busy || !canShowMarkAsPaidAction(status)) return;
+    const parsed = parsePayrollProofInput({
+      payrollReference: formReference,
+      payrollPeriodStart: formPeriodStart,
+      payrollPeriodEnd: formPeriodEnd,
+      payrollPayDate: formPayDate,
+    });
+    if (!parsed.ok) {
+      setFieldErrors({ [parsed.field]: parsed.error });
+      return;
+    }
+    setFieldErrors({});
     setBusy(true);
     setError(null);
-    setSuccess(null);
     const res = await commissionsFetch(
       `/api/admin/generic-pay-plans/results/${accrualId}`,
       {
@@ -206,22 +281,35 @@ export default function GenericPayPlanResultClient({ accrualId }: Props) {
         body: JSON.stringify({
           organization_id: organizationId,
           action: "pay",
+          payrollReference: parsed.value.payrollReference,
+          payrollPeriodStart: parsed.value.payrollPeriodStart,
+          payrollPeriodEnd: parsed.value.payrollPeriodEnd,
+          payrollPayDate: parsed.value.payrollPayDate,
         }),
       }
     );
     const json = (await res.json().catch(() => ({}))) as {
       error?: string;
+      field?: PayrollProofField;
       accrual?: {
         status?: string;
         paid_at?: string | null;
         paid_by?: string | null;
+        payroll_reference?: string | null;
+        payroll_period_start?: string | null;
+        payroll_period_end?: string | null;
+        payroll_pay_date?: string | null;
       };
       paid_by_display?: string | null;
       idempotent?: boolean;
     };
     setBusy(false);
     if (!res.ok) {
-      setError(json.error || "Marquage payé impossible.");
+      if (json.field) {
+        setFieldErrors({ [json.field]: json.error || "Valeur invalide." });
+      } else {
+        setError(json.error || "Marquage payé impossible.");
+      }
       return;
     }
     const nextStatus = String(json.accrual?.status || "paid");
@@ -233,16 +321,44 @@ export default function GenericPayPlanResultClient({ accrualId }: Props) {
       typeof json.paid_by_display === "string" && json.paid_by_display
         ? json.paid_by_display
         : null;
+    const nextPayrollReference =
+      typeof json.accrual?.payroll_reference === "string" &&
+      json.accrual.payroll_reference.trim()
+        ? json.accrual.payroll_reference.trim()
+        : parsed.value.payrollReference;
+    const nextPayrollPeriodStart =
+      typeof json.accrual?.payroll_period_start === "string" &&
+      json.accrual.payroll_period_start.trim()
+        ? json.accrual.payroll_period_start.trim()
+        : parsed.value.payrollPeriodStart;
+    const nextPayrollPeriodEnd =
+      typeof json.accrual?.payroll_period_end === "string" &&
+      json.accrual.payroll_period_end.trim()
+        ? json.accrual.payroll_period_end.trim()
+        : parsed.value.payrollPeriodEnd;
+    const nextPayrollPayDate =
+      typeof json.accrual?.payroll_pay_date === "string" &&
+      json.accrual.payroll_pay_date.trim()
+        ? json.accrual.payroll_pay_date.trim()
+        : parsed.value.payrollPayDate;
     setStatus(nextStatus);
     setPaidAt(nextPaidAt);
     setPaidByDisplay(nextPaidByDisplay);
+    setPayrollReference(nextPayrollReference);
+    setPayrollPeriodStart(nextPayrollPeriodStart);
+    setPayrollPeriodEnd(nextPayrollPeriodEnd);
+    setPayrollPayDate(nextPayrollPayDate);
     setConfirmPayOpen(false);
-    setSuccess(
-      json.idempotent
-        ? "Résultat déjà marqué comme payé"
-        : "Résultat marqué comme payé"
-    );
-    syncLocalResult(nextStatus, nextPaidAt, nextPaidByDisplay);
+    setShowPaidSuccessCard(true);
+    persistLocal({
+      nextStatus,
+      nextPaidAt,
+      nextPaidByDisplay,
+      nextPayrollReference,
+      nextPayrollPeriodStart,
+      nextPayrollPeriodEnd,
+      nextPayrollPayDate,
+    });
   }
 
   if (loading) {
@@ -269,11 +385,22 @@ export default function GenericPayPlanResultClient({ accrualId }: Props) {
           employeeId: trace.employee_id,
         }).primary
       : "le vendeur");
+  const employeeReference = beneficiary?.secondary || null;
   const amountLabel = formatCad(trace?.calculated_amount ?? 0);
   const confirmationMessage = formatMarkAsPaidConfirmation({
     amountLabel,
     sellerName,
+    payrollReference: formReference,
+    payrollPeriodStart: formPeriodStart,
+    payrollPeriodEnd: formPeriodEnd,
   });
+  const payrollComplete = hasCompletePayrollProof({
+    payrollReference,
+    payrollPeriodStart,
+    payrollPeriodEnd,
+    payrollPayDate,
+  });
+  const showLegacyPayrollAlert = status === "paid" && !payrollComplete;
 
   return (
     <main className="page-container">
@@ -316,10 +443,128 @@ export default function GenericPayPlanResultClient({ accrualId }: Props) {
             {error}
           </p>
         ) : null}
-        {success ? (
-          <p role="status" style={{ color: "#047857", fontWeight: 700 }}>
-            {success}
-          </p>
+
+        {showPaidSuccessCard || status === "paid" ? (
+          <section
+            aria-labelledby="paid-success-card-title"
+            style={{
+              borderRadius: 18,
+              border: "1px solid #bbf7d0",
+              background:
+                "linear-gradient(145deg, #f0fdf4 0%, #ffffff 55%, #ecfdf5 100%)",
+              padding: "18px 20px",
+              display: "grid",
+              gap: 14,
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                gap: 12,
+                flexWrap: "wrap",
+                alignItems: "center",
+              }}
+            >
+              <h2
+                id="paid-success-card-title"
+                style={{
+                  margin: 0,
+                  fontSize: 18,
+                  letterSpacing: "0.04em",
+                  fontWeight: 900,
+                  color: "#065f46",
+                }}
+              >
+                {PAID_SUCCESS_CARD_TITLE}
+              </h2>
+              <PayPlanStatusBadge status="paid" />
+            </div>
+            {showLegacyPayrollAlert ? (
+              <p
+                role="status"
+                style={{
+                  margin: 0,
+                  padding: "10px 12px",
+                  borderRadius: 12,
+                  background: "#fff7ed",
+                  border: "1px solid #fdba74",
+                  color: "#9a3412",
+                  fontWeight: 700,
+                }}
+              >
+                {LEGACY_PAYROLL_REFERENCE_MISSING}
+              </p>
+            ) : null}
+            <div
+              style={{
+                display: "grid",
+                gap: 10,
+                gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
+              }}
+            >
+              <div>
+                <div className="ui-text-muted" style={{ fontSize: 12 }}>
+                  Montant
+                </div>
+                <strong style={{ color: "#0f172a" }}>{amountLabel}</strong>
+              </div>
+              <div>
+                <div className="ui-text-muted" style={{ fontSize: 12 }}>
+                  Vendeur
+                </div>
+                <strong style={{ color: "#0f172a" }}>{sellerName}</strong>
+                {employeeReference ? (
+                  <div className="ui-text-muted" style={{ fontSize: 12 }}>
+                    {employeeReference}
+                  </div>
+                ) : null}
+              </div>
+              <div>
+                <div className="ui-text-muted" style={{ fontSize: 12 }}>
+                  Référence de paie
+                </div>
+                <strong style={{ color: "#0f172a" }}>
+                  {payrollReference || LEGACY_PAYROLL_REFERENCE_MISSING}
+                </strong>
+              </div>
+              <div>
+                <div className="ui-text-muted" style={{ fontSize: 12 }}>
+                  Période de paie
+                </div>
+                <strong style={{ color: "#0f172a" }}>
+                  {formatPayrollPeriodLabel({
+                    periodStart: payrollPeriodStart,
+                    periodEnd: payrollPeriodEnd,
+                  }) || "—"}
+                </strong>
+              </div>
+              <div>
+                <div className="ui-text-muted" style={{ fontSize: 12 }}>
+                  Date de paie
+                </div>
+                <strong style={{ color: "#0f172a" }}>
+                  {payrollPayDate ? formatIsoDateFrCa(payrollPayDate) : "—"}
+                </strong>
+              </div>
+              <div>
+                <div className="ui-text-muted" style={{ fontSize: 12 }}>
+                  {PAID_BY_CONFIRMED_BY_LABEL}
+                </div>
+                <strong style={{ color: "#0f172a" }}>
+                  {paidByDisplay || "—"}
+                </strong>
+              </div>
+              <div>
+                <div className="ui-text-muted" style={{ fontSize: 12 }}>
+                  Paiement confirmé le
+                </div>
+                <strong style={{ color: "#0f172a" }}>
+                  {paidAt ? formatFrDateTime(paidAt) : "—"}
+                </strong>
+              </div>
+            </div>
+          </section>
         ) : null}
 
         {trace ? (
@@ -332,7 +577,7 @@ export default function GenericPayPlanResultClient({ accrualId }: Props) {
                     <span style={{ fontWeight: 800, color: "#0f172a" }}>
                       {sellerName}
                     </span>
-                    {beneficiary?.secondary ? (
+                    {employeeReference ? (
                       <span
                         style={{
                           fontSize: 13,
@@ -340,7 +585,7 @@ export default function GenericPayPlanResultClient({ accrualId }: Props) {
                           color: "#6b7280",
                         }}
                       >
-                        {beneficiary.secondary}
+                        {employeeReference}
                       </span>
                     ) : null}
                   </div>
@@ -438,14 +683,14 @@ export default function GenericPayPlanResultClient({ accrualId }: Props) {
         >
           <div
             style={{
-              width: "min(440px, 100%)",
+              width: "min(520px, 100%)",
               borderRadius: 16,
               background: "#ffffff",
               border: "1px solid #e2e8f0",
               boxShadow: "0 18px 40px rgba(15, 23, 42, 0.18)",
               padding: 20,
               display: "grid",
-              gap: 16,
+              gap: 14,
             }}
           >
             <h2
@@ -458,8 +703,105 @@ export default function GenericPayPlanResultClient({ accrualId }: Props) {
                 lineHeight: 1.35,
               }}
             >
-              {confirmationMessage}
+              Confirmer le paiement
             </h2>
+            <div
+              style={{
+                display: "grid",
+                gap: 6,
+                padding: "10px 12px",
+                borderRadius: 12,
+                background: "#f8fafc",
+                border: "1px solid #e2e8f0",
+                fontSize: 13,
+              }}
+            >
+              <div>
+                <strong>Vendeur :</strong> {sellerName}
+              </div>
+              {employeeReference ? (
+                <div>
+                  <strong>Référence :</strong> {employeeReference}
+                </div>
+              ) : null}
+              <div>
+                <strong>Montant :</strong> {amountLabel}
+              </div>
+              {trace ? (
+                <div>
+                  <strong>Plan :</strong> {trace.template_name}
+                </div>
+              ) : null}
+            </div>
+
+            <label className="tagora-field">
+              <span className="tagora-label">{PAYROLL_REFERENCE_FIELD_LABEL}</span>
+              <input
+                className="tagora-input"
+                value={formReference}
+                disabled={busy}
+                onChange={(event) => setFormReference(event.target.value)}
+              />
+              {fieldErrors.payrollReference ? (
+                <span role="alert" style={{ color: "#b91c1c", fontSize: 12 }}>
+                  {fieldErrors.payrollReference}
+                </span>
+              ) : null}
+            </label>
+            <label className="tagora-field">
+              <span className="tagora-label">
+                {PAYROLL_PERIOD_START_FIELD_LABEL}
+              </span>
+              <input
+                className="tagora-input"
+                type="date"
+                value={formPeriodStart}
+                disabled={busy}
+                onChange={(event) => setFormPeriodStart(event.target.value)}
+              />
+              {fieldErrors.payrollPeriodStart ? (
+                <span role="alert" style={{ color: "#b91c1c", fontSize: 12 }}>
+                  {fieldErrors.payrollPeriodStart}
+                </span>
+              ) : null}
+            </label>
+            <label className="tagora-field">
+              <span className="tagora-label">
+                {PAYROLL_PERIOD_END_FIELD_LABEL}
+              </span>
+              <input
+                className="tagora-input"
+                type="date"
+                value={formPeriodEnd}
+                disabled={busy}
+                onChange={(event) => setFormPeriodEnd(event.target.value)}
+              />
+              {fieldErrors.payrollPeriodEnd ? (
+                <span role="alert" style={{ color: "#b91c1c", fontSize: 12 }}>
+                  {fieldErrors.payrollPeriodEnd}
+                </span>
+              ) : null}
+            </label>
+            <label className="tagora-field">
+              <span className="tagora-label">{PAYROLL_PAY_DATE_FIELD_LABEL}</span>
+              <input
+                className="tagora-input"
+                type="date"
+                value={formPayDate}
+                disabled={busy}
+                onChange={(event) => setFormPayDate(event.target.value)}
+              />
+              {fieldErrors.payrollPayDate ? (
+                <span role="alert" style={{ color: "#b91c1c", fontSize: 12 }}>
+                  {fieldErrors.payrollPayDate}
+                </span>
+              ) : null}
+            </label>
+
+            <p style={{ margin: 0, color: "#334155", lineHeight: 1.4 }}>
+              {confirmationMessage}
+            </p>
+
             <div
               style={{
                 display: "flex",

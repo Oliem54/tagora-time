@@ -16,6 +16,7 @@ import {
   evaluateAccrualPayTransition,
   evaluateAccrualValidateTransition,
   isTraceInOrganization,
+  parsePayrollProofInput,
   permissionForAccrualAction,
   resolvePaidByDisplayName,
 } from "@/app/lib/commissions/pay-plan-accrual-payment.shared";
@@ -198,13 +199,31 @@ export async function PATCH(req: NextRequest, context: Params) {
         trace,
         idempotent: true,
         paid_by_display: await resolvePaidByDisplay(paidBy),
+        payroll_reference: accrual.payroll_reference ?? null,
+        payroll_period_start: accrual.payroll_period_start ?? null,
+        payroll_period_end: accrual.payroll_period_end ?? null,
+        payroll_pay_date: accrual.payroll_pay_date ?? null,
       });
+    }
+
+    const payrollProof = parsePayrollProofInput({
+      payrollReference: body.payrollReference,
+      payrollPeriodStart: body.payrollPeriodStart,
+      payrollPeriodEnd: body.payrollPeriodEnd,
+      payrollPayDate: body.payrollPayDate,
+    });
+    if (!payrollProof.ok) {
+      return NextResponse.json(
+        { error: payrollProof.error, field: payrollProof.field },
+        { status: 400 }
+      );
     }
 
     const paidAtIso = new Date().toISOString();
     const patch = buildAccrualPayPatch({
       userId: gate.auth.user.id,
       paidAtIso,
+      payroll: payrollProof.value,
     });
 
     const { data: updated, error } = await gate.auth.supabase
@@ -248,6 +267,10 @@ export async function PATCH(req: NextRequest, context: Params) {
       trace,
       idempotent: false,
       paid_by_display: paidByDisplay,
+      payroll_reference: updated.payroll_reference ?? null,
+      payroll_period_start: updated.payroll_period_start ?? null,
+      payroll_period_end: updated.payroll_period_end ?? null,
+      payroll_pay_date: updated.payroll_pay_date ?? null,
     });
   }
 

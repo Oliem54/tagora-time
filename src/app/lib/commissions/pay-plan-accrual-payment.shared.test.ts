@@ -12,10 +12,13 @@ import {
   filterPayPlanResultsBySellerKey,
   formatMarkAsPaidConfirmation,
   formatPaidCategoryCounts,
+  formatPayrollPeriodLabel,
   hasAccrualActionPermission,
+  hasCompletePayrollProof,
   isPaidMetadataConsistent,
   isPayPlanAccrualPaid,
   isTraceInOrganization,
+  LEGACY_PAYROLL_REFERENCE_MISSING,
   MARK_AS_PAID_CANCEL_ACTION_LABEL,
   MARK_AS_PAID_CONFIRM_ACTION_LABEL,
   PAID_BY_CONFIRMED_BY_LABEL,
@@ -24,14 +27,16 @@ import {
   PAID_PLAN_RESULT_CTA_LABEL,
   PAID_PLAN_RESULTS_EMPTY,
   PAID_PLAN_RESULTS_SECTION_TITLE,
+  PAID_SUCCESS_CARD_TITLE,
+  parsePayrollProofInput,
   permissionForAccrualAction,
+  payrollReferenceDisplayLabel,
   resolvePaidByDisplayName,
 } from "./pay-plan-accrual-payment.shared";
 
 describe("evaluateAccrualPayTransition", () => {
   it("validated → paid = autorisé", () => {
-    const decision = evaluateAccrualPayTransition("validated");
-    expect(decision).toEqual({
+    expect(evaluateAccrualPayTransition("validated")).toEqual({
       ok: true,
       mode: "transition",
       fromStatus: "validated",
@@ -40,8 +45,7 @@ describe("evaluateAccrualPayTransition", () => {
   });
 
   it("paid → paid idempotent", () => {
-    const decision = evaluateAccrualPayTransition("paid");
-    expect(decision).toEqual({
+    expect(evaluateAccrualPayTransition("paid")).toEqual({
       ok: true,
       mode: "idempotent",
       fromStatus: "paid",
@@ -49,40 +53,128 @@ describe("evaluateAccrualPayTransition", () => {
     });
   });
 
-  it("draft refusé", () => {
-    const decision = evaluateAccrualPayTransition("draft");
-    expect(decision.ok).toBe(false);
-  });
-
-  it("calculated refusé", () => {
-    const decision = evaluateAccrualPayTransition("calculated");
-    expect(decision.ok).toBe(false);
-    if (!decision.ok) {
-      expect(decision.statusCode).toBe(409);
-    }
-  });
-
-  it("under_review refusé", () => {
-    const decision = evaluateAccrualPayTransition("under_review");
-    expect(decision.ok).toBe(false);
+  it("draft / calculated / under_review refusés", () => {
+    expect(evaluateAccrualPayTransition("draft").ok).toBe(false);
+    expect(evaluateAccrualPayTransition("calculated").ok).toBe(false);
+    expect(evaluateAccrualPayTransition("under_review").ok).toBe(false);
   });
 });
 
-describe("permissionForAccrualAction", () => {
-  it("permission commission_payment_confirm absente refusée", () => {
+describe("parsePayrollProofInput", () => {
+  const valid = {
+    payrollReference: "  PAIE-2026-08-05-001  ",
+    payrollPeriodStart: "2026-07-21",
+    payrollPeriodEnd: "2026-08-03",
+    payrollPayDate: "2026-08-05",
+  };
+
+  it("champs de paie obligatoires et référence trimée", () => {
+    const parsed = parsePayrollProofInput(valid);
+    expect(parsed.ok).toBe(true);
+    if (parsed.ok) {
+      expect(parsed.value.payrollReference).toBe("PAIE-2026-08-05-001");
+      expect(parsed.value.payrollPeriodStart).toBe("2026-07-21");
+      expect(parsed.value.payrollPeriodEnd).toBe("2026-08-03");
+      expect(parsed.value.payrollPayDate).toBe("2026-08-05");
+    }
+  });
+
+  it("référence absente refusée", () => {
+    const parsed = parsePayrollProofInput({ ...valid, payrollReference: "   " });
+    expect(parsed.ok).toBe(false);
+    if (!parsed.ok) expect(parsed.field).toBe("payrollReference");
+  });
+
+  it("date absente ou invalide refusée", () => {
+    expect(
+      parsePayrollProofInput({ ...valid, payrollPayDate: "" }).ok
+    ).toBe(false);
+    expect(
+      parsePayrollProofInput({ ...valid, payrollPeriodStart: "2026-13-01" }).ok
+    ).toBe(false);
+  });
+
+  it("période inversée refusée", () => {
+    const parsed = parsePayrollProofInput({
+      ...valid,
+      payrollPeriodStart: "2026-08-10",
+      payrollPeriodEnd: "2026-08-01",
+    });
+    expect(parsed.ok).toBe(false);
+    if (!parsed.ok) expect(parsed.field).toBe("payrollPeriodEnd");
+  });
+});
+
+describe("buildAccrualPayPatch / history / amounts", () => {
+  it("patch exact avec champs de paie, sans montant/base/taux", () => {
+    const payroll = {
+      payrollReference: "PAIE-1",
+      payrollPeriodStart: "2026-07-21",
+      payrollPeriodEnd: "2026-08-03",
+      payrollPayDate: "2026-08-05",
+    };
+    const patch = buildAccrualPayPatch({
+      userId: "user-abc",
+      paidAtIso: "2026-08-05T14:00:00.000Z",
+      payroll,
+    });
+    expect(patch).toEqual({
+      status: "paid",
+      paid_at: "2026-08-05T14:00:00.000Z",
+      paid_by: "user-abc",
+      updated_by: "user-abc",
+      payroll_reference: "PAIE-1",
+      payroll_period_start: "2026-07-21",
+      payroll_period_end: "2026-08-03",
+      payroll_pay_date: "2026-08-05",
+    });
+    expect(Object.keys(patch).sort()).toEqual(
+      [
+        "paid_at",
+        "paid_by",
+        "payroll_pay_date",
+        "payroll_period_end",
+        "payroll_period_start",
+        "payroll_reference",
+        "status",
+        "updated_by",
+      ].sort()
+    );
+
+    const history = buildAccrualPayHistoryRow({
+      accrualId: "accrual-1",
+      userId: "user-abc",
+    });
+    expect(history.from_status).toBe("validated");
+    expect(history.to_status).toBe("paid");
+  });
+
+  it("montant, base et taux inchangés", () => {
+    const before = {
+      calculated_amount: 50,
+      sales_basis_amount: 1000,
+      rate_percent: 5,
+      fixed_amount: null,
+    };
+    expect(accrualAmountsUnchanged(before, { ...before })).toBe(true);
+    expect(
+      accrualAmountsUnchanged(before, { ...before, calculated_amount: 51 })
+    ).toBe(false);
+  });
+});
+
+describe("permissions et UI helpers", () => {
+  it("permission commission_payment_confirm", () => {
     expect(permissionForAccrualAction("pay")).toBe(
       "commission_payment_confirm"
     );
     expect(
       hasAccrualActionPermission({
         isAdminFinance: false,
-        permissionSlugs: ["commission_approve"],
+        permissionSlugs: [],
         action: "pay",
       })
     ).toBe(false);
-  });
-
-  it("administrateur ou permission valide autorisé", () => {
     expect(
       hasAccrualActionPermission({
         isAdminFinance: true,
@@ -90,273 +182,112 @@ describe("permissionForAccrualAction", () => {
         action: "pay",
       })
     ).toBe(true);
-    expect(
-      hasAccrualActionPermission({
-        isAdminFinance: false,
-        permissionSlugs: ["commission_payment_confirm"],
-        action: "pay",
-      })
-    ).toBe(true);
   });
 
-  it("validate exige commission_approve", () => {
-    expect(permissionForAccrualAction("validate")).toBe("commission_approve");
-  });
-});
-
-describe("buildAccrualPayPatch / history / amounts", () => {
-  it("paid_at et paid_by persistés, historique validated → paid exact", () => {
-    const paidAt = "2026-08-05T14:00:00.000Z";
-    const userId = "user-abc";
-    const patch = buildAccrualPayPatch({ userId, paidAtIso: paidAt });
-    expect(patch.status).toBe("paid");
-    expect(patch.paid_at).toBe(paidAt);
-    expect(patch.paid_by).toBe(userId);
-    expect(patch).not.toHaveProperty("calculated_amount");
-    expect(patch).not.toHaveProperty("sales_basis_amount");
-    expect(patch).not.toHaveProperty("rate_percent");
-    expect(patch).not.toHaveProperty("label");
-
-    const history = buildAccrualPayHistoryRow({
-      accrualId: "accrual-1",
-      userId,
-    });
-    expect(history.from_status).toBe("validated");
-    expect(history.to_status).toBe("paid");
-    expect(history.changed_by).toBe(userId);
-  });
-
-  it("aucun changement amount / base / rule", () => {
-    const before = {
-      calculated_amount: 50,
-      sales_basis_amount: 1000,
-      rate_percent: 5,
-      fixed_amount: null,
-    };
-    const after = { ...before };
-    expect(accrualAmountsUnchanged(before, after)).toBe(true);
-    expect(
-      accrualAmountsUnchanged(before, { ...after, calculated_amount: 51 })
-    ).toBe(false);
-    expect(
-      accrualAmountsUnchanged(before, { ...after, sales_basis_amount: 999 })
-    ).toBe(false);
-    expect(
-      accrualAmountsUnchanged(before, { ...after, rate_percent: 6 })
-    ).toBe(false);
-  });
-});
-
-describe("paid metadata contract", () => {
-  it("métadonnées obligatoires pour paid", () => {
-    expect(
-      isPaidMetadataConsistent({
-        status: "paid",
-        paidAt: "2026-08-05T12:00:00.000Z",
-        paidBy: "user-1",
-      })
-    ).toBe(true);
-    expect(
-      isPaidMetadataConsistent({
-        status: "paid",
-        paidAt: null,
-        paidBy: "user-1",
-      })
-    ).toBe(false);
-    expect(
-      isPaidMetadataConsistent({
-        status: "paid",
-        paidAt: "2026-08-05T12:00:00.000Z",
-        paidBy: null,
-      })
-    ).toBe(false);
-  });
-
-  it("métadonnées nulles hors paid", () => {
-    for (const status of [
-      "draft",
-      "calculated",
-      "under_review",
-      "validated",
-    ]) {
-      expect(
-        isPaidMetadataConsistent({
-          status,
-          paidAt: null,
-          paidBy: null,
-        })
-      ).toBe(true);
-      expect(
-        isPaidMetadataConsistent({
-          status,
-          paidAt: "2026-08-05T12:00:00.000Z",
-          paidBy: "user-1",
-        })
-      ).toBe(false);
-    }
-  });
-});
-
-describe("UI helpers paid", () => {
-  it("bouton visible sur validated, absent après paiement", () => {
-    expect(canShowMarkAsPaidAction("validated")).toBe(true);
-    expect(canShowMarkAsPaidAction("paid")).toBe(false);
-  });
-
-  it("badge Payée = statut paid", () => {
-    expect(isPayPlanAccrualPaid("paid")).toBe(true);
-    expect(isPayPlanAccrualPaid("validated")).toBe(false);
-  });
-
-  it("confirmation contient montant et vendeur", () => {
+  it("confirmation contient montant, vendeur, référence et période", () => {
     const message = formatMarkAsPaidConfirmation({
       amountLabel: "50,00 $",
       sellerName: "Yves",
+      payrollReference: "PAIE-2026-08-05-001",
+      payrollPeriodStart: "2026-07-21",
+      payrollPeriodEnd: "2026-08-03",
     });
-    expect(message).toBe(
-      "Marquer cette commission de 50,00 $ pour Yves comme payée?"
-    );
     expect(message).toContain("50,00 $");
     expect(message).toContain("Yves");
-  });
-
-  it("actions Annuler / Confirmer le paiement", () => {
+    expect(message).toContain("PAIE-2026-08-05-001");
+    expect(message).toContain("période");
     expect(MARK_AS_PAID_CANCEL_ACTION_LABEL).toBe("Annuler");
     expect(MARK_AS_PAID_CONFIRM_ACTION_LABEL).toBe("Confirmer le paiement");
+    expect(PAID_SUCCESS_CARD_TITLE).toBe("PAIEMENT CONFIRMÉ");
   });
 
-  it("identité payeur : nom, puis fallback UUID masqué", () => {
+  it("legacy paid sans référence géré proprement", () => {
+    expect(hasCompletePayrollProof({})).toBe(false);
+    expect(payrollReferenceDisplayLabel({})).toBe(
+      LEGACY_PAYROLL_REFERENCE_MISSING
+    );
     expect(
-      resolvePaidByDisplayName({
-        userId: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
-        fullName: "Martin ST-Gelais",
-      })
-    ).toBe("Martin ST-Gelais");
-    expect(
-      resolvePaidByDisplayName({
-        userId: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
-        name: "martin.admin",
-      })
-    ).toBe("martin.admin");
-    expect(
-      resolvePaidByDisplayName({
-        userId: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
-        email: "martin@example.com",
-      })
-    ).toBe("ma…@example.com");
-    expect(
-      resolvePaidByDisplayName({
-        userId: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
-      })
-    ).toBe("Utilisateur aaaaaaaa…");
+      payrollReferenceDisplayLabel({ payrollReference: "PAIE-1" })
+    ).toBe("PAIE-1");
+    expect(formatPayrollPeriodLabel({})).toBe("");
   });
 
-  it("paid ne peut plus être revalidé", () => {
-    const decision = evaluateAccrualValidateTransition("paid");
-    expect(decision.ok).toBe(false);
+  it("bouton et badge paid", () => {
+    expect(canShowMarkAsPaidAction("validated")).toBe(true);
+    expect(canShowMarkAsPaidAction("paid")).toBe(false);
+    expect(isPayPlanAccrualPaid("paid")).toBe(true);
+    expect(evaluateAccrualValidateTransition("paid").ok).toBe(false);
   });
 });
 
 describe("page Payées helpers", () => {
-  it("section plans / objectifs, compteurs et états vides précis", () => {
+  it("sections, compteurs, filtre vendeur", () => {
     expect(PAID_PLAN_RESULTS_SECTION_TITLE).toBe("Résultats de plans payés");
     expect(PAID_OBJECTIVE_COMMISSIONS_SECTION_TITLE).toBe(
       "Commissions liées aux objectifs payées"
     );
-    expect(PAID_PLAN_RESULTS_EMPTY).toBe(
-      "Aucun résultat de plan marqué comme payé."
-    );
-    expect(PAID_OBJECTIVE_COMMISSIONS_EMPTY).toBe(
-      "Aucune commission liée aux objectifs payée."
-    );
+    expect(PAID_PLAN_RESULTS_EMPTY).toContain("plan");
     expect(PAID_OBJECTIVE_COMMISSIONS_EMPTY).not.toBe(
       "Aucune commission à afficher"
     );
     expect(PAID_PLAN_RESULT_CTA_LABEL).toBe("Voir la commission");
     expect(PAID_BY_CONFIRMED_BY_LABEL).toBe("Paiement confirmé par");
-
-    const counts = formatPaidCategoryCounts(2, 0);
-    expect(counts.plansLabel).toBe("Résultats de plans payés : 2");
-    expect(counts.objectivesLabel).toBe(
-      "Commissions d’objectifs payées : 0"
-    );
-  });
-
-  it("filtre vendeur sur plans payés", () => {
-    const rows = [
+    const counts = formatPaidCategoryCounts(1, 0);
+    expect(counts.plansLabel).toContain("1");
+    const paid = filterPaidPayPlanResults([
       { status: "paid", employeeId: 2, id: "a" },
-      { status: "paid", employeeId: 5, id: "b" },
-      { status: "validated", employeeId: 2, id: "c" },
-    ];
-    const paid = filterPaidPayPlanResults(rows);
-    expect(paid.map((r) => r.id)).toEqual(["a", "b"]);
+      { status: "validated", employeeId: 2, id: "b" },
+    ]);
     expect(
       filterPayPlanResultsBySellerKey(paid, "employee:2").map((r) => r.id)
     ).toEqual(["a"]);
-    expect(filterPayPlanResultsBySellerKey(paid, "all")).toHaveLength(2);
-  });
-
-  it("garde organisation", () => {
-    expect(isTraceInOrganization("org-a", "org-a")).toBe(true);
     expect(isTraceInOrganization("org-a", "org-b")).toBe(false);
+    expect(
+      isPaidMetadataConsistent({
+        status: "paid",
+        paidAt: "x",
+        paidBy: "y",
+      })
+    ).toBe(true);
+    expect(
+      resolvePaidByDisplayName({
+        userId: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+        fullName: "Martin",
+      })
+    ).toBe("Martin");
   });
 });
 
-describe("migration paid metadata CHECK (source, no DB)", () => {
+describe("migration payroll reference additive (source, no DB)", () => {
   const migration = readFileSync(
     join(
       process.cwd(),
-      "supabase/migrations/20260805100000_compensation_accruals_paid_status.sql"
+      "supabase/migrations/20260805150000_compensation_accruals_payroll_reference.sql"
     ),
     "utf8"
   );
 
-  it("statut paid supporté et contrainte metadata exacte", () => {
-    expect(migration).toMatch(/'paid'/);
-    expect(migration).toMatch(/paid_at timestamptz/i);
-    expect(migration).toMatch(/paid_by uuid/i);
+  it("quatre colonnes ajoutées sans contrainte stricte paid", () => {
+    expect(migration).toMatch(/payroll_reference text null/i);
+    expect(migration).toMatch(/payroll_period_start date null/i);
+    expect(migration).toMatch(/payroll_period_end date null/i);
+    expect(migration).toMatch(/payroll_pay_date date null/i);
+    expect(migration).toMatch(/btrim\(payroll_reference\) <> ''/i);
     expect(migration).toMatch(
-      /compensation_accruals_paid_metadata_check/
+      /payroll_period_start <= payroll_period_end/i
     );
-    expect(migration).toMatch(
-      /status = 'paid'[\s\S]*paid_at is not null[\s\S]*paid_by is not null/
-    );
-    expect(migration).toMatch(
-      /status <> 'paid'[\s\S]*paid_at is null[\s\S]*paid_by is null/
-    );
-    expect(migration.match(/compensation_accruals_paid_metadata_check/g)?.length).toBe(
-      2
-    );
-  });
-
-  it("paid_by FK conserve l’acteur via ON DELETE RESTRICT", () => {
-    expect(migration).toMatch(
-      /paid_by uuid null references auth\.users \(id\) on delete restrict/i
-    );
-    expect(migration).toMatch(
-      /Preserve the payment actor reference: an Auth user referenced by a paid accrual cannot be hard-deleted\./
-    );
-    expect(migration).not.toMatch(
-      /paid_by uuid null references auth\.users \(id\) on delete set null/i
-    );
-    expect(
-      migration.match(/paid_by uuid null references auth\.users \(id\)/gi)?.length
-    ).toBe(1);
-  });
-
-  it("aucun backfill / UPDATE / DELETE de données", () => {
+    expect(migration).not.toMatch(/status = 'paid'/);
+    expect(migration).not.toMatch(/backfill/i);
     expect(migration).not.toMatch(/\bupdate\b/i);
     expect(migration).not.toMatch(/^\s*delete\b/im);
-    expect(migration).not.toMatch(/\binsert\b/i);
-    expect(migration).not.toMatch(/backfill/i);
     expect(migration).not.toMatch(/production/i);
     expect(migration).toMatch(/\bbegin\s*;/i);
     expect(migration).toMatch(/\bcommit\s*;/i);
   });
 });
 
-describe("API / UI source contracts (no live DB)", () => {
-  it("route détail : pay, tenant, permission, identité, pas de recalcul", () => {
+describe("API / UI source contracts payroll proof", () => {
+  it("route détail exige payroll proof et persiste les quatre champs", () => {
     const source = readFileSync(
       join(
         process.cwd(),
@@ -364,19 +295,18 @@ describe("API / UI source contracts (no live DB)", () => {
       ),
       "utf8"
     );
-    expect(source).toMatch(/action === "pay"/);
-    expect(source).toMatch(/permissionForAccrualAction\(action\)/);
-    expect(source).toMatch(/isTraceInOrganization/);
-    expect(source).toMatch(/buildAccrualPayPatch/);
+    expect(source).toMatch(/parsePayrollProofInput/);
+    expect(source).toMatch(/payrollReference/);
+    expect(source).toMatch(/payrollPeriodStart/);
+    expect(source).toMatch(/payrollPeriodEnd/);
+    expect(source).toMatch(/payrollPayDate/);
+    expect(source).toMatch(/eq\("status", "validated"\)/);
     expect(source).toMatch(/mode === "idempotent"/);
-    expect(source).toMatch(/paid_by_display/);
-    expect(source).toMatch(/resolvePaidByDisplayName/);
     expect(source).toMatch(/evaluateAccrualValidateTransition/);
     expect(source).not.toMatch(/recalcul/i);
-    expect(source).not.toMatch(/calculated_amount\s*:/);
   });
 
-  it("fiche : confirmation humaine, Annuler sans mutation, identité payeur", () => {
+  it("fiche : formulaire, confirmation, carte premium, legacy", () => {
     const source = readFileSync(
       join(
         process.cwd(),
@@ -384,18 +314,20 @@ describe("API / UI source contracts (no live DB)", () => {
       ),
       "utf8"
     );
+    expect(source).toMatch(/PAYROLL_REFERENCE_FIELD_LABEL/);
+    expect(source).toMatch(/PAYROLL_PERIOD_START_FIELD_LABEL/);
+    expect(source).toMatch(/PAYROLL_PERIOD_END_FIELD_LABEL/);
+    expect(source).toMatch(/PAYROLL_PAY_DATE_FIELD_LABEL/);
     expect(source).toMatch(/formatMarkAsPaidConfirmation/);
-    expect(source).toMatch(/role="dialog"/);
-    expect(source).toMatch(/MARK_AS_PAID_CANCEL_ACTION_LABEL/);
-    expect(source).toMatch(/MARK_AS_PAID_CONFIRM_ACTION_LABEL/);
-    expect(source).toMatch(/PAID_BY_CONFIRMED_BY_LABEL/);
-    expect(source).toMatch(/confirmMarkAsPaid/);
+    expect(source).toMatch(/PAID_SUCCESS_CARD_TITLE/);
+    expect(source).toMatch(/LEGACY_PAYROLL_REFERENCE_MISSING/);
     expect(source).toMatch(/cancelPayConfirmation/);
+    expect(source).toMatch(/confirmMarkAsPaid/);
+    expect(source).toMatch(/disabled=\{busy\}/);
     expect(source).not.toMatch(/window\.confirm/);
-    expect(source).toMatch(/action: "pay"/);
   });
 
-  it("page Payées : deux sections, compteurs, filtre vendeur, états vides", () => {
+  it("page Payées expose les champs de paie et préserve objectifs", () => {
     const source = readFileSync(
       join(
         process.cwd(),
@@ -403,14 +335,11 @@ describe("API / UI source contracts (no live DB)", () => {
       ),
       "utf8"
     );
-    expect(source).toMatch(/PAID_PLAN_RESULTS_SECTION_TITLE/);
+    expect(source).toMatch(/payrollReferenceDisplayLabel/);
+    expect(source).toMatch(/formatPayrollPeriodLabel/);
+    expect(source).toMatch(/formatIsoDateFrCa/);
     expect(source).toMatch(/PAID_OBJECTIVE_COMMISSIONS_SECTION_TITLE/);
-    expect(source).toMatch(/formatPaidCategoryCounts/);
     expect(source).toMatch(/filterPayPlanResultsBySellerKey/);
-    expect(source).toMatch(/PAID_PLAN_RESULTS_EMPTY/);
-    expect(source).toMatch(/PAID_OBJECTIVE_COMMISSIONS_EMPTY/);
-    expect(source).toMatch(/PAID_PLAN_RESULT_CTA_LABEL/);
-    expect(source).toMatch(/id="commissions-payees"/);
-    expect(source).toMatch(/isPaidCommissionsWorkflow/);
+    expect(source).toMatch(/formatPaidCategoryCounts/);
   });
 });

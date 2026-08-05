@@ -61,7 +61,7 @@ export async function GET(req: NextRequest) {
   const { data: accruals, error } = await gate.auth.supabase
     .from("compensation_accruals")
     .select(
-      "id, label, status, calculated_amount, sales_basis_amount, rule_name, created_at, updated_at, paid_at, paid_by"
+      "id, label, status, calculated_amount, sales_basis_amount, rule_name, created_at, updated_at, paid_at, paid_by, payroll_reference, payroll_period_start, payroll_period_end, payroll_pay_date"
     )
     .eq("component", "commission")
     .order("created_at", { ascending: false })
@@ -100,6 +100,10 @@ export async function GET(req: NextRequest) {
           updated_at: string;
           paid_at: string | null;
           paid_by: string | null;
+          payroll_reference: string | null;
+          payroll_period_start: string | null;
+          payroll_period_end: string | null;
+          payroll_pay_date: string | null;
         };
         trace: NonNullable<ReturnType<typeof decodeGenericPayPlanTrace>>;
       } => item != null
@@ -208,6 +212,24 @@ export async function GET(req: NextRequest) {
         ? paidByDisplayById.get(paidBy) ||
           resolvePaidByDisplayName({ userId: paidBy })
         : null,
+      payrollReference:
+        typeof row.payroll_reference === "string" && row.payroll_reference.trim()
+          ? row.payroll_reference.trim()
+          : null,
+      payrollPeriodStart:
+        typeof row.payroll_period_start === "string" &&
+        row.payroll_period_start.trim()
+          ? row.payroll_period_start.trim()
+          : null,
+      payrollPeriodEnd:
+        typeof row.payroll_period_end === "string" &&
+        row.payroll_period_end.trim()
+          ? row.payroll_period_end.trim()
+          : null,
+      payrollPayDate:
+        typeof row.payroll_pay_date === "string" && row.payroll_pay_date.trim()
+          ? row.payroll_pay_date.trim()
+          : null,
       trace,
       beneficiary,
     });

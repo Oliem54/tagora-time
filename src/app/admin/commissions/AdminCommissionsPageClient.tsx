@@ -57,7 +57,9 @@ import {
 import {
   filterPaidPayPlanResults,
   filterPayPlanResultsBySellerKey,
+  formatIsoDateFrCa,
   formatPaidCategoryCounts,
+  formatPayrollPeriodLabel,
   PAID_BY_CONFIRMED_BY_LABEL,
   PAID_OBJECTIVE_COMMISSIONS_EMPTY,
   PAID_OBJECTIVE_COMMISSIONS_SECTION_TITLE,
@@ -65,6 +67,7 @@ import {
   PAID_PLAN_RESULTS_EMPTY,
   PAID_PLAN_RESULTS_SECTION_SUBTITLE,
   PAID_PLAN_RESULTS_SECTION_TITLE,
+  payrollReferenceDisplayLabel,
 } from "@/app/lib/commissions/pay-plan-accrual-payment.shared";
 import {
   formatCad as formatCadPayPlan,
@@ -1552,11 +1555,10 @@ export default function AdminCommissionsPageClient() {
                         </div>
                         <div
                           style={{
-                            display: "flex",
-                            justifyContent: "space-between",
+                            display: "grid",
                             gap: 12,
-                            flexWrap: "wrap",
-                            alignItems: "end",
+                            gridTemplateColumns:
+                              "repeat(auto-fit, minmax(140px, 1fr))",
                             marginTop: 12,
                           }}
                         >
@@ -1569,11 +1571,44 @@ export default function AdminCommissionsPageClient() {
                               className="ui-text-muted"
                               style={{ fontSize: 12 }}
                             >
-                              Date de paiement
+                              Référence de paie
+                            </span>
+                            <strong
+                              style={{
+                                color: result.payrollReference
+                                  ? "#0f172a"
+                                  : "#9a3412",
+                              }}
+                            >
+                              {payrollReferenceDisplayLabel({
+                                payrollReference: result.payrollReference,
+                              })}
+                            </strong>
+                          </div>
+                          <div style={{ display: "grid", gap: 4 }}>
+                            <span
+                              className="ui-text-muted"
+                              style={{ fontSize: 12 }}
+                            >
+                              Période de paie
                             </span>
                             <strong style={{ color: "#0f172a" }}>
-                              {result.paidAt
-                                ? formatFrDateTime(result.paidAt)
+                              {formatPayrollPeriodLabel({
+                                periodStart: result.payrollPeriodStart,
+                                periodEnd: result.payrollPeriodEnd,
+                              }) || "—"}
+                            </strong>
+                          </div>
+                          <div style={{ display: "grid", gap: 4 }}>
+                            <span
+                              className="ui-text-muted"
+                              style={{ fontSize: 12 }}
+                            >
+                              Date de paie
+                            </span>
+                            <strong style={{ color: "#0f172a" }}>
+                              {result.payrollPayDate
+                                ? formatIsoDateFrCa(result.payrollPayDate)
                                 : "—"}
                             </strong>
                           </div>
@@ -1588,6 +1623,21 @@ export default function AdminCommissionsPageClient() {
                               {result.paidByDisplay || "—"}
                             </strong>
                           </div>
+                          <div style={{ display: "grid", gap: 4 }}>
+                            <span
+                              className="ui-text-muted"
+                              style={{ fontSize: 12 }}
+                            >
+                              Confirmé le
+                            </span>
+                            <strong style={{ color: "#0f172a" }}>
+                              {result.paidAt
+                                ? formatFrDateTime(result.paidAt)
+                                : "—"}
+                            </strong>
+                          </div>
+                        </div>
+                        <div style={{ marginTop: 12 }}>
                           <Link
                             href={`/admin/commissions/plans/results/${result.accrualId}?organization_id=${encodeURIComponent(result.organizationId)}`}
                             className="tagora-dark-action tagora-page-navigation-button"

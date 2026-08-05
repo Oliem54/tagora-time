@@ -24,6 +24,26 @@ export type AccrualAmountSnapshot = {
   fixed_amount?: number | null;
 };
 
+export type PayrollProofInput = {
+  payrollReference: unknown;
+  payrollPeriodStart: unknown;
+  payrollPeriodEnd: unknown;
+  payrollPayDate: unknown;
+};
+
+export type ParsedPayrollProof = {
+  payrollReference: string;
+  payrollPeriodStart: string;
+  payrollPeriodEnd: string;
+  payrollPayDate: string;
+};
+
+export type PayrollProofField =
+  | "payrollReference"
+  | "payrollPeriodStart"
+  | "payrollPeriodEnd"
+  | "payrollPayDate";
+
 export function normalizeAccrualStatus(status: unknown): string {
   return String(status || "")
     .trim()
@@ -146,20 +166,104 @@ export function evaluateAccrualValidateTransition(
   return { ok: true, mode: "transition" };
 }
 
+const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+export function isIsoDateOnly(value: unknown): value is string {
+  if (typeof value !== "string") return false;
+  const trimmed = value.trim();
+  if (!ISO_DATE_RE.test(trimmed)) return false;
+  const [y, m, d] = trimmed.split("-").map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  return (
+    dt.getUTCFullYear() === y &&
+    dt.getUTCMonth() === m - 1 &&
+    dt.getUTCDate() === d
+  );
+}
+
+export function parsePayrollProofInput(
+  input: PayrollProofInput
+):
+  | { ok: true; value: ParsedPayrollProof }
+  | { ok: false; field: PayrollProofField; error: string } {
+  const payrollReference = String(input.payrollReference ?? "").trim();
+  if (!payrollReference) {
+    return {
+      ok: false,
+      field: "payrollReference",
+      error: "La référence ou le numéro de paie est obligatoire.",
+    };
+  }
+
+  const payrollPeriodStart = String(input.payrollPeriodStart ?? "").trim();
+  if (!isIsoDateOnly(payrollPeriodStart)) {
+    return {
+      ok: false,
+      field: "payrollPeriodStart",
+      error: "Le début de la période de paie est obligatoire (AAAA-MM-JJ).",
+    };
+  }
+
+  const payrollPeriodEnd = String(input.payrollPeriodEnd ?? "").trim();
+  if (!isIsoDateOnly(payrollPeriodEnd)) {
+    return {
+      ok: false,
+      field: "payrollPeriodEnd",
+      error: "La fin de la période de paie est obligatoire (AAAA-MM-JJ).",
+    };
+  }
+
+  if (payrollPeriodStart > payrollPeriodEnd) {
+    return {
+      ok: false,
+      field: "payrollPeriodEnd",
+      error: "La fin de période doit être postérieure ou égale au début.",
+    };
+  }
+
+  const payrollPayDate = String(input.payrollPayDate ?? "").trim();
+  if (!isIsoDateOnly(payrollPayDate)) {
+    return {
+      ok: false,
+      field: "payrollPayDate",
+      error: "La date de paie est obligatoire (AAAA-MM-JJ).",
+    };
+  }
+
+  return {
+    ok: true,
+    value: {
+      payrollReference,
+      payrollPeriodStart,
+      payrollPeriodEnd,
+      payrollPayDate,
+    },
+  };
+}
+
 export function buildAccrualPayPatch(input: {
   userId: string;
   paidAtIso: string;
+  payroll: ParsedPayrollProof;
 }): {
   status: "paid";
   paid_at: string;
   paid_by: string;
   updated_by: string;
+  payroll_reference: string;
+  payroll_period_start: string;
+  payroll_period_end: string;
+  payroll_pay_date: string;
 } {
   return {
     status: "paid",
     paid_at: input.paidAtIso,
     paid_by: input.userId,
     updated_by: input.userId,
+    payroll_reference: input.payroll.payrollReference,
+    payroll_period_start: input.payroll.payrollPeriodStart,
+    payroll_period_end: input.payroll.payrollPeriodEnd,
+    payroll_pay_date: input.payroll.payrollPayDate,
   };
 }
 
@@ -275,16 +379,71 @@ export function resolvePaidByDisplayName(input: {
   return userId ? `Utilisateur ${userId}` : "Utilisateur inconnu";
 }
 
+export function formatIsoDateFrCa(value: string): string {
+  const trimmed = String(value || "").trim();
+  if (!isIsoDateOnly(trimmed)) return trimmed || "—";
+  const [y, m, d] = trimmed.split("-").map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  return new Intl.DateTimeFormat("fr-CA", {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+    timeZone: "UTC",
+  }).format(dt);
+}
+
+export function formatPayrollPeriodLabel(input: {
+  periodStart?: string | null;
+  periodEnd?: string | null;
+}): string {
+  const start = String(input.periodStart || "").trim();
+  const end = String(input.periodEnd || "").trim();
+  if (!start && !end) return "";
+  if (start && end) {
+    return `${formatIsoDateFrCa(start)} au ${formatIsoDateFrCa(end)}`;
+  }
+  return formatIsoDateFrCa(start || end);
+}
+
 export function formatMarkAsPaidConfirmation(input: {
   amountLabel: string;
   sellerName: string;
+  payrollReference: string;
+  payrollPeriodStart: string;
+  payrollPeriodEnd: string;
 }): string {
   const amount = String(input.amountLabel || "").trim() || "—";
   const seller = String(input.sellerName || "").trim() || "le vendeur";
-  return `Marquer cette commission de ${amount} pour ${seller} comme payée?`;
+  const reference = String(input.payrollReference || "").trim() || "—";
+  const period = formatPayrollPeriodLabel({
+    periodStart: input.payrollPeriodStart,
+    periodEnd: input.payrollPeriodEnd,
+  });
+  return `Marquer cette commission de ${amount} pour ${seller} comme payée sur la paie ${reference}, pour la période du ${period}?`;
 }
 
-/** Contrat metadata paid (miroir CHECK SQL, testable sans DB). */
+export function hasCompletePayrollProof(input: {
+  payrollReference?: string | null;
+  payrollPeriodStart?: string | null;
+  payrollPeriodEnd?: string | null;
+  payrollPayDate?: string | null;
+}): boolean {
+  return Boolean(
+    String(input.payrollReference || "").trim() &&
+      isIsoDateOnly(String(input.payrollPeriodStart || "").trim()) &&
+      isIsoDateOnly(String(input.payrollPeriodEnd || "").trim()) &&
+      isIsoDateOnly(String(input.payrollPayDate || "").trim())
+  );
+}
+
+export function payrollReferenceDisplayLabel(input: {
+  payrollReference?: string | null;
+}): string {
+  const reference = String(input.payrollReference || "").trim();
+  return reference || LEGACY_PAYROLL_REFERENCE_MISSING;
+}
+
+/** Contrat metadata paid de base (paid_at / paid_by). */
 export function isPaidMetadataConsistent(input: {
   status: unknown;
   paidAt: unknown;
@@ -328,6 +487,13 @@ export const PAID_OBJECTIVE_COMMISSIONS_SECTION_TITLE =
   "Commissions liées aux objectifs payées";
 export const PAID_PLAN_RESULT_CTA_LABEL = "Voir la commission";
 export const PAID_BY_CONFIRMED_BY_LABEL = "Paiement confirmé par";
+export const PAID_SUCCESS_CARD_TITLE = "PAIEMENT CONFIRMÉ";
+export const LEGACY_PAYROLL_REFERENCE_MISSING =
+  "Référence de paie à compléter";
+export const PAYROLL_REFERENCE_FIELD_LABEL = "Référence ou numéro de paie";
+export const PAYROLL_PERIOD_START_FIELD_LABEL = "Début de la période de paie";
+export const PAYROLL_PERIOD_END_FIELD_LABEL = "Fin de la période de paie";
+export const PAYROLL_PAY_DATE_FIELD_LABEL = "Date de paie";
 
 export function formatPaidCategoryCounts(
   planCount: number,
