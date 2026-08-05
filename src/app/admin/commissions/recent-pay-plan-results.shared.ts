@@ -12,6 +12,7 @@ export type RecentPayPlanResultItem = {
   accrualId: string;
   organizationId: string;
   templateId: string;
+  employeeId: number | null;
   beneficiaryPrimary: string;
   beneficiarySecondary: string | null;
   planName: string;
@@ -41,10 +42,14 @@ function normalizeItem(
     return null;
   }
   const basisAmount = Number(item.basisAmount);
+  const employeeIdRaw = Number(item.employeeId);
+  const employeeId =
+    Number.isInteger(employeeIdRaw) && employeeIdRaw > 0 ? employeeIdRaw : null;
   return {
     accrualId,
     organizationId,
     templateId,
+    employeeId,
     beneficiaryPrimary:
       String(item.beneficiaryPrimary || "").trim() || "Bénéficiaire",
     beneficiarySecondary:
@@ -71,10 +76,17 @@ export function toPersistedPayPlanResultItem(input: {
   beneficiary: PayPlanBeneficiaryDisplay;
 }): RecentPayPlanResultItem {
   const versionNumber = Number(input.trace.version_number);
+  const employeeIdRaw = Number(
+    input.beneficiary.employeeId ?? input.trace.employee_id
+  );
   return {
     accrualId: String(input.accrualId || input.trace.accrual_id || "").trim(),
     organizationId: String(input.organizationId).trim(),
     templateId: String(input.trace.template_id).trim(),
+    employeeId:
+      Number.isInteger(employeeIdRaw) && employeeIdRaw > 0
+        ? employeeIdRaw
+        : null,
     beneficiaryPrimary: input.beneficiary.primary,
     beneficiarySecondary: input.beneficiary.secondary,
     planName: String(input.trace.template_name || "").trim() || "Plan",

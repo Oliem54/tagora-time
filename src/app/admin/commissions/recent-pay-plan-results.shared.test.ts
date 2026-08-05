@@ -11,6 +11,7 @@ const sample: RecentPayPlanResultItem = {
   accrualId: "acc-1",
   organizationId: "org-a",
   templateId: "tpl-1",
+  employeeId: 2,
   beneficiaryPrimary: "Yves",
   beneficiarySecondary: "Employé #2",
   planName: "QA 6F Plan pourcentage",
@@ -112,6 +113,7 @@ describe("recent pay plan results memory", () => {
     });
     expect(mapped.beneficiaryPrimary).toBe("Yves");
     expect(mapped.beneficiarySecondary).toBe("Employé #2");
+    expect(mapped.employeeId).toBe(2);
     expect(mapped.amount).toBe(50);
     expect(mapped.planName).toBe("QA 6F Plan pourcentage");
     expect(mapped.versionLabel).toBe("Version 1");

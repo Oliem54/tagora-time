@@ -14,6 +14,19 @@ export const dynamic = "force-dynamic";
 
 const LIST_LIMIT = 80;
 
+function chauffeurDisplayName(row: {
+  nom?: string | null;
+  prenom?: string | null;
+  nom_complet?: string | null;
+}): string | null {
+  const full = String(row.nom_complet || "").trim();
+  if (full) return full;
+  const composed = [row.prenom, row.nom].filter(Boolean).join(" ").trim();
+  if (composed) return composed;
+  const nom = String(row.nom || "").trim();
+  return nom || null;
+}
+
 export async function GET(req: NextRequest) {
   const gate = await requireGenericPayPlanAdminAccess(req);
   if (!gate.ok) return gate.response;
@@ -25,7 +38,10 @@ export async function GET(req: NextRequest) {
     const audit = assertPayPlanPermission(gate.auth.user, "commission_audit_read");
     if (!audit.ok) {
       return NextResponse.json(
-        { error: audit.error },
+        {
+          error: audit.error,
+          diagnostic_code: "RESULTS_PERMISSION_DENIED",
+        },
         { status: audit.status }
       );
     }
@@ -41,7 +57,16 @@ export async function GET(req: NextRequest) {
     requestedOrganizationId: organizationId,
   });
   if (!org.ok) {
-    return NextResponse.json({ error: org.error }, { status: org.status });
+    return NextResponse.json(
+      {
+        error: org.error,
+        diagnostic_code:
+          org.status === 403
+            ? "RESULTS_ORG_FORBIDDEN"
+            : "RESULTS_ORG_UNRESOLVED",
+      },
+      { status: org.status }
+    );
   }
 
   const { data: accruals, error } = await gate.auth.supabase
@@ -54,9 +79,16 @@ export async function GET(req: NextRequest) {
     .limit(LIST_LIMIT);
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 400 });
+    return NextResponse.json(
+      {
+        error: "Lecture des résultats impossible.",
+        diagnostic_code: "RESULTS_SUPABASE_QUERY_FAILED",
+      },
+      { status: 400 }
+    );
   }
 
+  const scanned = (accruals ?? []).length;
   const decoded = (accruals ?? [])
     .map((row) => {
       const trace = decodeGenericPayPlanTrace(row.label);
@@ -92,12 +124,17 @@ export async function GET(req: NextRequest) {
 
   const chauffeurById = new Map<
     number,
-    { nom: string | null; courriel: string | null; organization_id: string | null }
+    {
+      nom: string | null;
+      courriel: string | null;
+      organization_id: string | null;
+      displayName: string | null;
+    }
   >();
   if (employeeIds.length > 0) {
     const { data: chauffeurs } = await gate.auth.supabase
       .from("chauffeurs")
-      .select("id, nom, courriel, organization_id")
+      .select("id, nom, prenom, nom_complet, courriel, organization_id")
       .eq("organization_id", org.organizationId)
       .in("id", employeeIds);
     for (const chauffeur of chauffeurs ?? []) {
@@ -105,11 +142,13 @@ export async function GET(req: NextRequest) {
       if (!Number.isInteger(id) || id <= 0) continue;
       chauffeurById.set(id, {
         nom: typeof chauffeur.nom === "string" ? chauffeur.nom : null,
-        courriel: typeof chauffeur.courriel === "string" ? chauffeur.courriel : null,
+        courriel:
+          typeof chauffeur.courriel === "string" ? chauffeur.courriel : null,
         organization_id:
           typeof chauffeur.organization_id === "string"
             ? chauffeur.organization_id
             : null,
+        displayName: chauffeurDisplayName(chauffeur),
       });
     }
   }
@@ -118,7 +157,7 @@ export async function GET(req: NextRequest) {
     const chauffeur = chauffeurById.get(Number(trace.employee_id));
     const beneficiary = resolvePayPlanBeneficiaryDisplay({
       employeeId: trace.employee_id,
-      displayName: chauffeur?.nom ?? null,
+      displayName: chauffeur?.displayName ?? chauffeur?.nom ?? null,
       email: chauffeur?.courriel ?? null,
       sourceOrganizationId: chauffeur?.organization_id ?? null,
       expectedOrganizationId: org.organizationId,
@@ -136,5 +175,11 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({
     organization_id: org.organizationId,
     results,
+    diagnostic_code:
+      results.length === 0 ? "RESULTS_EMPTY_FOR_ORG" : "RESULTS_OK",
+    meta: {
+      scanned_accrual_rows: scanned,
+      matched_for_organization: results.length,
+    },
   });
 }

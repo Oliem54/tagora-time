@@ -10,6 +10,12 @@ export type CommissionSellerSource = {
   label?: string | null;
 };
 
+export type PlanBeneficiarySellerSource = {
+  employeeId: number;
+  primary: string;
+  secondary?: string | null;
+};
+
 export type CommissionSellerOption = {
   key: string;
   label: string;
@@ -39,15 +45,62 @@ export function resolveCommissionSellerLabel(
   return "Vendeur non assigné";
 }
 
+export function formatPlanBeneficiarySellerLabel(
+  primary: string,
+  secondary: string | null | undefined,
+  employeeId: number
+): string {
+  const id = Math.trunc(Number(employeeId));
+  const technical =
+    Number.isInteger(id) && id > 0 ? `Employé #${id}` : "Employé inconnu";
+  const name = String(primary || "").trim() || technical;
+  const ref = String(secondary || "").trim() || technical;
+  if (name === ref || name.includes(ref)) return name;
+  return `${name} — ${ref}`;
+}
+
+export function planBeneficiaryToSellerSource(
+  beneficiary: PlanBeneficiarySellerSource
+): CommissionSellerSource | null {
+  const employeeId = Math.trunc(Number(beneficiary.employeeId));
+  if (!Number.isInteger(employeeId) || employeeId <= 0) return null;
+  return {
+    chauffeur_id: employeeId,
+    assignee_label: formatPlanBeneficiarySellerLabel(
+      beneficiary.primary,
+      beneficiary.secondary ?? null,
+      employeeId
+    ),
+  };
+}
+
+function preferSellerLabel(current: string, next: string): string {
+  const a = String(current || "").trim();
+  const b = String(next || "").trim();
+  if (!a) return b;
+  if (!b) return a;
+  // Prefer the richer "Name — Employé #N" form when merging plan beneficiaries.
+  if (b.includes(" — ") && !a.includes(" — ")) return b;
+  if (b.length > a.length && b.includes(a)) return b;
+  return a;
+}
+
 export function buildCommissionSellerOptions(
-  entries: CommissionSellerSource[]
+  entries: CommissionSellerSource[],
+  planBeneficiaries: PlanBeneficiarySellerSource[] = []
 ): CommissionSellerOption[] {
   const byKey = new Map<string, string>();
   for (const entry of entries) {
     const key = resolveCommissionSellerKey(entry);
-    if (!byKey.has(key)) {
-      byKey.set(key, resolveCommissionSellerLabel(entry));
-    }
+    const label = resolveCommissionSellerLabel(entry);
+    byKey.set(key, preferSellerLabel(byKey.get(key) || "", label));
+  }
+  for (const beneficiary of planBeneficiaries) {
+    const asSource = planBeneficiaryToSellerSource(beneficiary);
+    if (!asSource) continue;
+    const key = resolveCommissionSellerKey(asSource);
+    const label = resolveCommissionSellerLabel(asSource);
+    byKey.set(key, preferSellerLabel(byKey.get(key) || "", label));
   }
   return Array.from(byKey.entries())
     .map(([key, label]) => ({ key, label }))

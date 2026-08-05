@@ -31,6 +31,7 @@ import {
 } from "@/app/admin/commissions/commission-module-ui";
 import {
   filterRecentPayPlanResultsForOrganization,
+  readRecentPayPlanResults,
   writeRecentPayPlanResults,
   type RecentPayPlanResultItem,
 } from "@/app/admin/commissions/recent-pay-plan-results.shared";
@@ -39,6 +40,7 @@ import {
   buildCommissionSellerOptions,
   filterCommissionsBySeller,
   groupCommissionsBySeller,
+  type PlanBeneficiarySellerSource,
 } from "@/app/admin/commissions/commission-seller-filter.shared";
 import {
   formatCad as formatCadPayPlan,
@@ -160,16 +162,78 @@ export default function AdminCommissionsPageClient() {
   const [sellerFilter, setSellerFilter] = useState<string>(ALL_SELLERS_KEY);
   const [recentPayPlanResults, setRecentPayPlanResults] = useState<
     RecentPayPlanResultItem[]
-  >([]);
+  >(() => readRecentPayPlanResults());
   const [planResultsLoading, setPlanResultsLoading] = useState(false);
+  const [planResultsErrorCode, setPlanResultsErrorCode] = useState<string | null>(
+    null
+  );
+  const [planAssigneeSellers, setPlanAssigneeSellers] = useState<
+    PlanBeneficiarySellerSource[]
+  >([]);
+
+  const loadPlanAssigneeSellers = useCallback(
+    async (
+      organizationId: string,
+      chauffeurOptions: ChauffeurOption[]
+    ) => {
+      const orgId = String(organizationId || "").trim();
+      if (!orgId) {
+        setPlanAssigneeSellers([]);
+        return;
+      }
+      const plansRes = await commissionsFetch(
+        `/api/admin/generic-pay-plans?organization_id=${encodeURIComponent(orgId)}`
+      );
+      const plansJson = (await plansRes.json().catch(() => ({}))) as {
+        templates?: Array<{ id?: string; assignment_count?: number }>;
+      };
+      if (!plansRes.ok || !Array.isArray(plansJson.templates)) {
+        setPlanAssigneeSellers([]);
+        return;
+      }
+      const templatesWithAssignments = plansJson.templates
+        .filter((row) => Number(row.assignment_count || 0) > 0 && row.id)
+        .slice(0, 25);
+      const chauffeurById = new Map(
+        chauffeurOptions.map((row) => [row.id, row.label] as const)
+      );
+      const byEmployeeId = new Map<number, PlanBeneficiarySellerSource>();
+      await Promise.all(
+        templatesWithAssignments.map(async (template) => {
+          const detailRes = await commissionsFetch(
+            `/api/admin/generic-pay-plans/${encodeURIComponent(String(template.id))}?organization_id=${encodeURIComponent(orgId)}`
+          );
+          if (!detailRes.ok) return;
+          const detailJson = (await detailRes.json().catch(() => ({}))) as {
+            assignments?: Array<{ employee_id?: number | null }>;
+          };
+          for (const assignment of detailJson.assignments || []) {
+            const employeeId = Math.trunc(Number(assignment.employee_id));
+            if (!Number.isInteger(employeeId) || employeeId <= 0) continue;
+            if (byEmployeeId.has(employeeId)) continue;
+            const name = String(chauffeurById.get(employeeId) || "").trim();
+            byEmployeeId.set(employeeId, {
+              employeeId,
+              primary: name || `Employé #${employeeId}`,
+              secondary: `Employé #${employeeId}`,
+            });
+          }
+        })
+      );
+      setPlanAssigneeSellers(Array.from(byEmployeeId.values()));
+    },
+    []
+  );
 
   const loadPersistedPlanResults = useCallback(async (organizationId: string) => {
     const orgId = String(organizationId || "").trim();
     if (!orgId) {
       setRecentPayPlanResults([]);
+      setPlanResultsErrorCode("RESULTS_ORG_MISSING");
       return;
     }
     setPlanResultsLoading(true);
+    setPlanResultsErrorCode(null);
     try {
       const res = await commissionsFetch(
         `/api/admin/generic-pay-plans/results?organization_id=${encodeURIComponent(orgId)}`
@@ -177,13 +241,26 @@ export default function AdminCommissionsPageClient() {
       const json = (await res.json().catch(() => ({}))) as {
         results?: RecentPayPlanResultItem[];
         error?: string;
+        diagnostic_code?: string;
       };
-      if (!res.ok || !Array.isArray(json.results)) {
+      if (!res.ok) {
         setRecentPayPlanResults([]);
+        setPlanResultsErrorCode(
+          String(json.diagnostic_code || `RESULTS_HTTP_${res.status}`)
+        );
+        return;
+      }
+      if (!Array.isArray(json.results)) {
+        setRecentPayPlanResults([]);
+        setPlanResultsErrorCode("RESULTS_INVALID_PAYLOAD");
         return;
       }
       setRecentPayPlanResults(json.results);
       writeRecentPayPlanResults(json.results);
+      setPlanResultsErrorCode(null);
+    } catch {
+      setRecentPayPlanResults([]);
+      setPlanResultsErrorCode("RESULTS_NETWORK");
     } finally {
       setPlanResultsLoading(false);
     }
@@ -295,28 +372,31 @@ export default function AdminCommissionsPageClient() {
       }
     }
 
+    let nextChauffeurs: ChauffeurOption[] = [];
     if (!chauffeursRes.error) {
-      setChauffeurs(
-        (chauffeursRes.data ?? [])
-          .map((row) => {
-            const record = row as Record<string, unknown>;
-            const id = Number(record.id);
-            const label = String(
-              record.nom_complet ||
-                [record.prenom, record.nom].filter(Boolean).join(" ") ||
-                `#${id}`
-            ).trim();
-            return Number.isFinite(id) ? { id, label } : null;
-          })
-          .filter((item): item is ChauffeurOption => item !== null)
-      );
+      nextChauffeurs = (chauffeursRes.data ?? [])
+        .map((row) => {
+          const record = row as Record<string, unknown>;
+          const id = Number(record.id);
+          const label = String(
+            record.nom_complet ||
+              [record.prenom, record.nom].filter(Boolean).join(" ") ||
+              `#${id}`
+          ).trim();
+          return Number.isFinite(id) ? { id, label } : null;
+        })
+        .filter((item): item is ChauffeurOption => item !== null);
+      setChauffeurs(nextChauffeurs);
     } else {
       setChauffeurs([]);
     }
 
-    await loadPersistedPlanResults(resolvedOrgId);
+    await Promise.all([
+      loadPersistedPlanResults(resolvedOrgId),
+      loadPlanAssigneeSellers(resolvedOrgId, nextChauffeurs),
+    ]);
     setLoading(false);
-  }, [loadPersistedPlanResults]);
+  }, [loadPersistedPlanResults, loadPlanAssigneeSellers]);
 
   useEffect(() => {
     if (accessLoading || !user) return;
@@ -364,9 +444,35 @@ export default function AdminCommissionsPageClient() {
     return entries.filter((entry) => entry.status === commissionFilter);
   }, [commissionFilter, entries]);
 
+  const planBeneficiarySellers = useMemo(() => {
+    const byEmployeeId = new Map<number, PlanBeneficiarySellerSource>();
+    for (const assignee of planAssigneeSellers) {
+      byEmployeeId.set(assignee.employeeId, assignee);
+    }
+    for (const result of recentPayPlanResults) {
+      if (
+        result.employeeId == null ||
+        !Number.isInteger(result.employeeId) ||
+        result.employeeId <= 0
+      ) {
+        continue;
+      }
+      byEmployeeId.set(result.employeeId, {
+        employeeId: result.employeeId,
+        primary: result.beneficiaryPrimary,
+        secondary: result.beneficiarySecondary,
+      });
+    }
+    return Array.from(byEmployeeId.values());
+  }, [planAssigneeSellers, recentPayPlanResults]);
+
   const sellerOptions = useMemo(
-    () => buildCommissionSellerOptions(statusFilteredEntries),
-    [statusFilteredEntries]
+    () =>
+      buildCommissionSellerOptions(
+        statusFilteredEntries,
+        planBeneficiarySellers
+      ),
+    [planBeneficiarySellers, statusFilteredEntries]
   );
 
   const filteredEntries = useMemo(
@@ -704,10 +810,19 @@ export default function AdminCommissionsPageClient() {
       >
         {planResultsLoading ? (
           <p className="ui-text-muted">Chargement des résultats de plans…</p>
+        ) : planResultsErrorCode ? (
+          <div role="alert" style={{ display: "grid", gap: 6 }}>
+            <p style={{ margin: 0, color: "#b91c1c", fontWeight: 700 }}>
+              Impossible de charger les résultats des plans. Veuillez actualiser
+              la page.
+            </p>
+            <p className="ui-text-muted" style={{ margin: 0, fontSize: 12 }}>
+              Code diagnostique : {planResultsErrorCode}
+            </p>
+          </div>
         ) : scopedRecentPayPlanResults.length === 0 ? (
           <p className="ui-text-muted">
-            Aucun résultat de plan pour le moment. Calculez une commission depuis
-            un plan pour l’afficher ici.
+            Aucun résultat persistant trouvé pour l’organisation active.
           </p>
         ) : (
           <div className="commissions-list">
@@ -849,6 +964,7 @@ export default function AdminCommissionsPageClient() {
                     const nextOrg = e.target.value;
                     setCreateForm({ ...createForm, organization_id: nextOrg });
                     void loadPersistedPlanResults(nextOrg);
+                    void loadPlanAssigneeSellers(nextOrg, chauffeurs);
                   }}
                 >
                   <option value="">— Choisir une organisation —</option>

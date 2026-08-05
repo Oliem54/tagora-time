@@ -598,6 +598,7 @@ export default function GenericPayPlanDetailClient({ templateId }: DetailProps) 
                           accrualId: json.accrual_id,
                           organizationId,
                           templateId,
+                          employeeId: beneficiary.employeeId,
                           beneficiaryPrimary: beneficiary.primary,
                           beneficiarySecondary: beneficiary.secondary,
                           planName: String(template.display_name),

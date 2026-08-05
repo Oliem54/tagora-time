@@ -3,6 +3,7 @@ import {
   ALL_SELLERS_KEY,
   buildCommissionSellerOptions,
   filterCommissionsBySeller,
+  formatPlanBeneficiarySellerLabel,
   groupCommissionsBySeller,
   resolveCommissionSellerKey,
   resolveCommissionSellerLabel,
@@ -31,6 +32,12 @@ describe("commission seller filter", () => {
     expect(resolveCommissionSellerLabel(yves)).toBe("Yves");
   });
 
+  it("formats plan beneficiary as Yves — Employé #2", () => {
+    expect(
+      formatPlanBeneficiarySellerLabel("Yves", "Employé #2", 2)
+    ).toBe("Yves — Employé #2");
+  });
+
   it("builds sorted seller options", () => {
     const options = buildCommissionSellerOptions([marie, yves, team]);
     expect(options.map((row) => row.label)).toEqual(
@@ -38,6 +45,41 @@ describe("commission seller filter", () => {
         a.localeCompare(b, "fr-CA")
       )
     );
+  });
+
+  it("merges plan beneficiaries into seller options without duplicates", () => {
+    const options = buildCommissionSellerOptions(
+      [
+        {
+          chauffeur_id: 9,
+          assignee_label: "QA-PR45-Employe Test (qa-pr45-employe@test.local)",
+        },
+      ],
+      [
+        {
+          employeeId: 2,
+          primary: "Yves",
+          secondary: "Employé #2",
+        },
+        {
+          employeeId: 2,
+          primary: "Yves",
+          secondary: "Employé #2",
+        },
+      ]
+    );
+    expect(options).toHaveLength(2);
+    const yvesOption = options.find((row) => row.key === "employee:2");
+    expect(yvesOption?.label).toBe("Yves — Employé #2");
+  });
+
+  it("upgrades an objective seller label when plan beneficiary is richer", () => {
+    const options = buildCommissionSellerOptions(
+      [{ chauffeur_id: 2, assignee_label: "Yves" }],
+      [{ employeeId: 2, primary: "Yves", secondary: "Employé #2" }]
+    );
+    expect(options).toHaveLength(1);
+    expect(options[0]?.label).toBe("Yves — Employé #2");
   });
 
   it("keeps all sellers by default", () => {
