@@ -265,23 +265,76 @@ export function PayPlanField({
   );
 }
 
+/** Libellés de contexte — section Version (affichage uniquement). */
+export const PAY_PLAN_ACTIVE_VERSION_LABEL = "Version active";
+export const PAY_PLAN_ACTIVE_VERSION_DATE_LABEL =
+  "Date d’effet de la version active";
+export const PAY_PLAN_NEW_DRAFT_PANEL_TITLE =
+  "Créer une nouvelle version brouillon";
+export const PAY_PLAN_NEW_DRAFT_DATE_LABEL =
+  "Date d’effet de la nouvelle version";
+export const PAY_PLAN_NEW_DRAFT_BUTTON_LABEL = "Créer la version brouillon";
+
+export function formatPayPlanNewDraftDateHint(value: string): string {
+  return `Nouvelle version prévue pour le ${formatFrDate(value)}`;
+}
+
 export function PayPlanDateField({
   label,
   value,
   onChange,
+  hint,
 }: {
   label: string;
   value: string;
   onChange: (next: string) => void;
+  hint?: ReactNode;
 }) {
   return (
-    <PayPlanField label={label} hint={`Lecture : ${formatFrDate(value)}`}>
+    <PayPlanField
+      label={label}
+      hint={hint ?? `Lecture : ${formatFrDate(value)}`}
+    >
       <input
         type="date"
         value={value}
         onChange={(event) => onChange(event.target.value)}
       />
     </PayPlanField>
+  );
+}
+
+export function PayPlanVersionContextPanel({
+  title,
+  children,
+}: {
+  title: string;
+  children: ReactNode;
+}) {
+  return (
+    <div
+      style={{
+        display: "grid",
+        gap: 12,
+        padding: "14px 16px",
+        borderRadius: 12,
+        border: "1px solid #dbe3ef",
+        background: "#f8fafc",
+      }}
+    >
+      <span
+        style={{
+          fontSize: 12,
+          fontWeight: 700,
+          letterSpacing: "0.04em",
+          textTransform: "uppercase",
+          color: "#64748b",
+        }}
+      >
+        {title}
+      </span>
+      {children}
+    </div>
   );
 }
 

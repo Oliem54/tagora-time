@@ -8,13 +8,20 @@ import AuthenticatedPageHeader from "@/app/components/ui/AuthenticatedPageHeader
 import SectionCard from "@/app/components/ui/SectionCard";
 import { commissionsFetch } from "@/app/lib/commissions/commissions-api.client";
 import {
+  formatPayPlanNewDraftDateHint,
   formatPayPlanRuleKindLabel,
   formatPayPlanVersionSummaryDate,
+  PAY_PLAN_ACTIVE_VERSION_DATE_LABEL,
+  PAY_PLAN_ACTIVE_VERSION_LABEL,
+  PAY_PLAN_NEW_DRAFT_BUTTON_LABEL,
+  PAY_PLAN_NEW_DRAFT_DATE_LABEL,
+  PAY_PLAN_NEW_DRAFT_PANEL_TITLE,
   PayPlanDateField,
   PayPlanField,
   PayPlanFieldStack,
   PayPlanMetaLine,
   PayPlanStatusBadge,
+  PayPlanVersionContextPanel,
 } from "@/app/admin/commissions/plans/pay-plan-readability";
 import { CommissionNavButtons } from "@/app/admin/commissions/commission-module-ui";
 import {
@@ -267,96 +274,148 @@ export default function GenericPayPlanDetailClient({ templateId }: DetailProps) 
 
         <SectionCard title="1. Version">
           <PayPlanFieldStack>
-            {workingVersion ? (
-              <div
-                style={{
-                  display: "grid",
-                  gap: 12,
-                  gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
-                }}
-              >
-                <PayPlanMetaLine
-                  label="Numéro"
-                  value={`v${String(workingVersion.version_number)}`}
-                />
-                <div style={{ display: "grid", gap: 6 }}>
-                  <span
-                    style={{
-                      fontSize: 13,
-                      fontWeight: 600,
-                      color: "#6b7280",
-                    }}
-                  >
-                    Statut
-                  </span>
-                  <PayPlanStatusBadge status={String(workingVersion.status)} />
-                </div>
-                {workingVersion.effective_from != null &&
-                String(workingVersion.effective_from).trim() !== "" ? (
+            {activeVersion ? (
+              <PayPlanVersionContextPanel title={PAY_PLAN_ACTIVE_VERSION_LABEL}>
+                <div
+                  style={{
+                    display: "grid",
+                    gap: 12,
+                    gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
+                  }}
+                >
                   <PayPlanMetaLine
-                    label="Date d’effet"
-                    value={formatPayPlanVersionSummaryDate(
-                      workingVersion.effective_from
-                    )}
+                    label={PAY_PLAN_ACTIVE_VERSION_LABEL}
+                    value={`v${String(activeVersion.version_number)}`}
                   />
-                ) : null}
-              </div>
+                  <div style={{ display: "grid", gap: 6 }}>
+                    <span
+                      style={{
+                        fontSize: 13,
+                        fontWeight: 600,
+                        color: "#6b7280",
+                      }}
+                    >
+                      Statut
+                    </span>
+                    <PayPlanStatusBadge status={String(activeVersion.status)} />
+                  </div>
+                  {activeVersion.effective_from != null &&
+                  String(activeVersion.effective_from).trim() !== "" ? (
+                    <PayPlanMetaLine
+                      label={PAY_PLAN_ACTIVE_VERSION_DATE_LABEL}
+                      value={formatPayPlanVersionSummaryDate(
+                        activeVersion.effective_from
+                      )}
+                    />
+                  ) : null}
+                </div>
+              </PayPlanVersionContextPanel>
+            ) : draftVersion ? (
+              <PayPlanVersionContextPanel title="Version brouillon en cours">
+                <div
+                  style={{
+                    display: "grid",
+                    gap: 12,
+                    gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
+                  }}
+                >
+                  <PayPlanMetaLine
+                    label="Version brouillon"
+                    value={`v${String(draftVersion.version_number)}`}
+                  />
+                  <div style={{ display: "grid", gap: 6 }}>
+                    <span
+                      style={{
+                        fontSize: 13,
+                        fontWeight: 600,
+                        color: "#6b7280",
+                      }}
+                    >
+                      Statut
+                    </span>
+                    <PayPlanStatusBadge status={String(draftVersion.status)} />
+                  </div>
+                  {draftVersion.effective_from != null &&
+                  String(draftVersion.effective_from).trim() !== "" ? (
+                    <PayPlanMetaLine
+                      label="Date d’effet du brouillon"
+                      value={formatPayPlanVersionSummaryDate(
+                        draftVersion.effective_from
+                      )}
+                    />
+                  ) : null}
+                </div>
+              </PayPlanVersionContextPanel>
             ) : (
-              <p className="ui-text-muted">Aucune version. Créez un brouillon.</p>
+              <p className="ui-text-muted">
+                Aucune version. Créez une version brouillon ci-dessous.
+              </p>
             )}
-            <PayPlanDateField
-              label="Date d’effet"
-              value={effectiveFrom}
-              onChange={setEffectiveFrom}
-            />
+
             {!draftVersion ? (
-              <div>
-                <button
-                  type="button"
-                  className="tagora-dark-action"
-                  disabled={busy}
-                  onClick={() =>
-                    void run("Création de version", () =>
-                      commissionsFetch(
-                        `/api/admin/generic-pay-plans/${templateId}/versions`,
-                        {
-                          method: "POST",
-                          body: JSON.stringify({
-                            organization_id: organizationId,
-                            effective_from: effectiveFrom,
-                          }),
-                        }
+              <PayPlanVersionContextPanel title={PAY_PLAN_NEW_DRAFT_PANEL_TITLE}>
+                <PayPlanDateField
+                  label={PAY_PLAN_NEW_DRAFT_DATE_LABEL}
+                  value={effectiveFrom}
+                  onChange={setEffectiveFrom}
+                  hint={formatPayPlanNewDraftDateHint(effectiveFrom)}
+                />
+                <div>
+                  <button
+                    type="button"
+                    className="tagora-dark-action"
+                    disabled={busy}
+                    onClick={() =>
+                      void run("Création de version", () =>
+                        commissionsFetch(
+                          `/api/admin/generic-pay-plans/${templateId}/versions`,
+                          {
+                            method: "POST",
+                            body: JSON.stringify({
+                              organization_id: organizationId,
+                              effective_from: effectiveFrom,
+                            }),
+                          }
+                        )
                       )
-                    )
-                  }
-                >
-                  Créer une version brouillon
-                </button>
-              </div>
+                    }
+                  >
+                    {PAY_PLAN_NEW_DRAFT_BUTTON_LABEL}
+                  </button>
+                </div>
+              </PayPlanVersionContextPanel>
             ) : (
-              <div>
-                <button
-                  type="button"
-                  className="tagora-dark-action"
-                  disabled={busy}
-                  onClick={() =>
-                    void run("Activation", () =>
-                      commissionsFetch(
-                        `/api/admin/generic-pay-plans/versions/${draftVersion.id}/activate`,
-                        {
-                          method: "POST",
-                          body: JSON.stringify({
-                            organization_id: organizationId,
-                            effective_from: effectiveFrom,
-                          }),
-                        }
+              <PayPlanVersionContextPanel title="Activer la version brouillon">
+                <PayPlanDateField
+                  label="Date d’effet à l’activation"
+                  value={effectiveFrom}
+                  onChange={setEffectiveFrom}
+                  hint={`Activation prévue pour le ${formatPayPlanVersionSummaryDate(effectiveFrom)}`}
+                />
+                <div>
+                  <button
+                    type="button"
+                    className="tagora-dark-action"
+                    disabled={busy}
+                    onClick={() =>
+                      void run("Activation", () =>
+                        commissionsFetch(
+                          `/api/admin/generic-pay-plans/versions/${draftVersion.id}/activate`,
+                          {
+                            method: "POST",
+                            body: JSON.stringify({
+                              organization_id: organizationId,
+                              effective_from: effectiveFrom,
+                            }),
+                          }
+                        )
                       )
-                    )
-                  }
-                >
-                  Activer la version
-                </button>
-              </div>
+                    }
+                  >
+                    Activer la version
+                  </button>
+                </div>
+              </PayPlanVersionContextPanel>
             )}
           </PayPlanFieldStack>
         </SectionCard>
