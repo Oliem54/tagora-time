@@ -32,10 +32,11 @@ export type PayrollProofInput = {
 };
 
 /**
- * Preuve de paie V1 : seule payrollReference est obligatoire.
+ * Preuve de paie V1 : seule payrollReference est obligatoire à la confirmation.
  * Les dates restent des renseignements comptables facultatifs (null si absentes).
  *
- * Future contrainte stricte (migration ultérieure, hors ce bloc) :
+ * Contrainte DB stricte (migration locale, non appliquée hors GO Martin) :
+ * 20260806170000_compensation_accruals_require_payroll_reference_when_paid.sql
  * status = 'paid' → payroll_reference IS NOT NULL AND btrim(payroll_reference) <> ''
  * payroll_period_start / payroll_period_end / payroll_pay_date restent facultatifs.
  */
@@ -45,6 +46,19 @@ export type ParsedPayrollProof = {
   payrollPeriodEnd: string | null;
   payrollPayDate: string | null;
 };
+
+/**
+ * Miroir testable de compensation_accruals_paid_requires_payroll_reference_check.
+ * Les dates de période/paie n’entrent pas dans la contrainte.
+ */
+export function satisfiesPaidPayrollReferenceConstraint(input: {
+  status: unknown;
+  payrollReference?: string | null;
+}): boolean {
+  const status = normalizeAccrualStatus(input.status);
+  if (status !== "paid") return true;
+  return Boolean(String(input.payrollReference ?? "").trim());
+}
 
 export type PayrollProofField =
   | "payrollReference"

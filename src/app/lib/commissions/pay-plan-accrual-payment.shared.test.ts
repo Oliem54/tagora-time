@@ -38,6 +38,7 @@ import {
   PAYROLL_PAYMENT_SUMMARY_TITLE,
   PAYROLL_REFERENCE_SECTION_TITLE,
   resolvePaidByDisplayName,
+  satisfiesPaidPayrollReferenceConstraint,
 } from "./pay-plan-accrual-payment.shared";
 
 describe("evaluateAccrualPayTransition", () => {
@@ -394,8 +395,104 @@ describe("migration payroll reference additive (source, no DB)", () => {
   });
 });
 
+describe("migration stricte payroll_reference when paid (source, no DB)", () => {
+  const strictPath = join(
+    process.cwd(),
+    "supabase/migrations/20260806170000_compensation_accruals_require_payroll_reference_when_paid.sql"
+  );
+  const additivePath = join(
+    process.cwd(),
+    "supabase/migrations/20260805150000_compensation_accruals_payroll_reference.sql"
+  );
+  const paidStatusPath = join(
+    process.cwd(),
+    "supabase/migrations/20260805100000_compensation_accruals_paid_status.sql"
+  );
+  const migration = readFileSync(strictPath, "utf8");
+
+  it("exige uniquement payroll_reference pour status=paid", () => {
+    expect(migration).toMatch(
+      /compensation_accruals_paid_requires_payroll_reference_check/
+    );
+    expect(migration).toMatch(/status <> 'paid'/);
+    expect(migration).toMatch(/payroll_reference is not null/i);
+    expect(migration).toMatch(/btrim\(payroll_reference\) <> ''/i);
+    expect(migration).not.toMatch(/payroll_period_start is not null/i);
+    expect(migration).not.toMatch(/payroll_period_end is not null/i);
+    expect(migration).not.toMatch(/payroll_pay_date is not null/i);
+    expect(migration).not.toMatch(/backfill/i);
+    expect(migration).not.toMatch(/\bupdate\b/i);
+    expect(migration).not.toMatch(/^\s*delete\b/im);
+    expect(migration).not.toMatch(/production/i);
+    expect(migration).not.toMatch(/qcgvzdlfsxybrmloijpt/);
+    expect(migration).toMatch(/\bbegin\s*;/i);
+    expect(migration).toMatch(/\bcommit\s*;/i);
+  });
+
+  it("anciennes migrations inchangées (contenu stable)", () => {
+    const additive = readFileSync(additivePath, "utf8");
+    const paidStatus = readFileSync(paidStatusPath, "utf8");
+    expect(additive).toMatch(/payroll_reference text null/i);
+    expect(additive).not.toMatch(/status <> 'paid'/);
+    expect(paidStatus).toMatch(/paid_at/);
+    expect(paidStatus).toMatch(/paid_by/);
+    expect(paidStatus).not.toMatch(
+      /paid_requires_payroll_reference/
+    );
+  });
+
+  it("miroir helper : paid valide / null / vide / dates nulles / validated", () => {
+    expect(
+      satisfiesPaidPayrollReferenceConstraint({
+        status: "paid",
+        payrollReference: "QA-STAGING-PAIE-2026-08-06-002",
+      })
+    ).toBe(true);
+    expect(
+      satisfiesPaidPayrollReferenceConstraint({
+        status: "paid",
+        payrollReference: null,
+      })
+    ).toBe(false);
+    expect(
+      satisfiesPaidPayrollReferenceConstraint({
+        status: "paid",
+        payrollReference: "   ",
+      })
+    ).toBe(false);
+    expect(
+      satisfiesPaidPayrollReferenceConstraint({
+        status: "paid",
+        payrollReference: "PAIE-1",
+      })
+    ).toBe(true);
+    expect(
+      satisfiesPaidPayrollReferenceConstraint({
+        status: "validated",
+        payrollReference: null,
+      })
+    ).toBe(true);
+    expect(
+      parsePayrollProofInput({
+        payrollReference: "PAIE-1",
+        payrollPeriodStart: null,
+        payrollPeriodEnd: null,
+        payrollPayDate: null,
+      }).ok
+    ).toBe(true);
+    expect(
+      parsePayrollProofInput({
+        payrollReference: "PAIE-1",
+        payrollPeriodStart: "2026-07-21",
+        payrollPeriodEnd: null,
+        payrollPayDate: "2026-08-05",
+      }).ok
+    ).toBe(true);
+  });
+});
+
 describe("API / UI source contracts payroll proof simplifié", () => {
-  it("helper documente future contrainte stricte sur référence seule", () => {
+  it("helper documente contrainte stricte sur référence seule", () => {
     const source = readFileSync(
       join(
         process.cwd(),
@@ -403,9 +500,10 @@ describe("API / UI source contracts payroll proof simplifié", () => {
       ),
       "utf8"
     );
-    expect(source).toMatch(/Future contrainte stricte/);
+    expect(source).toMatch(/Contrainte DB stricte/);
     expect(source).toMatch(/payroll_reference IS NOT NULL/);
     expect(source).toMatch(/restent facultatifs/);
+    expect(source).toMatch(/satisfiesPaidPayrollReferenceConstraint/);
     expect(source).toMatch(/isPayrollPaymentConfirmEnabled/);
   });
 
