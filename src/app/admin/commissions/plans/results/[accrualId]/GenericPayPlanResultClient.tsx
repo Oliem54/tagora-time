@@ -17,6 +17,7 @@ import {
   formatMarkAsPaidConfirmation,
   formatPayrollPeriodLabel,
   hasCompletePayrollProof,
+  isPayrollPaymentConfirmEnabled,
   LEGACY_PAYROLL_REFERENCE_MISSING,
   MARK_AS_PAID_BUTTON_LABEL,
   MARK_AS_PAID_CANCEL_ACTION_LABEL,
@@ -24,10 +25,16 @@ import {
   PAID_BY_CONFIRMED_BY_LABEL,
   PAID_SUCCESS_CARD_TITLE,
   parsePayrollProofInput,
+  PAYROLL_OPTIONAL_HINT_LABEL,
+  PAYROLL_OPTIONAL_SECTION_TITLE,
   PAYROLL_PAY_DATE_FIELD_LABEL,
+  PAYROLL_PAYMENT_MODAL_SUBTITLE,
+  PAYROLL_PAYMENT_SUMMARY_TITLE,
   PAYROLL_PERIOD_END_FIELD_LABEL,
   PAYROLL_PERIOD_START_FIELD_LABEL,
   PAYROLL_REFERENCE_FIELD_LABEL,
+  PAYROLL_REFERENCE_PLACEHOLDER,
+  PAYROLL_REFERENCE_SECTION_TITLE,
   type PayrollProofField,
 } from "@/app/lib/commissions/pay-plan-accrual-payment.shared";
 import {
@@ -450,6 +457,13 @@ export default function GenericPayPlanResultClient({ accrualId }: Props) {
     payrollReference: formReference,
     payrollPeriodStart: formPeriodStart,
     payrollPeriodEnd: formPeriodEnd,
+    payrollPayDate: formPayDate,
+  });
+  const confirmEnabled = isPayrollPaymentConfirmEnabled({
+    payrollReference: formReference,
+    payrollPeriodStart: formPeriodStart,
+    payrollPeriodEnd: formPeriodEnd,
+    payrollPayDate: formPayDate,
   });
   const payrollComplete = hasCompletePayrollProof({
     payrollReference,
@@ -458,6 +472,10 @@ export default function GenericPayPlanResultClient({ accrualId }: Props) {
     payrollPayDate,
   });
   const showLegacyPayrollAlert = status === "paid" && !payrollComplete;
+  const paidPeriodLabel = formatPayrollPeriodLabel({
+    periodStart: payrollPeriodStart,
+    periodEnd: payrollPeriodEnd,
+  });
 
   return (
     <main className="page-container commissions-result-page">
@@ -601,25 +619,24 @@ export default function GenericPayPlanResultClient({ accrualId }: Props) {
                   {payrollReference || LEGACY_PAYROLL_REFERENCE_MISSING}
                 </strong>
               </div>
-              <div>
-                <div className="ui-text-muted" style={{ fontSize: 12 }}>
-                  Période de paie
+              {paidPeriodLabel ? (
+                <div>
+                  <div className="ui-text-muted" style={{ fontSize: 12 }}>
+                    Période de paie
+                  </div>
+                  <strong style={{ color: "#0f172a" }}>{paidPeriodLabel}</strong>
                 </div>
-                <strong style={{ color: "#0f172a" }}>
-                  {formatPayrollPeriodLabel({
-                    periodStart: payrollPeriodStart,
-                    periodEnd: payrollPeriodEnd,
-                  }) || "—"}
-                </strong>
-              </div>
-              <div>
-                <div className="ui-text-muted" style={{ fontSize: 12 }}>
-                  Date de paie
+              ) : null}
+              {payrollPayDate ? (
+                <div>
+                  <div className="ui-text-muted" style={{ fontSize: 12 }}>
+                    Date de paie
+                  </div>
+                  <strong style={{ color: "#0f172a" }}>
+                    {formatIsoDateFrCa(payrollPayDate)}
+                  </strong>
                 </div>
-                <strong style={{ color: "#0f172a" }}>
-                  {payrollPayDate ? formatIsoDateFrCa(payrollPayDate) : "—"}
-                </strong>
-              </div>
+              ) : null}
               <div>
                 <div className="ui-text-muted" style={{ fontSize: 12 }}>
                   {PAID_BY_CONFIRMED_BY_LABEL}
@@ -756,122 +773,253 @@ export default function GenericPayPlanResultClient({ accrualId }: Props) {
         >
           <div
             style={{
-              width: "min(520px, 100%)",
-              borderRadius: 16,
+              width: "min(560px, 100%)",
+              borderRadius: 18,
               background: "#ffffff",
               border: "1px solid #e2e8f0",
-              boxShadow: "0 18px 40px rgba(15, 23, 42, 0.18)",
-              padding: 20,
+              boxShadow: "0 22px 48px rgba(15, 23, 42, 0.2)",
+              padding: 22,
               display: "grid",
-              gap: 14,
+              gap: 16,
+              maxHeight: "min(92vh, 860px)",
+              overflow: "auto",
             }}
           >
-            <h2
-              id="mark-as-paid-confirm-title"
-              style={{
-                margin: 0,
-                fontSize: 18,
-                fontWeight: 800,
-                color: "#0f172a",
-                lineHeight: 1.35,
-              }}
-            >
-              Confirmer le paiement
-            </h2>
-            <div
-              style={{
-                display: "grid",
-                gap: 6,
-                padding: "10px 12px",
-                borderRadius: 12,
-                background: "#f8fafc",
-                border: "1px solid #e2e8f0",
-                fontSize: 13,
-              }}
-            >
-              <div>
-                <strong>Vendeur :</strong> {sellerName}
-              </div>
-              {employeeReference ? (
-                <div>
-                  <strong>Référence :</strong> {employeeReference}
-                </div>
-              ) : null}
-              <div>
-                <strong>Montant :</strong> {amountLabel}
-              </div>
-              {trace ? (
-                <div>
-                  <strong>Plan :</strong> {trace.template_name}
-                </div>
-              ) : null}
+            <div style={{ display: "grid", gap: 6 }}>
+              <h2
+                id="mark-as-paid-confirm-title"
+                style={{
+                  margin: 0,
+                  fontSize: 20,
+                  fontWeight: 800,
+                  color: "#0f172a",
+                  lineHeight: 1.3,
+                }}
+              >
+                Confirmer le paiement
+              </h2>
+              <p
+                style={{
+                  margin: 0,
+                  color: "#64748b",
+                  fontSize: 14,
+                  lineHeight: 1.45,
+                }}
+              >
+                {PAYROLL_PAYMENT_MODAL_SUBTITLE}
+              </p>
             </div>
 
-            <label className="tagora-field">
-              <span className="tagora-label">{PAYROLL_REFERENCE_FIELD_LABEL}</span>
-              <input
-                className="tagora-input"
-                value={formReference}
-                disabled={busy}
-                onChange={(event) => setFormReference(event.target.value)}
-              />
-              {fieldErrors.payrollReference ? (
-                <span role="alert" style={{ color: "#b91c1c", fontSize: 12 }}>
-                  {fieldErrors.payrollReference}
-                </span>
-              ) : null}
-            </label>
-            <label className="tagora-field">
-              <span className="tagora-label">
-                {PAYROLL_PERIOD_START_FIELD_LABEL}
-              </span>
-              <input
-                className="tagora-input"
-                type="date"
-                value={formPeriodStart}
-                disabled={busy}
-                onChange={(event) => setFormPeriodStart(event.target.value)}
-              />
-              {fieldErrors.payrollPeriodStart ? (
-                <span role="alert" style={{ color: "#b91c1c", fontSize: 12 }}>
-                  {fieldErrors.payrollPeriodStart}
-                </span>
-              ) : null}
-            </label>
-            <label className="tagora-field">
-              <span className="tagora-label">
-                {PAYROLL_PERIOD_END_FIELD_LABEL}
-              </span>
-              <input
-                className="tagora-input"
-                type="date"
-                value={formPeriodEnd}
-                disabled={busy}
-                onChange={(event) => setFormPeriodEnd(event.target.value)}
-              />
-              {fieldErrors.payrollPeriodEnd ? (
-                <span role="alert" style={{ color: "#b91c1c", fontSize: 12 }}>
-                  {fieldErrors.payrollPeriodEnd}
-                </span>
-              ) : null}
-            </label>
-            <label className="tagora-field">
-              <span className="tagora-label">{PAYROLL_PAY_DATE_FIELD_LABEL}</span>
-              <input
-                className="tagora-input"
-                type="date"
-                value={formPayDate}
-                disabled={busy}
-                onChange={(event) => setFormPayDate(event.target.value)}
-              />
-              {fieldErrors.payrollPayDate ? (
-                <span role="alert" style={{ color: "#b91c1c", fontSize: 12 }}>
-                  {fieldErrors.payrollPayDate}
-                </span>
-              ) : null}
-            </label>
+            <section
+              aria-labelledby="commission-to-pay-title"
+              style={{
+                display: "grid",
+                gap: 10,
+                padding: "14px 16px",
+                borderRadius: 14,
+                background:
+                  "linear-gradient(145deg, #0f2748 0%, #17345f 55%, #1e4478 100%)",
+                color: "#ffffff",
+              }}
+            >
+              <div
+                id="commission-to-pay-title"
+                style={{
+                  fontSize: 11,
+                  fontWeight: 700,
+                  letterSpacing: "0.12em",
+                  textTransform: "uppercase",
+                  color: "rgba(255,255,255,0.65)",
+                }}
+              >
+                {PAYROLL_PAYMENT_SUMMARY_TITLE}
+              </div>
+              <div
+                style={{
+                  fontSize: 28,
+                  fontWeight: 800,
+                  letterSpacing: "-0.02em",
+                  lineHeight: 1.1,
+                }}
+              >
+                {amountLabel}
+              </div>
+              <div style={{ display: "grid", gap: 2, fontSize: 14 }}>
+                <strong style={{ fontWeight: 700 }}>{sellerName}</strong>
+                {employeeReference ? (
+                  <span style={{ color: "rgba(255,255,255,0.78)" }}>
+                    {employeeReference}
+                  </span>
+                ) : null}
+                {trace ? (
+                  <span style={{ color: "rgba(255,255,255,0.78)" }}>
+                    {trace.template_name}
+                  </span>
+                ) : null}
+              </div>
+            </section>
 
-            <p style={{ margin: 0, color: "#334155", lineHeight: 1.4 }}>
+            <section style={{ display: "grid", gap: 10 }}>
+              <div
+                style={{
+                  fontSize: 11,
+                  fontWeight: 800,
+                  letterSpacing: "0.1em",
+                  color: "#334155",
+                }}
+              >
+                {PAYROLL_REFERENCE_SECTION_TITLE}
+              </div>
+              <label className="tagora-field" style={{ margin: 0 }}>
+                <span className="tagora-label">
+                  {PAYROLL_REFERENCE_FIELD_LABEL} *
+                </span>
+                <input
+                  className="tagora-input"
+                  value={formReference}
+                  disabled={busy}
+                  placeholder={PAYROLL_REFERENCE_PLACEHOLDER}
+                  autoComplete="off"
+                  style={{
+                    width: "100%",
+                    minHeight: 46,
+                    border: "1px solid #94a3b8",
+                    borderRadius: 12,
+                    fontSize: 16,
+                    fontWeight: 600,
+                  }}
+                  onChange={(event) => {
+                    setFormReference(event.target.value);
+                    if (fieldErrors.payrollReference) {
+                      setFieldErrors((prev) => {
+                        const next = { ...prev };
+                        delete next.payrollReference;
+                        return next;
+                      });
+                    }
+                  }}
+                />
+                {fieldErrors.payrollReference ? (
+                  <span role="alert" style={{ color: "#b91c1c", fontSize: 12 }}>
+                    {fieldErrors.payrollReference}
+                  </span>
+                ) : null}
+              </label>
+            </section>
+
+            <details
+              style={{
+                borderRadius: 12,
+                border: "1px solid #e2e8f0",
+                background: "#f8fafc",
+                padding: "10px 12px",
+              }}
+            >
+              <summary
+                style={{
+                  cursor: "pointer",
+                  fontWeight: 700,
+                  color: "#0f172a",
+                  listStyle: "none",
+                  display: "flex",
+                  justifyContent: "space-between",
+                  gap: 10,
+                  alignItems: "center",
+                }}
+              >
+                <span>{PAYROLL_OPTIONAL_SECTION_TITLE}</span>
+                <span
+                  style={{
+                    fontSize: 12,
+                    fontWeight: 700,
+                    color: "#64748b",
+                    background: "#e2e8f0",
+                    borderRadius: 999,
+                    padding: "2px 8px",
+                  }}
+                >
+                  {PAYROLL_OPTIONAL_HINT_LABEL}
+                </span>
+              </summary>
+              <div
+                className="payroll-optional-dates-grid"
+                style={{
+                  display: "grid",
+                  gap: 12,
+                  marginTop: 12,
+                  gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+                }}
+              >
+                <label className="tagora-field" style={{ margin: 0 }}>
+                  <span className="tagora-label">
+                    {PAYROLL_PERIOD_START_FIELD_LABEL}
+                  </span>
+                  <input
+                    className="tagora-input"
+                    type="date"
+                    value={formPeriodStart}
+                    disabled={busy}
+                    onChange={(event) => setFormPeriodStart(event.target.value)}
+                  />
+                  {fieldErrors.payrollPeriodStart ? (
+                    <span role="alert" style={{ color: "#b91c1c", fontSize: 12 }}>
+                      {fieldErrors.payrollPeriodStart}
+                    </span>
+                  ) : null}
+                </label>
+                <label className="tagora-field" style={{ margin: 0 }}>
+                  <span className="tagora-label">
+                    {PAYROLL_PERIOD_END_FIELD_LABEL}
+                  </span>
+                  <input
+                    className="tagora-input"
+                    type="date"
+                    value={formPeriodEnd}
+                    disabled={busy}
+                    onChange={(event) => setFormPeriodEnd(event.target.value)}
+                  />
+                  {fieldErrors.payrollPeriodEnd ? (
+                    <span role="alert" style={{ color: "#b91c1c", fontSize: 12 }}>
+                      {fieldErrors.payrollPeriodEnd}
+                    </span>
+                  ) : null}
+                </label>
+                <label className="tagora-field" style={{ margin: 0 }}>
+                  <span className="tagora-label">
+                    {PAYROLL_PAY_DATE_FIELD_LABEL}
+                  </span>
+                  <input
+                    className="tagora-input"
+                    type="date"
+                    value={formPayDate}
+                    disabled={busy}
+                    onChange={(event) => setFormPayDate(event.target.value)}
+                  />
+                  {fieldErrors.payrollPayDate ? (
+                    <span role="alert" style={{ color: "#b91c1c", fontSize: 12 }}>
+                      {fieldErrors.payrollPayDate}
+                    </span>
+                  ) : null}
+                </label>
+              </div>
+              <style jsx>{`
+                @media (max-width: 720px) {
+                  :global(.payroll-optional-dates-grid) {
+                    grid-template-columns: minmax(0, 1fr) !important;
+                  }
+                }
+              `}</style>
+            </details>
+
+            <p
+              style={{
+                margin: 0,
+                color: "#334155",
+                lineHeight: 1.45,
+                whiteSpace: "pre-line",
+                fontSize: 14,
+              }}
+            >
               {confirmationMessage}
             </p>
 
@@ -894,7 +1042,7 @@ export default function GenericPayPlanResultClient({ accrualId }: Props) {
               <button
                 type="button"
                 className="tagora-dark-action"
-                disabled={busy}
+                disabled={busy || !confirmEnabled}
                 onClick={() => void confirmMarkAsPaid()}
               >
                 {busy

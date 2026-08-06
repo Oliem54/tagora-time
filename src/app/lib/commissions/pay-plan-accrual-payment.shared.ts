@@ -31,11 +31,19 @@ export type PayrollProofInput = {
   payrollPayDate: unknown;
 };
 
+/**
+ * Preuve de paie V1 : seule payrollReference est obligatoire.
+ * Les dates restent des renseignements comptables facultatifs (null si absentes).
+ *
+ * Future contrainte stricte (migration ultérieure, hors ce bloc) :
+ * status = 'paid' → payroll_reference IS NOT NULL AND btrim(payroll_reference) <> ''
+ * payroll_period_start / payroll_period_end / payroll_pay_date restent facultatifs.
+ */
 export type ParsedPayrollProof = {
   payrollReference: string;
-  payrollPeriodStart: string;
-  payrollPeriodEnd: string;
-  payrollPayDate: string;
+  payrollPeriodStart: string | null;
+  payrollPeriodEnd: string | null;
+  payrollPayDate: string | null;
 };
 
 export type PayrollProofField =
@@ -181,6 +189,23 @@ export function isIsoDateOnly(value: unknown): value is string {
   );
 }
 
+function parseOptionalIsoDateField(
+  value: unknown,
+  field: Exclude<PayrollProofField, "payrollReference">,
+  invalidMessage: string
+):
+  | { ok: true; value: string | null }
+  | { ok: false; field: PayrollProofField; error: string } {
+  const trimmed = String(value ?? "").trim();
+  if (!trimmed) {
+    return { ok: true, value: null };
+  }
+  if (!isIsoDateOnly(trimmed)) {
+    return { ok: false, field, error: invalidMessage };
+  }
+  return { ok: true, value: trimmed };
+}
+
 export function parsePayrollProofInput(
   input: PayrollProofInput
 ):
@@ -195,25 +220,25 @@ export function parsePayrollProofInput(
     };
   }
 
-  const payrollPeriodStart = String(input.payrollPeriodStart ?? "").trim();
-  if (!isIsoDateOnly(payrollPeriodStart)) {
-    return {
-      ok: false,
-      field: "payrollPeriodStart",
-      error: "Le début de la période de paie est obligatoire (AAAA-MM-JJ).",
-    };
-  }
+  const start = parseOptionalIsoDateField(
+    input.payrollPeriodStart,
+    "payrollPeriodStart",
+    "Le début de la période de paie doit être au format AAAA-MM-JJ."
+  );
+  if (!start.ok) return start;
 
-  const payrollPeriodEnd = String(input.payrollPeriodEnd ?? "").trim();
-  if (!isIsoDateOnly(payrollPeriodEnd)) {
-    return {
-      ok: false,
-      field: "payrollPeriodEnd",
-      error: "La fin de la période de paie est obligatoire (AAAA-MM-JJ).",
-    };
-  }
+  const end = parseOptionalIsoDateField(
+    input.payrollPeriodEnd,
+    "payrollPeriodEnd",
+    "La fin de la période de paie doit être au format AAAA-MM-JJ."
+  );
+  if (!end.ok) return end;
 
-  if (payrollPeriodStart > payrollPeriodEnd) {
+  if (
+    start.value &&
+    end.value &&
+    start.value > end.value
+  ) {
     return {
       ok: false,
       field: "payrollPeriodEnd",
@@ -221,22 +246,20 @@ export function parsePayrollProofInput(
     };
   }
 
-  const payrollPayDate = String(input.payrollPayDate ?? "").trim();
-  if (!isIsoDateOnly(payrollPayDate)) {
-    return {
-      ok: false,
-      field: "payrollPayDate",
-      error: "La date de paie est obligatoire (AAAA-MM-JJ).",
-    };
-  }
+  const payDate = parseOptionalIsoDateField(
+    input.payrollPayDate,
+    "payrollPayDate",
+    "La date de paie doit être au format AAAA-MM-JJ."
+  );
+  if (!payDate.ok) return payDate;
 
   return {
     ok: true,
     value: {
       payrollReference,
-      payrollPeriodStart,
-      payrollPeriodEnd,
-      payrollPayDate,
+      payrollPeriodStart: start.value,
+      payrollPeriodEnd: end.value,
+      payrollPayDate: payDate.value,
     },
   };
 }
@@ -251,9 +274,9 @@ export function buildAccrualPayPatch(input: {
   paid_by: string;
   updated_by: string;
   payroll_reference: string;
-  payroll_period_start: string;
-  payroll_period_end: string;
-  payroll_pay_date: string;
+  payroll_period_start: string | null;
+  payroll_period_end: string | null;
+  payroll_pay_date: string | null;
 } {
   return {
     status: "paid",
@@ -409,31 +432,48 @@ export function formatMarkAsPaidConfirmation(input: {
   amountLabel: string;
   sellerName: string;
   payrollReference: string;
-  payrollPeriodStart: string;
-  payrollPeriodEnd: string;
+  payrollPeriodStart?: string | null;
+  payrollPeriodEnd?: string | null;
+  payrollPayDate?: string | null;
 }): string {
+  const reference = String(input.payrollReference || "").trim();
+  if (!reference) {
+    return "Ajoutez une référence de paie pour activer la confirmation.";
+  }
   const amount = String(input.amountLabel || "").trim() || "—";
   const seller = String(input.sellerName || "").trim() || "le vendeur";
-  const reference = String(input.payrollReference || "").trim() || "—";
-  const period = formatPayrollPeriodLabel({
-    periodStart: input.payrollPeriodStart,
-    periodEnd: input.payrollPeriodEnd,
-  });
-  return `Marquer cette commission de ${amount} pour ${seller} comme payée sur la paie ${reference}, pour la période du ${period}?`;
+  const lines = [
+    `Vous confirmez le paiement de ${amount} à ${seller} sur la paie ${reference}.`,
+  ];
+  const start = String(input.payrollPeriodStart || "").trim();
+  const end = String(input.payrollPeriodEnd || "").trim();
+  if (start && end) {
+    lines.push(
+      `Période : du ${formatIsoDateFrCa(start)} au ${formatIsoDateFrCa(end)}`
+    );
+  } else if (start || end) {
+    lines.push(`Période : ${formatIsoDateFrCa(start || end)}`);
+  }
+  const payDate = String(input.payrollPayDate || "").trim();
+  if (payDate) {
+    lines.push(`Date de paie : ${formatIsoDateFrCa(payDate)}`);
+  }
+  return lines.join("\n");
 }
 
+/** Référence de paie présente — les dates facultatives ne sont pas exigées. */
 export function hasCompletePayrollProof(input: {
   payrollReference?: string | null;
   payrollPeriodStart?: string | null;
   payrollPeriodEnd?: string | null;
   payrollPayDate?: string | null;
 }): boolean {
-  return Boolean(
-    String(input.payrollReference || "").trim() &&
-      isIsoDateOnly(String(input.payrollPeriodStart || "").trim()) &&
-      isIsoDateOnly(String(input.payrollPeriodEnd || "").trim()) &&
-      isIsoDateOnly(String(input.payrollPayDate || "").trim())
-  );
+  return Boolean(String(input.payrollReference || "").trim());
+}
+
+/** Bouton Confirmer activable : référence valide et période non inversée. */
+export function isPayrollPaymentConfirmEnabled(input: PayrollProofInput): boolean {
+  return parsePayrollProofInput(input).ok;
 }
 
 export function payrollReferenceDisplayLabel(input: {
@@ -491,9 +531,16 @@ export const PAID_SUCCESS_CARD_TITLE = "PAIEMENT CONFIRMÉ";
 export const LEGACY_PAYROLL_REFERENCE_MISSING =
   "Référence de paie à compléter";
 export const PAYROLL_REFERENCE_FIELD_LABEL = "Référence ou numéro de paie";
+export const PAYROLL_REFERENCE_SECTION_TITLE = "RÉFÉRENCE DE PAIE";
+export const PAYROLL_OPTIONAL_SECTION_TITLE = "Renseignements facultatifs";
+export const PAYROLL_OPTIONAL_HINT_LABEL = "Facultatif";
 export const PAYROLL_PERIOD_START_FIELD_LABEL = "Début de la période de paie";
 export const PAYROLL_PERIOD_END_FIELD_LABEL = "Fin de la période de paie";
 export const PAYROLL_PAY_DATE_FIELD_LABEL = "Date de paie";
+export const PAYROLL_PAYMENT_MODAL_SUBTITLE =
+  "Ajoutez une référence de paie pour confirmer le versement.";
+export const PAYROLL_PAYMENT_SUMMARY_TITLE = "COMMISSION À PAYER";
+export const PAYROLL_REFERENCE_PLACEHOLDER = "PAIE-2026-08-001";
 
 export function formatPaidCategoryCounts(
   planCount: number,

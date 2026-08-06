@@ -1621,33 +1621,36 @@ export default function AdminCommissionsPageClient() {
                               })}
                             </strong>
                           </div>
-                          <div style={{ display: "grid", gap: 4 }}>
-                            <span
-                              className="ui-text-muted"
-                              style={{ fontSize: 12 }}
-                            >
-                              Période de paie
-                            </span>
-                            <strong style={{ color: "#0f172a" }}>
-                              {formatPayrollPeriodLabel({
-                                periodStart: result.payrollPeriodStart,
-                                periodEnd: result.payrollPeriodEnd,
-                              }) || "—"}
-                            </strong>
-                          </div>
-                          <div style={{ display: "grid", gap: 4 }}>
-                            <span
-                              className="ui-text-muted"
-                              style={{ fontSize: 12 }}
-                            >
-                              Date de paie
-                            </span>
-                            <strong style={{ color: "#0f172a" }}>
-                              {result.payrollPayDate
-                                ? formatIsoDateFrCa(result.payrollPayDate)
-                                : "—"}
-                            </strong>
-                          </div>
+                          {result.payrollPeriodStart ||
+                          result.payrollPeriodEnd ? (
+                            <div style={{ display: "grid", gap: 4 }}>
+                              <span
+                                className="ui-text-muted"
+                                style={{ fontSize: 12 }}
+                              >
+                                Période de paie
+                              </span>
+                              <strong style={{ color: "#0f172a" }}>
+                                {formatPayrollPeriodLabel({
+                                  periodStart: result.payrollPeriodStart,
+                                  periodEnd: result.payrollPeriodEnd,
+                                })}
+                              </strong>
+                            </div>
+                          ) : null}
+                          {result.payrollPayDate ? (
+                            <div style={{ display: "grid", gap: 4 }}>
+                              <span
+                                className="ui-text-muted"
+                                style={{ fontSize: 12 }}
+                              >
+                                Date de paie
+                              </span>
+                              <strong style={{ color: "#0f172a" }}>
+                                {formatIsoDateFrCa(result.payrollPayDate)}
+                              </strong>
+                            </div>
+                          ) : null}
                           <div style={{ display: "grid", gap: 4 }}>
                             <span
                               className="ui-text-muted"

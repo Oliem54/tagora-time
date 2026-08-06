@@ -17,6 +17,7 @@ import {
   hasCompletePayrollProof,
   isPaidMetadataConsistent,
   isPayPlanAccrualPaid,
+  isPayrollPaymentConfirmEnabled,
   isTraceInOrganization,
   LEGACY_PAYROLL_REFERENCE_MISSING,
   MARK_AS_PAID_CANCEL_ACTION_LABEL,
@@ -31,6 +32,11 @@ import {
   parsePayrollProofInput,
   permissionForAccrualAction,
   payrollReferenceDisplayLabel,
+  PAYROLL_OPTIONAL_HINT_LABEL,
+  PAYROLL_OPTIONAL_SECTION_TITLE,
+  PAYROLL_PAYMENT_MODAL_SUBTITLE,
+  PAYROLL_PAYMENT_SUMMARY_TITLE,
+  PAYROLL_REFERENCE_SECTION_TITLE,
   resolvePaidByDisplayName,
 } from "./pay-plan-accrual-payment.shared";
 
@@ -60,45 +66,86 @@ describe("evaluateAccrualPayTransition", () => {
   });
 });
 
-describe("parsePayrollProofInput", () => {
-  const valid = {
-    payrollReference: "  PAIE-2026-08-05-001  ",
-    payrollPeriodStart: "2026-07-21",
-    payrollPeriodEnd: "2026-08-03",
-    payrollPayDate: "2026-08-05",
-  };
-
-  it("champs de paie obligatoires et référence trimée", () => {
-    const parsed = parsePayrollProofInput(valid);
+describe("parsePayrollProofInput — référence seule obligatoire", () => {
+  it("référence trimée obligatoire; dates facultatives nulles", () => {
+    const parsed = parsePayrollProofInput({
+      payrollReference: "  PAIE-2026-08-001  ",
+      payrollPeriodStart: "",
+      payrollPeriodEnd: null,
+      payrollPayDate: "   ",
+    });
     expect(parsed.ok).toBe(true);
     if (parsed.ok) {
-      expect(parsed.value.payrollReference).toBe("PAIE-2026-08-05-001");
-      expect(parsed.value.payrollPeriodStart).toBe("2026-07-21");
-      expect(parsed.value.payrollPeriodEnd).toBe("2026-08-03");
-      expect(parsed.value.payrollPayDate).toBe("2026-08-05");
+      expect(parsed.value.payrollReference).toBe("PAIE-2026-08-001");
+      expect(parsed.value.payrollPeriodStart).toBeNull();
+      expect(parsed.value.payrollPeriodEnd).toBeNull();
+      expect(parsed.value.payrollPayDate).toBeNull();
     }
   });
 
-  it("référence absente refusée", () => {
-    const parsed = parsePayrollProofInput({ ...valid, payrollReference: "   " });
+  it("référence absente ou vide refusée", () => {
+    const parsed = parsePayrollProofInput({
+      payrollReference: "   ",
+      payrollPeriodStart: null,
+      payrollPeriodEnd: null,
+      payrollPayDate: null,
+    });
     expect(parsed.ok).toBe(false);
     if (!parsed.ok) expect(parsed.field).toBe("payrollReference");
   });
 
-  it("date absente ou invalide refusée", () => {
+  it("accepte une seule date de période", () => {
+    const parsed = parsePayrollProofInput({
+      payrollReference: "PAIE-1",
+      payrollPeriodStart: "2026-07-21",
+      payrollPeriodEnd: "",
+      payrollPayDate: null,
+    });
+    expect(parsed.ok).toBe(true);
+    if (parsed.ok) {
+      expect(parsed.value.payrollPeriodStart).toBe("2026-07-21");
+      expect(parsed.value.payrollPeriodEnd).toBeNull();
+    }
+  });
+
+  it("accepte toutes les dates valides", () => {
+    const parsed = parsePayrollProofInput({
+      payrollReference: "PAIE-1",
+      payrollPeriodStart: "2026-07-21",
+      payrollPeriodEnd: "2026-08-03",
+      payrollPayDate: "2026-08-05",
+    });
+    expect(parsed.ok).toBe(true);
+    if (parsed.ok) {
+      expect(parsed.value.payrollPayDate).toBe("2026-08-05");
+    }
+  });
+
+  it("date fournie invalide refusée", () => {
     expect(
-      parsePayrollProofInput({ ...valid, payrollPayDate: "" }).ok
+      parsePayrollProofInput({
+        payrollReference: "PAIE-1",
+        payrollPeriodStart: "2026-13-01",
+        payrollPeriodEnd: null,
+        payrollPayDate: null,
+      }).ok
     ).toBe(false);
     expect(
-      parsePayrollProofInput({ ...valid, payrollPeriodStart: "2026-13-01" }).ok
+      parsePayrollProofInput({
+        payrollReference: "PAIE-1",
+        payrollPeriodStart: null,
+        payrollPeriodEnd: null,
+        payrollPayDate: "not-a-date",
+      }).ok
     ).toBe(false);
   });
 
-  it("période inversée refusée", () => {
+  it("période inversée refusée seulement si début et fin fournis", () => {
     const parsed = parsePayrollProofInput({
-      ...valid,
+      payrollReference: "PAIE-1",
       payrollPeriodStart: "2026-08-10",
       payrollPeriodEnd: "2026-08-01",
+      payrollPayDate: null,
     });
     expect(parsed.ok).toBe(false);
     if (!parsed.ok) expect(parsed.field).toBe("payrollPeriodEnd");
@@ -106,17 +153,16 @@ describe("parsePayrollProofInput", () => {
 });
 
 describe("buildAccrualPayPatch / history / amounts", () => {
-  it("patch exact avec champs de paie, sans montant/base/taux", () => {
-    const payroll = {
-      payrollReference: "PAIE-1",
-      payrollPeriodStart: "2026-07-21",
-      payrollPeriodEnd: "2026-08-03",
-      payrollPayDate: "2026-08-05",
-    };
+  it("patch exact; dates absentes stockées null", () => {
     const patch = buildAccrualPayPatch({
       userId: "user-abc",
       paidAtIso: "2026-08-05T14:00:00.000Z",
-      payroll,
+      payroll: {
+        payrollReference: "PAIE-1",
+        payrollPeriodStart: null,
+        payrollPeriodEnd: null,
+        payrollPayDate: null,
+      },
     });
     expect(patch).toEqual({
       status: "paid",
@@ -124,9 +170,9 @@ describe("buildAccrualPayPatch / history / amounts", () => {
       paid_by: "user-abc",
       updated_by: "user-abc",
       payroll_reference: "PAIE-1",
-      payroll_period_start: "2026-07-21",
-      payroll_period_end: "2026-08-03",
-      payroll_pay_date: "2026-08-05",
+      payroll_period_start: null,
+      payroll_period_end: null,
+      payroll_pay_date: null,
     });
     expect(Object.keys(patch).sort()).toEqual(
       [
@@ -184,25 +230,69 @@ describe("permissions et UI helpers", () => {
     ).toBe(true);
   });
 
-  it("confirmation contient montant, vendeur, référence et période", () => {
-    const message = formatMarkAsPaidConfirmation({
+  it("confirmation : référence seule ou avec dates disponibles", () => {
+    expect(
+      formatMarkAsPaidConfirmation({
+        amountLabel: "50,00 $",
+        sellerName: "Yves",
+        payrollReference: "",
+      })
+    ).toBe("Ajoutez une référence de paie pour activer la confirmation.");
+
+    const withRef = formatMarkAsPaidConfirmation({
       amountLabel: "50,00 $",
       sellerName: "Yves",
-      payrollReference: "PAIE-2026-08-05-001",
+      payrollReference: "PAIE-2026-08-001",
+    });
+    expect(withRef).toContain("50,00 $");
+    expect(withRef).toContain("Yves");
+    expect(withRef).toContain("PAIE-2026-08-001");
+    expect(withRef).not.toContain("Période");
+    expect(withRef).not.toContain("—");
+
+    const withDates = formatMarkAsPaidConfirmation({
+      amountLabel: "50,00 $",
+      sellerName: "Yves",
+      payrollReference: "PAIE-2026-08-001",
       payrollPeriodStart: "2026-07-21",
       payrollPeriodEnd: "2026-08-03",
+      payrollPayDate: "2026-08-05",
     });
-    expect(message).toContain("50,00 $");
-    expect(message).toContain("Yves");
-    expect(message).toContain("PAIE-2026-08-05-001");
-    expect(message).toContain("période");
+    expect(withDates).toContain("Période : du");
+    expect(withDates).toContain("Date de paie :");
+
+    expect(isPayrollPaymentConfirmEnabled({
+      payrollReference: "PAIE-1",
+      payrollPeriodStart: null,
+      payrollPeriodEnd: null,
+      payrollPayDate: null,
+    })).toBe(true);
+    expect(isPayrollPaymentConfirmEnabled({
+      payrollReference: "",
+      payrollPeriodStart: null,
+      payrollPeriodEnd: null,
+      payrollPayDate: null,
+    })).toBe(false);
+    expect(isPayrollPaymentConfirmEnabled({
+      payrollReference: "PAIE-1",
+      payrollPeriodStart: "2026-08-10",
+      payrollPeriodEnd: "2026-08-01",
+      payrollPayDate: null,
+    })).toBe(false);
+
     expect(MARK_AS_PAID_CANCEL_ACTION_LABEL).toBe("Annuler");
     expect(MARK_AS_PAID_CONFIRM_ACTION_LABEL).toBe("Confirmer le paiement");
     expect(PAID_SUCCESS_CARD_TITLE).toBe("PAIEMENT CONFIRMÉ");
+    expect(PAYROLL_PAYMENT_SUMMARY_TITLE).toBe("COMMISSION À PAYER");
+    expect(PAYROLL_REFERENCE_SECTION_TITLE).toBe("RÉFÉRENCE DE PAIE");
+    expect(PAYROLL_OPTIONAL_SECTION_TITLE).toContain("facultatifs");
+    expect(PAYROLL_OPTIONAL_HINT_LABEL).toBe("Facultatif");
+    expect(PAYROLL_PAYMENT_MODAL_SUBTITLE).toContain("référence");
   });
 
-  it("legacy paid sans référence géré proprement", () => {
+  it("legacy paid sans référence; dates absentes sans tiret artificiel", () => {
     expect(hasCompletePayrollProof({})).toBe(false);
+    expect(hasCompletePayrollProof({ payrollReference: "PAIE-1" })).toBe(true);
     expect(payrollReferenceDisplayLabel({})).toBe(
       LEGACY_PAYROLL_REFERENCE_MISSING
     );
@@ -228,25 +318,43 @@ describe("page Payées helpers", () => {
     );
     expect(PAID_PLAN_RESULTS_EMPTY).toContain("plan");
     expect(PAID_OBJECTIVE_COMMISSIONS_EMPTY).not.toBe(
-      "Aucune commission à afficher"
+      PAID_PLAN_RESULTS_EMPTY
     );
     expect(PAID_PLAN_RESULT_CTA_LABEL).toBe("Voir la commission");
-    expect(PAID_BY_CONFIRMED_BY_LABEL).toBe("Paiement confirmé par");
-    const counts = formatPaidCategoryCounts(1, 0);
-    expect(counts.plansLabel).toContain("1");
-    const paid = filterPaidPayPlanResults([
-      { status: "paid", employeeId: 2, id: "a" },
-      { status: "validated", employeeId: 2, id: "b" },
-    ]);
+    expect(PAID_BY_CONFIRMED_BY_LABEL).toMatch(/confirmé/i);
     expect(
-      filterPayPlanResultsBySellerKey(paid, "employee:2").map((r) => r.id)
-    ).toEqual(["a"]);
+      formatPaidCategoryCounts(2, 1)
+    ).toEqual({
+      plansLabel: "Résultats de plans payés : 2",
+      objectivesLabel: "Commissions d’objectifs payées : 1",
+    });
+    expect(
+      filterPaidPayPlanResults([
+        { status: "paid" },
+        { status: "validated" },
+      ])
+    ).toHaveLength(1);
+    expect(
+      filterPayPlanResultsBySellerKey(
+        [
+          { employeeId: 2 },
+          { employeeId: 3 },
+        ],
+        "employee:2"
+      )
+    ).toEqual([{ employeeId: 2 }]);
+  });
+});
+
+describe("tenant / metadata", () => {
+  it("garde organisation et métadonnées paid", () => {
+    expect(isTraceInOrganization("org-a", "org-a")).toBe(true);
     expect(isTraceInOrganization("org-a", "org-b")).toBe(false);
     expect(
       isPaidMetadataConsistent({
         status: "paid",
-        paidAt: "x",
-        paidBy: "y",
+        paidAt: "2026-08-05T00:00:00Z",
+        paidBy: "user-1",
       })
     ).toBe(true);
     expect(
@@ -286,7 +394,21 @@ describe("migration payroll reference additive (source, no DB)", () => {
   });
 });
 
-describe("API / UI source contracts payroll proof", () => {
+describe("API / UI source contracts payroll proof simplifié", () => {
+  it("helper documente future contrainte stricte sur référence seule", () => {
+    const source = readFileSync(
+      join(
+        process.cwd(),
+        "src/app/lib/commissions/pay-plan-accrual-payment.shared.ts"
+      ),
+      "utf8"
+    );
+    expect(source).toMatch(/Future contrainte stricte/);
+    expect(source).toMatch(/payroll_reference IS NOT NULL/);
+    expect(source).toMatch(/restent facultatifs/);
+    expect(source).toMatch(/isPayrollPaymentConfirmEnabled/);
+  });
+
   it("route détail exige payroll proof et persiste les quatre champs", () => {
     const source = readFileSync(
       join(
@@ -306,7 +428,7 @@ describe("API / UI source contracts payroll proof", () => {
     expect(source).not.toMatch(/recalcul/i);
   });
 
-  it("fiche : formulaire, confirmation, carte premium, legacy", () => {
+  it("fiche : modal simplifiée, résumé, dates facultatives", () => {
     const source = readFileSync(
       join(
         process.cwd(),
@@ -315,19 +437,19 @@ describe("API / UI source contracts payroll proof", () => {
       "utf8"
     );
     expect(source).toMatch(/PAYROLL_REFERENCE_FIELD_LABEL/);
-    expect(source).toMatch(/PAYROLL_PERIOD_START_FIELD_LABEL/);
-    expect(source).toMatch(/PAYROLL_PERIOD_END_FIELD_LABEL/);
-    expect(source).toMatch(/PAYROLL_PAY_DATE_FIELD_LABEL/);
+    expect(source).toMatch(/PAYROLL_PAYMENT_SUMMARY_TITLE/);
+    expect(source).toMatch(/PAYROLL_OPTIONAL_SECTION_TITLE/);
+    expect(source).toMatch(/isPayrollPaymentConfirmEnabled/);
     expect(source).toMatch(/formatMarkAsPaidConfirmation/);
     expect(source).toMatch(/PAID_SUCCESS_CARD_TITLE/);
     expect(source).toMatch(/LEGACY_PAYROLL_REFERENCE_MISSING/);
     expect(source).toMatch(/cancelPayConfirmation/);
     expect(source).toMatch(/confirmMarkAsPaid/);
-    expect(source).toMatch(/disabled=\{busy\}/);
+    expect(source).toMatch(/disabled=\{busy \|\| !confirmEnabled\}/);
     expect(source).not.toMatch(/window\.confirm/);
   });
 
-  it("page Payées expose les champs de paie et préserve objectifs", () => {
+  it("page Payées masque les dates absentes", () => {
     const source = readFileSync(
       join(
         process.cwd(),
@@ -337,7 +459,9 @@ describe("API / UI source contracts payroll proof", () => {
     );
     expect(source).toMatch(/payrollReferenceDisplayLabel/);
     expect(source).toMatch(/formatPayrollPeriodLabel/);
-    expect(source).toMatch(/formatIsoDateFrCa/);
+    expect(source).toMatch(/result\.payrollPeriodStart/);
+    expect(source).toMatch(/result\.payrollPeriodEnd/);
+    expect(source).toMatch(/result\.payrollPayDate \?/);
     expect(source).toMatch(/PAID_OBJECTIVE_COMMISSIONS_SECTION_TITLE/);
     expect(source).toMatch(/filterPayPlanResultsBySellerKey/);
     expect(source).toMatch(/formatPaidCategoryCounts/);
