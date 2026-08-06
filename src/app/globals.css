@@ -2548,6 +2548,78 @@ select {
   border-top: 1px solid rgba(255, 255, 255, 0.08);
 }
 
+/* Fiche financière commissions — hiérarchie premium renforcée */
+.ui-page-header-premium-financial {
+  min-height: 118px;
+  padding: 18px 24px;
+  gap: 22px;
+  align-items: center;
+}
+
+.ui-page-header-premium-financial .ui-page-header-logo {
+  width: 148px;
+}
+
+.ui-page-header-premium-financial .ui-page-header-logo-shell {
+  padding: 10px 12px;
+  border-radius: 16px;
+}
+
+.ui-page-header-premium-financial .ui-page-header-copy {
+  gap: 8px;
+}
+
+.ui-page-header-premium-financial .ui-page-header-title,
+.ui-page-header-premium-financial .ui-page-header-title-premium-2027,
+[data-header-variant="premium-2027"].ui-page-header-premium-financial
+  .ui-page-header-title {
+  font-size: 1.45rem !important;
+  font-weight: 700 !important;
+  line-height: 1.22 !important;
+  letter-spacing: -0.02em !important;
+}
+
+.ui-page-header-premium-financial .ui-page-header-eyebrow {
+  font-size: 0.6875rem;
+  letter-spacing: 0.14em;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.ui-page-header-premium-financial .ui-page-header-subtitle {
+  max-width: 40rem;
+  font-size: 0.8125rem !important;
+  color: rgba(255, 255, 255, 0.68) !important;
+}
+
+.ui-page-header-premium-financial .ui-page-header-navigation {
+  margin-top: 10px;
+  padding-top: 12px;
+}
+
+.commissions-result-page .ui-stack {
+  position: relative;
+  z-index: 0;
+}
+
+@media (max-width: 640px) {
+  .ui-page-header-premium-financial {
+    min-height: 0;
+    padding: 14px 16px;
+    gap: 14px;
+  }
+
+  .ui-page-header-premium-financial .ui-page-header-logo {
+    width: 120px;
+  }
+
+  .ui-page-header-premium-financial .ui-page-header-title,
+  .ui-page-header-premium-financial .ui-page-header-title-premium-2027,
+  [data-header-variant="premium-2027"].ui-page-header-premium-financial
+    .ui-page-header-title {
+    font-size: 1.2rem !important;
+  }
+}
+
 .admin-commissions-metric-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

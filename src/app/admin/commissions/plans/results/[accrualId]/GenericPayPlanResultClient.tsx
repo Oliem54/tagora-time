@@ -31,6 +31,13 @@ import {
   type PayrollProofField,
 } from "@/app/lib/commissions/pay-plan-accrual-payment.shared";
 import {
+  readPayPlanOrganizationSession,
+  resolvePayPlanOrganizationContext,
+  syncOrganizationIdInBrowserUrl,
+  withOrganizationId,
+  writePayPlanOrganizationSession,
+} from "@/app/lib/commissions/pay-plan-organization-context.shared";
+import {
   formatCad,
   formatFrDateTime,
   PayPlanDetailRow,
@@ -46,7 +53,8 @@ type FieldErrors = Partial<Record<PayrollProofField, string>>;
 
 export default function GenericPayPlanResultClient({ accrualId }: Props) {
   const searchParams = useSearchParams();
-  const organizationId = searchParams.get("organization_id") || "";
+  const requestedOrganizationId = searchParams.get("organization_id") || "";
+  const [organizationId, setOrganizationId] = useState(requestedOrganizationId);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string>("");
@@ -107,16 +115,56 @@ export default function GenericPayPlanResultClient({ accrualId }: Props) {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      if (!organizationId) {
-        setError("Organisation manquante.");
+      setLoading(true);
+      setError(null);
+
+      const orgsRes = await commissionsFetch(
+        "/api/admin/commissions/organizations"
+      );
+      const orgsJson = (await orgsRes.json().catch(() => ({}))) as {
+        organizations?: Array<{ id?: string }>;
+        error?: string;
+      };
+      if (cancelled) return;
+      if (!orgsRes.ok) {
+        setError(orgsJson.error || "Organisation manquante.");
         setLoading(false);
         return;
       }
+      const memberships = (orgsJson.organizations || [])
+        .map((row) => ({ organizationId: String(row.id || "").trim() }))
+        .filter((row) => row.organizationId);
+
+      const resolved = resolvePayPlanOrganizationContext({
+        requestedOrganizationId,
+        sessionOrganizationId: readPayPlanOrganizationSession(),
+        memberships,
+      });
+      if (!resolved.ok) {
+        setError(
+          resolved.status === 403
+            ? resolved.error
+            : "Organisation manquante."
+        );
+        setOrganizationId("");
+        setLoading(false);
+        return;
+      }
+
+      const resolvedOrgId = resolved.organizationId;
+      setOrganizationId(resolvedOrgId);
+      writePayPlanOrganizationSession(resolvedOrgId);
+      syncOrganizationIdInBrowserUrl(resolvedOrgId);
+
       const res = await commissionsFetch(
-        `/api/admin/generic-pay-plans/results/${accrualId}?organization_id=${encodeURIComponent(organizationId)}`
+        withOrganizationId(
+          `/api/admin/generic-pay-plans/results/${accrualId}`,
+          resolvedOrgId
+        )
       );
       const json = (await res.json().catch(() => ({}))) as {
         error?: string;
+        organization_id?: string;
         accrual?: {
           status?: string;
           paid_at?: string | null;
@@ -136,6 +184,15 @@ export default function GenericPayPlanResultClient({ accrualId }: Props) {
       if (!res.ok) {
         setError(json.error || "Résultat introuvable.");
         return;
+      }
+      if (
+        typeof json.organization_id === "string" &&
+        json.organization_id.trim()
+      ) {
+        const serverOrg = json.organization_id.trim().toLowerCase();
+        setOrganizationId(serverOrg);
+        writePayPlanOrganizationSession(serverOrg);
+        syncOrganizationIdInBrowserUrl(serverOrg);
       }
       const nextStatus = String(json.accrual?.status || "");
       setStatus(nextStatus);
@@ -191,7 +248,7 @@ export default function GenericPayPlanResultClient({ accrualId }: Props) {
       if (nextTrace && nextBeneficiary) {
         writeRecentPayPlanResult({
           accrualId: nextTrace.accrual_id || accrualId,
-          organizationId,
+          organizationId: resolvedOrgId,
           templateId: nextTrace.template_id,
           employeeId: nextBeneficiary.employeeId,
           beneficiaryPrimary: nextBeneficiary.primary,
@@ -215,7 +272,7 @@ export default function GenericPayPlanResultClient({ accrualId }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [accrualId, organizationId]);
+  }, [accrualId, requestedOrganizationId]);
 
   async function validateResult() {
     if (busy) return;
@@ -403,36 +460,52 @@ export default function GenericPayPlanResultClient({ accrualId }: Props) {
   const showLegacyPayrollAlert = status === "paid" && !payrollComplete;
 
   return (
-    <main className="page-container">
+    <main className="page-container commissions-result-page">
       <AuthenticatedPageHeader
-        className="ui-page-header-premium-2027"
+        className="ui-page-header-premium-2027 ui-page-header-premium-financial"
+        eyebrow="TAGORA Time · Commissions"
         title="Résultat de commission"
+        subtitle="Fiche financière — validation, paiement et preuve de paie"
         showNavigation={false}
-        navigation={<AdminCommissionsNavigation variant="result" />}
+        navigation={
+          <AdminCommissionsNavigation
+            variant="result"
+            organizationId={organizationId}
+          />
+        }
       />
 
-      <div className="ui-stack" style={{ marginTop: 20, gap: 20 }}>
+      <div className="ui-stack" style={{ marginTop: 24, gap: 20 }}>
         <CommissionNavButtons
           links={[
             {
-              href: "/admin/commissions#resultats-plans",
+              href: withOrganizationId(
+                "/admin/commissions#resultats-plans",
+                organizationId
+              ),
               label: "Retour aux résultats",
               primary: true as const,
             },
             ...(trace
               ? [
                   {
-                    href: `/admin/commissions/plans/${trace.template_id}?organization_id=${encodeURIComponent(organizationId)}`,
+                    href: withOrganizationId(
+                      `/admin/commissions/plans/${trace.template_id}`,
+                      organizationId
+                    ),
                     label: "Ouvrir le plan",
                   },
                 ]
               : []),
             {
-              href: "/admin/commissions",
+              href: withOrganizationId("/admin/commissions", organizationId),
               label: "Commissions",
             },
             {
-              href: "/admin/commissions#commissions-payees",
+              href: withOrganizationId(
+                "/admin/commissions#commissions-payees",
+                organizationId
+              ),
               label: "Commissions payées",
             },
           ]}

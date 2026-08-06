@@ -4,6 +4,7 @@ import Link from "next/link";
 import type { CSSProperties, ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
 import AppCard from "@/app/components/ui/AppCard";
+import { withOrganizationId } from "@/app/lib/commissions/pay-plan-organization-context.shared";
 
 const actionCardStyle: CSSProperties = {
   display: "grid",
@@ -63,6 +64,7 @@ export type CommissionQuickAction = {
 
 export function CommissionModuleSubnav({
   active,
+  organizationId = "",
 }: {
   active:
     | "dashboard"
@@ -72,6 +74,7 @@ export function CommissionModuleSubnav({
     | "pending"
     | "paid"
     | "books";
+  organizationId?: string | null;
 }) {
   const items: Array<{
     key: typeof active;
@@ -119,7 +122,7 @@ export function CommissionModuleSubnav({
       {items.map((item) => (
         <Link
           key={item.key}
-          href={item.href}
+          href={withOrganizationId(item.href, organizationId)}
           className={
             item.key === active
               ? "commission-module-subnav-link is-active"

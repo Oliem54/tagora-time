@@ -33,6 +33,13 @@ import {
   type RecentPayPlanResultItem,
 } from "@/app/admin/commissions/recent-pay-plan-results.shared";
 import { resolvePayPlanBeneficiaryDisplay } from "@/app/lib/commissions/generic-pay-plan.shared";
+import {
+  readPayPlanOrganizationSession,
+  resolvePayPlanOrganizationContext,
+  syncOrganizationIdInBrowserUrl,
+  withOrganizationId,
+  writePayPlanOrganizationSession,
+} from "@/app/lib/commissions/pay-plan-organization-context.shared";
 
 type DetailProps = { templateId: string };
 
@@ -40,7 +47,8 @@ type Employee = { id: number; label: string };
 
 export default function GenericPayPlanDetailClient({ templateId }: DetailProps) {
   const searchParams = useSearchParams();
-  const organizationId = searchParams.get("organization_id") || "";
+  const requestedOrganizationId = searchParams.get("organization_id") || "";
+  const [organizationId, setOrganizationId] = useState(requestedOrganizationId);
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -114,22 +122,60 @@ export default function GenericPayPlanDetailClient({ templateId }: DetailProps) 
   }, [activeAssignment, employees]);
 
   const reload = useCallback(async () => {
-    if (!organizationId) {
-      setError("Organisation manquante.");
+    setLoading(true);
+    setError(null);
+
+    const orgsRes = await commissionsFetch(
+      "/api/admin/commissions/organizations"
+    );
+    const orgsJson = (await orgsRes.json().catch(() => ({}))) as {
+      organizations?: Array<{ id?: string }>;
+      error?: string;
+    };
+    if (!orgsRes.ok) {
+      setError(orgsJson.error || "Organisation manquante.");
       setLoading(false);
       return;
     }
-    setLoading(true);
-    setError(null);
+    const memberships = (orgsJson.organizations || [])
+      .map((row) => ({ organizationId: String(row.id || "").trim() }))
+      .filter((row) => row.organizationId);
+    const resolved = resolvePayPlanOrganizationContext({
+      requestedOrganizationId,
+      sessionOrganizationId: readPayPlanOrganizationSession(),
+      memberships,
+    });
+    if (!resolved.ok) {
+      setError(
+        resolved.status === 403 ? resolved.error : "Organisation manquante."
+      );
+      setOrganizationId("");
+      setLoading(false);
+      return;
+    }
+    const resolvedOrgId = resolved.organizationId;
+    setOrganizationId(resolvedOrgId);
+    writePayPlanOrganizationSession(resolvedOrgId);
+    syncOrganizationIdInBrowserUrl(resolvedOrgId);
+
     const [detailRes, employeesRes, resultsRes] = await Promise.all([
       commissionsFetch(
-        `/api/admin/generic-pay-plans/${templateId}?organization_id=${encodeURIComponent(organizationId)}`
+        withOrganizationId(
+          `/api/admin/generic-pay-plans/${templateId}`,
+          resolvedOrgId
+        )
       ),
       commissionsFetch(
-        `/api/admin/generic-pay-plans/employees?organization_id=${encodeURIComponent(organizationId)}`
+        withOrganizationId(
+          `/api/admin/generic-pay-plans/employees`,
+          resolvedOrgId
+        )
       ),
       commissionsFetch(
-        `/api/admin/generic-pay-plans/results?organization_id=${encodeURIComponent(organizationId)}&template_id=${encodeURIComponent(templateId)}`
+        withOrganizationId(
+          `/api/admin/generic-pay-plans/results?template_id=${encodeURIComponent(templateId)}`,
+          resolvedOrgId
+        )
       ),
     ]);
     const detail = (await detailRes.json().catch(() => ({}))) as Record<
@@ -163,7 +209,7 @@ export default function GenericPayPlanDetailClient({ templateId }: DetailProps) 
     } else {
       setPersistedLastAccrualId(null);
     }
-  }, [organizationId, templateId]);
+  }, [requestedOrganizationId, templateId]);
 
   useEffect(() => {
     void reload();
@@ -202,7 +248,11 @@ export default function GenericPayPlanDetailClient({ templateId }: DetailProps) 
         <p role="alert" style={{ color: "#b91c1c", fontWeight: 700 }}>
           {error || "Plan introuvable."}
         </p>
-        <Link href="/admin/commissions/plans">Retour à la liste</Link>
+        <Link
+          href={withOrganizationId("/admin/commissions/plans", organizationId)}
+        >
+          Retour à la liste
+        </Link>
       </main>
     );
   }
@@ -213,35 +263,50 @@ export default function GenericPayPlanDetailClient({ templateId }: DetailProps) 
   return (
     <main className="page-container">
       <AuthenticatedPageHeader
-        className="ui-page-header-premium-2027"
+        className="ui-page-header-premium-2027 ui-page-header-premium-financial"
+        eyebrow="TAGORA Time · Commissions"
         title={String(template.display_name)}
         subtitle={String(template.template_code)}
         showNavigation={false}
-        navigation={<AdminCommissionsNavigation variant="plans" />}
+        navigation={
+          <AdminCommissionsNavigation
+            variant="plans"
+            organizationId={organizationId}
+          />
+        }
       />
 
       <div className="ui-stack" style={{ marginTop: 20, gap: 20 }}>
         <CommissionNavButtons
           links={[
             {
-              href: `/admin/commissions/plans?organization_id=${encodeURIComponent(organizationId)}`,
+              href: withOrganizationId(
+                "/admin/commissions/plans",
+                organizationId
+              ),
               label: "Tous les plans",
             },
             ...(resultAccrualId
               ? [
                   {
-                    href: `/admin/commissions/plans/results/${resultAccrualId}?organization_id=${encodeURIComponent(organizationId)}`,
+                    href: withOrganizationId(
+                      `/admin/commissions/plans/results/${resultAccrualId}`,
+                      organizationId
+                    ),
                     label: "Voir le dernier résultat",
                     primary: true as const,
                   },
                 ]
               : []),
             {
-              href: "/admin/commissions#resultats-plans",
+              href: withOrganizationId(
+                "/admin/commissions#resultats-plans",
+                organizationId
+              ),
               label: "Retour aux résultats",
             },
             {
-              href: "/admin/commissions",
+              href: withOrganizationId("/admin/commissions", organizationId),
               label: "Retour au tableau",
             },
           ]}
@@ -722,7 +787,10 @@ export default function GenericPayPlanDetailClient({ templateId }: DetailProps) 
               {resultAccrualId ? (
                 <div>
                   <Link
-                    href={`/admin/commissions/plans/results/${resultAccrualId}?organization_id=${encodeURIComponent(organizationId)}`}
+                    href={withOrganizationId(
+                      `/admin/commissions/plans/results/${resultAccrualId}`,
+                      organizationId
+                    )}
                     className="tagora-dark-outline-action tagora-page-navigation-button"
                   >
                     Voir le résultat

@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   BadgeCheck,
@@ -112,7 +113,12 @@ import {
   validateAndBuildAdminCreateObjectivePayload,
   type AdminCreateObjectiveFormState,
 } from "@/app/lib/commissions/admin-create-objective-form.shared";
-import { resolveSingleMembershipOrganizationPreselect } from "@/app/lib/auth/organization-access.shared";
+import {
+  readPayPlanOrganizationSession,
+  resolvePayPlanOrganizationContext,
+  withOrganizationId,
+  writePayPlanOrganizationSession,
+} from "@/app/lib/commissions/pay-plan-organization-context.shared";
 
 type ChauffeurOption = {
   id: number;
@@ -166,6 +172,8 @@ function assigneeLabel(objective: SalesObjectiveRow) {
 
 export default function AdminCommissionsPageClient() {
   const { user, loading: accessLoading } = useCurrentAccess();
+  const searchParams = useSearchParams();
+  const requestedOrganizationId = searchParams.get("organization_id") || "";
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -342,19 +350,31 @@ export default function AdminCommissionsPageClient() {
     if (orgsRes.ok && Array.isArray(orgsJson.organizations)) {
       const nextOrgs = orgsJson.organizations;
       setOrganizations(nextOrgs);
-      setCreateForm((prev) => {
-        if (prev.organization_id) {
-          resolvedOrgId = prev.organization_id;
-          return prev;
-        }
-        const preselect = resolveSingleMembershipOrganizationPreselect(
-          nextOrgs.map((row) => ({ organizationId: row.id }))
-        );
-        resolvedOrgId = preselect || nextOrgs[0]?.id || "";
-        return resolvedOrgId
-          ? { ...prev, organization_id: resolvedOrgId }
-          : prev;
+      const memberships = nextOrgs.map((row) => ({
+        organizationId: row.id,
+      }));
+      const resolved = resolvePayPlanOrganizationContext({
+        requestedOrganizationId: requestedOrganizationId || null,
+        sessionOrganizationId: readPayPlanOrganizationSession(),
+        memberships,
       });
+      if (resolved.ok) {
+        resolvedOrgId = resolved.organizationId;
+        writePayPlanOrganizationSession(resolvedOrgId);
+        setCreateForm((prev) =>
+          prev.organization_id === resolvedOrgId
+            ? prev
+            : { ...prev, organization_id: resolvedOrgId }
+        );
+      } else {
+        setCreateForm((prev) => {
+          if (!prev.organization_id) return prev;
+          const stillAllowed = memberships.some(
+            (row) => row.organizationId === prev.organization_id
+          );
+          return stillAllowed ? prev : { ...prev, organization_id: "" };
+        });
+      }
     } else {
       setOrganizations([]);
     }
@@ -437,7 +457,11 @@ export default function AdminCommissionsPageClient() {
       loadPlanAssigneeSellers(resolvedOrgId, nextChauffeurs),
     ]);
     setLoading(false);
-  }, [loadPersistedPlanResults, loadPlanAssigneeSellers]);
+  }, [
+    loadPersistedPlanResults,
+    loadPlanAssigneeSellers,
+    requestedOrganizationId,
+  ]);
 
   useEffect(() => {
     if (accessLoading || !user) return;
@@ -871,7 +895,12 @@ export default function AdminCommissionsPageClient() {
         className="ui-page-header-premium-2027"
         title="Commissions et objectifs"
         showNavigation={false}
-        navigation={<AdminCommissionsNavigation variant="commissions" />}
+        navigation={
+          <AdminCommissionsNavigation
+            variant="commissions"
+            organizationId={createForm.organization_id}
+          />
+        }
       />
 
       {message && messageType ? <FeedbackMessage message={message} type={messageType} /> : null}
@@ -984,13 +1013,19 @@ export default function AdminCommissionsPageClient() {
                     </div>
                     <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
                       <Link
-                        href={`/admin/commissions/plans/results/${result.accrualId}?organization_id=${encodeURIComponent(result.organizationId)}`}
+                        href={withOrganizationId(
+                          `/admin/commissions/plans/results/${result.accrualId}`,
+                          result.organizationId
+                        )}
                         className="tagora-dark-action tagora-page-navigation-button"
                       >
                         Voir la commission
                       </Link>
                       <Link
-                        href={`/admin/commissions/plans/${result.templateId}?organization_id=${encodeURIComponent(result.organizationId)}`}
+                        href={withOrganizationId(
+                          `/admin/commissions/plans/${result.templateId}`,
+                          result.organizationId
+                        )}
                         className="tagora-dark-outline-action tagora-page-navigation-button"
                       >
                         Ouvrir le plan
@@ -1060,6 +1095,7 @@ export default function AdminCommissionsPageClient() {
                   onChange={(e) => {
                     const nextOrg = e.target.value;
                     setCreateForm({ ...createForm, organization_id: nextOrg });
+                    writePayPlanOrganizationSession(nextOrg);
                     void loadPersistedPlanResults(nextOrg, chauffeurs);
                     void loadPlanAssigneeSellers(nextOrg, chauffeurs);
                   }}
@@ -1639,7 +1675,10 @@ export default function AdminCommissionsPageClient() {
                         </div>
                         <div style={{ marginTop: 12 }}>
                           <Link
-                            href={`/admin/commissions/plans/results/${result.accrualId}?organization_id=${encodeURIComponent(result.organizationId)}`}
+                            href={withOrganizationId(
+                          `/admin/commissions/plans/results/${result.accrualId}`,
+                          result.organizationId
+                        )}
                             className="tagora-dark-action tagora-page-navigation-button"
                           >
                             {PAID_PLAN_RESULT_CTA_LABEL}
@@ -1868,7 +1907,10 @@ export default function AdminCommissionsPageClient() {
                             </strong>
                           </div>
                           <Link
-                            href={`/admin/commissions/plans/results/${result.accrualId}?organization_id=${encodeURIComponent(result.organizationId)}`}
+                            href={withOrganizationId(
+                          `/admin/commissions/plans/results/${result.accrualId}`,
+                          result.organizationId
+                        )}
                             className="tagora-dark-action tagora-page-navigation-button"
                           >
                             {PENDING_PLAN_RESULT_CTA_LABEL}

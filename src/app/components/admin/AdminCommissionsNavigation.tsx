@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { ArrowLeft, LayoutDashboard } from "lucide-react";
 import { CommissionModuleSubnav } from "@/app/admin/commissions/commission-module-ui";
+import { withOrganizationId } from "@/app/lib/commissions/pay-plan-organization-context.shared";
 
 export type AdminCommissionsNavigationVariant =
   | "commissions"
@@ -15,6 +16,7 @@ const COMMISSIONS_HREF = "/admin/commissions";
 
 type AdminCommissionsNavigationProps = {
   variant: AdminCommissionsNavigationVariant;
+  organizationId?: string | null;
 };
 
 function moduleActive(
@@ -35,15 +37,17 @@ function moduleActive(
 
 export default function AdminCommissionsNavigation({
   variant,
+  organizationId = "",
 }: AdminCommissionsNavigationProps) {
   const isHub = variant === "commissions";
+  const commissionsHref = withOrganizationId(COMMISSIONS_HREF, organizationId);
 
   return (
     <div className="admin-commissions-navigation">
       <div className="tagora-page-navigation-actions admin-commissions-nav-actions">
         {!isHub ? (
           <Link
-            href={COMMISSIONS_HREF}
+            href={commissionsHref}
             className="tagora-dark-outline-action tagora-page-navigation-button"
           >
             <ArrowLeft size={16} aria-hidden />
@@ -61,38 +65,42 @@ export default function AdminCommissionsNavigation({
       </div>
 
       <div className="admin-commissions-module-subnav">
-        <CommissionModuleSubnav active={moduleActive(variant)} />
+        <CommissionModuleSubnav
+          active={moduleActive(variant)}
+          organizationId={organizationId}
+        />
       </div>
 
       <style jsx>{`
         .admin-commissions-navigation {
           display: grid;
-          gap: 10px;
+          gap: 12px;
         }
 
         .admin-commissions-nav-actions {
-          gap: 8px;
+          gap: 10px;
         }
 
         .admin-commissions-nav-actions :global(.tagora-page-navigation-button) {
-          min-height: 36px;
-          padding: 0.45rem 0.8rem;
-          font-size: 0.8125rem;
+          min-height: 40px;
+          padding: 0.55rem 1rem;
+          font-size: 0.875rem;
+          font-weight: 650;
         }
 
         .admin-commissions-module-subnav :global(.commission-module-subnav) {
           margin-top: 0;
-          gap: 6px;
+          gap: 8px;
         }
 
         .admin-commissions-module-subnav
           :global(.commission-module-subnav-link) {
-          padding: 6px 10px;
+          padding: 8px 12px;
           border-radius: 999px;
           background: rgba(255, 255, 255, 0.1);
           border-color: rgba(255, 255, 255, 0.18);
           color: rgba(255, 255, 255, 0.92);
-          font-size: 12px;
+          font-size: 13px;
           font-weight: 650;
         }
 

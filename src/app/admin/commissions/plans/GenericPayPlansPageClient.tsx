@@ -2,13 +2,19 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useSearchParams } from "next/navigation";
 import AdminCommissionsNavigation from "@/app/components/admin/AdminCommissionsNavigation";
 import AuthenticatedPageHeader from "@/app/components/ui/AuthenticatedPageHeader";
 import AppCard from "@/app/components/ui/AppCard";
 import SectionCard from "@/app/components/ui/SectionCard";
 import { commissionsFetch } from "@/app/lib/commissions/commissions-api.client";
-import { resolveSingleMembershipOrganizationPreselect } from "@/app/lib/auth/organization-access.shared";
 import { normalizePayPlanCode } from "@/app/lib/commissions/generic-pay-plan.shared";
+import {
+  readPayPlanOrganizationSession,
+  resolvePayPlanOrganizationContext,
+  withOrganizationId,
+  writePayPlanOrganizationSession,
+} from "@/app/lib/commissions/pay-plan-organization-context.shared";
 import {
   PayPlanField,
   PayPlanFieldStack,
@@ -33,6 +39,8 @@ type TemplateRow = {
 };
 
 export default function GenericPayPlansPageClient() {
+  const searchParams = useSearchParams();
+  const requestedOrganizationId = searchParams.get("organization_id") || "";
   const [organizations, setOrganizations] = useState<OrganizationOption[]>([]);
   const [organizationId, setOrganizationId] = useState("");
   const [templates, setTemplates] = useState<TemplateRow[]>([]);
@@ -56,11 +64,9 @@ export default function GenericPayPlansPageClient() {
     setLoading(true);
     setError(null);
     const [res, resultsRes] = await Promise.all([
+      commissionsFetch(withOrganizationId("/api/admin/generic-pay-plans", orgId)),
       commissionsFetch(
-        `/api/admin/generic-pay-plans?organization_id=${encodeURIComponent(orgId)}`
-      ),
-      commissionsFetch(
-        `/api/admin/generic-pay-plans/results?organization_id=${encodeURIComponent(orgId)}`
+        withOrganizationId("/api/admin/generic-pay-plans/results", orgId)
       ),
     ]);
     const json = (await res.json().catch(() => ({}))) as {
@@ -100,24 +106,25 @@ export default function GenericPayPlansPageClient() {
       }
       const nextOrgs = orgsJson.organizations || [];
       setOrganizations(nextOrgs);
-      const preselect = resolveSingleMembershipOrganizationPreselect(
-        nextOrgs.map((org) => ({
-          organizationId: org.id,
-          displayName: org.display_name,
-        }))
-      );
-      const initialOrg = preselect || nextOrgs[0]?.id || "";
-      setOrganizationId(initialOrg);
-      if (initialOrg) {
-        await load(initialOrg);
-      } else {
+      const resolved = resolvePayPlanOrganizationContext({
+        requestedOrganizationId,
+        sessionOrganizationId: readPayPlanOrganizationSession(),
+        memberships: nextOrgs.map((org) => ({ organizationId: org.id })),
+      });
+      if (!resolved.ok) {
+        setOrganizationId("");
         setLoading(false);
+        if (resolved.status === 403) setError(resolved.error);
+        return;
       }
+      setOrganizationId(resolved.organizationId);
+      writePayPlanOrganizationSession(resolved.organizationId);
+      await load(resolved.organizationId);
     })();
     return () => {
       cancelled = true;
     };
-  }, [load]);
+  }, [load, requestedOrganizationId]);
 
   async function createPlan(event: FormEvent) {
     event.preventDefault();
@@ -153,24 +160,46 @@ export default function GenericPayPlansPageClient() {
     setDescription("");
     await load(organizationId);
     if (json.template?.id) {
-      window.location.href = `/admin/commissions/plans/${json.template.id}?organization_id=${encodeURIComponent(organizationId)}`;
+      window.location.href = withOrganizationId(
+        `/admin/commissions/plans/${json.template.id}`,
+        organizationId
+      );
     }
   }
 
   return (
     <main className="page-container">
       <AuthenticatedPageHeader
-        className="ui-page-header-premium-2027"
+        className="ui-page-header-premium-2027 ui-page-header-premium-financial"
+        eyebrow="TAGORA Time · Commissions"
         title="Plans de rémunération"
         showNavigation={false}
-        navigation={<AdminCommissionsNavigation variant="plans" />}
+        navigation={
+          <AdminCommissionsNavigation
+            variant="plans"
+            organizationId={organizationId}
+          />
+        }
       />
 
       <div className="ui-stack" style={{ marginTop: 20, gap: 24 }}>
         <CommissionNavButtons
           links={[
-            { href: "/admin/commissions/plans#nouveau-plan", label: "Créer un plan", primary: true },
-            { href: "/admin/commissions#resultats-plans", label: "Résultats" },
+            {
+              href: withOrganizationId(
+                "/admin/commissions/plans#nouveau-plan",
+                organizationId
+              ),
+              label: "Créer un plan",
+              primary: true,
+            },
+            {
+              href: withOrganizationId(
+                "/admin/commissions#resultats-plans",
+                organizationId
+              ),
+              label: "Résultats",
+            },
           ]}
         />
 
@@ -181,6 +210,7 @@ export default function GenericPayPlansPageClient() {
               onChange={(e) => {
                 const next = e.target.value;
                 setOrganizationId(next);
+                writePayPlanOrganizationSession(next);
                 void load(next);
               }}
             >
@@ -301,7 +331,10 @@ export default function GenericPayPlansPageClient() {
                     </div>
                     <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
                       <Link
-                        href={`/admin/commissions/plans/${template.id}?organization_id=${encodeURIComponent(organizationId)}`}
+                        href={withOrganizationId(
+                          `/admin/commissions/plans/${template.id}`,
+                          organizationId
+                        )}
                         className="tagora-dark-action tagora-page-navigation-button"
                       >
                         Ouvrir le plan
@@ -312,7 +345,10 @@ export default function GenericPayPlansPageClient() {
                         );
                         return latest ? (
                           <Link
-                            href={`/admin/commissions/plans/results/${latest.accrualId}?organization_id=${encodeURIComponent(organizationId)}`}
+                            href={withOrganizationId(
+                              `/admin/commissions/plans/results/${latest.accrualId}`,
+                              organizationId
+                            )}
                             className="tagora-dark-outline-action tagora-page-navigation-button"
                           >
                             Voir le dernier résultat
@@ -320,7 +356,10 @@ export default function GenericPayPlansPageClient() {
                         ) : null;
                       })()}
                       <Link
-                        href="/admin/commissions#resultats-plans"
+                        href={withOrganizationId(
+                          "/admin/commissions#resultats-plans",
+                          organizationId
+                        )}
                         className="tagora-dark-outline-action tagora-page-navigation-button"
                       >
                         Voir tous les résultats

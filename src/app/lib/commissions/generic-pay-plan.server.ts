@@ -17,9 +17,9 @@ import {
   assertChauffeurOrganizationAccess,
   getAuthenticatedOrganizationMemberships,
   normalizeOrganizationUuid,
-  resolveRequestedOrganizationId,
 } from "@/app/lib/auth/organization-access.server";
 import type { PayPlanPermission } from "@/app/lib/commissions/generic-pay-plan-contracts";
+import { resolvePayPlanOrganizationContext } from "@/app/lib/commissions/pay-plan-organization-context.shared";
 import { createAuthenticatedServerSupabaseClient } from "@/app/lib/supabase/authenticated-server";
 
 export type GenericPayPlanAuth = {
@@ -139,7 +139,7 @@ export async function resolvePayPlanOrganization(input: {
       error: memberships.error,
     };
   }
-  const requested = resolveRequestedOrganizationId({
+  const requested = resolvePayPlanOrganizationContext({
     requestedOrganizationId: input.requestedOrganizationId,
     memberships: memberships.memberships,
   });

@@ -19,6 +19,7 @@ import {
   type AuthorizedViewerProfile,
 } from "@/app/lib/commissions/commission-book-authorized-viewers.shared";
 import { commissionsFetch } from "@/app/lib/commissions/commissions-api.client";
+import { readPayPlanOrganizationSession } from "@/app/lib/commissions/pay-plan-organization-context.shared";
 import {
   isCommissionBookGrantId,
   isCommissionBookGrantRevoked,
@@ -451,7 +452,12 @@ export default function AdminCommissionBookAccessClient() {
         className="ui-page-header-premium-2027"
         title="Partage des livres"
         showNavigation={false}
-        navigation={<AdminCommissionsNavigation variant="acces-direction" />}
+        navigation={
+          <AdminCommissionsNavigation
+            variant="acces-direction"
+            organizationId={readPayPlanOrganizationSession()}
+          />
+        }
       />
 
       {message && messageType ? <FeedbackMessage message={message} type={messageType} /> : null}
