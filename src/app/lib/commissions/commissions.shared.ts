@@ -107,7 +107,14 @@ export type CommissionsSummary = {
   behindObjectives: number;
   estimatedCommissions: number;
   pendingValidationCommissions: number;
+  /**
+   * Total combiné organisation active :
+   * commissions d’objectifs payées + résultats de plans payés.
+   */
   paidCommissions: number;
+  paidObjectiveTotal?: number;
+  paidPlanTotal?: number;
+  paidCombinedTotal?: number;
 };
 
 export const OBJECTIVE_STATUS_LABELS: Record<ObjectiveStatus, string> = {

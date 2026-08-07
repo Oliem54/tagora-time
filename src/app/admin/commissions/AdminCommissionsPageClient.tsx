@@ -94,6 +94,10 @@ import {
   type TargetType,
 } from "@/app/lib/commissions/commissions.shared";
 import {
+  PAID_COMMISSIONS_KPI_LABEL,
+  computePaidCommissionsKpiTotals,
+} from "@/app/lib/commissions/paid-commissions-kpi.shared";
+import {
   formatAchievedValue,
   formatCommissionRuleValue,
   formatRuleTypeLabel,
@@ -319,8 +323,7 @@ export default function AdminCommissionsPageClient() {
     setMessage("");
     setMessageType(null);
 
-    const [summaryRes, objectivesRes, entriesRes, orgsRes, chauffeursRes] = await Promise.all([
-      commissionsFetch("/api/direction/commissions/summary"),
+    const [objectivesRes, entriesRes, orgsRes, chauffeursRes] = await Promise.all([
       commissionsFetch("/api/direction/commissions/objectives"),
       commissionsFetch("/api/direction/commissions/entries"),
       commissionsFetch("/api/admin/commissions/organizations"),
@@ -330,10 +333,6 @@ export default function AdminCommissionsPageClient() {
         .order("nom", { ascending: true }),
     ]);
 
-    const summaryJson = (await summaryRes.json().catch(() => ({}))) as {
-      summary?: CommissionsSummary;
-      error?: string;
-    };
     const objectivesJson = (await objectivesRes.json().catch(() => ({}))) as {
       objectives?: SalesObjectiveRow[];
       error?: string;
@@ -378,6 +377,16 @@ export default function AdminCommissionsPageClient() {
     } else {
       setOrganizations([]);
     }
+
+    const summaryRes = await commissionsFetch(
+      resolvedOrgId
+        ? `/api/direction/commissions/summary?organization_id=${encodeURIComponent(resolvedOrgId)}`
+        : "/api/direction/commissions/summary"
+    );
+    const summaryJson = (await summaryRes.json().catch(() => ({}))) as {
+      summary?: CommissionsSummary;
+      error?: string;
+    };
 
     if (!summaryRes.ok || !objectivesRes.ok || !entriesRes.ok) {
       setSummary(null);
@@ -608,6 +617,35 @@ export default function AdminCommissionsPageClient() {
     setSellerFilter(ALL_SELLERS_KEY);
   }, [sellerFilter, sellerOptions]);
 
+  const paidCommissionsKpiTotals = useMemo(() => {
+    const orgId = createForm.organization_id || organizations[0]?.id || "";
+    const objectiveOrgById = new Map(
+      objectives.map((objective) => [
+        objective.id,
+        objective.organization_id ?? null,
+      ])
+    );
+    return computePaidCommissionsKpiTotals({
+      organizationId: orgId,
+      objectiveEntries: entries.map((entry) => ({
+        organizationId: objectiveOrgById.get(entry.objective_id) ?? null,
+        status: entry.status,
+        amount: entry.calculated_amount,
+      })),
+      planAccruals: recentPayPlanResults.map((result) => ({
+        organizationId: result.organizationId,
+        status: result.status,
+        amount: result.amount,
+      })),
+    });
+  }, [
+    createForm.organization_id,
+    entries,
+    objectives,
+    organizations,
+    recentPayPlanResults,
+  ]);
+
   const kpiCards = useMemo(
     () => [
       {
@@ -641,13 +679,13 @@ export default function AdminCommissionsPageClient() {
         href: "/admin/commissions#commissions-a-valider",
       },
       {
-        label: "Commissions payées",
-        value: formatCad(summary?.paidCommissions ?? 0),
+        label: PAID_COMMISSIONS_KPI_LABEL,
+        value: formatCad(paidCommissionsKpiTotals.paidCombinedTotal),
         valueIsCurrency: true,
         href: "/admin/commissions#commissions-payees",
       },
     ],
-    [summary]
+    [paidCommissionsKpiTotals.paidCombinedTotal, summary]
   );
 
   const quickActions = useMemo(
