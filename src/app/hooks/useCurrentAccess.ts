@@ -11,11 +11,13 @@ import { AppRole, getUserRole } from "@/app/lib/auth/roles";
 import {
   AppPermission,
   getUserPermissions,
+  hasUserPermission,
 } from "@/app/lib/auth/permissions";
 import {
   buildAppSessionCookieWriteDebug,
   writeBrowserSessionCookie,
 } from "@/app/lib/auth/session-cookie";
+import { fetchSessionAuthorizationContext } from "@/app/lib/auth/session-context.client";
 import { devInfo } from "@/app/lib/logger";
 import {
   buildUserCompanyAccess,
@@ -27,6 +29,7 @@ type AccessState = {
   role: AppRole | null;
   permissions: AppPermission[];
   companyAccess: UserCompanyAccess;
+  organizationId: string | null;
   loading: boolean;
 };
 
@@ -39,6 +42,7 @@ export function useCurrentAccess() {
     role: null,
     permissions: [],
     companyAccess: buildUserCompanyAccess(null),
+    organizationId: null,
     loading: true,
   });
 
@@ -127,11 +131,36 @@ export function useCurrentAccess() {
 
           if (cancelled) return;
 
+          let role: AppRole | null = null;
+          let organizationId: string | null = null;
+
+          if (user) {
+            const {
+              data: { session },
+            } = await supabase.auth.getSession();
+            const token = session?.access_token;
+            if (token) {
+              const ctx = await fetchSessionAuthorizationContext(token);
+              if (ctx.authorized && ctx.appRole) {
+                // H4 membership is the effective role source for permissions.
+                role = ctx.appRole;
+                organizationId = ctx.organizationId;
+              } else {
+                // Non-member / inactive / unauthorized: no organizational elevation.
+                role = null;
+                organizationId = null;
+              }
+            } else {
+              role = getUserRole(user);
+            }
+          }
+
           setState({
             user,
-            role: getUserRole(user),
+            role,
             permissions: getUserPermissions(user),
             companyAccess: buildUserCompanyAccess(user),
+            organizationId,
             loading: false,
           });
         });
@@ -148,6 +177,7 @@ export function useCurrentAccess() {
             role: null,
             permissions: [],
             companyAccess: buildUserCompanyAccess(null),
+            organizationId: null,
             loading: false,
           });
         }
@@ -169,8 +199,9 @@ export function useCurrentAccess() {
   }, []);
 
   const hasPermission = useCallback(
-    (permission: AppPermission) => state.permissions.includes(permission),
-    [state.permissions]
+    (permission: AppPermission) =>
+      hasUserPermission(state.user, permission, state.role),
+    [state.user, state.role]
   );
 
   return {

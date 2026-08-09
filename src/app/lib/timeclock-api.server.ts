@@ -44,7 +44,7 @@ export async function requireAuthenticatedUser(
     };
   }
 
-  if (permission && !hasUserPermission(user, permission)) {
+  if (permission && !hasUserPermission(user, permission, role)) {
     return {
       ok: false as const,
       response: { error: "Acces refuse.", status: 403 },
@@ -63,7 +63,11 @@ export async function requireDirectionUser(
   req: NextRequest,
   permission: "terrain" | "livraisons" | "ressources"
 ) {
-  const { user, role, mfaError } = await getStrictDirectionRequestUser(req);
+  // Membership H4 role is authoritative; JWT strict helper retained for MFA gate only.
+  const membershipAuth = await getAuthenticatedRequestUser(req);
+  const { mfaError } = await getStrictDirectionRequestUser(req);
+  const user = membershipAuth.user;
+  const role = membershipAuth.role;
 
   if (mfaError) {
     return {
@@ -84,7 +88,7 @@ export async function requireDirectionUser(
     };
   }
 
-  if (!hasUserPermission(user, permission)) {
+  if (!hasUserPermission(user, permission, role)) {
     return {
       ok: false as const,
       response: { error: "Permission insuffisante.", status: 403 },
