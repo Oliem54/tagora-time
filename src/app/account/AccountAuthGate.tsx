@@ -8,7 +8,7 @@ import {
   runWithBrowserAuthReadLock,
   supabase,
 } from "@/app/lib/supabase/client";
-import { getUserRole } from "@/app/lib/auth/roles";
+import { fetchSessionAuthorizationContext } from "@/app/lib/auth/session-context.client";
 import TagoraLoadingScreen from "@/app/components/ui/TagoraLoadingScreen";
 
 export default function AccountAuthGate({ children }: { children: ReactNode }) {
@@ -26,7 +26,6 @@ export default function AccountAuthGate({ children }: { children: ReactNode }) {
             ({ data, error } = await supabase.auth.getUser());
           }
           const user = data.user;
-          const role = getUserRole(user);
 
           if (cancelled) return;
 
@@ -39,7 +38,17 @@ export default function AccountAuthGate({ children }: { children: ReactNode }) {
             return;
           }
 
-          if (!role) {
+          const sessionRes = await supabase.auth.getSession();
+          const accessToken = sessionRes.data.session?.access_token;
+          if (!accessToken) {
+            router.replace("/employe/login");
+            return;
+          }
+
+          const ctx = await fetchSessionAuthorizationContext(accessToken);
+          if (cancelled) return;
+
+          if (!ctx.authorized || !ctx.appRole) {
             await supabase.auth.signOut();
             router.replace("/employe/login");
             return;

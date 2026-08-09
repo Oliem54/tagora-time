@@ -303,7 +303,7 @@ export async function requireEmployeeHorodateurAccess(req: NextRequest) {
     };
   }
 
-  if (!hasUserPermission(user, "terrain")) {
+  if (!hasUserPermission(user, "terrain", role)) {
     return {
       ok: false as const,
       response: buildHorodateurValidationErrorResponse({
@@ -327,7 +327,8 @@ export async function requireDirectionHorodateurAccess(req: NextRequest) {
   const role = authenticated.role;
   const authSource = authenticated.authSource ?? directionResolution.debug.authSource;
   const hasDirectionAccess = role === "direction" || role === "admin";
-  const hasTerrainPermission = hasUserPermission(authenticated.user, "terrain");
+  // H4 membership role is authoritative for Admin bypass (not JWT alone).
+  const hasTerrainPermission = hasUserPermission(authenticated.user, "terrain", role);
   const isDev = process.env.NODE_ENV !== "production";
   const cookieValue = getCookieToken(req);
 
