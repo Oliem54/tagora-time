@@ -10,7 +10,10 @@ import {
   isPlatformSupportAccessValid,
   isValidCompanyCode,
   isValidOrganizationSlug,
+  isValidTenantKey,
   normalizeInvitationEmail,
+  organizationSlugToTenantKey,
+  tenantKeyToOrganizationSlug,
 } from "./tenant-foundation.shared";
 
 describe("SaaS 1B.1 tenant foundation shared rules", () => {
@@ -45,6 +48,31 @@ describe("SaaS 1B.1 tenant foundation shared rules", () => {
     expect(isValidCompanyCode("north")).toBe(true);
     expect(isValidCompanyCode("Oliem_Solutions")).toBe(false);
     expect(isValidCompanyCode("bad-code")).toBe(false);
+  });
+
+  it("validates tenantKey format distinct from organizationSlug", () => {
+    expect(isValidTenantKey("oliem_solution")).toBe(true);
+    expect(isValidTenantKey("acme_test")).toBe(true);
+    expect(isValidTenantKey("oliem-solution")).toBe(false);
+    expect(isValidTenantKey("acme-test")).toBe(false);
+    expect(
+      isValidTenantKey("11111111-1111-4111-8111-111111111111")
+    ).toBe(false);
+  });
+
+  it("maps tenantKey ↔ organizationSlug without UUID confusion", () => {
+    expect(tenantKeyToOrganizationSlug("oliem_solution")).toBe(
+      "oliem-solution"
+    );
+    expect(organizationSlugToTenantKey("oliem-solution")).toBe(
+      "oliem_solution"
+    );
+    expect(tenantKeyToOrganizationSlug("acme_test")).toBe("acme-test");
+    expect(tenantKeyToOrganizationSlug("oliem-solution")).toBeNull();
+    expect(organizationSlugToTenantKey("oliem_solution")).toBeNull();
+    expect(
+      tenantKeyToOrganizationSlug("11111111-1111-4111-8111-111111111111")
+    ).toBeNull();
   });
 
   it("allows only approved membership roles", () => {
