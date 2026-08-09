@@ -69,6 +69,8 @@ export const SAAS_1B1_FORBIDDEN_BUSINESS_TABLES = [
 
 const SLUG_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const COMPANY_CODE_RE = /^[a-z0-9]+(?:_[a-z0-9]+)*$/;
+/** Business tenant key (Martin): a-z 0-9 _; never a UUID and never an organization slug. */
+const TENANT_KEY_RE = /^[a-z0-9]+(?:_[a-z0-9]+)*$/;
 
 export function isValidOrganizationSlug(slug: string): boolean {
   return slug === slug.toLowerCase() && SLUG_RE.test(slug);
@@ -76,6 +78,44 @@ export function isValidOrganizationSlug(slug: string): boolean {
 
 export function isValidCompanyCode(code: string): boolean {
   return code === code.toLowerCase() && COMPANY_CODE_RE.test(code);
+}
+
+/**
+ * Validates a SaaS tenant business key (tenantKey) after trim+lower.
+ * Not an organization UUID (hyphenated) and not an organizationSlug.
+ */
+export function isValidTenantKey(tenantKey: string): boolean {
+  if (typeof tenantKey !== "string") {
+    return false;
+  }
+  const normalized = tenantKey.trim().toLowerCase();
+  return TENANT_KEY_RE.test(normalized);
+}
+
+/** Maps tenantKey (underscore) → organizations.slug (kebab). */
+export function tenantKeyToOrganizationSlug(tenantKey: string): string | null {
+  if (typeof tenantKey !== "string") {
+    return null;
+  }
+  const normalized = tenantKey.trim().toLowerCase();
+  if (!isValidTenantKey(normalized)) {
+    return null;
+  }
+  const slug = normalized.replace(/_/g, "-");
+  return isValidOrganizationSlug(slug) ? slug : null;
+}
+
+/** Maps organizations.slug (kebab) → tenantKey (underscore). */
+export function organizationSlugToTenantKey(slug: string): string | null {
+  if (typeof slug !== "string") {
+    return null;
+  }
+  const normalized = slug.trim().toLowerCase();
+  if (!isValidOrganizationSlug(normalized)) {
+    return null;
+  }
+  const tenantKey = normalized.replace(/-/g, "_");
+  return isValidTenantKey(tenantKey) ? tenantKey : null;
 }
 
 export function isOrganizationMembershipRole(
