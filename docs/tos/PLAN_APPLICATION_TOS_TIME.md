@@ -1,12 +1,12 @@
 # TAGORA Time — Plan d'application progressive TOS
 
-STATUT=LOCAL_DRAFT_PENDING_TOS_REVIEW
+STATUT=LOT_1_COMPLETE
 
 ## Objectif
 
 Structurer l'application progressive de TOS sur TAGORA Time **sans modifier le comportement fonctionnel**.
 
-Ce plan est un brouillon local non validé. Aucun commit / push n'est autorisé dans le gate d'instanciation Lot 1.
+Ce plan enregistre la clôture formelle du Lot 1 documentaire Phase 4D. Les Lots 2 et 3 restent non autorisés.
 
 ## Module
 
@@ -15,7 +15,7 @@ Ce plan est un brouillon local non validé. Aucun commit / push n'est autorisé 
 | **Module** | TAGORA Time |
 | **Gouvernant** | TAGORA Operating System (TOS) |
 | **Cible** | Dépôt `Oliem54/tagora-time` (séparé) |
-| **Statut document** | LOCAL_DRAFT_PENDING_TOS_REVIEW |
+| **Statut document** | LOT_1_COMPLETE |
 
 ## Baseline
 
@@ -41,8 +41,14 @@ FEATURE_BRANCH_EXCLUDED=feature/admin-commissions-premium-header-kpi
 ```text
 LOT_1_SCOPE=FOUNDATION_AND_QA_MATRICES
 LOT_1_FILE_COUNT=4
-STATUS=INSTANTIATED_LOCAL_UNCOMMITTED
+STATUS=COMPLETE
 AUTHORIZED=YES_LOCAL_CREATE_ONLY
+LOT_1_STATUS=COMPLETE
+LOT_1_CONTENT_REVIEW=PASS
+LOT_1_FORMAL_CLOSURE=AUTHORIZED_BY_MARTIN
+LOT_1_INITIAL_CHECKPOINT_SHA=f2bce3e896f5f7bdb981c39bcd27afc76fb8c9c1
+LOT_2_AUTHORIZED=NO
+LOT_3_AUTHORIZED=NO
 ```
 
 Contenu Lot 1 :
@@ -70,10 +76,10 @@ AUTHORIZED=NO
 
 | Gate | Règle |
 |---|---|
-| Création locale Lot 1 | Autorisée sous GO Martin (ce gate) |
-| Inspection TOS | **Obligatoire** avant tout commit |
-| Commit / push | **Non autorisés** dans ce gate |
-| Lots 2 / 3 | Nécessitent GO séparés |
+| Création locale Lot 1 | Autorisée sous GO Martin (exécutée) |
+| Inspection TOS | **PASS** — revue contenu Lot 1 |
+| Commit / push Lot 1 | Autorisés pour clôture formelle sous GO Martin |
+| Lots 2 / 3 | Nécessitent GO séparés — NON autorisés |
 | Changement fonctionnel | Gate distinct — hors portée |
 | Prérequis branche | Inclusible dans le gate parent si préconditions passées (VALD-088) |
 
@@ -93,12 +99,17 @@ AUTHORIZED=NO
 
 | # | Critère | ☐ |
 |:---:|---|:---:|
-| 1 | Exactement 4 fichiers Markdown | ☐ |
-| 2 | Aucun secret | ☐ |
-| 3 | Aucun PII réel inutile | ☐ |
-| 4 | Aucun code | ☐ |
-| 5 | Aucun fichier applicatif modifié | ☐ |
-| 6 | Revue humaine TOS avant commit | ☐ |
+| 1 | Exactement 4 fichiers Markdown | PASS |
+| 2 | Aucun secret | PASS |
+| 3 | Aucun PII réel inutile | PASS |
+| 4 | Aucun code | PASS |
+| 5 | Aucun fichier applicatif modifié | PASS |
+| 6 | Revue humaine TOS avant clôture | PASS |
+
+```text
+LOT_1_EXIT_CRITERIA=PASS
+LOT_1_FORMAL_STATUS=COMPLETE
+```
 
 ## Références TOS
 
@@ -110,8 +121,12 @@ Source TOS : `Oliem54/tagora-operating-system`
 ## Statut
 
 ```text
-STATUT=LOCAL_DRAFT_PENDING_TOS_REVIEW
-LOT_1_EXECUTION=LOCAL_FILES_CREATED_UNCOMMITTED
+STATUT=LOT_1_COMPLETE
+LOT_1_EXECUTION=COMPLETE
+LOT_1_STATUS=COMPLETE
+LOT_1_CONTENT_REVIEW=PASS
+LOT_1_FORMAL_CLOSURE=AUTHORIZED_BY_MARTIN
+LOT_1_INITIAL_CHECKPOINT_SHA=f2bce3e896f5f7bdb981c39bcd27afc76fb8c9c1
 LOT_2_AUTHORIZED=NO
 LOT_3_AUTHORIZED=NO
 ```

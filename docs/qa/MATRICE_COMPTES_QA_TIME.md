@@ -1,6 +1,6 @@
 # TAGORA Time — Matrice des comptes QA
 
-STATUT=LOCAL_DRAFT_PENDING_TOS_REVIEW
+STATUT=LOT_1_COMPLETE
 
 ## Objectif
 
@@ -16,7 +16,7 @@ Aucun compte réel. Aucun mot de passe. Aucune adresse personnelle. Aucun secret
 | **Environnement** | local / QA documentaire — jamais production avec secrets |
 | **Propriétaire matrice** | À confirmer |
 | **Date** | 2026-08-10 |
-| **Statut document** | LOCAL_DRAFT_PENDING_TOS_REVIEW |
+| **Statut document** | LOT_1_COMPLETE |
 
 ## Rôles applicatifs confirmés
 
@@ -87,6 +87,12 @@ Source TOS : `Oliem54/tagora-operating-system`
 ## Statut
 
 ```text
-STATUT=LOCAL_DRAFT_PENDING_TOS_REVIEW
+STATUT=LOT_1_COMPLETE
+LOT_1_STATUS=COMPLETE
+LOT_1_CONTENT_REVIEW=PASS
+LOT_1_FORMAL_CLOSURE=AUTHORIZED_BY_MARTIN
+LOT_1_INITIAL_CHECKPOINT_SHA=f2bce3e896f5f7bdb981c39bcd27afc76fb8c9c1
+QA_ACCOUNTS_REAL_CREATION=NOT_PERFORMED
 LOT_2_AUTHORIZED=NO
+LOT_3_AUTHORIZED=NO
 ```

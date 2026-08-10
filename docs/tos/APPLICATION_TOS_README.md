@@ -1,12 +1,12 @@
 # TAGORA Time — Application TAGORA Operating System
 
-STATUT=LOCAL_DRAFT_PENDING_TOS_REVIEW
+STATUT=LOT_1_COMPLETE
 
 ## Objectif
 
 TAGORA Time est le **module pilote** pour l'application progressive, documentée et contrôlée des standards TAGORA Operating System (TOS).
 
-Ce document est un brouillon local non validé. Il n'autorise aucun commit, push, code, migration ni déploiement.
+Ce document clôture formellement le Lot 1 documentaire Phase 4D. Il n'autorise ni Lot 2, ni code, ni migration, ni déploiement.
 
 ## Identité du module
 
@@ -68,10 +68,18 @@ COMMISSIONS_FEATURE=EXCLUDED_UNTOUCHED
 
 ```text
 PHASE_4D=IN_PROGRESS
-LOT_1=INSTANTIATED_LOCAL_UNCOMMITTED
+LOT_1=COMPLETE
+LOT_1_STATUS=COMPLETE
+LOT_1_CONTENT_REVIEW=PASS
+LOT_1_COMMITTED=YES
+LOT_1_PUSHED=YES
+LOT_1_FORMAL_CLOSURE=AUTHORIZED_BY_MARTIN
+LOT_1_INITIAL_CHECKPOINT_SHA=f2bce3e896f5f7bdb981c39bcd27afc76fb8c9c1
 LOT_2=NOT_AUTHORIZED
 LOT_3=NOT_AUTHORIZED
-STATUT=LOCAL_DRAFT_PENDING_TOS_REVIEW
+LOT_2_AUTHORIZED=NO
+LOT_3_AUTHORIZED=NO
+STATUT=LOT_1_COMPLETE
 ```
 
 ## Références TOS
@@ -94,4 +102,5 @@ Source TOS : `Oliem54/tagora-operating-system`
 ## Notes
 
 - Toute information non confirmée dans ce lot : **À confirmer** ou **Non défini dans ce lot**.
-- Ne pas présenter ce document comme final ou validé tant que la revue TOS n'est pas faite.
+- Lot 1 documentaire : contenu revu TOS = PASS ; clôture formelle autorisée par Martin.
+- Lot 2 et Lot 3 restent non autorisés.
