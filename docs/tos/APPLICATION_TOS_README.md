@@ -6,7 +6,7 @@ STATUT=LOT_1_COMPLETE
 
 TAGORA Time est le **module pilote** pour l'application progressive, documentée et contrôlée des standards TAGORA Operating System (TOS).
 
-Ce document clôture formellement le Lot 1 documentaire Phase 4D. Il n'autorise ni Lot 2, ni code, ni migration, ni déploiement.
+Ce document enregistre la Phase 4D documentaire : Lot 1 clos ; Lot 2 documentaire terminé (5 scénarios) ; Lot 3 non autorisé. Il n'autorise ni exécution QA des scénarios, ni code, ni migration, ni déploiement.
 
 ## Identité du module
 
@@ -40,7 +40,7 @@ selon des lots documentés, sous gouvernance TOS et GO Martin.
 
 - documentation QA ;
 - matrices comptes / données QA ;
-- scénarios QA futurs sous GO séparé ;
+- scénarios QA Lot 2 documentaires (terminés ; exécution hors scope ici) ;
 - checklist TDS future sous GO séparé ;
 - validation TES future sous GO séparé.
 
@@ -75,9 +75,9 @@ LOT_1_COMMITTED=YES
 LOT_1_PUSHED=YES
 LOT_1_FORMAL_CLOSURE=AUTHORIZED_BY_MARTIN
 LOT_1_INITIAL_CHECKPOINT_SHA=f2bce3e896f5f7bdb981c39bcd27afc76fb8c9c1
-LOT_2=NOT_AUTHORIZED
+LOT_2=COMPLETE
+LOT_2_STATUS=COMPLETE
 LOT_3=NOT_AUTHORIZED
-LOT_2_AUTHORIZED=NO
 LOT_3_AUTHORIZED=NO
 STATUT=LOT_1_COMPLETE
 ```
@@ -103,4 +103,5 @@ Source TOS : `Oliem54/tagora-operating-system`
 
 - Toute information non confirmée dans ce lot : **À confirmer** ou **Non défini dans ce lot**.
 - Lot 1 documentaire : contenu revu TOS = PASS ; clôture formelle autorisée par Martin.
-- Lot 2 et Lot 3 restent non autorisés.
+- Lot 2 documentaire : terminé (`COMPLETE` = documentation seulement ; exécution QA non effectuée ; Playwright non autorisé).
+- Lot 3 demeure non autorisé (`LOT_3_AUTHORIZED=NO`).

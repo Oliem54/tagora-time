@@ -20,10 +20,10 @@ Aucune donnée réelle. Aucune coordonnée GPS réelle. Aucune copie production.
 
 | Scénario lié | Type de donnée | Valeur fictive / anonymisée | Usage | Obligatoire | Sensible | Règle de protection | Statut | Notes |
 |---|---|---|---|:---:|:---:|---|---|---|
-| Scénario futur — Lot 2 non autorisé | Employé fictif | Employé QA Alpha | Punch / horodateur | Non défini dans ce lot | NON | Donnée entièrement fictive | PLANNED | QA-TIME-DATA-001 |
-| Scénario futur — Lot 2 non autorisé | Compte direction fictif | Direction QA Alpha | Validation / supervision future | Non défini dans ce lot | NON | Donnée entièrement fictive | PLANNED | QA-TIME-DATA-002 |
-| Scénario futur — Lot 2 non autorisé | Entrée horaire fictive | Quart QA fictif | Feuille de temps | Non défini dans ce lot | NON | Donnée synthétique | PLANNED | QA-TIME-DATA-003 |
-| Scénario futur — Lot 2 non autorisé | Coordonnée GPS fictive | Coordonnée de test non associée à une personne réelle | Scénario GPS futur | Non défini dans ce lot | NON | Donnée synthétique | PLANNED | QA-TIME-DATA-004 — valeur précise non définie dans ce lot |
+| Scénario Lot 2 documenté | Employé fictif | Employé QA Alpha | Punch / horodateur | Non défini dans ce lot | NON | Donnée entièrement fictive | PLANNED | QA-TIME-DATA-001 / QA-TIME-L2-001 |
+| Scénario Lot 2 documenté | Compte direction fictif | Direction QA Alpha | Validation / supervision future | Non défini dans ce lot | NON | Donnée entièrement fictive | PLANNED | QA-TIME-DATA-002 / QA-TIME-L2-005 |
+| Scénario Lot 2 documenté | Entrée horaire fictive | Quart QA fictif | Feuille de temps | Non défini dans ce lot | NON | Donnée synthétique | PLANNED | QA-TIME-DATA-003 / QA-TIME-L2-004 |
+| Scénario Lot 2 documenté | Coordonnée GPS fictive | Coordonnée de test non associée à une personne réelle | Scénario GPS futur | Non défini dans ce lot | NON | Donnée synthétique | PLANNED | QA-TIME-DATA-004 / QA-TIME-L2-002 / QA-TIME-L2-003 — valeur précise non définie |
 
 ### Détail
 
@@ -71,7 +71,7 @@ PROTECTION=Donnée synthétique
 STATUT=PLANNED
 ```
 
-La coordonnée GPS réelle n'est **pas** requise dans ce lot. La valeur précise pourra être définie dans le gate du scénario QA GPS (Lot 2, non autorisé).
+La coordonnée GPS réelle n'est **pas** requise dans ce lot. Le scénario QA GPS Lot 2 est documenté (QA-TIME-L2-002 / QA-TIME-L2-003) ; exécution non effectuée ; valeur GPS précise non définie.
 
 ## Règles
 
@@ -95,6 +95,6 @@ LOT_1_CONTENT_REVIEW=PASS
 LOT_1_FORMAL_CLOSURE=AUTHORIZED_BY_MARTIN
 LOT_1_INITIAL_CHECKPOINT_SHA=f2bce3e896f5f7bdb981c39bcd27afc76fb8c9c1
 QA_DATA_REAL_CREATION=NOT_PERFORMED
-LOT_2_AUTHORIZED=NO
+LOT_2_STATUS=COMPLETE
 LOT_3_AUTHORIZED=NO
 ```
