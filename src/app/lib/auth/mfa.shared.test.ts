@@ -21,16 +21,30 @@ describe("isStagingPreviewHostname", () => {
     expect(isStagingPreviewHostname(PREVIEW_HOST)).toBe(true);
   });
 
-  it("refuse tagora.ca et autres domaines", () => {
+  it("accepte le staging Time canonique", () => {
+    expect(isStagingPreviewHostname("time.staging.tagora.ca")).toBe(true);
+  });
+
+  it("refuse Production Time et domaines hors staging", () => {
+    expect(isStagingPreviewHostname("time.tagora.ca")).toBe(false);
     expect(isStagingPreviewHostname("tagora.ca")).toBe(false);
     expect(isStagingPreviewHostname("example.com")).toBe(false);
   });
 });
 
 describe("isProductionTagoraHostname", () => {
-  it("détecte tagora.ca et sous-domaines", () => {
-    expect(isProductionTagoraHostname("tagora.ca")).toBe(true);
-    expect(isProductionTagoraHostname("app.tagora.ca")).toBe(true);
+  it("détecte uniquement time.tagora.ca comme Production Time", () => {
+    expect(isProductionTagoraHostname("time.tagora.ca")).toBe(true);
+    expect(isProductionTagoraHostname("TIME.tagora.ca")).toBe(true);
+  });
+
+  it("ne traite pas staging, Nexus, previews ni sous-domaines inconnus comme Production", () => {
+    expect(isProductionTagoraHostname("time.staging.tagora.ca")).toBe(false);
+    expect(isProductionTagoraHostname("app.tagora.ca")).toBe(false);
+    expect(isProductionTagoraHostname("tagora.ca")).toBe(false);
+    expect(isProductionTagoraHostname("ops.tagora.ca")).toBe(false);
+    expect(isProductionTagoraHostname(PREVIEW_HOST)).toBe(false);
+    expect(isProductionTagoraHostname("localhost")).toBe(false);
   });
 });
 
@@ -52,12 +66,39 @@ describe("isStagingQaMfaBypassAllowed", () => {
     ).toBe(true);
   });
 
-  it("refuse tagora.ca même avec Supabase staging", () => {
+  it("autorise le staging Time canonique avec Supabase staging", () => {
+    expect(
+      isStagingQaMfaBypassAllowed({
+        role: "admin",
+        supabaseUrl: STAGING_SUPABASE_URL,
+        hostname: "time.staging.tagora.ca",
+      })
+    ).toBe(true);
+  });
+
+  it("refuse Production Time même avec Supabase staging", () => {
+    expect(
+      isStagingQaMfaBypassAllowed({
+        role: "admin",
+        supabaseUrl: STAGING_SUPABASE_URL,
+        hostname: "time.tagora.ca",
+      })
+    ).toBe(false);
+  });
+
+  it("refuse tagora.ca / Nexus même avec Supabase staging", () => {
     expect(
       isStagingQaMfaBypassAllowed({
         role: "admin",
         supabaseUrl: STAGING_SUPABASE_URL,
         hostname: "tagora.ca",
+      })
+    ).toBe(false);
+    expect(
+      isStagingQaMfaBypassAllowed({
+        role: "admin",
+        supabaseUrl: STAGING_SUPABASE_URL,
+        hostname: "app.tagora.ca",
       })
     ).toBe(false);
   });
@@ -82,7 +123,7 @@ describe("isStagingQaMfaBypassAllowed", () => {
     ).toBe(false);
   });
 
-  it("refuse un hôte hors localhost / vercel preview", () => {
+  it("refuse un hôte hors localhost / vercel preview / staging Time", () => {
     expect(
       isStagingQaMfaBypassAllowed({
         role: "admin",
@@ -118,12 +159,42 @@ describe("shouldBlockJwtAal1ForMandatoryMfaRole", () => {
     ).toBe(false);
   });
 
-  it("bloque admin sur tagora.ca en aal1", () => {
+  it("ne bloque pas admin sur staging Time canonique en aal1 (Supabase staging)", () => {
+    expect(
+      shouldBlockJwtAal1ForMandatoryMfaRole({
+        role: "admin",
+        isExplicitlyAal1Only: true,
+        hostname: "time.staging.tagora.ca",
+        supabaseUrl: STAGING_SUPABASE_URL,
+      })
+    ).toBe(false);
+  });
+
+  it("bloque admin sur Production Time en aal1", () => {
+    expect(
+      shouldBlockJwtAal1ForMandatoryMfaRole({
+        role: "admin",
+        isExplicitlyAal1Only: true,
+        hostname: "time.tagora.ca",
+        supabaseUrl: STAGING_SUPABASE_URL,
+      })
+    ).toBe(true);
+  });
+
+  it("bloque admin sur tagora.ca / Nexus en aal1 (pas de bypass staging)", () => {
     expect(
       shouldBlockJwtAal1ForMandatoryMfaRole({
         role: "admin",
         isExplicitlyAal1Only: true,
         hostname: "tagora.ca",
+        supabaseUrl: STAGING_SUPABASE_URL,
+      })
+    ).toBe(true);
+    expect(
+      shouldBlockJwtAal1ForMandatoryMfaRole({
+        role: "admin",
+        isExplicitlyAal1Only: true,
+        hostname: "app.tagora.ca",
         supabaseUrl: STAGING_SUPABASE_URL,
       })
     ).toBe(true);

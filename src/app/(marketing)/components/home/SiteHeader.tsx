@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { LOGIN_STANDARD_PATH } from "@/app/lib/canonical-domains";
 
 const navigation = [
   { label: "Accueil", href: "#accueil" },
@@ -36,7 +37,7 @@ export default function SiteHeader() {
         </nav>
 
         <Link
-          href="https://app.tagora.ca"
+          href={LOGIN_STANDARD_PATH}
           className="inline-flex items-center justify-center rounded-full border border-white/16 bg-white px-4 py-2 text-sm font-semibold text-slate-950 shadow-[0_16px_40px_rgba(255,255,255,0.16)] transition hover:bg-slate-100"
         >
           Connexion

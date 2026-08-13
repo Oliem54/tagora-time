@@ -1,4 +1,11 @@
 import type { AppRole } from "@/app/lib/auth/roles";
+import {
+  isCanonicalProductionHostname,
+  isCanonicalStagingHostname,
+  isLocalHostname,
+  isVercelPreviewHostname,
+  normalizeHostname,
+} from "@/app/lib/canonical-domains";
 
 /** Phase 1 : MFA obligatoire pour ces rôles (SMS recommandé ; TOTP option avancé). */
 export const MFA_REQUIRED_ROLES = ["admin", "direction"] as const satisfies readonly AppRole[];
@@ -10,27 +17,32 @@ export function roleRequiresMandatoryMfa(role: AppRole | null | undefined): bool
   return role === "admin" || role === "direction";
 }
 
+/**
+ * Production TAGORA Time (DEC-015) : uniquement `time.tagora.ca`.
+ * `app.tagora.ca` (Nexus), staging Time et sous-domaines inconnus ne sont pas Production.
+ */
 export function isProductionTagoraHostname(hostname: string | null | undefined): boolean {
-  const host = String(hostname ?? "")
-    .trim()
-    .toLowerCase();
-  if (!host) {
-    return false;
-  }
-  return host === "tagora.ca" || host.endsWith(".tagora.ca");
+  return isCanonicalProductionHostname(hostname);
 }
 
+/**
+ * Environnements non-production autorisés pour le bypass MFA QA :
+ * localhost, previews Vercel, et staging Time canonique.
+ */
 export function isStagingPreviewHostname(hostname: string | null | undefined): boolean {
-  const host = String(hostname ?? "")
-    .trim()
-    .toLowerCase();
-  if (!host) {
+  if (!normalizeHostname(hostname)) {
     return false;
   }
-  if (host === "localhost" || host === "127.0.0.1") {
+  if (isCanonicalProductionHostname(hostname)) {
+    return false;
+  }
+  if (isCanonicalStagingHostname(hostname)) {
     return true;
   }
-  return host.endsWith(".vercel.app");
+  if (isLocalHostname(hostname)) {
+    return true;
+  }
+  return isVercelPreviewHostname(hostname);
 }
 
 /** QA preview uniquement : admin/direction + Supabase staging + hôte local ou Vercel preview (jamais tagora.ca). */
@@ -79,8 +91,12 @@ export function isStagingQaMfaBypassAllowed(options: {
   }
 
   const hostname = options.hostname;
-  if (isProductionTagoraHostname(hostname)) {
+  // Vérifications spécifiques avant règles génériques (DEC-015).
+  if (isCanonicalProductionHostname(hostname)) {
     return false;
+  }
+  if (isCanonicalStagingHostname(hostname)) {
+    return true;
   }
 
   return isStagingPreviewHostname(hostname);

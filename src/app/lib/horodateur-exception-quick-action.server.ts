@@ -19,6 +19,7 @@ const QUICK_ACTION_TTL_MS = 24 * 60 * 60 * 1000;
 /**
  * URL publique pour construire les liens magiques (courriel / SMS).
  * Ordre : NEXT_PUBLIC_APP_URL, APP_PUBLIC_BASE_URL (serveur), VERCEL_URL.
+ * Défauts DEC-015 documentés : Production https://time.tagora.ca, Staging https://time.staging.tagora.ca.
  */
 export function resolvePublicAppBaseUrl(): string | null {
   const trim = (v: string | undefined) => v?.trim().replace(/\/$/, "") ?? "";

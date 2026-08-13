@@ -80,7 +80,7 @@ export default function Page() {
             <div className="mt-8 grid gap-4">
               {[
                 ["Courriel", "contact@tagora.ca"],
-                ["Application", "app.tagora.ca"],
+                ["Application Time", "time.tagora.ca"],
                 ["Site public", "tagora.ca"],
               ].map(([label, value]) => (
                 <div

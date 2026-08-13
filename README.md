@@ -35,7 +35,7 @@ Ouvrir [http://localhost:3000](http://localhost:3000).
 1. **Build** : `npm run build` doit réussir (également vérifié en CI sur les PR).
 2. **Variables** : reporter toutes les clés nécessaires depuis [`.env.example`](.env.example) vers la configuration de l’hébergeur (staging puis production).
 3. **Supabase** : appliquer les migrations dans l’ordre sous [`supabase/migrations/`](supabase/migrations/) sur le projet cible (`supabase db push` ou pipeline SQL).
-4. **URL canonique** : définir `NEXT_PUBLIC_APP_URL` sur l’URL publique (sans slash final) pour les liens dans les emails et les redirections.
+4. **URL canonique (DEC-015)** : Production `https://time.tagora.ca`, Staging `https://time.staging.tagora.ca`, connexion standard `/login` (alias vers `/connexion`). Définir `NEXT_PUBLIC_APP_URL` sur l’URL publique de l’environnement (sans slash final) pour les liens emails/SMS. `app.tagora.ca` est réservé à Nexus.
 
 ### Vercel
 
