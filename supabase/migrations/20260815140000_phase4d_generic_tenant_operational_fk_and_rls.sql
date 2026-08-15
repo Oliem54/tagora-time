@@ -37,151 +37,129 @@ alter table public.horodateur_punch_zones
   add column if not exists organization_id uuid null,
   add column if not exists organization_company_id uuid null;
 
--- 3. Backfill only the existing Oliem organization and its operating companies.
+-- 3. Preserve existing tenant ownership and backfill only missing canonical keys.
+-- A legacy Oliem fallback is used only for rows with no organization_id. Company
+-- keys are always resolved inside the row's organization_id.
 do $$
 declare
-  v_organization_id uuid;
-  v_oliem_company_id uuid;
-  v_titan_company_id uuid;
+  v_legacy_oliem_organization_id uuid;
 begin
   select o.id
-    into v_organization_id
+    into v_legacy_oliem_organization_id
   from public.organizations o
   where o.slug = 'oliem-solution'
     and o.deleted_at is null;
 
-  if v_organization_id is null then
+  if v_legacy_oliem_organization_id is null then
     raise exception 'Phase4D tenant backfill blocked: organization oliem-solution is missing';
   end if;
 
-  select c.id
-    into v_oliem_company_id
-  from public.organization_companies c
-  where c.organization_id = v_organization_id
-    and c.company_code = 'oliem_solutions';
-
-  select c.id
-    into v_titan_company_id
-  from public.organization_companies c
-  where c.organization_id = v_organization_id
-    and c.company_code = 'titan_produits_industriels';
-
-  if v_oliem_company_id is null or v_titan_company_id is null then
-    raise exception 'Phase4D tenant backfill blocked: Oliem/Titan company mapping is incomplete';
-  end if;
-
-  if exists (
-    select 1 from public.chauffeurs c
-    where c.primary_company is null
-       or c.primary_company not in ('oliem_solutions', 'titan_produits_industriels')
-  ) then
-    raise exception 'Phase4D tenant backfill blocked: chauffeurs contains an unknown primary_company';
-  end if;
+  update public.chauffeurs c
+  set organization_id = v_legacy_oliem_organization_id
+  where c.organization_id is null
+    and c.primary_company in (
+      'oliem_solutions',
+      'titan_produits_industriels'
+    );
 
   update public.chauffeurs c
-  set organization_id = v_organization_id,
-      organization_company_id = case c.primary_company
-        when 'oliem_solutions' then v_oliem_company_id
-        when 'titan_produits_industriels' then v_titan_company_id
-      end
-  where c.organization_id is null
-     or c.organization_company_id is null;
-
-  if exists (
-    select 1 from public.gps_bases b
-    where b.company_context not in ('oliem_solutions', 'titan_produits_industriels')
-  ) then
-    raise exception 'Phase4D tenant backfill blocked: gps_bases contains an unknown company_context';
-  end if;
+  set organization_company_id = oc.id
+  from public.organization_companies oc
+  where c.organization_company_id is null
+    and oc.organization_id = c.organization_id
+    and oc.company_code = c.primary_company;
 
   update public.gps_bases b
-  set organization_id = v_organization_id,
-      organization_company_id = case b.company_context
-        when 'oliem_solutions' then v_oliem_company_id
-        when 'titan_produits_industriels' then v_titan_company_id
-      end
+  set organization_id = v_legacy_oliem_organization_id
   where b.organization_id is null
-     or b.organization_company_id is null;
+    and b.company_context in (
+      'oliem_solutions',
+      'titan_produits_industriels'
+    );
 
-  if exists (
-    select 1 from public.horodateur_events e
-    left join public.chauffeurs c on c.id = e.employee_id
-    where coalesce(e.company_context, c.primary_company) is null
-       or coalesce(e.company_context, c.primary_company)
-          not in ('oliem_solutions', 'titan_produits_industriels')
-  ) then
-    raise exception 'Phase4D tenant backfill blocked: horodateur_events contains an unknown company mapping';
-  end if;
+  update public.gps_bases b
+  set organization_company_id = oc.id
+  from public.organization_companies oc
+  where b.organization_company_id is null
+    and oc.organization_id = b.organization_id
+    and oc.company_code = b.company_context;
 
   update public.horodateur_events e
-  set organization_id = c.organization_id,
-      organization_company_id = case coalesce(e.company_context, c.primary_company)
-        when 'oliem_solutions' then v_oliem_company_id
-        when 'titan_produits_industriels' then v_titan_company_id
-      end
+  set organization_id = c.organization_id
   from public.chauffeurs c
   where c.id = e.employee_id
-    and (e.organization_id is null or e.organization_company_id is null);
+    and e.organization_id is null;
 
-  if exists (
-    select 1 from public.horodateur_shifts s
-    left join public.chauffeurs c on c.id = s.employee_id
-    where coalesce(s.company_context, c.primary_company) is null
-       or coalesce(s.company_context, c.primary_company)
-          not in ('oliem_solutions', 'titan_produits_industriels')
-  ) then
-    raise exception 'Phase4D tenant backfill blocked: horodateur_shifts contains an unknown company mapping';
-  end if;
+  update public.horodateur_events e
+  set organization_company_id = oc.id
+  from public.chauffeurs c, public.organization_companies oc
+  where c.id = e.employee_id
+    and e.organization_company_id is null
+    and oc.organization_id = e.organization_id
+    and oc.organization_id = c.organization_id
+    and oc.company_code = coalesce(e.company_context, c.primary_company);
 
   update public.horodateur_shifts s
-  set organization_id = c.organization_id,
-      organization_company_id = case coalesce(s.company_context, c.primary_company)
-        when 'oliem_solutions' then v_oliem_company_id
-        when 'titan_produits_industriels' then v_titan_company_id
-      end
+  set organization_id = c.organization_id
   from public.chauffeurs c
   where c.id = s.employee_id
-    and (s.organization_id is null or s.organization_company_id is null);
+    and s.organization_id is null;
+
+  update public.horodateur_shifts s
+  set organization_company_id = oc.id
+  from public.chauffeurs c, public.organization_companies oc
+  where c.id = s.employee_id
+    and s.organization_company_id is null
+    and oc.organization_id = s.organization_id
+    and oc.organization_id = c.organization_id
+    and oc.company_code = coalesce(s.company_context, c.primary_company);
 
   update public.horodateur_current_state st
-  set organization_id = c.organization_id,
-      organization_company_id = case coalesce(st.company_context, c.primary_company)
-        when 'oliem_solutions' then v_oliem_company_id
-        when 'titan_produits_industriels' then v_titan_company_id
-      end
+  set organization_id = c.organization_id
   from public.chauffeurs c
   where c.id = st.employee_id
-    and coalesce(st.company_context, c.primary_company)
-        in ('oliem_solutions', 'titan_produits_industriels')
-    and (st.organization_id is null or st.organization_company_id is null);
+    and st.organization_id is null;
+
+  update public.horodateur_current_state st
+  set organization_company_id = oc.id
+  from public.chauffeurs c, public.organization_companies oc
+  where c.id = st.employee_id
+    and st.organization_company_id is null
+    and oc.organization_id = st.organization_id
+    and oc.organization_id = c.organization_id
+    and oc.company_code = coalesce(st.company_context, c.primary_company);
 
   update public.horodateur_exceptions x
-  set organization_id = c.organization_id,
-      organization_company_id = c.organization_company_id
+  set organization_id = c.organization_id
   from public.chauffeurs c
   where c.id = x.employee_id
-    and (x.organization_id is null or x.organization_company_id is null);
+    and x.organization_id is null;
 
-  if exists (
-    select 1 from public.horodateur_punch_zones z
-    where z.company_key not in (
+  update public.horodateur_exceptions x
+  set organization_company_id = oc.id
+  from public.chauffeurs c, public.organization_companies oc
+  where c.id = x.employee_id
+    and x.organization_company_id is null
+    and oc.id = c.organization_company_id
+    and oc.organization_id = x.organization_id
+    and oc.organization_id = c.organization_id;
+
+  update public.horodateur_punch_zones z
+  set organization_id = v_legacy_oliem_organization_id
+  where z.organization_id is null
+    and z.company_key in (
       'all',
       'oliem_solutions',
       'titan_produits_industriels'
-    )
-  ) then
-    raise exception 'Phase4D tenant backfill blocked: punch zones contains an unknown company_key';
-  end if;
+    );
 
   update public.horodateur_punch_zones z
-  set organization_id = v_organization_id,
-      organization_company_id = case z.company_key
-        when 'all' then null
-        when 'oliem_solutions' then v_oliem_company_id
-        when 'titan_produits_industriels' then v_titan_company_id
-      end
-  where z.organization_id is null
-     or (z.company_key <> 'all' and z.organization_company_id is null);
+  set organization_company_id = oc.id
+  from public.organization_companies oc
+  where z.company_key <> 'all'
+    and z.organization_company_id is null
+    and oc.organization_id = z.organization_id
+    and oc.company_code = z.company_key;
 end;
 $$;
 
@@ -236,72 +214,127 @@ begin
       raise exception 'Phase4D tenant backfill blocked: %.% org/company mismatch(es)', v_table, v_unresolved;
     end if;
   end loop;
+
+  foreach v_table in array array[
+    'horodateur_events',
+    'horodateur_shifts',
+    'horodateur_current_state',
+    'horodateur_exceptions'
+  ]
+  loop
+    execute format(
+      'select count(*) from public.%I t join public.chauffeurs c on c.id = t.employee_id where t.organization_id <> c.organization_id',
+      v_table
+    ) into v_unresolved;
+    if v_unresolved > 0 then
+      raise exception
+        'Phase4D tenant backfill blocked: %.% employee tenant mismatch(es)',
+        v_table,
+        v_unresolved;
+    end if;
+  end loop;
 end;
 $$;
 
--- 5. Tenant and company FKs. Composite FKs enforce company ownership.
-alter table public.chauffeurs
-  add constraint chauffeurs_organization_id_fkey foreign key (organization_id)
-    references public.organizations (id) on delete restrict,
-  add constraint chauffeurs_organization_company_id_fkey foreign key (organization_company_id)
-    references public.organization_companies (id) on delete restrict,
-  add constraint chauffeurs_org_company_consistency_fkey
-    foreign key (organization_company_id, organization_id)
-    references public.organization_companies (id, organization_id) on delete restrict;
+-- 5. Tenant and company FKs. Existing constraints are accepted only when their
+-- structural definition matches; a same-name incompatible constraint fails closed.
+do $$
+declare
+  r record;
+  v_constraint record;
+  v_local_columns text[];
+  v_referenced_columns text[];
+begin
+  for r in
+    select *
+    from (
+      values
+        ('chauffeurs', 'chauffeurs_organization_id_fkey', array['organization_id']::text[], 'organizations', array['id']::text[]),
+        ('chauffeurs', 'chauffeurs_organization_company_id_fkey', array['organization_company_id']::text[], 'organization_companies', array['id']::text[]),
+        ('chauffeurs', 'chauffeurs_org_company_consistency_fkey', array['organization_company_id', 'organization_id']::text[], 'organization_companies', array['id', 'organization_id']::text[]),
+        ('gps_bases', 'gps_bases_organization_id_fkey', array['organization_id']::text[], 'organizations', array['id']::text[]),
+        ('gps_bases', 'gps_bases_organization_company_id_fkey', array['organization_company_id']::text[], 'organization_companies', array['id']::text[]),
+        ('gps_bases', 'gps_bases_org_company_consistency_fkey', array['organization_company_id', 'organization_id']::text[], 'organization_companies', array['id', 'organization_id']::text[]),
+        ('horodateur_events', 'horodateur_events_organization_id_fkey', array['organization_id']::text[], 'organizations', array['id']::text[]),
+        ('horodateur_events', 'horodateur_events_organization_company_id_fkey', array['organization_company_id']::text[], 'organization_companies', array['id']::text[]),
+        ('horodateur_events', 'horodateur_events_org_company_consistency_fkey', array['organization_company_id', 'organization_id']::text[], 'organization_companies', array['id', 'organization_id']::text[]),
+        ('horodateur_shifts', 'horodateur_shifts_organization_id_fkey', array['organization_id']::text[], 'organizations', array['id']::text[]),
+        ('horodateur_shifts', 'horodateur_shifts_organization_company_id_fkey', array['organization_company_id']::text[], 'organization_companies', array['id']::text[]),
+        ('horodateur_shifts', 'horodateur_shifts_org_company_consistency_fkey', array['organization_company_id', 'organization_id']::text[], 'organization_companies', array['id', 'organization_id']::text[]),
+        ('horodateur_current_state', 'horodateur_current_state_organization_id_fkey', array['organization_id']::text[], 'organizations', array['id']::text[]),
+        ('horodateur_current_state', 'horodateur_current_state_organization_company_id_fkey', array['organization_company_id']::text[], 'organization_companies', array['id']::text[]),
+        ('horodateur_current_state', 'horodateur_current_state_org_company_consistency_fkey', array['organization_company_id', 'organization_id']::text[], 'organization_companies', array['id', 'organization_id']::text[]),
+        ('horodateur_exceptions', 'horodateur_exceptions_organization_id_fkey', array['organization_id']::text[], 'organizations', array['id']::text[]),
+        ('horodateur_exceptions', 'horodateur_exceptions_organization_company_id_fkey', array['organization_company_id']::text[], 'organization_companies', array['id']::text[]),
+        ('horodateur_exceptions', 'horodateur_exceptions_org_company_consistency_fkey', array['organization_company_id', 'organization_id']::text[], 'organization_companies', array['id', 'organization_id']::text[]),
+        ('horodateur_punch_zones', 'horodateur_punch_zones_organization_id_fkey', array['organization_id']::text[], 'organizations', array['id']::text[]),
+        ('horodateur_punch_zones', 'horodateur_punch_zones_organization_company_id_fkey', array['organization_company_id']::text[], 'organization_companies', array['id']::text[]),
+        ('horodateur_punch_zones', 'horodateur_punch_zones_org_company_consistency_fkey', array['organization_company_id', 'organization_id']::text[], 'organization_companies', array['id', 'organization_id']::text[])
+    ) as expected(table_name, constraint_name, local_columns, referenced_table, referenced_columns)
+  loop
+    select
+      con.oid,
+      con.contype,
+      con.confrelid,
+      con.confdeltype,
+      con.confupdtype,
+      con.confmatchtype,
+      con.condeferrable,
+      con.condeferred,
+      con.convalidated
+      into v_constraint
+    from pg_constraint con
+    where con.conrelid = format('public.%I', r.table_name)::regclass
+      and con.conname = r.constraint_name;
 
-alter table public.gps_bases
-  add constraint gps_bases_organization_id_fkey foreign key (organization_id)
-    references public.organizations (id) on delete restrict,
-  add constraint gps_bases_organization_company_id_fkey foreign key (organization_company_id)
-    references public.organization_companies (id) on delete restrict,
-  add constraint gps_bases_org_company_consistency_fkey
-    foreign key (organization_company_id, organization_id)
-    references public.organization_companies (id, organization_id) on delete restrict;
+    if not found then
+      execute format(
+        'alter table public.%I add constraint %I foreign key (%s) references public.%I (%s) on delete restrict',
+        r.table_name,
+        r.constraint_name,
+        array_to_string(r.local_columns, ', '),
+        r.referenced_table,
+        array_to_string(r.referenced_columns, ', ')
+      );
+      continue;
+    end if;
 
-alter table public.horodateur_events
-  add constraint horodateur_events_organization_id_fkey foreign key (organization_id)
-    references public.organizations (id) on delete restrict,
-  add constraint horodateur_events_organization_company_id_fkey foreign key (organization_company_id)
-    references public.organization_companies (id) on delete restrict,
-  add constraint horodateur_events_org_company_consistency_fkey
-    foreign key (organization_company_id, organization_id)
-    references public.organization_companies (id, organization_id) on delete restrict;
+    select array_agg(att.attname::text order by key_position.ordinality)
+      into v_local_columns
+    from pg_constraint con
+    cross join lateral unnest(con.conkey) with ordinality as key_position(attnum, ordinality)
+    join pg_attribute att
+      on att.attrelid = con.conrelid
+     and att.attnum = key_position.attnum
+    where con.oid = v_constraint.oid;
 
-alter table public.horodateur_shifts
-  add constraint horodateur_shifts_organization_id_fkey foreign key (organization_id)
-    references public.organizations (id) on delete restrict,
-  add constraint horodateur_shifts_organization_company_id_fkey foreign key (organization_company_id)
-    references public.organization_companies (id) on delete restrict,
-  add constraint horodateur_shifts_org_company_consistency_fkey
-    foreign key (organization_company_id, organization_id)
-    references public.organization_companies (id, organization_id) on delete restrict;
+    select array_agg(att.attname::text order by key_position.ordinality)
+      into v_referenced_columns
+    from pg_constraint con
+    cross join lateral unnest(con.confkey) with ordinality as key_position(attnum, ordinality)
+    join pg_attribute att
+      on att.attrelid = con.confrelid
+     and att.attnum = key_position.attnum
+    where con.oid = v_constraint.oid;
 
-alter table public.horodateur_current_state
-  add constraint horodateur_current_state_organization_id_fkey foreign key (organization_id)
-    references public.organizations (id) on delete restrict,
-  add constraint horodateur_current_state_organization_company_id_fkey foreign key (organization_company_id)
-    references public.organization_companies (id) on delete restrict,
-  add constraint horodateur_current_state_org_company_consistency_fkey
-    foreign key (organization_company_id, organization_id)
-    references public.organization_companies (id, organization_id) on delete restrict;
-
-alter table public.horodateur_exceptions
-  add constraint horodateur_exceptions_organization_id_fkey foreign key (organization_id)
-    references public.organizations (id) on delete restrict,
-  add constraint horodateur_exceptions_organization_company_id_fkey foreign key (organization_company_id)
-    references public.organization_companies (id) on delete restrict,
-  add constraint horodateur_exceptions_org_company_consistency_fkey
-    foreign key (organization_company_id, organization_id)
-    references public.organization_companies (id, organization_id) on delete restrict;
-
-alter table public.horodateur_punch_zones
-  add constraint horodateur_punch_zones_organization_id_fkey foreign key (organization_id)
-    references public.organizations (id) on delete restrict,
-  add constraint horodateur_punch_zones_organization_company_id_fkey foreign key (organization_company_id)
-    references public.organization_companies (id) on delete restrict,
-  add constraint horodateur_punch_zones_org_company_consistency_fkey
-    foreign key (organization_company_id, organization_id)
-    references public.organization_companies (id, organization_id) on delete restrict;
+    if v_constraint.contype <> 'f'
+       or v_constraint.confrelid <> format('public.%I', r.referenced_table)::regclass
+       or v_constraint.confdeltype <> 'r'
+       or v_constraint.confupdtype <> 'a'
+       or v_constraint.confmatchtype <> 's'
+       or v_constraint.condeferrable
+       or v_constraint.condeferred
+       or not v_constraint.convalidated
+       or v_local_columns is distinct from r.local_columns
+       or v_referenced_columns is distinct from r.referenced_columns then
+      raise exception
+        'Phase4D FK validation blocked: %.% exists with an incompatible definition',
+        r.table_name,
+        r.constraint_name;
+    end if;
+  end loop;
+end;
+$$;
 
 -- 6. The tenant is always required. Only a punch zone may target every company.
 alter table public.chauffeurs
@@ -408,32 +441,15 @@ alter table public.horodateur_punch_zones
     or (company_key <> 'all' and organization_company_id is not null)
   );
 
--- 9. Memberships are FORCE RLS/service-only, so policies need a hardened bridge.
-create or replace function public.has_active_organization_membership(
-  p_organization_id uuid
-)
-returns boolean
-language sql
-stable
-security definer
-set search_path = pg_catalog
-as $$
-  select exists (
-    select 1
-    from public.organization_memberships m
-    join public.organizations o on o.id = m.organization_id
-    where m.organization_id = p_organization_id
-      and m.user_id = (select auth.uid())
-      and m.status = 'active'
-      and o.status = 'active'
-      and o.deleted_at is null
-  );
+-- 9. Reuse the canonical helper restored by the historical hardening migration.
+do $$
+begin
+  if to_regprocedure('public.current_user_can_access_organization(uuid)') is null then
+    raise exception
+      'Phase4D RLS blocked: canonical helper public.current_user_can_access_organization(uuid) is missing';
+  end if;
+end;
 $$;
-
-revoke all on function public.has_active_organization_membership(uuid) from public;
-revoke all on function public.has_active_organization_membership(uuid) from anon;
-revoke all on function public.has_active_organization_membership(uuid) from authenticated;
-grant execute on function public.has_active_organization_membership(uuid) to authenticated;
 
 -- 10. Tenant-scoped RLS. Backend service-role writes remain server-only.
 drop policy if exists "chauffeurs_admin_select" on public.chauffeurs;
@@ -442,12 +458,18 @@ drop policy if exists "chauffeurs_admin_update" on public.chauffeurs;
 drop policy if exists "chauffeurs_admin_delete" on public.chauffeurs;
 drop policy if exists "chauffeurs_direction_operational_select" on public.chauffeurs;
 drop policy if exists "chauffeurs_employee_self_select" on public.chauffeurs;
+drop policy if exists "chauffeurs_admin_select_tenant" on public.chauffeurs;
+drop policy if exists "chauffeurs_admin_insert_tenant" on public.chauffeurs;
+drop policy if exists "chauffeurs_admin_update_tenant" on public.chauffeurs;
+drop policy if exists "chauffeurs_admin_delete_tenant" on public.chauffeurs;
+drop policy if exists "chauffeurs_direction_select_tenant" on public.chauffeurs;
+drop policy if exists "chauffeurs_employee_select" on public.chauffeurs;
 
 create policy "chauffeurs_employee_self_select" on public.chauffeurs
   for select to authenticated
   using (
     auth_user_id = (select auth.uid())
-    and public.has_active_organization_membership(organization_id)
+    and public.current_user_can_access_organization(organization_id)
   );
 create policy "chauffeurs_direction_operational_select" on public.chauffeurs
   for select to authenticated
@@ -457,36 +479,37 @@ create policy "chauffeurs_direction_operational_select" on public.chauffeurs
       public.has_app_permission('ressources')
       or public.has_app_permission('livraisons')
       or public.has_app_permission('terrain')
+      or public.has_app_permission('commissions')
     )
-    and public.has_active_organization_membership(organization_id)
+    and public.current_user_can_access_organization(organization_id)
   );
 create policy "chauffeurs_admin_select" on public.chauffeurs
   for select to authenticated
   using (
     public.is_admin_user()
-    and public.has_active_organization_membership(organization_id)
+    and public.current_user_can_access_organization(organization_id)
   );
 create policy "chauffeurs_admin_insert" on public.chauffeurs
   for insert to authenticated
   with check (
     public.is_admin_user()
-    and public.has_active_organization_membership(organization_id)
+    and public.current_user_can_access_organization(organization_id)
   );
 create policy "chauffeurs_admin_update" on public.chauffeurs
   for update to authenticated
   using (
     public.is_admin_user()
-    and public.has_active_organization_membership(organization_id)
+    and public.current_user_can_access_organization(organization_id)
   )
   with check (
     public.is_admin_user()
-    and public.has_active_organization_membership(organization_id)
+    and public.current_user_can_access_organization(organization_id)
   );
 create policy "chauffeurs_admin_delete" on public.chauffeurs
   for delete to authenticated
   using (
     public.is_admin_user()
-    and public.has_active_organization_membership(organization_id)
+    and public.current_user_can_access_organization(organization_id)
   );
 
 drop policy if exists "gps_bases_select_policy" on public.gps_bases;
@@ -498,33 +521,33 @@ create policy "gps_bases_select_policy" on public.gps_bases
   using (
     public.is_direction_user()
     and (public.has_app_permission('ressources') or public.has_app_permission('terrain'))
-    and public.has_active_organization_membership(organization_id)
+    and public.current_user_can_access_organization(organization_id)
   );
 create policy "gps_bases_insert_policy" on public.gps_bases
   for insert to authenticated
   with check (
     public.is_direction_user()
     and (public.has_app_permission('ressources') or public.has_app_permission('terrain'))
-    and public.has_active_organization_membership(organization_id)
+    and public.current_user_can_access_organization(organization_id)
   );
 create policy "gps_bases_update_policy" on public.gps_bases
   for update to authenticated
   using (
     public.is_direction_user()
     and (public.has_app_permission('ressources') or public.has_app_permission('terrain'))
-    and public.has_active_organization_membership(organization_id)
+    and public.current_user_can_access_organization(organization_id)
   )
   with check (
     public.is_direction_user()
     and (public.has_app_permission('ressources') or public.has_app_permission('terrain'))
-    and public.has_active_organization_membership(organization_id)
+    and public.current_user_can_access_organization(organization_id)
   );
 create policy "gps_bases_delete_policy" on public.gps_bases
   for delete to authenticated
   using (
     public.is_direction_user()
     and (public.has_app_permission('ressources') or public.has_app_permission('terrain'))
-    and public.has_active_organization_membership(organization_id)
+    and public.current_user_can_access_organization(organization_id)
   );
 
 drop policy if exists "horodateur_events_select_phase1" on public.horodateur_events;
@@ -538,12 +561,12 @@ create policy "horodateur_events_select_phase1" on public.horodateur_events
           and c.auth_user_id = (select auth.uid())
           and c.organization_id = horodateur_events.organization_id
       )
-      and public.has_active_organization_membership(organization_id)
+      and public.current_user_can_access_organization(organization_id)
     )
     or (
       public.is_direction_user()
       and public.has_app_permission('terrain')
-      and public.has_active_organization_membership(organization_id)
+      and public.current_user_can_access_organization(organization_id)
     )
   );
 
@@ -558,12 +581,12 @@ create policy "horodateur_shifts_select_phase1" on public.horodateur_shifts
           and c.auth_user_id = (select auth.uid())
           and c.organization_id = horodateur_shifts.organization_id
       )
-      and public.has_active_organization_membership(organization_id)
+      and public.current_user_can_access_organization(organization_id)
     )
     or (
       public.is_direction_user()
       and public.has_app_permission('terrain')
-      and public.has_active_organization_membership(organization_id)
+      and public.current_user_can_access_organization(organization_id)
     )
   );
 
@@ -578,12 +601,12 @@ create policy "horodateur_current_state_select_phase1" on public.horodateur_curr
           and c.auth_user_id = (select auth.uid())
           and c.organization_id = horodateur_current_state.organization_id
       )
-      and public.has_active_organization_membership(organization_id)
+      and public.current_user_can_access_organization(organization_id)
     )
     or (
       public.is_direction_user()
       and public.has_app_permission('terrain')
-      and public.has_active_organization_membership(organization_id)
+      and public.current_user_can_access_organization(organization_id)
     )
   );
 
@@ -598,12 +621,12 @@ create policy "horodateur_exceptions_select_phase1" on public.horodateur_excepti
           and c.auth_user_id = (select auth.uid())
           and c.organization_id = horodateur_exceptions.organization_id
       )
-      and public.has_active_organization_membership(organization_id)
+      and public.current_user_can_access_organization(organization_id)
     )
     or (
       public.is_direction_user()
       and public.has_app_permission('terrain')
-      and public.has_active_organization_membership(organization_id)
+      and public.current_user_can_access_organization(organization_id)
     )
   );
 
@@ -613,8 +636,5 @@ create policy "horodateur_punch_zones_no_direct" on public.horodateur_punch_zone
   for all to authenticated
   using (false)
   with check (false);
-
-comment on function public.has_active_organization_membership(uuid) is
-  'Phase4D: fail-closed active tenant membership check for operational RLS.';
 
 commit;
