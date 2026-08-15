@@ -33,6 +33,49 @@ create table if not exists public.app_improvements (
   )
 );
 
+-- Alignement idempotent : si 20260412201500 a déjà créé la table sans
+-- treated_at / deleted_at, CREATE TABLE IF NOT EXISTS ne les ajoute pas.
+alter table if exists public.app_improvements
+  add column if not exists treated_at timestamptz null,
+  add column if not exists deleted_at timestamptz null;
+
+-- Contrat status / module / priority attendu par l'app et le DDL staging.
+alter table if exists public.app_improvements
+  alter column status set default 'en_attente';
+
+alter table if exists public.app_improvements
+  drop constraint if exists app_improvements_status_check;
+
+alter table if exists public.app_improvements
+  add constraint app_improvements_status_check
+  check (status in ('en_attente', 'en_traitement', 'traitee', 'supprimee'));
+
+alter table if exists public.app_improvements
+  drop constraint if exists app_improvements_module_check;
+
+alter table if exists public.app_improvements
+  add constraint app_improvements_module_check
+  check (
+    module in (
+      'Horodateur',
+      'Terrain',
+      'Livraisons',
+      'Documents',
+      'Ressources',
+      'Tableau de bord',
+      'Approbation',
+      'Authentification',
+      'Generalites'
+    )
+  );
+
+alter table if exists public.app_improvements
+  drop constraint if exists app_improvements_priority_check;
+
+alter table if exists public.app_improvements
+  add constraint app_improvements_priority_check
+  check (priority in ('Faible', 'Moyenne', 'Elevee'));
+
 create index if not exists idx_app_improvements_created_at
   on public.app_improvements (created_at desc);
 
