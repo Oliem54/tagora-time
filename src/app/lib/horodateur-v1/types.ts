@@ -125,6 +125,8 @@ export type HorodateurPhase1ExceptionStatus =
 
 export type HorodateurPhase1EmployeeProfile = {
   employeeId: number;
+  organizationId: string | null;
+  organizationCompanyId: string | null;
   authUserId: string | null;
   fullName: string | null;
   email: string | null;
@@ -165,6 +167,8 @@ export type HorodateurPhase1EmployeeProfile = {
 
 export type HorodateurPhase1EventRecord = {
   id: string;
+  organization_id?: string;
+  organization_company_id?: string;
   user_id?: string | null;
   employee_id: number;
   event_type: HorodateurPhase1EventType;
@@ -196,6 +200,8 @@ export type HorodateurPhase1EventRecord = {
 
 export type HorodateurPhase1CurrentStateRecord = {
   employee_id: number;
+  organization_id?: string;
+  organization_company_id?: string;
   current_state: HorodateurPhase1StateKind;
   active_shift_id?: string | null;
   active_shift_start_event_id?: string | null;
@@ -213,6 +219,8 @@ export type HorodateurPhase1CurrentStateRecord = {
 export type HorodateurPhase1ShiftRecord = {
   id: string;
   employee_id: number;
+  organization_id?: string;
+  organization_company_id?: string;
   work_date: string;
   week_start_date: string;
   company_context: AccountRequestCompany | null;
@@ -236,6 +244,8 @@ export type HorodateurPhase1ShiftRecord = {
 export type HorodateurPhase1ExceptionRecord = {
   id: string;
   employee_id: number;
+  organization_id?: string;
+  organization_company_id?: string;
   shift_id: string | null;
   source_event_id: string;
   exception_type: HorodateurPhase1ExceptionType;
@@ -395,6 +405,8 @@ export type HorodateurPhase1ClassifyInput = {
 export type HorodateurPhase1InsertEventInput = {
   userId: string;
   employeeId: number;
+  organizationId?: string;
+  organizationCompanyId?: string;
   occurredAt: string;
   workDate: string;
   weekStartDate: string;

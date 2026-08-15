@@ -50,8 +50,10 @@ import {
   getDirectionAlertConfig,
   getEmployeeByAuthUserId,
   getEmployeeById,
+  getEmployeeByIdForOrganization,
   getEventById,
   getExceptionById,
+  getExceptionByIdForOrganization,
   getLatenessNotification,
   getShiftByEmployeeAndWorkDate,
   insertEvent,
@@ -832,6 +834,23 @@ export async function resolveEmployeeByAuthUserId(authUserId: string) {
 
 async function resolveEmployeeById(employeeId: number) {
   const employee = await getEmployeeById(employeeId);
+
+  if (!employee) {
+    throw new HorodateurPhase1Error("Employe introuvable.", {
+      code: "employee_not_found",
+      status: 404,
+    });
+  }
+
+  ensureEmployeeActive(employee);
+  return employee;
+}
+
+async function resolveEmployeeByIdForOrganization(
+  employeeId: number,
+  organizationId: string
+) {
+  const employee = await getEmployeeByIdForOrganization(employeeId, organizationId);
 
   if (!employee) {
     throw new HorodateurPhase1Error("Employe introuvable.", {
@@ -2385,6 +2404,9 @@ export async function recomputeCurrentState(
 
   const nextState: HorodateurPhase1CurrentStateRecord = {
     employee_id: employeeId,
+    organization_id: employeeForState?.organizationId ?? undefined,
+    organization_company_id:
+      employeeForState?.organizationCompanyId ?? undefined,
     current_state: currentState,
     active_shift_id:
       currentState === "en_quart" ||
@@ -2740,6 +2762,8 @@ export async function recomputeShiftForDate(
   const computedShift: HorodateurPhase1ShiftRecord = {
     id: existingShift?.id ?? crypto.randomUUID(),
     employee_id: employeeId,
+    organization_id: employee.organizationId ?? undefined,
+    organization_company_id: employee.organizationCompanyId ?? undefined,
     work_date: workDate,
     week_start_date: getWeekStartDate(`${workDate}T12:00:00Z`),
     company_context: companyContext,
@@ -3226,6 +3250,7 @@ export async function createEmployeePunch(options: {
 
 export async function createDirectionPunch(options: {
   actorUserId: string;
+  organizationId: string;
   employeeId: number;
   eventType: HorodateurPhase1InsertEventInput["eventType"];
   occurredAt?: string;
@@ -3247,7 +3272,10 @@ export async function createDirectionPunch(options: {
   }
 
   const occurredAt = options.occurredAt ?? new Date().toISOString();
-  const employee = await resolveEmployeeById(options.employeeId);
+  const employee = await resolveEmployeeByIdForOrganization(
+    options.employeeId,
+    options.organizationId
+  );
   assertNoPaidBreakOperationalPunch(employee, options.eventType);
   const workDateForRecompute = getLocalWorkDate(occurredAt);
   const shiftBeforeDirectionAction =
@@ -3362,6 +3390,7 @@ export type StaffRetroCorrectionRequestResult = {
 export async function createStaffRetroCorrectionRequest(options: {
   actorUserId: string;
   actorRole: "direction" | "admin";
+  organizationId: string;
   employeeId: number;
   eventType: HorodateurPhase1InsertEventInput["eventType"];
   occurredAt: string;
@@ -3377,7 +3406,10 @@ export async function createStaffRetroCorrectionRequest(options: {
     );
   }
 
-  const employee = await resolveEmployeeById(options.employeeId);
+  const employee = await resolveEmployeeByIdForOrganization(
+    options.employeeId,
+    options.organizationId
+  );
   assertNoPaidBreakOperationalPunch(employee, options.eventType);
   const companyContext = requireCompanyContext(options.companyContext, employee);
   const workDate = getLocalWorkDate(options.occurredAt);
@@ -3956,8 +3988,12 @@ export async function getEmployeeHistoryByAuthUserId(options: {
   };
 }
 
-export async function listDirectionLiveBoard(): Promise<HorodateurPhase1DirectionLiveRow[]> {
-  const employees = await listActiveEmployees();
+export async function listDirectionLiveBoard(options?: {
+  organizationId?: string;
+}): Promise<HorodateurPhase1DirectionLiveRow[]> {
+  const employees = await listActiveEmployees({
+    organizationId: options?.organizationId,
+  });
   const today = getLocalWorkDate(new Date().toISOString());
 
   const rows = await Promise.all(
@@ -4036,8 +4072,12 @@ export async function listDirectionLiveBoard(): Promise<HorodateurPhase1Directio
   return rows;
 }
 
-export async function listPendingExceptionsForDirection() {
-  const exceptions = await listPendingExceptions();
+export async function listPendingExceptionsForDirection(options?: {
+  organizationId?: string;
+}) {
+  const exceptions = await listPendingExceptions({
+    organizationId: options?.organizationId,
+  });
   const events = await Promise.all(
     exceptions.map((item) => getEventById(item.source_event_id))
   );
@@ -4119,6 +4159,7 @@ export async function getDirectionDashboardHorodateurAlerts(): Promise<{
 
 export async function approveHorodateurException(options: {
   actorUserId: string;
+  organizationId: string;
   approverRole?: AppRole | null;
   exceptionId: string;
   reviewNote?: string | null;
@@ -4126,7 +4167,10 @@ export async function approveHorodateurException(options: {
   correctedOccurredAt?: string | null;
   correctedRelatedOccurredAt?: string | null;
 }) {
-  const exception = await getExceptionById(options.exceptionId);
+  const exception = await getExceptionByIdForOrganization(
+    options.exceptionId,
+    options.organizationId
+  );
 
   if (!exception) {
     throw new HorodateurPhase1Error("Exception introuvable.", {
@@ -4247,6 +4291,7 @@ export async function approveHorodateurException(options: {
 
 export async function refuseHorodateurException(options: {
   actorUserId: string;
+  organizationId: string;
   approverRole?: AppRole | null;
   exceptionId: string;
   reviewNote: string;
@@ -4260,7 +4305,10 @@ export async function refuseHorodateurException(options: {
     });
   }
 
-  const exception = await getExceptionById(options.exceptionId);
+  const exception = await getExceptionByIdForOrganization(
+    options.exceptionId,
+    options.organizationId
+  );
 
   if (!exception) {
     throw new HorodateurPhase1Error("Exception introuvable.", {

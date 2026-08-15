@@ -8,10 +8,7 @@ export type RegistreStatusFilter =
   | "corrige"
   | "exception";
 
-export type RegistreCompanyParam =
-  | "all"
-  | "oliem_solutions"
-  | "titan_produits_industriels";
+export type RegistreCompanyParam = "all" | AccountRequestCompany;
 
 export type HorodateurRegistreSummary = {
   totalWorkedMinutes: number;

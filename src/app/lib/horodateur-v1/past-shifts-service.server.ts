@@ -162,6 +162,7 @@ export async function buildHorodateurPastShifts(options: {
   startDate: string;
   endDate: string;
   employeeId?: number | null;
+  organizationId: string;
   company: RegistreCompanyParam;
   status: PastShiftsStatusFilter;
 }): Promise<HorodateurPastShiftsPayload> {
@@ -178,6 +179,7 @@ export async function buildHorodateurPastShifts(options: {
     startWorkDate: start,
     endWorkDate: end,
     employeeId: options.employeeId ?? undefined,
+    organizationId: options.organizationId,
     companyContext: companyContextForQuery,
   });
 
@@ -296,7 +298,9 @@ export async function buildHorodateurPastShifts(options: {
     return String(a.employeeName ?? "").localeCompare(String(b.employeeName ?? ""), "fr-CA");
   });
 
-  const activeEmployeesAll = await listActiveEmployees();
+  const activeEmployeesAll = await listActiveEmployees({
+    organizationId: options.organizationId,
+  });
 
   const summary: HorodateurPastShiftsSummary = {
     periodStart: start,

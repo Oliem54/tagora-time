@@ -1,20 +1,22 @@
 /**
  * Constantes zones de punch QR (alignées migration horodateur_punch_zones).
  */
+import { isValidCompanyCode } from "@/app/lib/saas/tenant-foundation.shared";
+
 export const PUNCH_ZONE_COMPANY_KEYS = [
   "all",
   "oliem_solutions",
   "titan_produits_industriels",
 ] as const;
 
-export type PunchZoneCompanyKey = (typeof PUNCH_ZONE_COMPANY_KEYS)[number];
+export type PunchZoneCompanyKey = string;
 
 export function isPunchZoneCompanyKey(
   value: string | null | undefined
 ): value is PunchZoneCompanyKey {
   return (
     typeof value === "string" &&
-    (PUNCH_ZONE_COMPANY_KEYS as readonly string[]).includes(value)
+    (value === "all" || isValidCompanyCode(value))
   );
 }
 

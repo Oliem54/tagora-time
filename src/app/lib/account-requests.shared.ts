@@ -5,6 +5,7 @@ import {
   getUserPermissions,
   normalizePermissionList,
 } from "@/app/lib/auth/permissions";
+import { isValidCompanyCode } from "@/app/lib/saas/tenant-foundation.shared";
 
 export const ACCOUNT_REQUEST_COMPANIES = [
   {
@@ -19,10 +20,12 @@ export const ACCOUNT_REQUEST_COMPANIES = [
   },
 ] as const;
 
-export type AccountRequestCompany =
-  (typeof ACCOUNT_REQUEST_COMPANIES)[number]["value"];
-export type CompanyDirectoryContext =
-  (typeof ACCOUNT_REQUEST_COMPANIES)[number]["directoryContext"];
+/**
+ * Generic H4 organization_companies.company_code.
+ * ACCOUNT_REQUEST_COMPANIES remains the V1 display preset, not a closed domain.
+ */
+export type AccountRequestCompany = string;
+export type CompanyDirectoryContext = string;
 
 export type AccountRequestStatus =
   | "pending"
@@ -126,9 +129,7 @@ export function normalizeCompany(value: unknown): AccountRequestCompany | null {
 
   const normalized = value.trim().toLowerCase();
 
-  return ACCOUNT_REQUEST_COMPANIES.find(
-    (company) => company.value === normalized
-  )?.value ?? null;
+  return isValidCompanyCode(normalized) ? normalized : null;
 }
 
 export function normalizeCompanyList(value: unknown): AccountRequestCompany[] {
@@ -169,7 +170,7 @@ export function getCompanyDirectoryContext(
 ) {
   return (
     ACCOUNT_REQUEST_COMPANIES.find((item) => item.value === company)
-      ?.directoryContext ?? null
+      ?.directoryContext ?? `repertoire_${company}`
   );
 }
 

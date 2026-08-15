@@ -28,6 +28,8 @@ export type HorodateurWebPunchGpsEvaluation =
 
 type GpsBaseRow = {
   id: string;
+  organization_id: string;
+  organization_company_id: string;
   nom: string;
   adresse: string;
   latitude: number | string;
@@ -117,6 +119,8 @@ function findMatchingGpsBase(
 export async function evaluateEmployeeWebPunchGps(options: {
   latitude: unknown;
   longitude: unknown;
+  organizationId: string;
+  organizationCompanyId: string;
   companyContext: AccountRequestCompany;
   /**
    * strict_punch : punch réel — blocage hors zone / sans bases ; GPS obligatoire.
@@ -142,8 +146,11 @@ export async function evaluateEmployeeWebPunchGps(options: {
   const supabase = createAdminSupabaseClient();
   const { data, error } = await supabase
     .from("gps_bases")
-    .select("id, nom, adresse, latitude, longitude, rayon_m, company_context")
-    .eq("company_context", options.companyContext);
+    .select(
+      "id, organization_id, organization_company_id, nom, adresse, latitude, longitude, rayon_m, company_context"
+    )
+    .eq("organization_id", options.organizationId)
+    .eq("organization_company_id", options.organizationCompanyId);
 
   if (error) {
     console.error("[horodateur-gps-punch] gps_bases_load_failed", error.message);

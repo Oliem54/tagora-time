@@ -1,13 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminSupabaseClient } from "@/app/lib/supabase/admin";
-import {
-  fetchPunchZoneByKey,
-  verifyPunchZoneToken,
-} from "@/app/lib/horodateur-qr-punch.server";
+import { fetchPunchZoneByKeyAndToken } from "@/app/lib/horodateur-qr-punch.server";
 
 /**
  * Validation publique zone + jeton (sans session).
  * Ne révèle pas la cause si invalide.
+ * Ne charge jamais une zone par zone_key seul : le token_hash doit matcher.
  */
 export async function GET(req: NextRequest) {
   const url = new URL(req.url);
@@ -15,8 +13,8 @@ export async function GET(req: NextRequest) {
   const token = (url.searchParams.get("token") ?? "").trim();
 
   const supabase = createAdminSupabaseClient();
-  const zone = await fetchPunchZoneByKey(supabase, zoneKey);
-  if (!zone?.active || !verifyPunchZoneToken(token, zone.token_hash)) {
+  const zone = await fetchPunchZoneByKeyAndToken(supabase, zoneKey, token);
+  if (!zone?.active) {
     return NextResponse.json({ valid: false });
   }
 

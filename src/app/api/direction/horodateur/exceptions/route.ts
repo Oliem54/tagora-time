@@ -18,7 +18,9 @@ export async function GET(req: NextRequest) {
     }
 
     await processPendingExceptionReminders();
-    const exceptions = await listPendingExceptionsForDirection();
+    const exceptions = await listPendingExceptionsForDirection({
+      organizationId: auth.organizationId,
+    });
 
     return NextResponse.json({
       success: true,

@@ -241,6 +241,7 @@ export async function buildHorodateurRegistre(options: {
   startDate: string;
   endDate: string;
   employeeId?: number | null;
+  organizationId: string;
   company: RegistreCompanyParam;
   status: RegistreStatusFilter;
 }): Promise<HorodateurRegistrePayload> {
@@ -259,6 +260,7 @@ export async function buildHorodateurRegistre(options: {
     startWorkDate: start,
     endWorkDate: end,
     employeeId: options.employeeId ?? undefined,
+    organizationId: options.organizationId,
     companyContext: companyContextForQuery,
   });
 
@@ -469,7 +471,9 @@ export async function buildHorodateurRegistre(options: {
     String(a.employeeName ?? "").localeCompare(String(b.employeeName ?? ""), "fr-CA")
   );
 
-  const activeEmployeesAll = await listActiveEmployees();
+  const activeEmployeesAll = await listActiveEmployees({
+    organizationId: options.organizationId,
+  });
 
   const summary: HorodateurRegistreSummary = {
     totalWorkedMinutes,
@@ -512,6 +516,7 @@ export async function buildHorodateurRegistreEmployeeDetail(options: {
   startDate: string;
   endDate: string;
   employeeId: number;
+  organizationId: string;
 }): Promise<{
   employee: HorodateurPhase1EmployeeProfile | null;
   events: HorodateurRegistreEventDetail[];
@@ -520,11 +525,25 @@ export async function buildHorodateurRegistreEmployeeDetail(options: {
   calculationNotes: string[];
 }> {
   const employee = await getEmployeeById(options.employeeId);
+  if (
+    employee &&
+    employee.organizationId &&
+    employee.organizationId !== options.organizationId
+  ) {
+    return {
+      employee: null,
+      events: [],
+      shifts: [],
+      exceptions: [],
+      calculationNotes: ["Employe hors organisation active."],
+    };
+  }
 
   const shifts = await listShiftsInWorkDateRange({
     startWorkDate: options.startDate,
     endWorkDate: options.endDate,
     employeeId: options.employeeId,
+    organizationId: options.organizationId,
     companyContext: null,
   });
 

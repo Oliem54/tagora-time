@@ -38,6 +38,7 @@ export async function POST(
 
     const result = await refuseHorodateurException({
       actorUserId: auth.user.id,
+      organizationId: auth.organizationId,
       approverRole: (await getAuthenticatedRequestUser(req)).role,
       exceptionId: id,
       reviewNote,

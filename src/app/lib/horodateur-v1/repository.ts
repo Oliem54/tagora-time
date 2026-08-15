@@ -25,6 +25,8 @@ import { HORODATEUR_CANONICAL_TO_LEGACY_EVENT_TYPE } from "./types";
 
 type ChauffeurProfileRow = {
   id: number;
+  organization_id: string | null;
+  organization_company_id: string | null;
   auth_user_id: string | null;
   nom: string | null;
   courriel: string | null;
@@ -68,6 +70,8 @@ type EventRow = Record<string, unknown>;
 
 const CHAUFFEUR_PHASE1_SELECT_CANONICAL = `
   id,
+  organization_id,
+  organization_company_id,
   auth_user_id,
   nom,
   courriel,
@@ -105,6 +109,8 @@ const CHAUFFEUR_PHASE1_SELECT_CANONICAL = `
 
 const CHAUFFEUR_PHASE1_SELECT_LEGACY_PHONE = `
   id,
+  organization_id,
+  organization_company_id,
   auth_user_id,
   nom,
   courriel,
@@ -227,6 +233,8 @@ function mapProfile(row: ChauffeurProfileRow): HorodateurPhase1EmployeeProfile {
     sanitizeWeeklyScheduleConfig(row.weekly_schedule_config);
   return {
     employeeId: row.id,
+    organizationId: row.organization_id,
+    organizationCompanyId: row.organization_company_id,
     authUserId: row.auth_user_id,
     fullName: row.nom,
     email: row.courriel,
@@ -264,6 +272,18 @@ function mapProfile(row: ChauffeurProfileRow): HorodateurPhase1EmployeeProfile {
     alertSmsEnabled: row.alert_sms_enabled !== false,
     isDirectionAlertRecipient: row.is_direction_alert_recipient === true,
     weeklyScheduleConfig,
+  };
+}
+
+function requireEmployeeTenantContext(employee: HorodateurPhase1EmployeeProfile) {
+  if (!employee.organizationId || !employee.organizationCompanyId) {
+    throw new Error(
+      "Contexte organization_id / organization_company_id manquant pour l employe."
+    );
+  }
+  return {
+    organizationId: employee.organizationId,
+    organizationCompanyId: employee.organizationCompanyId,
   };
 }
 
@@ -361,22 +381,58 @@ export async function getEmployeeById(employeeId: number) {
   return data ? mapProfile(data) : null;
 }
 
-export async function listActiveEmployees() {
+export async function getEmployeeByIdForOrganization(
+  employeeId: number,
+  organizationId: string
+) {
   const supabase = createAdminSupabaseClient();
   let { data, error } = await supabase
     .from("chauffeurs")
     .select(CHAUFFEUR_PHASE1_SELECT_CANONICAL)
-    .eq("actif", true)
-    .order("nom", { ascending: true })
-    .returns<ChauffeurProfileRow[]>();
+    .eq("id", employeeId)
+    .eq("organization_id", organizationId)
+    .maybeSingle<ChauffeurProfileRow>();
 
   if (error && isMissingColumnError(error, "telephone")) {
     const fallback = await supabase
       .from("chauffeurs")
       .select(CHAUFFEUR_PHASE1_SELECT_LEGACY_PHONE)
+      .eq("id", employeeId)
+      .eq("organization_id", organizationId)
+      .maybeSingle<ChauffeurProfileRow>();
+    data = fallback.data ?? null;
+    error = fallback.error ?? null;
+  }
+
+  if (error) {
+    throw error;
+  }
+
+  return data ? mapProfile(data) : null;
+}
+
+export async function listActiveEmployees(options?: { organizationId?: string }) {
+  const supabase = createAdminSupabaseClient();
+  let query = supabase
+    .from("chauffeurs")
+    .select(CHAUFFEUR_PHASE1_SELECT_CANONICAL)
+    .eq("actif", true)
+    .order("nom", { ascending: true });
+  if (options?.organizationId) {
+    query = query.eq("organization_id", options.organizationId);
+  }
+  let { data, error } = await query.returns<ChauffeurProfileRow[]>();
+
+  if (error && isMissingColumnError(error, "telephone")) {
+    let fallbackQuery = supabase
+      .from("chauffeurs")
+      .select(CHAUFFEUR_PHASE1_SELECT_LEGACY_PHONE)
       .eq("actif", true)
-      .order("nom", { ascending: true })
-      .returns<ChauffeurProfileRow[]>();
+      .order("nom", { ascending: true });
+    if (options?.organizationId) {
+      fallbackQuery = fallbackQuery.eq("organization_id", options.organizationId);
+    }
+    const fallback = await fallbackQuery.returns<ChauffeurProfileRow[]>();
     data = fallback.data ?? null;
     error = fallback.error ?? null;
   }
@@ -532,10 +588,18 @@ export async function updateEventOccurredAt(input: {
 
 export async function insertEvent(input: HorodateurPhase1InsertEventInput) {
   const supabase = createAdminSupabaseClient();
+  const employee = await getEmployeeById(input.employeeId);
+  if (!employee) {
+    throw new Error("Employe introuvable pour le contexte tenant horodateur.");
+  }
+  const tenant = requireEmployeeTenantContext(employee);
   const eventType = toStoredLegacyEventType(input.eventType);
   const payload: Record<string, unknown> = {
     user_id: input.userId,
     employee_id: input.employeeId,
+    organization_id: input.organizationId ?? tenant.organizationId,
+    organization_company_id:
+      input.organizationCompanyId ?? tenant.organizationCompanyId,
     occurred_at: input.occurredAt,
     event_type: eventType,
     actor_user_id: input.actorUserId,
@@ -632,10 +696,17 @@ export async function insertException(input: {
   requestedByUserId?: string | null;
 }) {
   const supabase = createAdminSupabaseClient();
+  const employee = await getEmployeeById(input.employeeId);
+  if (!employee) {
+    throw new Error("Employe introuvable pour le contexte tenant de l exception.");
+  }
+  const tenant = requireEmployeeTenantContext(employee);
   const { data, error } = await supabase
     .from("horodateur_exceptions")
     .insert({
       employee_id: input.employeeId,
+      organization_id: tenant.organizationId,
+      organization_company_id: tenant.organizationCompanyId,
       shift_id: input.shiftId ?? null,
       source_event_id: input.sourceEventId,
       exception_type: input.exceptionType,
@@ -661,6 +732,25 @@ export async function getExceptionById(exceptionId: string) {
     .from("horodateur_exceptions")
     .select("*")
     .eq("id", exceptionId)
+    .maybeSingle<HorodateurPhase1ExceptionRecord>();
+
+  if (error) {
+    throw error;
+  }
+
+  return data ?? null;
+}
+
+export async function getExceptionByIdForOrganization(
+  exceptionId: string,
+  organizationId: string
+) {
+  const supabase = createAdminSupabaseClient();
+  const { data, error } = await supabase
+    .from("horodateur_exceptions")
+    .select("*")
+    .eq("id", exceptionId)
+    .eq("organization_id", organizationId)
     .maybeSingle<HorodateurPhase1ExceptionRecord>();
 
   if (error) {
@@ -759,7 +849,10 @@ export async function listExceptionsForShift(options: {
   }) as Array<HorodateurPhase1ExceptionRecord & { source_event?: { work_date?: string } }>;
 }
 
-export async function listPendingExceptions(options?: { employeeId?: number }) {
+export async function listPendingExceptions(options?: {
+  employeeId?: number;
+  organizationId?: string;
+}) {
   const supabase = createAdminSupabaseClient();
   let query = supabase
     .from("horodateur_exceptions")
@@ -769,6 +862,9 @@ export async function listPendingExceptions(options?: { employeeId?: number }) {
 
   if (options?.employeeId) {
     query = query.eq("employee_id", options.employeeId);
+  }
+  if (options?.organizationId) {
+    query = query.eq("organization_id", options.organizationId);
   }
 
   const { data, error } = await query.returns<HorodateurPhase1ExceptionRecord[]>();
@@ -1054,11 +1150,18 @@ export async function upsertCurrentState(
   state: Omit<HorodateurPhase1CurrentStateRecord, "created_at" | "updated_at">
 ) {
   const supabase = createAdminSupabaseClient();
+  const employee = await getEmployeeById(state.employee_id);
+  if (!employee) {
+    throw new Error("Employe introuvable pour le contexte tenant de l etat.");
+  }
+  const tenant = requireEmployeeTenantContext(employee);
   const { data, error } = await supabase
     .from("horodateur_current_state")
     .upsert(
       {
         employee_id: state.employee_id,
+        organization_id: tenant.organizationId,
+        organization_company_id: tenant.organizationCompanyId,
         current_state: state.current_state,
         last_event_type: state.last_event_type,
         last_event_at: state.last_event_at,
@@ -1118,12 +1221,19 @@ export async function upsertShift(
   shift: Omit<HorodateurPhase1ShiftRecord, "created_at" | "updated_at">
 ) {
   const supabase = createAdminSupabaseClient();
+  const employee = await getEmployeeById(shift.employee_id);
+  if (!employee) {
+    throw new Error("Employe introuvable pour le contexte tenant du quart.");
+  }
+  const tenant = requireEmployeeTenantContext(employee);
   const { data, error } = await supabase
     .from("horodateur_shifts")
     .upsert(
       {
         id: shift.id,
         employee_id: shift.employee_id,
+        organization_id: tenant.organizationId,
+        organization_company_id: tenant.organizationCompanyId,
         work_date: shift.work_date,
         week_start_date: shift.week_start_date,
         company_context: shift.company_context,
@@ -1181,6 +1291,7 @@ export async function listShiftsInWorkDateRange(options: {
   startWorkDate: string;
   endWorkDate: string;
   employeeId?: number;
+  organizationId?: string;
   companyContext?: HorodateurPhase1EmployeeProfile["primaryCompany"] | null;
 }) {
   const supabase = createAdminSupabaseClient();
@@ -1191,10 +1302,11 @@ export async function listShiftsInWorkDateRange(options: {
     .lte("work_date", options.endWorkDate)
     .order("work_date", { ascending: true });
 
-  if (
-    options.companyContext === "oliem_solutions" ||
-    options.companyContext === "titan_produits_industriels"
-  ) {
+  if (options.organizationId) {
+    query = query.eq("organization_id", options.organizationId);
+  }
+
+  if (options.companyContext) {
     query = query.eq("company_context", options.companyContext);
   }
 

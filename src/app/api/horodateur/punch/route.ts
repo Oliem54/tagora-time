@@ -409,6 +409,16 @@ export async function POST(req: NextRequest) {
       });
     }
 
+    const organizationId = preSnapshot.employee.organizationId;
+    const organizationCompanyId = preSnapshot.employee.organizationCompanyId;
+    if (!organizationId || !organizationCompanyId) {
+      return buildHorodateurValidationErrorResponse({
+        error: "Contexte tenant introuvable pour ce pointage.",
+        code: "missing_tenant_context",
+        route: "/api/horodateur/punch",
+      });
+    }
+
     const canonicalPunchType = toCanonicalEventType(normalizedEventType);
     const isRetroactivePunch = canonicalPunchType === "retroactive_entry";
     const requiresWebGps =
@@ -445,6 +455,8 @@ export async function POST(req: NextRequest) {
         const gpsEval = await evaluateEmployeeWebPunchGps({
           latitude: body.latitude,
           longitude: body.longitude,
+          organizationId,
+          organizationCompanyId,
           companyContext: punchCompany,
           punchGpsMode: isRetroactivePunch ? "retroactive_request" : "strict_punch",
         });

@@ -78,6 +78,7 @@ export async function POST(
 
     const result = await approveHorodateurException({
       actorUserId: auth.user.id,
+      organizationId: auth.organizationId,
       approverRole: (await getAuthenticatedRequestUser(req)).role,
       exceptionId: id,
       reviewNote: normalizeNonEmptyString(body.reviewNote),

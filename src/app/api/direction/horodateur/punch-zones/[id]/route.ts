@@ -7,6 +7,23 @@ import {
 import { isPunchZoneCompanyKey } from "@/app/lib/horodateur-qr-punch.shared";
 import { createAdminSupabaseClient } from "@/app/lib/supabase/admin";
 
+async function resolveOrganizationCompanyId(
+  organizationId: string,
+  companyCode: string
+) {
+  if (companyCode === "all") return null;
+  const admin = createAdminSupabaseClient();
+  const { data, error } = await admin
+    .from("organization_companies")
+    .select("id")
+    .eq("organization_id", organizationId)
+    .eq("company_code", companyCode)
+    .eq("status", "active")
+    .maybeSingle<{ id: string }>();
+  if (error) throw error;
+  return data?.id ?? undefined;
+}
+
 function publicQrUrl(req: NextRequest, zoneKey: string, plainToken: string) {
   const base =
     process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") || req.nextUrl.origin;
@@ -43,8 +60,11 @@ export async function PATCH(
   const supabase = createAdminSupabaseClient();
   const { data: existing, error: loadErr } = await supabase
     .from("horodateur_punch_zones")
-    .select("id, zone_key, label, company_key, location_key, active, requires_gps")
+    .select(
+      "id, organization_id, organization_company_id, zone_key, label, company_key, location_key, active, requires_gps"
+    )
     .eq("id", id)
+    .eq("organization_id", auth.organizationId)
     .maybeSingle();
 
   if (loadErr || !existing) {
@@ -61,7 +81,18 @@ export async function PATCH(
     if (!isPunchZoneCompanyKey(ck)) {
       return NextResponse.json({ error: "company_key invalide." }, { status: 400 });
     }
+    const organizationCompanyId = await resolveOrganizationCompanyId(
+      auth.organizationId,
+      ck
+    );
+    if (organizationCompanyId === undefined) {
+      return NextResponse.json(
+        { error: "Compagnie introuvable dans cette organisation." },
+        { status: 400 }
+      );
+    }
     updates.company_key = ck;
+    updates.organization_company_id = organizationCompanyId;
   }
   if (body.location_key !== undefined) {
     updates.location_key =
@@ -110,8 +141,9 @@ export async function PATCH(
     .from("horodateur_punch_zones")
     .update(updates)
     .eq("id", id)
+    .eq("organization_id", auth.organizationId)
     .select(
-      "id, zone_key, label, company_key, location_key, active, requires_gps, latitude, longitude, radius_meters"
+      "id, organization_id, organization_company_id, zone_key, label, company_key, location_key, active, requires_gps, latitude, longitude, radius_meters"
     )
     .single();
 

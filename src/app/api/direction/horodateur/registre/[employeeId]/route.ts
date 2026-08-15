@@ -53,6 +53,7 @@ export async function GET(req: NextRequest, context: RouteContext) {
       employeeId,
       startDate: startParsed.value,
       endDate: endParsed.value,
+      organizationId: auth.organizationId,
     });
 
     return NextResponse.json({

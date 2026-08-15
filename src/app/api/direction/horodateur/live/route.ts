@@ -92,7 +92,9 @@ export async function GET(req: NextRequest) {
       userId: auth.user.id,
     });
 
-    const board = await listDirectionLiveBoard();
+    const board = await listDirectionLiveBoard({
+      organizationId: auth.organizationId,
+    });
     const normalizedBoard = Array.isArray(board)
       ? board
           .map((item) => mapLiveBoardRow(item as Record<string, unknown>))

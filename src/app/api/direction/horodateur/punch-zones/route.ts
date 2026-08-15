@@ -7,6 +7,23 @@ import {
 import { isPunchZoneCompanyKey } from "@/app/lib/horodateur-qr-punch.shared";
 import { createAdminSupabaseClient } from "@/app/lib/supabase/admin";
 
+async function resolveOrganizationCompanyId(
+  organizationId: string,
+  companyCode: string
+) {
+  if (companyCode === "all") return null;
+  const admin = createAdminSupabaseClient();
+  const { data, error } = await admin
+    .from("organization_companies")
+    .select("id")
+    .eq("organization_id", organizationId)
+    .eq("company_code", companyCode)
+    .eq("status", "active")
+    .maybeSingle<{ id: string }>();
+  if (error) throw error;
+  return data?.id ?? undefined;
+}
+
 function publicQrUrl(req: NextRequest, zoneKey: string, plainToken: string) {
   const base =
     process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") || req.nextUrl.origin;
@@ -24,8 +41,9 @@ export async function GET(req: NextRequest) {
   const { data, error } = await supabase
     .from("horodateur_punch_zones")
     .select(
-      "id, zone_key, label, company_key, location_key, active, requires_gps, latitude, longitude, radius_meters, created_at, updated_at"
+      "id, organization_id, organization_company_id, zone_key, label, company_key, location_key, active, requires_gps, latitude, longitude, radius_meters, created_at, updated_at"
     )
+    .eq("organization_id", auth.organizationId)
     .order("label", { ascending: true });
 
   if (error) {
@@ -97,11 +115,23 @@ export async function POST(req: NextRequest) {
 
   const plainToken = generatePunchZonePlainToken();
   const tokenHash = hashPunchZoneToken(plainToken);
+  const organizationCompanyId = await resolveOrganizationCompanyId(
+    auth.organizationId,
+    companyKeyRaw
+  );
+  if (organizationCompanyId === undefined) {
+    return NextResponse.json(
+      { error: "Compagnie introuvable dans cette organisation." },
+      { status: 400 }
+    );
+  }
 
   const supabase = createAdminSupabaseClient();
   const { data, error } = await supabase
     .from("horodateur_punch_zones")
     .insert({
+      organization_id: auth.organizationId,
+      organization_company_id: organizationCompanyId,
       zone_key: zoneKey,
       label,
       company_key: companyKeyRaw,
@@ -114,7 +144,9 @@ export async function POST(req: NextRequest) {
       radius_meters: requiresGps ? Math.floor(radius as number) : null,
       created_by: auth.user.id,
     })
-    .select("id, zone_key, label, company_key, location_key, active, requires_gps")
+    .select(
+      "id, organization_id, organization_company_id, zone_key, label, company_key, location_key, active, requires_gps"
+    )
     .single();
 
   if (error) {

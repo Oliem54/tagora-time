@@ -7,10 +7,15 @@ import { APP_ALERT_CATEGORY, APP_ALERT_PRIORITY } from "@/app/lib/app-alerts.sha
 import { insertAppAlert } from "@/app/lib/app-alerts.server";
 import { getEmployeeByAuthUserId } from "@/app/lib/horodateur-v1/repository";
 import type { HorodateurPhase1EmployeeProfile } from "@/app/lib/horodateur-v1/types";
-import type { PunchZoneCompanyKey } from "@/app/lib/horodateur-qr-punch.shared";
+import {
+  isPunchZoneCompanyKey,
+  type PunchZoneCompanyKey,
+} from "@/app/lib/horodateur-qr-punch.shared";
 
 export type HorodateurPunchZoneRow = {
   id: string;
+  organization_id: string;
+  organization_company_id: string | null;
   zone_key: string;
   label: string;
   company_key: string;
@@ -55,16 +60,49 @@ export function verifyPunchZoneToken(plainToken: string, storedHash: string): bo
 
 export async function fetchPunchZoneByKey(
   supabase: SupabaseClient,
-  zoneKey: string
+  zoneKey: string,
+  organizationId: string
 ): Promise<HorodateurPunchZoneRow | null> {
   const key = zoneKey.trim();
-  if (!key) return null;
+  const orgId = organizationId.trim();
+  if (!key || !orgId) return null;
+
   const { data, error } = await supabase
     .from("horodateur_punch_zones")
     .select(
-      "id, zone_key, label, company_key, location_key, token_hash, active, requires_gps, latitude, longitude, radius_meters"
+      "id, organization_id, organization_company_id, zone_key, label, company_key, location_key, token_hash, active, requires_gps, latitude, longitude, radius_meters"
     )
     .eq("zone_key", key)
+    .eq("organization_id", orgId)
+    .maybeSingle<HorodateurPunchZoneRow>();
+
+  if (error) {
+    console.warn("[horodateur_punch_zones]", error.message);
+    return null;
+  }
+  return data ?? null;
+}
+
+/**
+ * Public token capability check: never returns a zone without a matching token_hash.
+ * Used only when no authenticated organization_id is available yet.
+ */
+export async function fetchPunchZoneByKeyAndToken(
+  supabase: SupabaseClient,
+  zoneKey: string,
+  plainToken: string
+): Promise<HorodateurPunchZoneRow | null> {
+  const key = zoneKey.trim();
+  const token = plainToken.trim();
+  if (!key || !token) return null;
+  const tokenHash = hashPunchZoneToken(token);
+  const { data, error } = await supabase
+    .from("horodateur_punch_zones")
+    .select(
+      "id, organization_id, organization_company_id, zone_key, label, company_key, location_key, token_hash, active, requires_gps, latitude, longitude, radius_meters"
+    )
+    .eq("zone_key", key)
+    .eq("token_hash", tokenHash)
     .maybeSingle<HorodateurPunchZoneRow>();
 
   if (error) {
@@ -77,11 +115,27 @@ export async function fetchPunchZoneByKey(
 export function employeeMayPunchInZone(
   employee: Pick<
     HorodateurPhase1EmployeeProfile,
-    "active" | "primaryCompany" | "canWorkForOliemSolutions" | "canWorkForTitanProduitsIndustriels"
+    | "active"
+    | "organizationId"
+    | "organizationCompanyId"
+    | "primaryCompany"
+    | "canWorkForOliemSolutions"
+    | "canWorkForTitanProduitsIndustriels"
   >,
-  zoneCompanyKey: PunchZoneCompanyKey
+  zoneCompanyKey: PunchZoneCompanyKey,
+  zone?: Pick<
+    HorodateurPunchZoneRow,
+    "organization_id" | "organization_company_id"
+  >
 ): boolean {
   if (!employee.active) return false;
+  if (zone && employee.organizationId) {
+    return (
+      employee.organizationId === zone.organization_id &&
+      (zone.organization_company_id === null ||
+        employee.organizationCompanyId === zone.organization_company_id)
+    );
+  }
   if (zoneCompanyKey === "all") return true;
   if (zoneCompanyKey === "oliem_solutions") {
     return employee.canWorkForOliemSolutions !== false;
@@ -177,22 +231,29 @@ export async function loadQrContextState(options: {
   if (!zoneKey || !token) {
     return { ok: false, block: "invalid_zone", zone: null };
   }
-  const zone = await fetchPunchZoneByKey(options.supabase, zoneKey);
+  const profile = await getEmployeeByAuthUserId(options.authUserId);
+  if (!profile) {
+    return { ok: false, block: "no_employee", zone: null };
+  }
+  if (!profile.active) {
+    return { ok: false, block: "inactive", zone: null };
+  }
+  if (!profile.organizationId) {
+    return { ok: false, block: "unauthorized_company", zone: null };
+  }
+  const zone = await fetchPunchZoneByKey(
+    options.supabase,
+    zoneKey,
+    profile.organizationId
+  );
   if (!zone?.active || !verifyPunchZoneToken(token, zone.token_hash)) {
     return { ok: false, block: "invalid_zone", zone: zone ?? null };
   }
-  const profile = await getEmployeeByAuthUserId(options.authUserId);
-  if (!profile) {
-    return { ok: false, block: "no_employee", zone };
-  }
-  if (!profile.active) {
-    return { ok: false, block: "inactive", zone };
-  }
   const zc = zone.company_key as PunchZoneCompanyKey;
-  if (zc !== "all" && zc !== "oliem_solutions" && zc !== "titan_produits_industriels") {
+  if (!isPunchZoneCompanyKey(zc)) {
     return { ok: false, block: "invalid_zone", zone };
   }
-  if (!employeeMayPunchInZone(profile, zc)) {
+  if (!employeeMayPunchInZone(profile, zc, zone)) {
     return { ok: false, block: "unauthorized_company", zone };
   }
   return {
@@ -223,24 +284,31 @@ export async function evaluateQrPunchAttempt(options: {
     return { ok: false, reason: "invalid_zone", zone: null };
   }
 
-  const zone = await fetchPunchZoneByKey(supabase, zoneKey);
+  const profile = await getEmployeeByAuthUserId(authUserId);
+  if (!profile) {
+    return { ok: false, reason: "no_employee", zone: null };
+  }
+  if (!profile.active) {
+    return { ok: false, reason: "inactive", zone: null };
+  }
+  if (!profile.organizationId) {
+    return { ok: false, reason: "unauthorized_company", zone: null };
+  }
+
+  const zone = await fetchPunchZoneByKey(
+    supabase,
+    zoneKey,
+    profile.organizationId
+  );
   if (!zone?.active || !verifyPunchZoneToken(token, zone.token_hash)) {
     return { ok: false, reason: "invalid_zone", zone: zone ?? null };
   }
 
-  const profile = await getEmployeeByAuthUserId(authUserId);
-  if (!profile) {
-    return { ok: false, reason: "no_employee", zone };
-  }
-  if (!profile.active) {
-    return { ok: false, reason: "inactive", zone };
-  }
-
   const zc = zone.company_key as PunchZoneCompanyKey;
-  if (zc !== "all" && zc !== "oliem_solutions" && zc !== "titan_produits_industriels") {
+  if (!isPunchZoneCompanyKey(zc)) {
     return { ok: false, reason: "invalid_zone", zone };
   }
-  if (!employeeMayPunchInZone(profile, zc)) {
+  if (!employeeMayPunchInZone(profile, zc, zone)) {
     return { ok: false, reason: "unauthorized_company", zone };
   }
 

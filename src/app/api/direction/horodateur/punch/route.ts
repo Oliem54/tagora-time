@@ -72,6 +72,7 @@ export async function POST(req: NextRequest) {
 
     const result = await createDirectionPunch({
       actorUserId: auth.user.id,
+      organizationId: auth.organizationId,
       employeeId,
       eventType: body.eventType,
       occurredAt: occurredAtValidation.value,

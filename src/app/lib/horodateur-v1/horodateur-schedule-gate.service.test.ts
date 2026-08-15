@@ -107,6 +107,8 @@ function martinYvesWeeklyConfig(): WeeklyScheduleConfig {
 function martinEmployeeProfile(): HorodateurPhase1EmployeeProfile {
   return {
     employeeId: 9,
+    organizationId: "org-oliem",
+    organizationCompanyId: "company-oliem",
     authUserId: "auth-martin",
     fullName: "Martin ST-Gelais",
     email: "martin@example.com",

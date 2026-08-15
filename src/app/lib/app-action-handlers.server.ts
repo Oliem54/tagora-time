@@ -14,6 +14,7 @@ import {
   refuseHorodateurException,
 } from "@/app/lib/horodateur-v1/service";
 import { HorodateurPhase1Error } from "@/app/lib/horodateur-v1/types";
+import { resolveActiveOrganizationMembershipForUserId } from "@/app/lib/saas/organization-membership.server";
 import { createAdminSupabaseClient } from "@/app/lib/supabase/admin";
 
 const LOG = "[app-action-handlers]";
@@ -32,6 +33,7 @@ export type AppActionHandlerResult =
         | "target_not_found"
         | "already_handled"
         | "configuration_missing"
+        | "tenant_mismatch"
         | "handler_error";
       message: string;
     };
@@ -114,12 +116,32 @@ async function executeHorodateurExceptionReviewHandler(options: {
     };
   }
 
+  const organizationId = String(exception.organization_id ?? "").trim();
+  if (!organizationId) {
+    return {
+      ok: false,
+      code: "tenant_mismatch",
+      message:
+        "Cette exception n'a pas d'organization_id. Impossible de traiter l'action rapidement.",
+    };
+  }
+
+  const membership = await resolveActiveOrganizationMembershipForUserId(actorId);
+  if (membership.ok && membership.organizationId !== organizationId) {
+    return {
+      ok: false,
+      code: "tenant_mismatch",
+      message: "Ce lien ne correspond pas au tenant de l'acteur configure.",
+    };
+  }
+
   let notifyNote: string | null = null;
 
   try {
     if (options.response === "accept") {
       const result = await approveHorodateurException({
         actorUserId: actorId,
+        organizationId,
         exceptionId,
         reviewNote: null,
         approvedMinutes: null,
@@ -132,6 +154,7 @@ async function executeHorodateurExceptionReviewHandler(options: {
     } else {
       const result = await refuseHorodateurException({
         actorUserId: actorId,
+        organizationId,
         exceptionId,
         reviewNote: options.responseNote?.trim() ?? "",
       });

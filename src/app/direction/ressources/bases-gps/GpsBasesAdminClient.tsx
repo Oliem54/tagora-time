@@ -21,15 +21,17 @@ import StatusBadge from "@/app/components/ui/StatusBadge";
 import {
   ACCOUNT_REQUEST_COMPANIES,
   getCompanyLabel,
+  normalizeCompany,
   type AccountRequestCompany,
 } from "@/app/lib/account-requests.shared";
-import { supabase } from "@/app/lib/supabase/client";
 
 type GpsBaseType = "bureau" | "entrepot" | "chantier" | "client" | "autre";
 type LegacyGpsBaseType = GpsBaseType | "siege";
 
 type GpsBaseRow = {
   id: string;
+  organization_id?: string;
+  organization_company_id?: string;
   nom: string;
   adresse: string;
   latitude: number;
@@ -93,21 +95,11 @@ function normalizeNumber(value: string) {
 }
 
 function resolveGpsBaseCompany(row: Pick<GpsBaseRow, "compagnie" | "company_context">) {
-  if (
-    row.company_context === "oliem_solutions" ||
-    row.company_context === "titan_produits_industriels"
-  ) {
-    return row.company_context;
-  }
-
-  if (
-    row.compagnie === "oliem_solutions" ||
-    row.compagnie === "titan_produits_industriels"
-  ) {
-    return row.compagnie;
-  }
-
-  return "oliem_solutions" as AccountRequestCompany;
+  return (
+    normalizeCompany(row.company_context) ??
+    normalizeCompany(row.compagnie) ??
+    ("oliem_solutions" as AccountRequestCompany)
+  );
 }
 
 function normalizeGpsBaseType(value: LegacyGpsBaseType | string | null | undefined): GpsBaseType {
@@ -162,20 +154,24 @@ export default function GpsBasesAdminClient() {
     setLoading(true);
     setMessage("");
 
-    const { data, error } = await supabase
-      .from("gps_bases")
-      .select("*")
-      .order("nom", { ascending: true });
+    const response = await fetch("/api/direction/gps-bases", {
+      method: "GET",
+      credentials: "include",
+    });
+    const payload = (await response.json()) as {
+      bases?: GpsBaseRow[];
+      error?: string;
+    };
 
-    if (error) {
+    if (!response.ok) {
       setBases([]);
-      setMessage(error.message);
+      setMessage(payload.error ?? "Chargement impossible.");
       setMessageType("error");
       setLoading(false);
       return;
     }
 
-    setBases(((data ?? []) as GpsBaseRow[]).map((row) => ({
+    setBases(((payload.bases ?? []) as GpsBaseRow[]).map((row) => ({
       ...row,
       latitude: Number(row.latitude),
       longitude: Number(row.longitude),
@@ -187,44 +183,7 @@ export default function GpsBasesAdminClient() {
   }, []);
 
   useEffect(() => {
-    let isActive = true;
-
-    async function loadInitialBases() {
-      const { data, error } = await supabase
-        .from("gps_bases")
-        .select("*")
-        .order("nom", { ascending: true });
-
-      if (!isActive) {
-        return;
-      }
-
-      if (error) {
-        setBases([]);
-        setMessage(error.message);
-        setMessageType("error");
-        setLoading(false);
-        return;
-      }
-
-      setBases(
-        ((data ?? []) as GpsBaseRow[]).map((row) => ({
-          ...row,
-          latitude: Number(row.latitude),
-          longitude: Number(row.longitude),
-          rayon_m: Number(row.rayon_m),
-          company_context: resolveGpsBaseCompany(row),
-          type_base: normalizeGpsBaseType(row.type_base),
-        }))
-      );
-      setLoading(false);
-    }
-
-    void loadInitialBases();
-
-    return () => {
-      isActive = false;
-    };
+    void loadBases();
   }, [loadBases]);
 
   const previewLatitude = useMemo(() => normalizeNumber(form.latitude), [form.latitude]);
@@ -265,10 +224,16 @@ export default function GpsBasesAdminClient() {
     setDeletingId(base.id);
     setMessage("");
 
-    const { error } = await supabase.from("gps_bases").delete().eq("id", base.id);
+    const response = await fetch("/api/direction/gps-bases", {
+      method: "DELETE",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: base.id }),
+    });
+    const payload = (await response.json()) as { error?: string };
 
-    if (error) {
-      setFeedback(error.message, "error");
+    if (!response.ok) {
+      setFeedback(payload.error ?? "Suppression impossible.", "error");
       setDeletingId(null);
       return;
     }
@@ -326,42 +291,39 @@ export default function GpsBasesAdminClient() {
     const selectedCompany = form.company_context;
     const selectedType = normalizeGpsBaseType(form.type_base);
     const payload = {
+      id: editingId ?? undefined,
       nom: form.nom.trim(),
       adresse: form.adresse.trim(),
       latitude,
       longitude,
       rayon_m: Math.round(rayon),
-      compagnie: selectedCompany,
       company_context: selectedCompany,
       type_base: selectedType,
-      updated_at: new Date().toISOString(),
     };
 
-    console.info("[gps-bases] supabase_payload", {
+    console.info("[gps-bases] api_payload", {
       mode: editingId ? "update" : "insert",
       editingId,
       payload,
     });
 
-    const query = editingId
-      ? supabase.from("gps_bases").update(payload).eq("id", editingId)
-      : supabase.from("gps_bases").insert([payload]);
+    const response = await fetch("/api/direction/gps-bases", {
+      method: editingId ? "PATCH" : "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const result = (await response.json()) as { error?: string };
 
-    const { error } = await query;
-
-    if (error) {
+    if (!response.ok) {
       console.error("[gps-bases] submit_failure", {
         mode: editingId ? "update" : "insert",
         editingId,
         form,
         payload,
-        error,
-        message: error.message,
-        details: "details" in error ? error.details : null,
-        hint: "hint" in error ? error.hint : null,
-        code: "code" in error ? error.code : null,
+        result,
       });
-      setFeedback(error.message, "error");
+      setFeedback(result.error ?? "Enregistrement impossible.", "error");
       setSaving(false);
       return;
     }

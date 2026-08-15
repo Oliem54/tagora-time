@@ -10,6 +10,7 @@ import type {
   RegistreCompanyParam,
   RegistreStatusFilter,
 } from "@/app/lib/horodateur-v1/registre-types";
+import { normalizeCompany } from "@/app/lib/account-requests.shared";
 
 function isoDateStrict(value: string | null): { ok: true; value: string } | { ok: false } {
   if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value.trim())) {
@@ -24,13 +25,16 @@ function isoDateStrict(value: string | null): { ok: true; value: string } | { ok
 
 function parseCompanyParam(raw: string | null): RegistreCompanyParam {
   const v = (raw ?? "all").trim().toLowerCase();
-  if (v === "titan" || v === "titan_produits_industriels") {
+  if (v === "all" || v === "toutes") {
+    return "all";
+  }
+  if (v === "titan") {
     return "titan_produits_industriels";
   }
-  if (v === "oliem" || v === "oliem_solutions") {
+  if (v === "oliem") {
     return "oliem_solutions";
   }
-  return "all";
+  return normalizeCompany(v) ?? "all";
 }
 
 function parseStatusParam(raw: string | null): RegistreStatusFilter {
@@ -90,6 +94,7 @@ export async function GET(req: NextRequest) {
       startDate: startParsed.value,
       endDate: endParsed.value,
       employeeId: employeeId ?? null,
+      organizationId: auth.organizationId,
       company,
       status,
     });

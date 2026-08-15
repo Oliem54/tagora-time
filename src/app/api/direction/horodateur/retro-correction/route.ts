@@ -93,6 +93,7 @@ export async function POST(req: NextRequest) {
     const result = await createStaffRetroCorrectionRequest({
       actorUserId: auth.user.id,
       actorRole,
+      organizationId: auth.organizationId,
       employeeId,
       eventType: body.eventType,
       occurredAt,

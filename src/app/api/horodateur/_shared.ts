@@ -16,6 +16,7 @@ import {
 } from "@/app/lib/horodateur-v1/types";
 import type { NextRequest } from "next/server";
 import { APP_SESSION_COOKIE_NAME } from "@/app/lib/auth/session-cookie";
+import { resolveActiveOrganizationMembershipForUserId } from "@/app/lib/saas/organization-membership.server";
 
 export function buildHorodateurErrorResponse(
   error: unknown,
@@ -382,9 +383,29 @@ export async function requireDirectionHorodateurAccess(req: NextRequest) {
     };
   }
 
+  let organizationId = authenticated.organizationId;
+  if (!organizationId) {
+    const membership = await resolveActiveOrganizationMembershipForUserId(
+      authenticated.user.id
+    );
+    if (!membership.ok) {
+      return {
+        ok: false as const,
+        response: buildHorodateurValidationErrorResponse({
+          error: "Membership organisation active requise.",
+          code: "organization_membership_required",
+          status: 403,
+          ...(isDev ? { details: membership.reason } : {}),
+        }),
+      };
+    }
+    organizationId = membership.organizationId;
+  }
+
   return {
     ok: true as const,
     user: authenticated.user,
+    organizationId,
     debug,
   };
 }

@@ -11,6 +11,7 @@ import {
   getExceptionById,
   markQuickActionTokenUsed,
 } from "@/app/lib/horodateur-v1/repository";
+import { resolveActiveOrganizationMembershipForUserId } from "@/app/lib/saas/organization-membership.server";
 import { createAdminSupabaseClient } from "@/app/lib/supabase/admin";
 import { HorodateurPhase1Error } from "@/app/lib/horodateur-v1/types";
 
@@ -58,6 +59,44 @@ function quickActionHtmlPage(options: {
   </div>
 </body>
 </html>`;
+}
+
+/**
+ * Trusted tenant for magic-link actions:
+ * token hash → exception_id → exception.organization_id.
+ * If the configured actor has an active membership, it must match that org.
+ */
+async function resolveTrustedQuickActionOrganizationId(options: {
+  actorUserId: string;
+  exceptionOrganizationId: string | null | undefined;
+}): Promise<
+  | { ok: true; organizationId: string }
+  | { ok: false; title: string; message: string; status: number }
+> {
+  const organizationId = String(options.exceptionOrganizationId ?? "").trim();
+  if (!organizationId) {
+    return {
+      ok: false,
+      title: "Organisation manquante",
+      message:
+        "Cette exception n’a pas d’organization_id. Impossible de traiter le lien rapide de façon sécurisée.",
+      status: 409,
+    };
+  }
+
+  const membership = await resolveActiveOrganizationMembershipForUserId(
+    options.actorUserId
+  );
+  if (membership.ok && membership.organizationId !== organizationId) {
+    return {
+      ok: false,
+      title: "Accès refusé",
+      message: "Ce lien ne correspond pas au tenant de l’acteur configuré.",
+      status: 403,
+    };
+  }
+
+  return { ok: true, organizationId };
 }
 
 export async function GET(req: NextRequest) {
@@ -157,7 +196,8 @@ export async function GET(req: NextRequest) {
 
   let exception: Awaited<ReturnType<typeof getExceptionById>>;
   try {
-    exception = await getExceptionById(exceptionId);
+    // Load by token-bound exception_id only (never trust client id alone).
+    exception = await getExceptionById(row.exception_id);
   } catch (error) {
     console.error(LOG, "exception_load_failed", { exceptionId, error });
     return respond(
@@ -211,13 +251,34 @@ export async function GET(req: NextRequest) {
     );
   }
 
+  const tenant = await resolveTrustedQuickActionOrganizationId({
+    actorUserId: actorId,
+    exceptionOrganizationId: exception.organization_id,
+  });
+  if (!tenant.ok) {
+    console.warn(LOG, "tenant_binding_failed", {
+      exceptionId: row.exception_id,
+      actorUserId: actorId,
+      exceptionOrganizationId: exception.organization_id ?? null,
+    });
+    return respond(
+      quickActionHtmlPage({
+        title: tenant.title,
+        message: tenant.message,
+        variant: "error",
+      }),
+      tenant.status
+    );
+  }
+
   let notifyNote: string | null = null;
 
   try {
     if (action === "approve") {
       const result = await approveHorodateurException({
         actorUserId: actorId,
-        exceptionId,
+        organizationId: tenant.organizationId,
+        exceptionId: row.exception_id,
         reviewNote: null,
         approvedMinutes: null,
       });
@@ -234,7 +295,7 @@ export async function GET(req: NextRequest) {
         const supabase = createAdminSupabaseClient();
         await markHorodateurExceptionAppAlertHandled(
           supabase,
-          exceptionId,
+          row.exception_id,
           actorId,
           "approved"
         );
@@ -257,7 +318,8 @@ export async function GET(req: NextRequest) {
 
     const result = await refuseHorodateurException({
       actorUserId: actorId,
-      exceptionId,
+      organizationId: tenant.organizationId,
+      exceptionId: row.exception_id,
       reviewNote: "Refusé via lien rapide courriel/SMS.",
     });
     const marked = await markQuickActionTokenUsed(row.id);
@@ -271,7 +333,12 @@ export async function GET(req: NextRequest) {
     }
     try {
       const supabase = createAdminSupabaseClient();
-      await markHorodateurExceptionAppAlertHandled(supabase, exceptionId, actorId, "rejected");
+      await markHorodateurExceptionAppAlertHandled(
+        supabase,
+        row.exception_id,
+        actorId,
+        "rejected"
+      );
     } catch (markErr) {
       console.warn(LOG, "mark_app_alert_failed", {
         exceptionId,
