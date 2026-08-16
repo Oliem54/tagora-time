@@ -15,12 +15,20 @@ describe("Phase4D generic tenant operational FK + RLS migration", () => {
     .filter((n) => n.endsWith(".sql"))
     .sort();
 
-  it("ships the planned migration after the Oliem seed", () => {
+  it("ships the planned migration without the Option B tenant seed", () => {
+    const seedFile = "20260809120000_v1_oliem_tenant_company_seed.sql";
     expect(existsSync(path)).toBe(true);
     expect(files).toContain(FILE);
-    expect(files.indexOf("20260809120000_v1_oliem_tenant_company_seed.sql")).toBeLessThan(
-      files.indexOf(FILE)
-    );
+    expect(files).not.toContain(seedFile);
+    expect(existsSync(join(MIGRATIONS_DIR, seedFile))).toBe(false);
+  });
+
+  it("contains no customer-specific tenant or company literals", () => {
+    expect(sql).not.toContain("oliem-solution");
+    expect(sql).not.toContain("oliem_solutions");
+    expect(sql).not.toContain("titan_produits_industriels");
+    expect(lower).not.toMatch(/\boliem\b/);
+    expect(lower).not.toMatch(/\btitan\b/);
   });
 
   it("adds combined tenant keys and composite org/company consistency", () => {
@@ -40,13 +48,12 @@ describe("Phase4D generic tenant operational FK + RLS migration", () => {
     expect(lower).toContain("organization_companies_id_organization_uidx");
   });
 
-  it("uses the legacy Oliem fallback only for missing organization_id", () => {
-    expect(sql).toContain("oliem-solution");
-    expect(sql).toContain("oliem_solutions");
-    expect(sql).toContain("titan_produits_industriels");
+  it("backfills missing organization_id only from a unique company_code or employee row", () => {
     expect(sql).toContain("Phase4D tenant backfill blocked");
+    expect(sql).not.toMatch(/v_legacy_\w+_organization_id/i);
+    expect(sql).not.toMatch(/limit\s+1/i);
     expect(sql).toMatch(
-      /update public\.chauffeurs c\s+set organization_id = v_legacy_oliem_organization_id\s+where c\.organization_id is null\s+and c\.primary_company in/i
+      /update public\.chauffeurs c\s+set organization_id = oc\.organization_id\s+from public\.organization_companies oc\s+where c\.organization_id is null\s+and oc\.company_code = c\.primary_company\s+and not exists \(/i
     );
     const organizationUpdates =
       sql.match(/update public\.\w+\s+\w+\s+set organization_id =[\s\S]*?;/gi) ?? [];
@@ -160,7 +167,7 @@ describe("Phase4D generic tenant operational FK + RLS migration", () => {
 
   it("keeps all-company punch zones tenant-scoped with no company FK", () => {
     expect(sql).toMatch(
-      /update public\.horodateur_punch_zones z\s+set organization_id = v_legacy_oliem_organization_id\s+where z\.organization_id is null\s+and z\.company_key in/i
+      /update public\.horodateur_punch_zones z\s+set organization_id = oc\.organization_id\s+from public\.organization_companies oc\s+where z\.organization_id is null\s+and z\.company_key <> 'all'/i
     );
     expect(lower).toContain(
       "(company_key = 'all' and organization_company_id is null)"

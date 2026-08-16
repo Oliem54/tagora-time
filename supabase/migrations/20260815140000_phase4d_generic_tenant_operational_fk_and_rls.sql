@@ -38,28 +38,20 @@ alter table public.horodateur_punch_zones
   add column if not exists organization_company_id uuid null;
 
 -- 3. Preserve existing tenant ownership and backfill only missing canonical keys.
--- A legacy Oliem fallback is used only for rows with no organization_id. Company
--- keys are always resolved inside the row's organization_id.
+-- organization_id is filled only from a unique company_code match or from the
+-- related employee row. Ambiguous or unproven tenants stay null and fail closed.
 do $$
-declare
-  v_legacy_oliem_organization_id uuid;
 begin
-  select o.id
-    into v_legacy_oliem_organization_id
-  from public.organizations o
-  where o.slug = 'oliem-solution'
-    and o.deleted_at is null;
-
-  if v_legacy_oliem_organization_id is null then
-    raise exception 'Phase4D tenant backfill blocked: organization oliem-solution is missing';
-  end if;
-
   update public.chauffeurs c
-  set organization_id = v_legacy_oliem_organization_id
+  set organization_id = oc.organization_id
+  from public.organization_companies oc
   where c.organization_id is null
-    and c.primary_company in (
-      'oliem_solutions',
-      'titan_produits_industriels'
+    and oc.company_code = c.primary_company
+    and not exists (
+      select 1
+      from public.organization_companies oc2
+      where oc2.company_code = c.primary_company
+        and oc2.id <> oc.id
     );
 
   update public.chauffeurs c
@@ -70,11 +62,15 @@ begin
     and oc.company_code = c.primary_company;
 
   update public.gps_bases b
-  set organization_id = v_legacy_oliem_organization_id
+  set organization_id = oc.organization_id
+  from public.organization_companies oc
   where b.organization_id is null
-    and b.company_context in (
-      'oliem_solutions',
-      'titan_produits_industriels'
+    and oc.company_code = b.company_context
+    and not exists (
+      select 1
+      from public.organization_companies oc2
+      where oc2.company_code = b.company_context
+        and oc2.id <> oc.id
     );
 
   update public.gps_bases b
@@ -145,12 +141,16 @@ begin
     and oc.organization_id = c.organization_id;
 
   update public.horodateur_punch_zones z
-  set organization_id = v_legacy_oliem_organization_id
+  set organization_id = oc.organization_id
+  from public.organization_companies oc
   where z.organization_id is null
-    and z.company_key in (
-      'all',
-      'oliem_solutions',
-      'titan_produits_industriels'
+    and z.company_key <> 'all'
+    and oc.company_code = z.company_key
+    and not exists (
+      select 1
+      from public.organization_companies oc2
+      where oc2.company_code = z.company_key
+        and oc2.id <> oc.id
     );
 
   update public.horodateur_punch_zones z
@@ -398,7 +398,9 @@ begin
         'horodateur_current_state',
         'horodateur_punch_zones'
       )
-      and pg_get_constraintdef(con.oid) ilike '%oliem_solutions%'
+      and pg_get_constraintdef(con.oid) ~* '(primary_company|company_context|company_key|work_company_key|employer_company_key)'
+      and pg_get_constraintdef(con.oid) ~* '\yIN\s*\('
+      and pg_get_constraintdef(con.oid) !~* 'organization_company_id'
   loop
     execute format('alter table public.%I drop constraint if exists %I', r.relname, r.conname);
   end loop;
