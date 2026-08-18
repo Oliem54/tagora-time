@@ -31,12 +31,15 @@ export type HorodateurPunchZoneRow = {
   radius_meters: number | null;
 };
 
+export const PUNCH_ZONE_PEPPER_MISSING_ERROR =
+  "PUNCH_ZONE_TOKEN_PEPPER is required to hash or verify punch zone tokens.";
+
 function getPunchZonePepper(): string {
-  return (
-    process.env.PUNCH_ZONE_TOKEN_PEPPER?.trim() ||
-    process.env.SUPABASE_SERVICE_ROLE_KEY?.trim() ||
-    "tagora-punch-zone-dev-pepper"
-  );
+  const pepper = process.env.PUNCH_ZONE_TOKEN_PEPPER?.trim() ?? "";
+  if (!pepper) {
+    throw new Error(PUNCH_ZONE_PEPPER_MISSING_ERROR);
+  }
+  return pepper;
 }
 
 /** Jeton brut à encoder dans le QR (jamais stocké en clair en base). */
