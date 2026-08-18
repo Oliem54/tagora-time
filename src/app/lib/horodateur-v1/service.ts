@@ -26,6 +26,7 @@ import {
   isStaffRetroCorrectionEventNote,
   STAFF_RETRO_CORRECTION_REASON_LABEL,
 } from "@/app/lib/horodateur-retro-correction.shared";
+import { computeShiftPayableMinutes } from "@/app/lib/horodateur-v1/shift-payable.shared";
 import {
   formatAutoMissingExpectedPunchDetails,
   expectedPunchRequiresMorningPunchIn,
@@ -90,6 +91,8 @@ import {
   computeStateFromEventTimeline,
   findActivePendingPunchOutFromEvents,
   formatPendingPunchOutSubmittedMessage,
+  resolveActiveOpenShiftWorkDate,
+  resolveOperationalWorkDate,
 } from "./operational-state.shared";
 import {
   classifyEventPhase1,
@@ -820,7 +823,7 @@ export async function resolveEmployeeByAuthUserId(authUserId: string) {
 
   if (!employee) {
     throw new HorodateurPhase1Error(
-      "Aucune fiche employe n est liee a ce compte Auth.",
+      "Aucune fiche employe n est liee a ce compte Auth. Un membership seul ne suffit pas : la fiche chauffeur doit avoir auth_user_id = ce compte, organization_id et organization_company_id.",
       {
         code: "employee_not_found_for_auth_user",
         status: 404,
@@ -829,6 +832,27 @@ export async function resolveEmployeeByAuthUserId(authUserId: string) {
   }
 
   ensureEmployeeActive(employee);
+
+  if (!employee.organizationId || !employee.organizationCompanyId) {
+    throw new HorodateurPhase1Error(
+      "Fiche employe incomplete : organization_id ou organization_company_id manquant. Corrigez l association tenant avant de pointer.",
+      {
+        code: "employee_missing_tenant_keys",
+        status: 409,
+      }
+    );
+  }
+
+  if (!employee.primaryCompany) {
+    throw new HorodateurPhase1Error(
+      "Fiche employe incomplete : primary_company manquant.",
+      {
+        code: "missing_company_context",
+        status: 409,
+      }
+    );
+  }
+
   return employee;
 }
 
@@ -871,17 +895,25 @@ function assertNoPaidBreakOperationalPunch(
   employee: HorodateurPhase1EmployeeProfile,
   eventType: HorodateurPhase1InsertEventInput["eventType"]
 ) {
-  if (!employee.pausePaid) {
-    return;
-  }
   const canonical = toCanonicalEventType(eventType);
-  if (canonical !== "break_start" && canonical !== "break_end") {
-    return;
+  if (
+    employee.pausePaid &&
+    (canonical === "break_start" || canonical === "break_end")
+  ) {
+    throw new HorodateurPhase1Error(
+      "Pause payee : aucun pointage debut ou fin de pause n est requis (employe ni direction). La pause est incluse dans le quart.",
+      { code: "paid_break_no_punch_required", status: 409 }
+    );
   }
-  throw new HorodateurPhase1Error(
-    "Pause payee : aucun pointage debut ou fin de pause n est requis (employe ni direction). La pause est incluse dans le quart.",
-    { code: "paid_break_no_punch_required", status: 409 }
-  );
+  if (
+    employee.lunchPaid &&
+    (canonical === "meal_start" || canonical === "meal_end")
+  ) {
+    throw new HorodateurPhase1Error(
+      "Repas paye : aucun pointage debut ou fin de diner n est requis (employe ni direction). Le repas est inclus dans le quart.",
+      { code: "paid_lunch_no_punch_required", status: 409 }
+    );
+  }
 }
 
 function resolveEventDates(occurredAt: string) {
@@ -892,9 +924,15 @@ function resolveEventDates(occurredAt: string) {
 }
 
 export async function insertHorodateurEvent(input: HorodateurPhase1InsertEventInput) {
+  const fallback = resolveEventDates(input.occurredAt);
+  const workDate = String(input.workDate ?? "").trim() || fallback.workDate;
+  const weekStartDate =
+    String(input.weekStartDate ?? "").trim() ||
+    getWeekStartDate(`${workDate}T12:00:00Z`);
   return insertEvent({
     ...input,
-    ...resolveEventDates(input.occurredAt),
+    workDate,
+    weekStartDate,
   });
 }
 
@@ -2537,6 +2575,13 @@ export async function recomputeShiftForDate(
       continue;
     }
 
+    if (
+      employee.lunchPaid &&
+      (canonicalEventType === "meal_start" || canonicalEventType === "meal_end")
+    ) {
+      continue;
+    }
+
     if (shouldTreatApprovedEventAsShiftStart(event, orderedEvents)) {
       if (shiftStartAt && shiftEndAt && state === "termine") {
         shiftEndAt = null;
@@ -2740,10 +2785,12 @@ export async function recomputeShiftForDate(
     shiftStartAt && (shiftEndAt ?? lastOccurredAt)
       ? diffMinutes(shiftStartAt, shiftEndAt ?? (lastOccurredAt as string))
       : 0;
-  const payableMinutes = Math.max(
-    0,
-    workedMinutes - unpaidBreakMinutes - unpaidLunchMinutes + approvedExceptionMinutes
-  );
+  const payableMinutes = computeShiftPayableMinutes({
+    workedMinutes,
+    unpaidBreakMinutes,
+    unpaidLunchMinutes,
+    approvedExceptionMinutes,
+  });
   const companyContext = resolveCompanyContextForShift(
     approvedEvents,
     existingShift?.company_context ?? employee.primaryCompany
@@ -2811,7 +2858,8 @@ export async function recomputeShiftForDate(
       workDate,
       payableMinutes,
       pendingExceptionMinutes,
-      formula: "payable = worked - unpaid_break - unpaid_lunch + approved_exception",
+      formula:
+        "payable = worked_segments + approved_exception (unpaid break/lunch already excluded from worked)",
     });
   }
 
@@ -2858,6 +2906,7 @@ async function insertEmployeeOperationalPunchEvent(
     eventType: HorodateurPhase1InsertEventInput["eventType"];
     currentState: HorodateurPhase1CurrentStateRecord | null;
     latestApprovedEvents: HorodateurPhase1EventRecord[];
+    allApprovedEvents?: HorodateurPhase1EventRecord[];
     forceApprovedClose?: boolean;
   }
 ): Promise<HorodateurPhase1EventRecord> {
@@ -2879,12 +2928,19 @@ async function insertEmployeeOperationalPunchEvent(
 
   const pt = options.punchTrace;
   const wg = options.webGps;
+  const workDate = resolveOperationalWorkDate({
+    eventType: options.eventType,
+    occurredAt: options.occurredAt,
+    approvedEvents:
+      options.allApprovedEvents ?? options.latestApprovedEvents,
+  });
 
   return insertHorodateurEvent({
     userId: requireEmployeeAuthUserId(options.employee),
     employeeId: options.employee.employeeId,
     occurredAt: options.occurredAt,
-    ...resolveEventDates(options.occurredAt),
+    workDate,
+    weekStartDate: getWeekStartDate(`${workDate}T12:00:00Z`),
     eventType: options.eventType,
     actorUserId: options.actorUserId,
     actorRole: "employe",
@@ -2929,16 +2985,16 @@ async function closeOpenPauseOrMealBeforePunchOut(
   options: EmployeeOperationalPunchInsertContext & {
     currentState: HorodateurPhase1CurrentStateRecord | null;
     latestApprovedEvents: HorodateurPhase1EventRecord[];
+    allApprovedEvents?: HorodateurPhase1EventRecord[];
   }
 ): Promise<HorodateurPhase1EventRecord[]> {
   const resolvedState = resolveInitialCurrentState(options.currentState);
   const created: HorodateurPhase1EventRecord[] = [];
 
-  if (options.employee.pausePaid) {
-    return created;
-  }
-
   if (resolvedState === "en_pause") {
+    if (options.employee.pausePaid) {
+      return created;
+    }
     const breakEnd = await insertEmployeeOperationalPunchEvent({
       ...options,
       eventType: "break_end",
@@ -2954,6 +3010,9 @@ async function closeOpenPauseOrMealBeforePunchOut(
   }
 
   if (resolvedState === "en_diner") {
+    if (options.employee.lunchPaid) {
+      return created;
+    }
     const mealEnd = await insertEmployeeOperationalPunchEvent({
       ...options,
       eventType: "meal_end",
@@ -3017,13 +3076,25 @@ export async function createEmployeePunch(options: {
   const sourceKind = options.sourceKind ?? "employe";
   const pt = options.punchTrace;
   const wg = options.webGps;
-  const workDate = getLocalWorkDate(occurredAt);
+  const calendarWorkDate = getLocalWorkDate(occurredAt);
+
+  let currentState = await getCurrentStateByEmployeeId(employee.employeeId);
+  const allApprovedEvents = await listEventsForEmployee({
+    employeeId: employee.employeeId,
+    statuses: ["normal", "approuve"],
+  });
+  const workDate = resolveOperationalWorkDate({
+    eventType: options.eventType,
+    occurredAt,
+    approvedEvents: allApprovedEvents,
+  });
   const effectiveSchedule = await resolveEffectiveHorodateurScheduleForDate(
     employee,
-    workDate
+    // Day-off gate is calendar-based for punch_in; continuation uses open shift date.
+    canonicalType === "punch_in" ? calendarWorkDate : workDate
   );
 
-  if (effectiveSchedule.kind === "off" && toCanonicalEventType(options.eventType) === "punch_in") {
+  if (effectiveSchedule.kind === "off" && canonicalType === "punch_in") {
     throw new HorodateurPhase1Error(
       "Entree indisponible : une exception d horaire approuvee indique que vous ne travaillez pas aujourd hui.",
       {
@@ -3047,14 +3118,9 @@ export async function createEmployeePunch(options: {
     }
   }
 
-  let currentState = await getCurrentStateByEmployeeId(employee.employeeId);
   let latestApprovedEvents = await listEventsForEmployee({
     employeeId: employee.employeeId,
-    workDate: getLocalWorkDate(occurredAt),
-    statuses: ["normal", "approuve"],
-  });
-  const allApprovedEvents = await listEventsForEmployee({
-    employeeId: employee.employeeId,
+    workDate,
     statuses: ["normal", "approuve"],
   });
   const pendingPunchOutEvents = (
@@ -3076,13 +3142,14 @@ export async function createEmployeePunch(options: {
       webGps: wg,
       currentState,
       latestApprovedEvents,
+      allApprovedEvents,
     });
 
     if (autoClosed.length > 0) {
       currentState = await recomputeCurrentState(employee.employeeId);
       latestApprovedEvents = await listEventsForEmployee({
         employeeId: employee.employeeId,
-        workDate: getLocalWorkDate(occurredAt),
+        workDate,
         statuses: ["normal", "approuve"],
       });
     }
@@ -3119,7 +3186,8 @@ export async function createEmployeePunch(options: {
     userId: requireEmployeeAuthUserId(employee),
     employeeId: employee.employeeId,
     occurredAt,
-    ...resolveEventDates(occurredAt),
+    workDate,
+    weekStartDate: getWeekStartDate(`${workDate}T12:00:00Z`),
     eventType: options.eventType,
     actorUserId: options.actorUserId,
     actorRole: "employe",
@@ -3277,7 +3345,15 @@ export async function createDirectionPunch(options: {
     options.organizationId
   );
   assertNoPaidBreakOperationalPunch(employee, options.eventType);
-  const workDateForRecompute = getLocalWorkDate(occurredAt);
+  const allApprovedEvents = await listEventsForEmployee({
+    employeeId: employee.employeeId,
+    statuses: ["normal", "approuve"],
+  });
+  const workDateForRecompute = resolveOperationalWorkDate({
+    eventType: options.eventType,
+    occurredAt,
+    approvedEvents: allApprovedEvents,
+  });
   const shiftBeforeDirectionAction =
     process.env.NODE_ENV === "development"
       ? await getShiftByEmployeeAndWorkDate(employee.employeeId, workDateForRecompute)
@@ -3285,7 +3361,7 @@ export async function createDirectionPunch(options: {
   const currentState = await getCurrentStateByEmployeeId(employee.employeeId);
   const latestApprovedEvents = await listEventsForEmployee({
     employeeId: employee.employeeId,
-    workDate: getLocalWorkDate(occurredAt),
+    workDate: workDateForRecompute,
     statuses: ["normal", "approuve"],
   });
   const classification = classifyEventPhase1({
@@ -3313,7 +3389,8 @@ export async function createDirectionPunch(options: {
     userId: requireEmployeeAuthUserId(employee),
     employeeId: employee.employeeId,
     occurredAt,
-    ...resolveEventDates(occurredAt),
+    workDate: workDateForRecompute,
+    weekStartDate: getWeekStartDate(`${workDateForRecompute}T12:00:00Z`),
     eventType: options.eventType,
     actorUserId: options.actorUserId,
     actorRole: "direction",
@@ -3536,33 +3613,6 @@ function sortEventsByOccurredAt(events: HorodateurPhase1EventRecord[]) {
   });
 }
 
-function resolveActiveOpenShiftWorkDate(
-  approvedEvents: HorodateurPhase1EventRecord[]
-): string | null {
-  const sorted = sortEventsByOccurredAt(approvedEvents);
-  let activeStart: HorodateurPhase1EventRecord | null = null;
-
-  for (const event of sorted) {
-    const canonicalEventType = toCanonicalEventType(event.event_type);
-    if (shouldTreatApprovedEventAsShiftStart(event, sorted)) {
-      activeStart = event;
-      continue;
-    }
-    if (canonicalEventType === "punch_out") {
-      activeStart = null;
-    }
-  }
-
-  if (!activeStart) {
-    return null;
-  }
-
-  return (
-    activeStart.work_date ??
-    getLocalWorkDate(getEventOccurredAt(activeStart) ?? new Date().toISOString())
-  );
-}
-
 /** Fin/pause/repas en attente : le live ne doit pas depasser l'horodatage soumis. */
 const PENDING_LIVE_ACCRUAL_CAP_EVENT_TYPES = new Set([
   "punch_out",
@@ -3674,6 +3724,13 @@ export function computeTodayLiveShiftDisplayMinutes(options: {
     if (
       options.employee.pausePaid &&
       (canonicalEventType === "break_start" || canonicalEventType === "break_end")
+    ) {
+      continue;
+    }
+
+    if (
+      options.employee.lunchPaid &&
+      (canonicalEventType === "meal_start" || canonicalEventType === "meal_end")
     ) {
       continue;
     }
@@ -3796,10 +3853,12 @@ export function computeTodayLiveShiftDisplayMinutes(options: {
   }
 
   const liveWorkedMinutes = workedMinutes;
-  const livePayableMinutes = Math.max(
-    0,
-    liveWorkedMinutes - unpaidBreakMinutes - unpaidLunchMinutes + approvedExceptionMinutes
-  );
+  const livePayableMinutes = computeShiftPayableMinutes({
+    workedMinutes: liveWorkedMinutes,
+    unpaidBreakMinutes,
+    unpaidLunchMinutes,
+    approvedExceptionMinutes,
+  });
 
   return {
     officialPayableMinutes,
@@ -4060,11 +4119,22 @@ export async function listDirectionLiveBoard(options?: {
         lastEventType: resolvedCurrentState.last_event_type ?? null,
         todayShift: resolvedTodayShift,
         todayTimeDisplay,
+        workedMinutes: todayTimeDisplay.liveWorkedMinutes,
+        payableMinutesToday: todayTimeDisplay.livePayableMinutes,
+        pauseMinutes: Math.max(
+          0,
+          (resolvedTodayShift.unpaid_break_minutes ?? 0) +
+            (resolvedTodayShift.unpaid_lunch_minutes ?? 0) +
+            (resolvedTodayShift.paid_break_minutes ?? 0)
+        ),
         weekWorkedMinutes: weeklyProjection.workedMinutes,
         weekTargetMinutes: weeklyProjection.targetMinutes,
         weekRemainingMinutes: weeklyProjection.remainingMinutes,
+        weeklyProgressMinutes: weeklyProjection.workedMinutes,
+        weeklyTargetMinutes: weeklyProjection.targetMinutes,
         projectedOverflowMinutes: weeklyProjection.projectedOverflowMinutes,
         hasOpenException: resolvedCurrentState.has_open_exception ?? false,
+        shiftStartAt: resolvedTodayShift.shift_start_at ?? null,
       };
     })
   );

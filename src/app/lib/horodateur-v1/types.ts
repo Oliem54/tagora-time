@@ -314,11 +314,18 @@ export type HorodateurPhase1DirectionLiveRow = {
   lastEventType: HorodateurPhase1EventType | null;
   todayShift: HorodateurPhase1ShiftRecord | null;
   todayTimeDisplay: HorodateurPhase1TodayTimeDisplay;
+  /** Live worked minutes for today (aliases used by /api/direction/horodateur/live). */
+  workedMinutes: number;
+  payableMinutesToday: number;
+  pauseMinutes: number;
   weekWorkedMinutes: number;
   weekTargetMinutes: number;
   weekRemainingMinutes: number;
+  weeklyProgressMinutes: number;
+  weeklyTargetMinutes: number;
   projectedOverflowMinutes: number;
   hasOpenException: boolean;
+  shiftStartAt: string | null;
 };
 
 export type HorodateurPhase1LatenessContext = {

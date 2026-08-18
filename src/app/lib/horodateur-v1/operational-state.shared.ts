@@ -226,6 +226,61 @@ export function formatPendingPunchOutSubmittedMessage(_occurredAt: string): stri
   return "Votre sortie a ete soumise a validation. Vous pouvez continuer a utiliser l'horodateur normalement.";
 }
 
+/**
+ * Work date of the currently open approved shift (punch_in without punch_out), if any.
+ */
+export function resolveActiveOpenShiftWorkDate(
+  approvedEvents: HorodateurPhase1EventRecord[]
+): string | null {
+  const sorted = sortHorodateurEventsByOccurredAt(approvedEvents);
+  let activeStart: HorodateurPhase1EventRecord | null = null;
+
+  for (const event of sorted) {
+    const canonicalEventType = toCanonicalEventType(event.event_type);
+    if (shouldTreatApprovedEventAsShiftStart(event, sorted)) {
+      activeStart = event;
+      continue;
+    }
+    if (canonicalEventType === "punch_out") {
+      activeStart = null;
+    }
+  }
+
+  if (!activeStart) {
+    return null;
+  }
+
+  return (
+    activeStart.work_date ??
+    getLocalWorkDate(getEventOccurredAt(activeStart) ?? new Date().toISOString())
+  );
+}
+
+/**
+ * Continuation events (out / pause / meal) stay on the open shift work_date so
+ * overnight punch-out does not orphan the shift across calendar midnight.
+ */
+export function resolveOperationalWorkDate(options: {
+  eventType: HorodateurPhase1EventRecord["event_type"] | string;
+  occurredAt: string;
+  approvedEvents: HorodateurPhase1EventRecord[];
+}): string {
+  const calendarWorkDate = getLocalWorkDate(options.occurredAt);
+  const canonical = toCanonicalEventType(
+    options.eventType as HorodateurPhase1EventRecord["event_type"]
+  );
+  if (
+    canonical === "punch_in" ||
+    canonical === "retroactive_entry" ||
+    canonical == null
+  ) {
+    return calendarWorkDate;
+  }
+  return (
+    resolveActiveOpenShiftWorkDate(options.approvedEvents) ?? calendarWorkDate
+  );
+}
+
 export function compareHorodateurExceptionReviewPriority(
   left: { exception_type: string; event_type?: string | null },
   right: { exception_type: string; event_type?: string | null }

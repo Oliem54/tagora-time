@@ -647,6 +647,7 @@ export type HorodateurPendingExceptionInput = {
     email?: string | null;
   } | null;
   event?: {
+    event_type?: string | null;
     occurredAt?: string | null;
     occurred_at?: string | null;
     event_time?: string | null;

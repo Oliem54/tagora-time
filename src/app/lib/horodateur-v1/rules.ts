@@ -417,7 +417,7 @@ function mapCanonicalInvalidSequenceException(
   return "invalid_sequence";
 }
 
-function isAllowedTransition(
+export function isAllowedTransition(
   state: HorodateurPhase1StateKind,
   canonicalEventType: HorodateurCanonicalEventType
 ) {
