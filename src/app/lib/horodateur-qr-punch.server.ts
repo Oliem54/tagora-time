@@ -8,9 +8,12 @@ import { insertAppAlert } from "@/app/lib/app-alerts.server";
 import { getEmployeeByAuthUserId } from "@/app/lib/horodateur-v1/repository";
 import type { HorodateurPhase1EmployeeProfile } from "@/app/lib/horodateur-v1/types";
 import {
+  employeeMayPunchInZone,
   isPunchZoneCompanyKey,
   type PunchZoneCompanyKey,
 } from "@/app/lib/horodateur-qr-punch.shared";
+
+export { employeeMayPunchInZone };
 
 export type HorodateurPunchZoneRow = {
   id: string;
@@ -110,40 +113,6 @@ export async function fetchPunchZoneByKeyAndToken(
     return null;
   }
   return data ?? null;
-}
-
-export function employeeMayPunchInZone(
-  employee: Pick<
-    HorodateurPhase1EmployeeProfile,
-    | "active"
-    | "organizationId"
-    | "organizationCompanyId"
-    | "primaryCompany"
-    | "canWorkForOliemSolutions"
-    | "canWorkForTitanProduitsIndustriels"
-  >,
-  zoneCompanyKey: PunchZoneCompanyKey,
-  zone?: Pick<
-    HorodateurPunchZoneRow,
-    "organization_id" | "organization_company_id"
-  >
-): boolean {
-  if (!employee.active) return false;
-  if (zone && employee.organizationId) {
-    return (
-      employee.organizationId === zone.organization_id &&
-      (zone.organization_company_id === null ||
-        employee.organizationCompanyId === zone.organization_company_id)
-    );
-  }
-  if (zoneCompanyKey === "all") return true;
-  if (zoneCompanyKey === "oliem_solutions") {
-    return employee.canWorkForOliemSolutions !== false;
-  }
-  if (zoneCompanyKey === "titan_produits_industriels") {
-    return employee.canWorkForTitanProduitsIndustriels === true;
-  }
-  return false;
 }
 
 export function resolveWorkCompanyKeyForEvent(

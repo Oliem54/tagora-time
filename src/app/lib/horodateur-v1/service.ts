@@ -28,6 +28,11 @@ import {
 } from "@/app/lib/horodateur-retro-correction.shared";
 import { computeShiftPayableMinutes } from "@/app/lib/horodateur-v1/shift-payable.shared";
 import {
+  evaluateResolvedEmployeePunchProfile,
+  paidOperationalPunchBlock,
+  shouldIgnorePaidOperationalEvent,
+} from "@/app/lib/horodateur-v1/employee-punch-eligibility.shared";
+import {
   formatAutoMissingExpectedPunchDetails,
   expectedPunchRequiresMorningPunchIn,
   HORODATEUR_DEFAULT_LATENESS_TOLERANCE_MINUTES,
@@ -447,13 +452,32 @@ const TORONTO_TIMEZONE = "America/Toronto";
 const SHIFT_RECOMPUTE_DEFAULT_MAX_BREAK_MINUTES = 120;
 const SHIFT_RECOMPUTE_DEFAULT_MAX_MEAL_MINUTES = 180;
 
-function ensureEmployeeActive(employee: HorodateurPhase1EmployeeProfile) {
-  if (!employee.active) {
-    throw new HorodateurPhase1Error("La fiche employe est inactive.", {
-      code: "employee_inactive",
-      status: 409,
+function throwIfEmployeePunchIneligible(input: {
+  present: boolean;
+  active: boolean;
+  organizationId: string | null | undefined;
+  organizationCompanyId: string | null | undefined;
+  primaryCompany: string | null | undefined;
+  requireTenantKeys?: boolean;
+}) {
+  const result = evaluateResolvedEmployeePunchProfile(input);
+  if (!result.ok) {
+    throw new HorodateurPhase1Error(result.message, {
+      code: result.code,
+      status: result.status,
     });
   }
+}
+
+function ensureEmployeeActive(employee: HorodateurPhase1EmployeeProfile) {
+  throwIfEmployeePunchIneligible({
+    present: true,
+    active: employee.active,
+    organizationId: employee.organizationId,
+    organizationCompanyId: employee.organizationCompanyId,
+    primaryCompany: employee.primaryCompany,
+    requireTenantKeys: false,
+  });
 }
 
 function requireCompanyContext(
@@ -821,39 +845,16 @@ export async function saveHorodateurDirectionAlertConfig(input: {
 export async function resolveEmployeeByAuthUserId(authUserId: string) {
   const employee = await getEmployeeByAuthUserId(authUserId);
 
-  if (!employee) {
-    throw new HorodateurPhase1Error(
-      "Aucune fiche employe n est liee a ce compte Auth. Un membership seul ne suffit pas : la fiche chauffeur doit avoir auth_user_id = ce compte, organization_id et organization_company_id.",
-      {
-        code: "employee_not_found_for_auth_user",
-        status: 404,
-      }
-    );
-  }
+  throwIfEmployeePunchIneligible({
+    present: Boolean(employee),
+    active: employee?.active ?? false,
+    organizationId: employee?.organizationId,
+    organizationCompanyId: employee?.organizationCompanyId,
+    primaryCompany: employee?.primaryCompany,
+    requireTenantKeys: true,
+  });
 
-  ensureEmployeeActive(employee);
-
-  if (!employee.organizationId || !employee.organizationCompanyId) {
-    throw new HorodateurPhase1Error(
-      "Fiche employe incomplete : organization_id ou organization_company_id manquant. Corrigez l association tenant avant de pointer.",
-      {
-        code: "employee_missing_tenant_keys",
-        status: 409,
-      }
-    );
-  }
-
-  if (!employee.primaryCompany) {
-    throw new HorodateurPhase1Error(
-      "Fiche employe incomplete : primary_company manquant.",
-      {
-        code: "missing_company_context",
-        status: 409,
-      }
-    );
-  }
-
-  return employee;
+  return employee as HorodateurPhase1EmployeeProfile;
 }
 
 async function resolveEmployeeById(employeeId: number) {
@@ -895,24 +896,15 @@ function assertNoPaidBreakOperationalPunch(
   employee: HorodateurPhase1EmployeeProfile,
   eventType: HorodateurPhase1InsertEventInput["eventType"]
 ) {
-  const canonical = toCanonicalEventType(eventType);
-  if (
-    employee.pausePaid &&
-    (canonical === "break_start" || canonical === "break_end")
-  ) {
-    throw new HorodateurPhase1Error(
-      "Pause payee : aucun pointage debut ou fin de pause n est requis (employe ni direction). La pause est incluse dans le quart.",
-      { code: "paid_break_no_punch_required", status: 409 }
-    );
-  }
-  if (
-    employee.lunchPaid &&
-    (canonical === "meal_start" || canonical === "meal_end")
-  ) {
-    throw new HorodateurPhase1Error(
-      "Repas paye : aucun pointage debut ou fin de diner n est requis (employe ni direction). Le repas est inclus dans le quart.",
-      { code: "paid_lunch_no_punch_required", status: 409 }
-    );
+  const blocked = paidOperationalPunchBlock(
+    employee,
+    toCanonicalEventType(eventType)
+  );
+  if (blocked) {
+    throw new HorodateurPhase1Error(blocked.message, {
+      code: blocked.code,
+      status: blocked.status,
+    });
   }
 }
 
@@ -2568,17 +2560,7 @@ export async function recomputeShiftForDate(
       continue;
     }
 
-    if (
-      employee.pausePaid &&
-      (canonicalEventType === "break_start" || canonicalEventType === "break_end")
-    ) {
-      continue;
-    }
-
-    if (
-      employee.lunchPaid &&
-      (canonicalEventType === "meal_start" || canonicalEventType === "meal_end")
-    ) {
+    if (shouldIgnorePaidOperationalEvent(employee, canonicalEventType)) {
       continue;
     }
 
@@ -3721,17 +3703,7 @@ export function computeTodayLiveShiftDisplayMinutes(options: {
       continue;
     }
 
-    if (
-      options.employee.pausePaid &&
-      (canonicalEventType === "break_start" || canonicalEventType === "break_end")
-    ) {
-      continue;
-    }
-
-    if (
-      options.employee.lunchPaid &&
-      (canonicalEventType === "meal_start" || canonicalEventType === "meal_end")
-    ) {
+    if (shouldIgnorePaidOperationalEvent(options.employee, canonicalEventType)) {
       continue;
     }
 
