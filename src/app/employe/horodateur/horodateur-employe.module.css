@@ -1,0 +1,145 @@
+/* TAGORA HORORA — Horodateur Employé M3 visual pilot. Scoped to this layout only. */
+
+.shell {
+  --heh-accent: #1f79e0;
+  --heh-secondary: #4174ba;
+  --heh-action: #1a64bb;
+  --heh-action-on: #ffffff;
+  --heh-focus: #154a8e;
+  --heh-shell: #1b2641;
+  --heh-deep: #081029;
+  --heh-surface: #ffffff;
+  --heh-soft: #f6f7ed;
+  min-height: 100dvh;
+  min-height: 100vh;
+  background: var(--heh-soft);
+  color: var(--heh-deep);
+  padding:
+    max(16px, env(safe-area-inset-top))
+    max(16px, env(safe-area-inset-right))
+    max(24px, env(safe-area-inset-bottom))
+    max(16px, env(safe-area-inset-left));
+}
+
+.header :global(.ui-page-header-logo-shell img),
+.header :global(.ui-page-header-logo img) {
+  object-fit: contain;
+  width: 100%;
+  height: auto;
+}
+
+.kpiGrid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 16px;
+}
+
+.ctaPrimaryGrid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+  max-width: 480px;
+}
+
+.ctaSecondaryGrid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+}
+
+.tableWrap {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.historyTable {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 520px;
+}
+
+.gpsPanel,
+.correctionPanel {
+  padding: 16px 18px;
+  border-radius: 12px;
+  border: 1px solid var(--heh-secondary);
+  background: var(--heh-surface);
+  display: grid;
+  gap: 12px;
+}
+
+.shell :global(.page-container) {
+  max-width: 960px;
+  margin: 0 auto;
+}
+
+.shell :global(.tagora-panel),
+.shell :global(.tagora-panel-muted) {
+  background: var(--heh-surface);
+  border-color: var(--heh-secondary);
+}
+
+.shell :global(.section-title),
+.shell :global(.tagora-label) {
+  color: var(--heh-shell);
+}
+
+.shell :global(.tagora-dark-action) {
+  background: var(--heh-action);
+  color: var(--heh-action-on);
+  border: 1px solid transparent;
+  min-height: 44px;
+  min-width: 44px;
+}
+
+.shell :global(.tagora-dark-outline-action) {
+  color: var(--heh-shell);
+  border: 1px solid var(--heh-secondary);
+  background: var(--heh-surface);
+  min-height: 44px;
+  min-width: 44px;
+}
+
+.shell :global(.tagora-dark-action:focus-visible),
+.shell :global(.tagora-dark-outline-action:focus-visible),
+.shell :global(.ui-button:focus-visible),
+.header :global(a:focus-visible),
+.header :global(button:focus-visible) {
+  outline: 2px solid var(--heh-focus);
+  outline-offset: 2px;
+}
+
+.shell :global(.ui-button-primary) {
+  background: var(--heh-action);
+  color: var(--heh-action-on);
+  min-height: 44px;
+}
+
+@media (min-width: 768px) {
+  .kpiGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .ctaPrimaryGrid,
+  .ctaSecondaryGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1024px) {
+  .kpiGrid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 390px) {
+  .historyTable {
+    min-width: 0;
+  }
+
+  .ctaPrimaryGrid,
+  .ctaSecondaryGrid,
+  .kpiGrid {
+    grid-template-columns: 1fr;
+  }
+}

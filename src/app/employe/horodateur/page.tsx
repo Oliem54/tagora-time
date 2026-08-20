@@ -2,8 +2,9 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import HeaderTagora from "@/app/components/HeaderTagora";
+import AuthenticatedPageHeader from "@/app/components/ui/AuthenticatedPageHeader";
 import AccessNotice from "@/app/components/AccessNotice";
+import styles from "./horodateur-employe.module.css";
 import CorrectionRequestModal, {
   type CorrectionRequestType,
 } from "@/app/components/horodateur/CorrectionRequestModal";
@@ -141,18 +142,6 @@ const SECONDARY_PUNCH_ACTIONS = [
   { eventType: "meal_start", label: "Debut diner" },
   { eventType: "meal_end", label: "Fin diner" },
 ] as const;
-
-const punchPrimaryGridStyle: React.CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
-  gap: 12,
-};
-
-const punchSecondaryGridStyle: React.CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "repeat(auto-fit, minmax(148px, 1fr))",
-  gap: 10,
-};
 
 const punchActionButtonStyle: React.CSSProperties = {
   width: "100%",
@@ -541,6 +530,19 @@ function formatHorodateurApiError(
   return details ? `${error} (${details})` : error;
 }
 
+function HorodateurEmployeHeader() {
+  return (
+    <AuthenticatedPageHeader
+      title="TAGORA HORORA"
+      subtitle="Horodateur employé"
+      logoSrc="/brand/horora/horora.png"
+      logoAlt=""
+      compact
+      className={styles.header}
+    />
+  );
+}
+
 function HorodateurLoadingScreen({
   description,
   showRetry,
@@ -554,7 +556,7 @@ function HorodateurLoadingScreen({
 }) {
   return (
     <main className="page-container">
-      <HeaderTagora title="Horodateur" subtitle="" />
+      <HorodateurEmployeHeader />
       <AccessNotice description={description} />
       {showRetry && onRetry ? (
         <div style={{ marginTop: 16 }}>
@@ -1713,7 +1715,7 @@ export default function EmployeHorodateurPage() {
   if (!canUseTerrain) {
     return (
       <main className="page-container">
-        <HeaderTagora title="Horodateur" subtitle="" />
+        <HorodateurEmployeHeader />
         <AccessNotice description="La permission terrain est requise pour utiliser l horodateur." />
       </main>
     );
@@ -1721,7 +1723,7 @@ export default function EmployeHorodateurPage() {
 
   return (
     <main className="page-container">
-      <HeaderTagora title="Horodateur" subtitle="" />
+      <HorodateurEmployeHeader />
 
       {message ? <AccessNotice title="Information" description={message} /> : null}
 
@@ -1780,7 +1782,7 @@ export default function EmployeHorodateurPage() {
       ) : null}
 
       <section className="tagora-panel" style={{ marginTop: 24 }}>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 16 }}>
+        <div className={styles.kpiGrid}>
           <div className="tagora-panel-muted">
             <div className="tagora-label">Etat actuel</div>
             <div style={{ marginTop: 8, fontSize: 24, fontWeight: 800 }}>{currentStateLabel}</div>
@@ -1875,7 +1877,7 @@ export default function EmployeHorodateurPage() {
         </label>
 
         <div style={{ display: "grid", gap: 18 }}>
-          <div style={punchPrimaryGridStyle}>
+          <div className={styles.ctaPrimaryGrid}>
             {PRIMARY_PUNCH_ACTIONS.map((action) => {
               const isPunchInBlocked =
                 action.eventType === "punch_in" && Boolean(punchInBlockedReason);
@@ -1918,13 +1920,13 @@ export default function EmployeHorodateurPage() {
                       : punchGpsUi.phase === "timeout" ||
                           punchGpsUi.phase === "insecure_context"
                         ? "1px solid rgba(245,158,11,0.5)"
-                        : "1px solid #dbeafe",
+                        : "1px solid #4174ba",
                 background:
                   punchGpsUi.phase === "in_zone"
-                    ? "linear-gradient(180deg, #f0fdf4 0%, #ffffff 100%)"
+                    ? "#f6f7ed"
                     : punchGpsUi.phase === "out_of_zone"
-                      ? "linear-gradient(180deg, #fef2f2 0%, #ffffff 100%)"
-                      : "linear-gradient(180deg, #f8fbff 0%, #ffffff 100%)",
+                      ? "#ffffff"
+                      : "#ffffff",
                 display: "grid",
                 gap: 12,
               }}
@@ -1952,7 +1954,7 @@ export default function EmployeHorodateurPage() {
             </div>
           ) : null}
 
-          <div style={punchSecondaryGridStyle}>
+          <div className={styles.ctaSecondaryGrid}>
             {SECONDARY_PUNCH_ACTIONS.map((action) => {
               const pausePaid = snapshot?.employee.pausePaid !== false;
               const isPauseAction =
@@ -1977,8 +1979,8 @@ export default function EmployeHorodateurPage() {
               marginTop: 4,
               padding: "20px 18px",
               borderRadius: 14,
-              border: "1px solid #dbeafe",
-              background: "linear-gradient(180deg, #f8fbff 0%, #ffffff 100%)",
+              border: "1px solid #4174ba",
+              background: "#ffffff",
               display: "grid",
               gap: 12,
             }}
@@ -2097,8 +2099,8 @@ export default function EmployeHorodateurPage() {
       <section className="tagora-panel" style={{ marginTop: 24 }}>
         <h2 className="section-title" style={{ marginBottom: 12 }}>Historique du jour</h2>
         {history?.events.length ? (
-          <div style={{ overflowX: "auto" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 760 }}>
+          <div className={styles.tableWrap}>
+            <table className={styles.historyTable}>
               <thead>
                 <tr style={{ background: "#f8fafc" }}>
                   <th style={thStyle}>Heure</th>
@@ -2129,8 +2131,8 @@ export default function EmployeHorodateurPage() {
           Exceptions du jour
         </h2>
         {history?.exceptions.length ? (
-          <div style={{ overflowX: "auto" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 640 }}>
+          <div className={styles.tableWrap}>
+            <table className={styles.historyTable}>
               <thead>
                 <tr style={{ background: "#f8fafc" }}>
                   <th style={thStyle}>Statut</th>

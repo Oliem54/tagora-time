@@ -3,8 +3,9 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import HeaderTagora from "@/app/components/HeaderTagora";
+import AuthenticatedPageHeader from "@/app/components/ui/AuthenticatedPageHeader";
 import AccessNotice from "@/app/components/AccessNotice";
+import styles from "../horodateur-employe.module.css";
 import PrimaryButton from "@/app/components/ui/PrimaryButton";
 import { useCurrentAccess } from "@/app/hooks/useCurrentAccess";
 import { supabase } from "@/app/lib/supabase/client";
@@ -66,6 +67,19 @@ function statusLine(currentState: ContextOk["currentState"]): string {
   if (s === "en_diner") return t ? `Au dîner depuis ${t}` : "Au dîner";
   if (s === "termine") return "Quart terminé";
   return s;
+}
+
+function HorodateurEmployeHeader() {
+  return (
+    <AuthenticatedPageHeader
+      title="TAGORA HORORA"
+      subtitle="Horodateur employé"
+      logoSrc="/brand/horora/horora.png"
+      logoAlt=""
+      compact
+      className={styles.header}
+    />
+  );
 }
 
 export default function EmployeHorodateurQrClient() {
@@ -240,7 +254,7 @@ export default function EmployeHorodateurQrClient() {
   if (!zoneKey || !token) {
     return (
       <main className="page-container">
-        <HeaderTagora title="TAGORA Time" subtitle="Pointage QR" />
+        <HorodateurEmployeHeader />
         <AccessNotice description="Lien incomplet : zone ou jeton manquant." />
         <p style={{ marginTop: 16 }}>
           <Link href="/employe/horodateur">Horodateur</Link>
@@ -252,7 +266,7 @@ export default function EmployeHorodateurQrClient() {
   if (accessLoading || publicLoading) {
     return (
       <main className="page-container">
-        <HeaderTagora title="TAGORA Time" subtitle="Pointage QR" />
+        <HorodateurEmployeHeader />
         <AccessNotice description="Chargement…" />
       </main>
     );
@@ -261,7 +275,7 @@ export default function EmployeHorodateurQrClient() {
   if (publicCheck && !publicCheck.valid) {
     return (
       <main className="page-container">
-        <HeaderTagora title="TAGORA Time" subtitle="Pointage QR" />
+        <HorodateurEmployeHeader />
         <AccessNotice description="Code QR invalide ou expiré." />
         <p style={{ marginTop: 16 }}>
           <Link href="/employe/horodateur">Retour à l’horodateur</Link>
@@ -273,7 +287,7 @@ export default function EmployeHorodateurQrClient() {
   if (!user) {
     return (
       <main className="page-container">
-        <HeaderTagora title="TAGORA Time" subtitle="Pointage QR" />
+        <HorodateurEmployeHeader />
         <AccessNotice description="Connexion…" />
       </main>
     );
@@ -282,7 +296,7 @@ export default function EmployeHorodateurQrClient() {
   if (!canUseTerrain) {
     return (
       <main className="page-container">
-        <HeaderTagora title="TAGORA Time" subtitle="Pointage QR" />
+        <HorodateurEmployeHeader />
         <AccessNotice description="La permission terrain est requise pour pointer." />
       </main>
     );
@@ -291,7 +305,7 @@ export default function EmployeHorodateurQrClient() {
   if (ctxLoading || ctx == null) {
     return (
       <main className="page-container">
-        <HeaderTagora title="TAGORA Time" subtitle="Pointage QR" />
+        <HorodateurEmployeHeader />
         <AccessNotice description="Vérification du QR…" />
       </main>
     );
@@ -300,7 +314,7 @@ export default function EmployeHorodateurQrClient() {
   if (!ctx.ok) {
     return (
       <main className="page-container">
-        <HeaderTagora title="TAGORA Time" subtitle="Pointage QR" />
+        <HorodateurEmployeHeader />
         <AccessNotice description={ctx.message ?? "Accès impossible."} />
         <p style={{ marginTop: 16 }}>
           <Link href="/employe/horodateur">Retour à l’horodateur</Link>
@@ -313,7 +327,7 @@ export default function EmployeHorodateurQrClient() {
 
   return (
     <main className="page-container" style={{ paddingBottom: 48 }}>
-      <HeaderTagora title="TAGORA Time" subtitle="Pointage QR" />
+      <HorodateurEmployeHeader />
 
       <section className="tagora-panel" style={{ marginTop: 20 }}>
         <h1 style={{ fontSize: "1.35rem", margin: "0 0 12px" }}>
@@ -338,7 +352,7 @@ export default function EmployeHorodateurQrClient() {
             lineHeight: 1.55,
           }}
         >
-          Ce QR code désigne l’emplacement ou la zone de punch seulement. Votre session TAGORA Time
+          Ce QR code désigne l’emplacement ou la zone de punch seulement. Votre session TAGORA HORORA
           confirme votre identité employé ; il n’est pas utilisé pour la direction, l’administration
           ni la vérification en deux étapes (MFA).
         </p>

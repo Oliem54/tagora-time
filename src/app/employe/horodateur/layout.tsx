@@ -1,9 +1,10 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
+import styles from "./horodateur-employe.module.css";
 
 export const metadata: Metadata = {
-  title: "Horodateur employe",
-  description: "Horodateur employe Tagora.",
+  title: "Horodateur employé",
+  description: "TAGORA HORORA — Horodateur employé.",
 };
 
 export default function EmployeHorodateurLayout({
@@ -11,5 +12,5 @@ export default function EmployeHorodateurLayout({
 }: {
   children: ReactNode;
 }) {
-  return children;
+  return <div className={styles.shell}>{children}</div>;
 }
