@@ -15,10 +15,10 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: {
-    default: "Tagora",
-    template: "%s | Tagora",
+    default: "TAGORA HORORA",
+    template: "%s | TAGORA HORORA",
   },
-  description: "Plateforme de gestion Tagora.",
+  description: "TAGORA HORORA — pointage, heures et opérations.",
 };
 
 export default function RootLayout({

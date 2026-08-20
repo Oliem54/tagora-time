@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 
 export const metadata: Metadata = {
   title: "Connexion direction",
-  description: "Connexion a l espace direction Tagora.",
+  description: "Connexion à l’espace direction TAGORA HORORA.",
 };
 
 export default function DirectionLoginLayout({
