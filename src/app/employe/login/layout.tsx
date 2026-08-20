@@ -1,9 +1,10 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
+import styles from "./employe-login.module.css";
 
 export const metadata: Metadata = {
-  title: "Connexion employe",
-  description: "Connexion a l espace employe Tagora.",
+  title: "Connexion employé",
+  description: "Connexion à l’espace employé TAGORA HORORA.",
 };
 
 export default function EmployeLoginLayout({
@@ -11,5 +12,5 @@ export default function EmployeLoginLayout({
 }: {
   children: ReactNode;
 }) {
-  return children;
+  return <div className={styles.shell}>{children}</div>;
 }

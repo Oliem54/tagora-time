@@ -1,0 +1,48 @@
+/* TAGORA HORORA — Employé Login header. Logo only, scoped to this route. */
+
+.shell {
+  max-width: 100%;
+}
+
+.shell :global(.time-public-shell-inner) {
+  width: 100%;
+  max-width: 480px;
+}
+
+.shell :global(.time-public-shell-header) {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  text-align: center;
+  margin-bottom: 12px;
+}
+
+.shell :global(.time-public-brand--logo-only) {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  width: 100%;
+  gap: 0;
+}
+
+.shell :global(.time-public-brand-logo) {
+  object-fit: contain;
+  object-position: center;
+  border-radius: 0;
+  box-shadow: none;
+  max-width: 100%;
+}
+
+.shell :global(.time-public-login) {
+  padding-top: 0;
+}
+
+.shell :global(.time-public-login-panel) {
+  max-width: 480px;
+}
+
+@media (max-width: 360px) {
+  .shell :global(.time-public-shell--login) {
+    --time-public-logo-size: 120px;
+  }
+}

@@ -3,15 +3,9 @@
 import Link from "next/link";
 import { type FormEvent, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ArrowUpRight, BadgeCheck, Clock3, FileStack, Waypoints } from "lucide-react";
-import FeedbackMessage from "@/app/components/FeedbackMessage";
-import AppCard from "@/app/components/ui/AppCard";
-import FormField from "@/app/components/ui/FormField";
-import ModuleTile from "@/app/components/ui/ModuleTile";
-import PageHeader from "@/app/components/ui/PageHeader";
-import PrimaryButton from "@/app/components/ui/PrimaryButton";
-import SecondaryButton from "@/app/components/ui/SecondaryButton";
-import SectionCard from "@/app/components/ui/SectionCard";
+import TimeLoginForm from "@/app/components/time-public/TimeLoginForm";
+import TimeLoginShell from "@/app/components/time-public/TimeLoginShell";
+import TimeRoleSwitchLink from "@/app/components/time-public/TimeRoleSwitchLink";
 import {
   getHomePathForRole,
   getPasswordChangePathForRole,
@@ -160,121 +154,37 @@ export default function LoginPage() {
   };
 
   return (
-    <main className="ui-auth-shell tagora-auth-page tagora-auth-page--employe">
-      <div className="ui-auth-content">
-        <PageHeader
-          title="Connexion"
-          subtitle="Acces employe."
-          compact
-        />
-
-        <div className="ui-auth-grid">
-          <SectionCard
-            title="Portail"
-            subtitle="Acces quotidien."
-          >
-            <div className="ui-stack-md">
-              <span className="ui-hero-kicker">
-                <BadgeCheck size={16} />
-                Portail
-              </span>
-              <div className="ui-link-grid">
-                <ModuleTile
-                  eyebrow="Module"
-                  title="Tableau de bord"
-                  description="Vue d ensemble."
-                  icon={<FileStack size={24} strokeWidth={2.1} />}
-                  accent="linear-gradient(135deg, rgba(59,130,246,0.16) 0%, rgba(15,41,72,0.08) 100%)"
-                  action={<div className="ui-text-muted">Priorites et acces.</div>}
-                />
-                <ModuleTile
-                  eyebrow="Module"
-                  title="Terrain"
-                  description="Terrain et livraisons."
-                  icon={<Waypoints size={24} strokeWidth={2.1} />}
-                  accent="linear-gradient(135deg, rgba(16,185,129,0.18) 0%, rgba(15,41,72,0.08) 100%)"
-                  footer={<span className="ui-text-muted">Suivi terrain.</span>}
-                  action={<div className="ui-text-muted">Selon vos acces.</div>}
-                />
-                <ModuleTile
-                  eyebrow="Module"
-                  title="Horodateur"
-                  description="Pointage rapide."
-                  icon={<Clock3 size={24} strokeWidth={2.1} />}
-                  accent="linear-gradient(135deg, rgba(251,146,60,0.18) 0%, rgba(15,41,72,0.08) 100%)"
-                  action={<div className="ui-text-muted">Acces direct.</div>}
-                />
-              </div>
-            </div>
-          </SectionCard>
-
-          <AppCard className="ui-auth-panel ui-auth-form-card">
-            <form className="ui-stack-md" onSubmit={handleLogin}>
-              <div className="ui-stack-sm">
-                <span className="ui-eyebrow">Authentification</span>
-                <h2 className="ui-section-card-title">Se connecter</h2>
-                <p className="ui-text-muted" style={{ margin: 0, lineHeight: 1.7 }}>
-                  Tableau de bord et operations.
-                </p>
-              </div>
-
-              <FeedbackMessage message={message} type={messageType} />
-
-              <div className="tagora-form-grid">
-                <FormField label="Adresse courriel">
-                  <input
-                    className="tagora-input"
-                    placeholder="votre@courriel.com"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                  />
-                </FormField>
-
-                <FormField label="Mot de passe">
-                  <input
-                    className="tagora-input"
-                    placeholder="Votre mot de passe"
-                    type="password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                  />
-                </FormField>
-              </div>
-
-              <div style={{ display: "flex", justifyContent: "flex-end" }}>
-                <Link
-                  href={`/reinitialiser-mot-de-passe?role=employe${
-                    email ? `&email=${encodeURIComponent(email)}` : ""
-                  }`}
-                  className="ui-text-muted"
-                >
-                  Mot de passe oublie ?
-                </Link>
-              </div>
-
-              <div className="tagora-actions">
-                <PrimaryButton type="submit" disabled={submitting}>
-                  {submitting ? "Connexion..." : "Entrer"}
-                </PrimaryButton>
-                <SecondaryButton type="button" onClick={() => router.push("/")}>
-                  Voir
-                </SecondaryButton>
-              </div>
-            </form>
-
-            <AppCard tone="muted" className="ui-stack-sm">
-              <span className="ui-eyebrow">Acces</span>
-              <p className="ui-text-muted" style={{ margin: 0, lineHeight: 1.7 }}>
-                Demande d acces requise.
-              </p>
-              <Link href="/demande-compte?portal=employe" className="tagora-dark-outline-action" style={{ width: "100%", justifyContent: "space-between" }}>
-                <span>Acceder</span>
-                <ArrowUpRight size={16} />
-              </Link>
-            </AppCard>
-          </AppCard>
-        </div>
-      </div>
-    </main>
+    <TimeLoginShell
+      roleLabel="Employé"
+      title="Connexion employé"
+      description="Entrez vos identifiants pour accéder à votre espace TAGORA HORORA."
+      showWordmark={false}
+      logoSrc="/brand/horora/horora.png"
+      footer={
+        <>
+          <TimeRoleSwitchLink target="direction" />
+          <p className="time-public-account-request">
+            Pas encore d’accès ?{" "}
+            <Link href="/demande-compte?portal=employe" className="time-public-inline-link">
+              Demander un compte
+            </Link>
+          </p>
+        </>
+      }
+    >
+      <TimeLoginForm
+        email={email}
+        password={password}
+        onEmailChange={setEmail}
+        onPasswordChange={setPassword}
+        onSubmit={handleLogin}
+        submitting={submitting}
+        message={message}
+        messageType={messageType}
+        forgotPasswordHref={`/reinitialiser-mot-de-passe?role=employe${
+          email ? `&email=${encodeURIComponent(email)}` : ""
+        }`}
+      />
+    </TimeLoginShell>
   );
 }
