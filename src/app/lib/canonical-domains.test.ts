@@ -22,7 +22,7 @@ describe("canonical domains DEC-015", () => {
     expect(CANONICAL_PRODUCTION_ORIGIN).toBe("https://time.tagora.ca");
     expect(CANONICAL_STAGING_ORIGIN).toBe("https://time.staging.tagora.ca");
     expect(LOGIN_STANDARD_PATH).toBe("/login");
-    expect(LOGIN_STANDARD_TARGET_PATH).toBe("/connexion");
+    expect(LOGIN_STANDARD_TARGET_PATH).toBe("/");
     expect(NEXUS_PUBLIC_ORIGIN).toBe("https://app.tagora.ca");
     expect(NEXUS_PUBLIC_HOSTNAME).toBe("app.tagora.ca");
   });
@@ -58,34 +58,34 @@ describe("canonical domains DEC-015", () => {
 });
 
 describe("LOGIN_STANDARD /login redirect", () => {
-  it("redirige vers /connexion sans boucle", () => {
-    expect(buildLoginStandardRedirectPath()).toBe("/connexion");
-    expect(buildLoginStandardRedirectPath("")).toBe("/connexion");
-    expect(buildLoginStandardRedirectPath(new URLSearchParams())).toBe("/connexion");
+  it("redirige vers le hub / sans boucle", () => {
+    expect(buildLoginStandardRedirectPath()).toBe("/");
+    expect(buildLoginStandardRedirectPath("")).toBe("/");
+    expect(buildLoginStandardRedirectPath(new URLSearchParams())).toBe("/");
   });
 
   it("conserve les query params sûrs", () => {
     expect(buildLoginStandardRedirectPath("next=%2Femploye%2Fdashboard")).toBe(
-      "/connexion?next=%2Femploye%2Fdashboard"
+      "/?next=%2Femploye%2Fdashboard"
     );
     expect(buildLoginStandardRedirectPath("?portal=direction")).toBe(
-      "/connexion?portal=direction"
+      "/?portal=direction"
     );
     expect(
       buildLoginStandardRedirectPath(new URLSearchParams({ next: "/direction/dashboard" }))
-    ).toBe("/connexion?next=%2Fdirection%2Fdashboard");
+    ).toBe("/?next=%2Fdirection%2Fdashboard");
   });
 
   it("ne renvoie jamais /login comme cible", () => {
     const target = buildLoginStandardRedirectPath("foo=1");
     expect(target).not.toBe("/login");
     expect(target.startsWith("/login")).toBe(false);
-    expect(target.startsWith("/connexion")).toBe(true);
+    expect(target === "/" || target.startsWith("/?")).toBe(true);
   });
 
   it("laisse les routes rôle existantes distinctes du standard", () => {
     expect("/employe/login").not.toBe(LOGIN_STANDARD_PATH);
     expect("/direction/login").not.toBe(LOGIN_STANDARD_PATH);
-    expect("/connexion").toBe(LOGIN_STANDARD_TARGET_PATH);
+    expect("/").toBe(LOGIN_STANDARD_TARGET_PATH);
   });
 });

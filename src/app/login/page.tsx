@@ -29,8 +29,8 @@ function toURLSearchParams(
 }
 
 /**
- * DEC-015 LOGIN_STANDARD=/login — alias contrôlé vers `/connexion`.
- * Conserve `/employe/login`, `/direction/login` et `/connexion` inchangés.
+ * DEC-015 LOGIN_STANDARD=/login — alias contrôlé vers le hub applicatif `/`.
+ * Conserve `/employe/login` et `/direction/login`. `/connexion` redirige aussi vers `/`.
  */
 export default async function LoginPage({ searchParams }: LoginPageProps) {
   const resolved = searchParams ? await searchParams : undefined;

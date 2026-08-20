@@ -16,8 +16,12 @@ export const NEXUS_PUBLIC_HOSTNAME = "app.tagora.ca" as const;
 /** Point d’entrée connexion standard DEC-015. */
 export const LOGIN_STANDARD_PATH = "/login" as const;
 
-/** Porte d’entrée générique existante (choix employé / direction). */
-export const LOGIN_STANDARD_TARGET_PATH = "/connexion" as const;
+/**
+ * Hub applicatif TAGORA Time (choix employé / direction).
+ * DEC-015 : `/login` redirige ici en un seul hop (plus via `/connexion`).
+ * `/connexion` reste un alias qui redirige aussi vers `/`.
+ */
+export const LOGIN_STANDARD_TARGET_PATH = "/" as const;
 
 export function normalizeHostname(
   hostname: string | null | undefined
@@ -61,7 +65,7 @@ export function isVercelPreviewHostname(
 }
 
 /**
- * Construit la cible de `/login` vers `/connexion` sans boucle.
+ * Construit la cible de `/login` vers le hub `/` sans boucle.
  * Conserve la query string telle quelle (paramètres déjà supportés en amont).
  */
 export function buildLoginStandardRedirectPath(
@@ -77,11 +81,11 @@ export function buildLoginStandardRedirectPath(
     query = `?${searchParams.toString()}`;
   }
 
-  const target = `${LOGIN_STANDARD_TARGET_PATH}${query}`;
+  const target = `${LOGIN_STANDARD_TARGET_PATH}${query}` || "/";
   if (target === LOGIN_STANDARD_PATH || target.startsWith(`${LOGIN_STANDARD_PATH}?`)) {
     return LOGIN_STANDARD_TARGET_PATH;
   }
-  return target;
+  return target === "" ? "/" : target;
 }
 
 /**

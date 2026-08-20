@@ -12,7 +12,7 @@ import {
 export default function AuthenticatedImprovementsFab() {
   const pathname = usePathname();
   const { user, loading } = useCurrentAccess();
-  const hiddenMarketingPaths = ["/", "/logiciel", "/etiquettes", "/contact", "/connexion"];
+  const hiddenPublicPaths = ["/", "/logiciel", "/etiquettes", "/contact", "/connexion", "/login"];
 
   useEffect(() => {
     const root = document.documentElement;
@@ -31,7 +31,7 @@ export default function AuthenticatedImprovementsFab() {
   }
 
   if (
-    hiddenMarketingPaths.includes(pathname) ||
+    hiddenPublicPaths.includes(pathname) ||
     pathname === "/ameliorations" ||
     pathname === "/feedback" ||
     pathname === "/direction/dashboard"
