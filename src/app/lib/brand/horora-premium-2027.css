@@ -1,0 +1,39 @@
+/* HORORA Premium 2027 — CSS custom properties (Phase 1 foundation).
+   Not imported by any surface yet. Values must stay aligned with
+   src/app/lib/brand/horora-premium-2027.ts. Font files are not embedded. */
+
+:root {
+  --horora-color-tagora-base: #182643;
+  --horora-color-accent: #1f79e0;
+  --horora-color-secondary: #4174ba;
+  --horora-color-action: #1a64bb;
+  --horora-color-action-on: #ffffff;
+  --horora-color-focus: #154a8e;
+  --horora-color-surface-light: #ffffff;
+  --horora-color-text: #182643;
+  --horora-color-text-muted: #4174ba;
+  --horora-color-border: #4174ba;
+
+  --horora-size-login-logo-mobile: 128px;
+  --horora-size-login-logo-tablet: 144px;
+  --horora-size-login-logo-desktop: 160px;
+  --horora-size-header-logo-mobile: 48px;
+  --horora-size-header-logo-tablet: 56px;
+  --horora-size-header-logo-desktop: 64px;
+  --horora-size-login-card-max: 480px;
+  --horora-size-touch-target-min: 44px;
+
+  --horora-radius-control: 8px;
+  --horora-radius-card: 12px;
+
+  --horora-space-2: 8px;
+  --horora-space-3: 12px;
+  --horora-space-4: 16px;
+  --horora-space-5: 20px;
+  --horora-space-6: 24px;
+
+  --horora-shadow-sm: 0 1px 2px rgb(24 38 67 / 0.08);
+  --horora-shadow-md: 0 8px 24px rgb(24 38 67 / 0.12);
+
+  --horora-logo-object-fit: contain;
+}
