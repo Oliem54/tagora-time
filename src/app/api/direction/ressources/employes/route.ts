@@ -7,6 +7,10 @@ import {
   type EmployeeLeavePeriodRow,
 } from "@/app/lib/employee-leave-period.shared";
 import { createAdminSupabaseClient } from "@/app/lib/supabase/admin";
+import {
+  createTenantStampedChauffeur,
+  resolveDirectionEmployeeOnboardingActor,
+} from "@/app/lib/employee-onboarding-tenant.server";
 
 export const dynamic = "force-dynamic";
 
@@ -162,6 +166,44 @@ export async function GET(req: NextRequest) {
     });
   } catch (e) {
     console.error("[employes-list]", e);
+    return jsonError(500, e instanceof Error ? e.message : "Erreur inattendue.");
+  }
+}
+
+export async function POST(req: NextRequest) {
+  try {
+    const onboarding = await resolveDirectionEmployeeOnboardingActor(req);
+    if (!onboarding.ok) {
+      return jsonError(onboarding.status, onboarding.error);
+    }
+
+    let body: Record<string, unknown>;
+    try {
+      body = (await req.json()) as Record<string, unknown>;
+    } catch {
+      return jsonError(400, "Corps JSON invalide.");
+    }
+
+    const nom = typeof body.nom === "string" ? body.nom.trim() : "";
+    if (!nom) {
+      return jsonError(400, "Le nom est obligatoire.");
+    }
+
+    const created = await createTenantStampedChauffeur({
+      actorOrganizationId: onboarding.actor.organizationId,
+      payload: body,
+    });
+    if (!created.ok) {
+      return jsonError(created.status, created.error);
+    }
+
+    return NextResponse.json({
+      success: true,
+      id: created.id,
+      primary_company: created.primaryCompany,
+    });
+  } catch (e) {
+    console.error("[employes-create]", e);
     return jsonError(500, e instanceof Error ? e.message : "Erreur inattendue.");
   }
 }

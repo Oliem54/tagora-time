@@ -20,6 +20,8 @@ import {
   syncEmployeeAuthLink,
 } from "@/app/lib/employee-portal-invite.server";
 import { createAdminSupabaseClient } from "@/app/lib/supabase/admin";
+import { completeEmployeeTenantAccess } from "@/app/lib/employee-onboarding-tenant.server";
+import { getAuthenticatedRequestUser } from "@/app/lib/account-requests.server";
 
 export const dynamic = "force-dynamic";
 
@@ -159,6 +161,16 @@ export async function POST(
 
   if (!actor || (actorRole !== "direction" && actorRole !== "admin")) {
     return jsonErr(403, "Acces refuse.");
+  }
+
+  const membershipAuth = await getAuthenticatedRequestUser(req);
+  const actorOrganizationId = membershipAuth.organizationId;
+  if (
+    !membershipAuth.user ||
+    (membershipAuth.role !== "direction" && membershipAuth.role !== "admin") ||
+    !actorOrganizationId
+  ) {
+    return jsonErr(403, "Membership organisation active requise.");
   }
 
   const actorAppRole = actorRole === "admin" ? ("admin" as const) : ("direction" as const);
@@ -400,6 +412,19 @@ export async function POST(
       }
 
       const resolved = newUser ?? (await findAuthUserByEmailForPortalInvite(normalizedEmail));
+      if (resolved?.id) {
+        const tenant = await completeEmployeeTenantAccess({
+          actorOrganizationId,
+          employeeId,
+          authUserId: resolved.id,
+          requestedPrimaryCompany: employee.primary_company,
+          existingAppMetadata: (resolved.app_metadata ?? {}) as Record<string, unknown>,
+        });
+        if (!tenant.ok) {
+          await markAudit("error", tenant.error);
+          return jsonErr(tenant.status, tenant.error, tenant.code);
+        }
+      }
       const nextStatus = deriveInvitationStatusAfterSuccess(resolved, hadAuthId);
       await markAudit(nextStatus, null);
 
@@ -452,6 +477,18 @@ export async function POST(
       }
 
       await syncEmployeeAuthLink(employeeId, authByEmail.id);
+
+      const tenant = await completeEmployeeTenantAccess({
+        actorOrganizationId,
+        employeeId,
+        authUserId: authByEmail.id,
+        requestedPrimaryCompany: employee.primary_company,
+        existingAppMetadata: meta.appMetadata,
+      });
+      if (!tenant.ok) {
+        await markAudit("error", tenant.error);
+        return jsonErr(tenant.status, tenant.error, tenant.code);
+      }
 
       const refreshed = (await supabase.auth.admin.getUserById(authByEmail.id)).data.user ?? null;
       const nextStatus = deriveInvitationStatusAfterSuccess(refreshed as User | null, hadAuthId);
@@ -508,6 +545,19 @@ export async function POST(
       const resolved =
         (data.user as User | undefined) ??
         (await findAuthUserByEmailForPortalInvite(normalizedEmail));
+      if (resolved?.id) {
+        const tenant = await completeEmployeeTenantAccess({
+          actorOrganizationId,
+          employeeId,
+          authUserId: resolved.id,
+          requestedPrimaryCompany: employee.primary_company,
+          existingAppMetadata: (resolved.app_metadata ?? {}) as Record<string, unknown>,
+        });
+        if (!tenant.ok) {
+          await markAudit("error", tenant.error);
+          return jsonErr(tenant.status, tenant.error, tenant.code);
+        }
+      }
       const nextStatus = deriveInvitationStatusAfterSuccess(resolved, hadAuthId);
       await markAudit(nextStatus, null);
 

@@ -560,17 +560,36 @@ export default function EmployeeProfilePageClient({
 
     try {
       if (isCreating) {
-        const { data, error } = await supabase
-          .from("chauffeurs")
-          .insert([payload])
-          .select("id")
-          .single();
-
-        if (error) {
-          throw error;
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+        const token = session?.access_token;
+        if (!token) {
+          throw new Error("Session expiree. Reconnectez-vous.");
         }
 
-        router.push(`/direction/ressources/employes/${data.id}`);
+        const response = await fetch("/api/direction/ressources/employes", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(payload),
+        });
+        const json = (await response.json().catch(() => ({}))) as {
+          success?: boolean;
+          error?: string;
+          id?: number;
+        };
+        if (!response.ok || json.success === false || !json.id) {
+          throw new Error(
+            (typeof json.error === "string" && json.error.trim()) ||
+              response.statusText ||
+              `HTTP ${response.status}`
+          );
+        }
+
+        router.push(`/direction/ressources/employes/${json.id}`);
         return;
       }
 
