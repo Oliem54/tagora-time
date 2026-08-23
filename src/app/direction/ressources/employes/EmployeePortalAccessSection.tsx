@@ -2,6 +2,10 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { accountRequestPermissionOptions } from "@/app/lib/account-request-options";
+import {
+  applyEmployeePortalSaveFailureToForm,
+  employeePortalSaveErrorMessage,
+} from "@/app/lib/employee-onboarding-tenant.shared";
 import type { EmployeProfile } from "./employee-profile-shared";
 
 type AccountSecuritySnapshot = {
@@ -174,16 +178,36 @@ export default function EmployeePortalAccessSection({
         success?: boolean;
         error?: string;
         message?: string;
+        code?: string;
+        requestedRole?: string;
+        authoritativeRole?: string | null;
       };
 
       if (!res.ok || json.success === false) {
+        const conflictText = employeePortalSaveErrorMessage({
+          error: json.error,
+          code: json.code,
+          requestedRole: json.requestedRole,
+          authoritativeRole: json.authoritativeRole,
+        });
+        const distinguished =
+          json.requestedRole &&
+          json.authoritativeRole &&
+          json.requestedRole !== json.authoritativeRole
+            ? `${conflictText} Role demande : ${json.requestedRole}. Role autoritatif : ${json.authoritativeRole}.`
+            : conflictText;
         setLocalMessage({
           type: "err",
-          text:
-            typeof json.error === "string"
-              ? json.error
-              : "L operation n a pas pu etre effectuee.",
+          text: distinguished,
         });
+        await loadSecurity();
+        setPortalRole(
+          applyEmployeePortalSaveFailureToForm({
+            currentFormRole: portalRole,
+            code: json.code,
+            authoritativeRole: json.authoritativeRole,
+          })
+        );
         return;
       }
 

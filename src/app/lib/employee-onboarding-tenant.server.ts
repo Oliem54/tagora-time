@@ -6,9 +6,14 @@ import {
   getStrictDirectionRequestUser,
 } from "@/app/lib/account-requests.server";
 import {
+  EMPLOYEE_ONBOARDING_MEMBERSHIP_ROLE,
+  PORTAL_ROLE_AUTHORITY_CONFLICT,
+  PORTAL_ROLE_AUTHORITY_CONFLICT_MESSAGE,
   mergeAppMetadataOrganization,
   planChauffeurTenantStamp,
   planEmployeeMembership,
+  planEmployeePortalAuthoritySave,
+  verifyEmployeePortalAuthorityAfterWrite,
   type OnboardingCompanyRow,
   type OnboardingMembershipRow,
 } from "@/app/lib/employee-onboarding-tenant.shared";
@@ -220,13 +225,188 @@ export async function ensureEmployeeOrganizationMembership(input: {
   return { ok: true, action: "repair" };
 }
 
+export type EmployeePortalAuthorityFailure = {
+  ok: false;
+  status: number;
+  error: string;
+  code: string;
+  requestedRole?: string;
+  authoritativeRole?: string | null;
+};
+
+export async function loadOnboardingMembershipsForAuthUser(authUserId: string): Promise<
+  | { ok: true; memberships: OnboardingMembershipRow[] }
+  | EmployeePortalAuthorityFailure
+> {
+  const admin = createAdminSupabaseClient();
+  const { data, error } = await admin
+    .from("organization_memberships")
+    .select("id, organization_id, user_id, role, status, is_default")
+    .eq("user_id", authUserId);
+
+  if (error) {
+    return { ok: false, status: 500, error: error.message, code: "membership_lookup_failed" };
+  }
+
+  return {
+    ok: true,
+    memberships: ((data ?? []) as OnboardingMembershipRow[]).map((row) => ({
+      ...row,
+      is_default: row.is_default === true,
+    })),
+  };
+}
+
+export async function loadChauffeurAuthUserId(employeeId: number): Promise<
+  | { ok: true; authUserId: string | null }
+  | EmployeePortalAuthorityFailure
+> {
+  const admin = createAdminSupabaseClient();
+  const { data, error } = await admin
+    .from("chauffeurs")
+    .select("id, auth_user_id")
+    .eq("id", employeeId)
+    .maybeSingle();
+
+  if (error) {
+    return { ok: false, status: 500, error: error.message, code: "chauffeur_lookup_failed" };
+  }
+  if (!data) {
+    return { ok: false, status: 404, error: "Employe introuvable.", code: "employee_not_found" };
+  }
+
+  return {
+    ok: true,
+    authUserId: typeof data.auth_user_id === "string" ? data.auth_user_id : null,
+  };
+}
+
+export async function evaluateEmployeePortalAuthoritySave(input: {
+  actorOrganizationId: string;
+  employeeId: number;
+  resolvedAuthUserId: string;
+  requestedPortalRole: string;
+}): Promise<
+  | { ok: true; plan: Extract<ReturnType<typeof planEmployeePortalAuthoritySave>, { ok: true }> }
+  | EmployeePortalAuthorityFailure
+> {
+  const memberships = await loadOnboardingMembershipsForAuthUser(input.resolvedAuthUserId);
+  if (!memberships.ok) return memberships;
+  const chauffeur = await loadChauffeurAuthUserId(input.employeeId);
+  if (!chauffeur.ok) return chauffeur;
+
+  const plan = planEmployeePortalAuthoritySave({
+    requestedPortalRole: input.requestedPortalRole,
+    actorOrganizationId: input.actorOrganizationId,
+    chauffeurAuthUserId: chauffeur.authUserId,
+    resolvedAuthUserId: input.resolvedAuthUserId,
+    existingMemberships: memberships.memberships,
+  });
+
+  if (!plan.ok) {
+    return {
+      ok: false,
+      status: plan.status,
+      error: plan.error,
+      code: plan.code,
+      requestedRole: plan.requestedRole,
+      authoritativeRole: plan.authoritativeRole,
+    };
+  }
+
+  return { ok: true, plan };
+}
+
+export async function applyEmployeePortalMembershipAndChauffeurLink(input: {
+  actorOrganizationId: string;
+  employeeId: number;
+  resolvedAuthUserId: string;
+  plan: Extract<ReturnType<typeof planEmployeePortalAuthoritySave>, { ok: true }>;
+}): Promise<{ ok: true } | EmployeePortalAuthorityFailure> {
+  const membership = await ensureEmployeeOrganizationMembership({
+    authUserId: input.resolvedAuthUserId,
+    organizationId: input.actorOrganizationId,
+  });
+  if (!membership.ok) {
+    if (membership.code === "direction_conversion_forbidden") {
+      return {
+        ok: false,
+        status: membership.status,
+        error: PORTAL_ROLE_AUTHORITY_CONFLICT_MESSAGE,
+        code: PORTAL_ROLE_AUTHORITY_CONFLICT,
+      };
+    }
+    return membership;
+  }
+
+  if (input.plan.linkChauffeur) {
+    const admin = createAdminSupabaseClient();
+    const { error } = await admin
+      .from("chauffeurs")
+      .update({ auth_user_id: input.resolvedAuthUserId })
+      .eq("id", input.employeeId)
+      .is("auth_user_id", null);
+    if (error) {
+      return { ok: false, status: 500, error: error.message, code: "chauffeur_auth_link_failed" };
+    }
+  }
+
+  return { ok: true };
+}
+
+export async function verifyEmployeePortalAccessAfterWrite(input: {
+  actorOrganizationId: string;
+  employeeId: number;
+  resolvedAuthUserId: string;
+  requestedPortalRole: string;
+}): Promise<{ ok: true } | EmployeePortalAuthorityFailure> {
+  const memberships = await loadOnboardingMembershipsForAuthUser(input.resolvedAuthUserId);
+  if (!memberships.ok) return memberships;
+  const chauffeur = await loadChauffeurAuthUserId(input.employeeId);
+  if (!chauffeur.ok) return chauffeur;
+
+  const admin = createAdminSupabaseClient();
+  const { data: authData, error } = await admin.auth.admin.getUserById(input.resolvedAuthUserId);
+  if (error) {
+    return { ok: false, status: 500, error: error.message, code: "auth_reread_failed" };
+  }
+
+  const appMetadataRole =
+    typeof authData.user?.app_metadata?.role === "string" ? authData.user.app_metadata.role : null;
+
+  const verified = verifyEmployeePortalAuthorityAfterWrite({
+    requestedPortalRole: input.requestedPortalRole,
+    actorOrganizationId: input.actorOrganizationId,
+    resolvedAuthUserId: input.resolvedAuthUserId,
+    chauffeurAuthUserId: chauffeur.authUserId,
+    appMetadataRole,
+    memberships: memberships.memberships,
+  });
+
+  if (!verified.ok) {
+    return { ok: false, status: 409, error: verified.error, code: verified.code };
+  }
+
+  return { ok: true };
+}
+
 export async function completeEmployeeTenantAccess(input: {
   actorOrganizationId: string;
   employeeId: number;
   authUserId: string;
   requestedPrimaryCompany: string | null;
   existingAppMetadata?: Record<string, unknown> | null;
-}): Promise<{ ok: true } | { ok: false; status: number; error: string; code: string }> {
+}): Promise<{ ok: true } | EmployeePortalAuthorityFailure> {
+  const evaluated = await evaluateEmployeePortalAuthoritySave({
+    actorOrganizationId: input.actorOrganizationId,
+    employeeId: input.employeeId,
+    resolvedAuthUserId: input.authUserId,
+    requestedPortalRole: EMPLOYEE_ONBOARDING_MEMBERSHIP_ROLE,
+  });
+  if (!evaluated.ok) {
+    return evaluated;
+  }
+
   const stamped = await stampChauffeurTenantFromActor({
     employeeId: input.employeeId,
     actorOrganizationId: input.actorOrganizationId,
@@ -236,12 +416,14 @@ export async function completeEmployeeTenantAccess(input: {
     return stamped;
   }
 
-  const membership = await ensureEmployeeOrganizationMembership({
-    authUserId: input.authUserId,
-    organizationId: input.actorOrganizationId,
+  const applied = await applyEmployeePortalMembershipAndChauffeurLink({
+    actorOrganizationId: input.actorOrganizationId,
+    employeeId: input.employeeId,
+    resolvedAuthUserId: input.authUserId,
+    plan: evaluated.plan,
   });
-  if (!membership.ok) {
-    return membership;
+  if (!applied.ok) {
+    return applied;
   }
 
   const admin = createAdminSupabaseClient();
@@ -250,10 +432,23 @@ export async function completeEmployeeTenantAccess(input: {
     input.existingAppMetadata ??
     ((authData.user?.app_metadata ?? {}) as Record<string, unknown>);
   const { error: metaError } = await admin.auth.admin.updateUserById(input.authUserId, {
-    app_metadata: mergeAppMetadataOrganization(existing, input.actorOrganizationId),
+    app_metadata: {
+      ...mergeAppMetadataOrganization(existing, input.actorOrganizationId),
+      role: EMPLOYEE_ONBOARDING_MEMBERSHIP_ROLE,
+    },
   });
   if (metaError) {
     return { ok: false, status: 500, error: metaError.message, code: "app_metadata_org_stamp_failed" };
+  }
+
+  const verified = await verifyEmployeePortalAccessAfterWrite({
+    actorOrganizationId: input.actorOrganizationId,
+    employeeId: input.employeeId,
+    resolvedAuthUserId: input.authUserId,
+    requestedPortalRole: EMPLOYEE_ONBOARDING_MEMBERSHIP_ROLE,
+  });
+  if (!verified.ok) {
+    return verified;
   }
 
   return { ok: true };

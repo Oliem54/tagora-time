@@ -20,15 +20,38 @@ import {
   syncEmployeeAuthLink,
 } from "@/app/lib/employee-portal-invite.server";
 import { createAdminSupabaseClient } from "@/app/lib/supabase/admin";
-import { completeEmployeeTenantAccess } from "@/app/lib/employee-onboarding-tenant.server";
+import {
+  applyEmployeePortalMembershipAndChauffeurLink,
+  completeEmployeeTenantAccess,
+  evaluateEmployeePortalAuthoritySave,
+  verifyEmployeePortalAccessAfterWrite,
+  type EmployeePortalAuthorityFailure,
+} from "@/app/lib/employee-onboarding-tenant.server";
 import { getAuthenticatedRequestUser } from "@/app/lib/account-requests.server";
 
 export const dynamic = "force-dynamic";
 
 type InviteAction = "invite" | "link" | "resend" | "disable_access" | "update_portal_access";
 
-function jsonErr(status: number, error: string, code?: string) {
-  return NextResponse.json({ success: false, error, ...(code ? { code } : {}) }, { status });
+function jsonErr(
+  status: number,
+  error: string,
+  code?: string,
+  extra?: Record<string, unknown>
+) {
+  return NextResponse.json(
+    { success: false, error, ...(code ? { code } : {}), ...(extra ?? {}) },
+    { status }
+  );
+}
+
+function jsonPortalAuthorityFailure(result: EmployeePortalAuthorityFailure) {
+  return jsonErr(result.status, result.error, result.code, {
+    ...(result.requestedRole ? { requestedRole: result.requestedRole } : {}),
+    ...(result.authoritativeRole !== undefined
+      ? { authoritativeRole: result.authoritativeRole }
+      : {}),
+  });
 }
 
 function parseAction(value: unknown): InviteAction | null {
@@ -254,6 +277,26 @@ export async function POST(
         return jsonErr(400, "Role portail invalide ou non autorise pour votre compte.");
       }
 
+      const evaluated = await evaluateEmployeePortalAuthoritySave({
+        actorOrganizationId,
+        employeeId,
+        resolvedAuthUserId: authUser.id,
+        requestedPortalRole: parsed,
+      });
+      if (!evaluated.ok) {
+        return jsonPortalAuthorityFailure(evaluated);
+      }
+
+      const applied = await applyEmployeePortalMembershipAndChauffeurLink({
+        actorOrganizationId,
+        employeeId,
+        resolvedAuthUserId: authUser.id,
+        plan: evaluated.plan,
+      });
+      if (!applied.ok) {
+        return jsonPortalAuthorityFailure(applied);
+      }
+
       const meta = buildEmployeePortalAuthMetadata({
         employee,
         portalRole: parsed,
@@ -273,11 +316,23 @@ export async function POST(
         return jsonErr(500, updErr.message);
       }
 
+      const verified = await verifyEmployeePortalAccessAfterWrite({
+        actorOrganizationId,
+        employeeId,
+        resolvedAuthUserId: authUser.id,
+        requestedPortalRole: parsed,
+      });
+      if (!verified.ok) {
+        return jsonPortalAuthorityFailure(verified);
+      }
+
       return NextResponse.json({
         success: true,
         message: "Permissions portail enregistrees.",
         portalRole: parsed,
         permissions,
+        requestedRole: parsed,
+        authoritativeRole: "employe",
       });
     }
 
@@ -422,7 +477,7 @@ export async function POST(
         });
         if (!tenant.ok) {
           await markAudit("error", tenant.error);
-          return jsonErr(tenant.status, tenant.error, tenant.code);
+          return jsonPortalAuthorityFailure(tenant);
         }
       }
       const nextStatus = deriveInvitationStatusAfterSuccess(resolved, hadAuthId);
@@ -453,6 +508,17 @@ export async function POST(
       if (!linkCheck.ok) {
         await markAudit("error", linkCheck.error);
         return jsonErr(409, linkCheck.error, "auth_linked_other_employee");
+      }
+
+      const evaluated = await evaluateEmployeePortalAuthoritySave({
+        actorOrganizationId,
+        employeeId,
+        resolvedAuthUserId: authByEmail.id,
+        requestedPortalRole: portalRole,
+      });
+      if (!evaluated.ok) {
+        await markAudit("error", evaluated.error);
+        return jsonPortalAuthorityFailure(evaluated);
       }
 
       const requirePwd = shouldRequirePasswordChangeForPortal(authByEmail);
@@ -487,7 +553,7 @@ export async function POST(
       });
       if (!tenant.ok) {
         await markAudit("error", tenant.error);
-        return jsonErr(tenant.status, tenant.error, tenant.code);
+        return jsonPortalAuthorityFailure(tenant);
       }
 
       const refreshed = (await supabase.auth.admin.getUserById(authByEmail.id)).data.user ?? null;
@@ -555,7 +621,7 @@ export async function POST(
         });
         if (!tenant.ok) {
           await markAudit("error", tenant.error);
-          return jsonErr(tenant.status, tenant.error, tenant.code);
+          return jsonPortalAuthorityFailure(tenant);
         }
       }
       const nextStatus = deriveInvitationStatusAfterSuccess(resolved, hadAuthId);
