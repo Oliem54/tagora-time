@@ -74,6 +74,25 @@ async function resolveCompanyId(
   return data ?? null;
 }
 
+export function buildGpsBaseTenantWriteFields(input: {
+  actorOrganizationId: string;
+  company: { id: string; company_code: string };
+  clientBody?: Record<string, unknown>;
+}) {
+  void input.clientBody?.compagnie;
+  void input.clientBody?.company_context;
+  void input.clientBody?.organization_id;
+  void input.clientBody?.organization_company_id;
+
+  const companyCode = input.company.company_code;
+  return {
+    organization_id: input.actorOrganizationId,
+    organization_company_id: input.company.id,
+    company_context: companyCode,
+    compagnie: companyCode,
+  };
+}
+
 export async function GET(req: NextRequest) {
   const auth = await requireGpsBasesAccess(req);
   if (!auth.ok) return auth.response;
@@ -124,17 +143,20 @@ export async function POST(req: NextRequest) {
   }
 
   const admin = createAdminSupabaseClient();
+  const tenantFields = buildGpsBaseTenantWriteFields({
+    actorOrganizationId: auth.organizationId,
+    company,
+    clientBody: body,
+  });
   const { data, error } = await admin
     .from("gps_bases")
     .insert({
-      organization_id: auth.organizationId,
-      organization_company_id: company.id,
+      ...tenantFields,
       nom,
       adresse,
       latitude,
       longitude,
       rayon_m: Math.round(rayon),
-      company_context: company.company_code,
       type_base: typeBase,
       updated_at: new Date().toISOString(),
     })
@@ -188,17 +210,20 @@ export async function PATCH(req: NextRequest) {
   }
 
   const admin = createAdminSupabaseClient();
+  const tenantFields = buildGpsBaseTenantWriteFields({
+    actorOrganizationId: auth.organizationId,
+    company,
+    clientBody: body,
+  });
   const { data, error } = await admin
     .from("gps_bases")
     .update({
-      organization_id: auth.organizationId,
-      organization_company_id: company.id,
+      ...tenantFields,
       nom,
       adresse,
       latitude,
       longitude,
       rayon_m: Math.round(rayon),
-      company_context: company.company_code,
       type_base: typeBase,
       updated_at: new Date().toISOString(),
     })
