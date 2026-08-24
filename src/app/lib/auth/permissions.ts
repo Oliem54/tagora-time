@@ -58,7 +58,27 @@ export const APP_PERMISSION_DEFINITIONS = [
       "Paie, remuneration, commissions monetaires et donnees confidentielles (role admin uniquement, phase 1).",
     sortOrder: 70,
   },
+  {
+    value: "horodateur_payroll_read",
+    label: "Rapport comptable horodateur — lecture",
+    module: "horodateur_payroll",
+    description:
+      "Lecture des cycles et rapports comptables bihebdomadaires HORORA (aperçu, snapshots émis, journaux).",
+    sortOrder: 80,
+  },
+  {
+    value: "horodateur_payroll_manage",
+    label: "Rapport comptable horodateur — gestion",
+    module: "horodateur_payroll",
+    description:
+      "Gestion des cycles, destinataires, émission et renvoi des rapports comptables bihebdomadaires HORORA.",
+    sortOrder: 90,
+  },
 ] as const;
+
+export const HORODATEUR_PAYROLL_READ_PERMISSION = "horodateur_payroll_read" as const;
+export const HORODATEUR_PAYROLL_MANAGE_PERMISSION =
+  "horodateur_payroll_manage" as const;
 
 export type AppPermission = (typeof APP_PERMISSION_DEFINITIONS)[number]["value"];
 
@@ -88,18 +108,65 @@ export function normalizePermissionList(value: unknown): AppPermission[] {
   );
 }
 
+export function getAppMetadataPermissionsOnly(
+  user: User | null | undefined
+): AppPermission[] {
+  if (!user) return [];
+  return normalizePermissionList(user.app_metadata?.permissions);
+}
+
 export function getUserPermissions(user: User | null | undefined): AppPermission[] {
   if (!user) return [];
 
-  const appMetadataPermissions = normalizePermissionList(
-    user.app_metadata?.permissions
-  );
+  const appMetadataPermissions = getAppMetadataPermissionsOnly(user);
 
   if (appMetadataPermissions.length > 0) {
     return appMetadataPermissions;
   }
 
   return normalizePermissionList(user.user_metadata?.permissions);
+}
+
+function isHorodateurPayrollPermission(
+  permission: AppPermission
+): permission is
+  | typeof HORODATEUR_PAYROLL_READ_PERMISSION
+  | typeof HORODATEUR_PAYROLL_MANAGE_PERMISSION {
+  return (
+    permission === HORODATEUR_PAYROLL_READ_PERMISSION ||
+    permission === HORODATEUR_PAYROLL_MANAGE_PERMISSION
+  );
+}
+
+function hasHorodateurPayrollPermission(
+  user: User | null | undefined,
+  permission:
+    | typeof HORODATEUR_PAYROLL_READ_PERMISSION
+    | typeof HORODATEUR_PAYROLL_MANAGE_PERMISSION,
+  resolved: {
+    mode: "explicit" | "bound" | "legacy";
+    role: AppRole | null | undefined;
+  }
+): boolean {
+  const appMetadataPermissions = getAppMetadataPermissionsOnly(user);
+
+  if (resolved.mode === "explicit" || resolved.mode === "bound") {
+    if (resolved.role === "admin") {
+      return true;
+    }
+    if (resolved.role !== "direction") {
+      return false;
+    }
+    if (permission === HORODATEUR_PAYROLL_MANAGE_PERMISSION) {
+      return appMetadataPermissions.includes(HORODATEUR_PAYROLL_MANAGE_PERMISSION);
+    }
+    return (
+      appMetadataPermissions.includes(HORODATEUR_PAYROLL_READ_PERMISSION) ||
+      appMetadataPermissions.includes(HORODATEUR_PAYROLL_MANAGE_PERMISSION)
+    );
+  }
+
+  return false;
 }
 
 /** Request-scoped H4 AppRole bound to the User instance from getAuthenticatedRequestUser. */
@@ -147,6 +214,15 @@ export function hasUserPermission(
     return hasAdminFinanceAccess(user);
   }
 
+  if (isHorodateurPayrollPermission(permission)) {
+    const payrollResolved = resolveEffectiveRoleForPermission(
+      user,
+      effectiveRole,
+      arguments.length >= 3
+    );
+    return hasHorodateurPayrollPermission(user, permission, payrollResolved);
+  }
+
   const resolved = resolveEffectiveRoleForPermission(
     user,
     effectiveRole,
@@ -169,6 +245,13 @@ export function hasUserPermission(
 export function getRequiredPermissionForPath(pathname: string) {
   if (isAdminFinancePath(pathname)) {
     return ADMIN_FINANCE_PERMISSION;
+  }
+
+  if (
+    pathname === "/direction/horodateur/rapport-comptable" ||
+    pathname.startsWith("/direction/horodateur/rapport-comptable/")
+  ) {
+    return HORODATEUR_PAYROLL_READ_PERMISSION;
   }
 
   if (
