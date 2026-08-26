@@ -27,11 +27,13 @@ export type PayrollReportWriteIntent = "draft" | "issue";
 export type PayrollAccountantSnapshotTenant = {
   organizationId: string;
   organizationCompanyId: string;
-  cycleId: string;
+  cycleId: string | null;
   timezone: string;
   periodStart: string;
   periodEnd: string;
   cycleKind?: "recurring" | "exceptional";
+  organizationName?: string | null;
+  organizationCompanyName?: string | null;
 };
 
 export type PayrollAccountantDayEntry = {
@@ -56,6 +58,9 @@ export type PayrollAccountantWeekGroup = {
   regularMinutes: number;
   overtimeMinutes: number;
   payableMinutes: number;
+  paidBreakMinutes: number;
+  unpaidBreakMinutes: number;
+  unpaidLunchMinutes: number;
   days: PayrollAccountantDayEntry[];
 };
 
@@ -69,6 +74,9 @@ export type PayrollAccountantEmployeeGroup = {
     payableMinutes: number;
     regularMinutes: number;
     overtimeMinutes: number;
+    paidBreakMinutes: number;
+    unpaidBreakMinutes: number;
+    unpaidLunchMinutes: number;
     breakMinutes: number;
   };
   exceptions: Array<{
@@ -85,7 +93,9 @@ export type PayrollAccountantSnapshotPayload = {
   schema: typeof PAYROLL_ACCOUNTANT_SNAPSHOT_SCHEMA;
   organizationId: string;
   organizationCompanyId: string;
-  cycleId: string;
+  organizationName: string | null;
+  organizationCompanyName: string | null;
+  cycleId: string | null;
   timezone: string;
   periodStart: string;
   periodEnd: string;
@@ -98,6 +108,9 @@ export type PayrollAccountantSnapshotPayload = {
     payableMinutes: number;
     regularMinutes: number;
     overtimeMinutes: number;
+    paidBreakMinutes: number;
+    unpaidBreakMinutes: number;
+    unpaidLunchMinutes: number;
     employeeCount: number;
   };
 };
@@ -176,8 +189,8 @@ function assertTenant(tenant: PayrollAccountantSnapshotTenant) {
   if (!tenant.organizationCompanyId.trim()) {
     throw new Error("organization_company_id obligatoire.");
   }
-  if (!tenant.cycleId.trim()) {
-    throw new Error("cycle_id obligatoire.");
+  if (tenant.cycleId != null && !tenant.cycleId.trim()) {
+    throw new Error("cycle_id invalide.");
   }
   if (!tenant.timezone.trim()) {
     throw new Error("timezone obligatoire.");
@@ -438,6 +451,15 @@ export function buildPayrollAccountantSnapshot(input: {
           regularMinutes: days.reduce((sum, day) => sum + day.regularMinutes, 0),
           overtimeMinutes: days.reduce((sum, day) => sum + day.overtimeMinutes, 0),
           payableMinutes: days.reduce((sum, day) => sum + day.payableMinutes, 0),
+          paidBreakMinutes: days.reduce((sum, day) => sum + day.paidBreakMinutes, 0),
+          unpaidBreakMinutes: days.reduce(
+            (sum, day) => sum + day.unpaidBreakMinutes,
+            0
+          ),
+          unpaidLunchMinutes: days.reduce(
+            (sum, day) => sum + day.unpaidLunchMinutes,
+            0
+          ),
           days,
         };
       });
@@ -458,6 +480,18 @@ export function buildPayrollAccountantSnapshot(input: {
         ),
         regularMinutes: overtime.normal,
         overtimeMinutes: overtime.overtime,
+        paidBreakMinutes: empShifts.reduce(
+          (sum, shift) => sum + (shift.paid_break_minutes ?? 0),
+          0
+        ),
+        unpaidBreakMinutes: empShifts.reduce(
+          (sum, shift) => sum + (shift.unpaid_break_minutes ?? 0),
+          0
+        ),
+        unpaidLunchMinutes: empShifts.reduce(
+          (sum, shift) => sum + (shift.unpaid_lunch_minutes ?? 0),
+          0
+        ),
         breakMinutes: empShifts.reduce((sum, shift) => sum + shiftBreakTotal(shift), 0),
       },
       exceptions: empExceptions.map((item) => ({
@@ -483,6 +517,18 @@ export function buildPayrollAccountantSnapshot(input: {
     payableMinutes: employees.reduce((sum, row) => sum + row.totals.payableMinutes, 0),
     regularMinutes: employees.reduce((sum, row) => sum + row.totals.regularMinutes, 0),
     overtimeMinutes: employees.reduce((sum, row) => sum + row.totals.overtimeMinutes, 0),
+    paidBreakMinutes: employees.reduce(
+      (sum, row) => sum + row.totals.paidBreakMinutes,
+      0
+    ),
+    unpaidBreakMinutes: employees.reduce(
+      (sum, row) => sum + row.totals.unpaidBreakMinutes,
+      0
+    ),
+    unpaidLunchMinutes: employees.reduce(
+      (sum, row) => sum + row.totals.unpaidLunchMinutes,
+      0
+    ),
     employeeCount: employees.length,
   };
 
@@ -499,7 +545,9 @@ export function buildPayrollAccountantSnapshot(input: {
     schema: PAYROLL_ACCOUNTANT_SNAPSHOT_SCHEMA,
     organizationId: input.tenant.organizationId,
     organizationCompanyId: input.tenant.organizationCompanyId,
-    cycleId: input.tenant.cycleId,
+    organizationName: input.tenant.organizationName?.trim() || null,
+    organizationCompanyName: input.tenant.organizationCompanyName?.trim() || null,
+    cycleId: input.tenant.cycleId?.trim() || null,
     timezone: input.tenant.timezone,
     periodStart: input.tenant.periodStart,
     periodEnd: input.tenant.periodEnd,
@@ -519,6 +567,9 @@ export function buildPayrollAccountantSnapshot(input: {
       work_date: shift.work_date,
       payable_minutes: shift.payable_minutes,
       worked_minutes: shift.worked_minutes,
+      paid_break_minutes: shift.paid_break_minutes,
+      unpaid_break_minutes: shift.unpaid_break_minutes,
+      unpaid_lunch_minutes: shift.unpaid_lunch_minutes,
       shift_start_at: shift.shift_start_at,
       shift_end_at: shift.shift_end_at,
       status: shift.status,

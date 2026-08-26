@@ -189,7 +189,17 @@ describe("payroll accountant server snapshot", () => {
     expect(employee.totals.regularMinutes).toBe(2400);
     expect(employee.totals.overtimeMinutes).toBe(120);
     expect(firstWeek.days[4]?.overtimeMinutes).toBe(120);
+    expect(firstWeek.days[0]?.punchOutAt).toContain("2026-08-10");
+    expect(firstWeek.days[0]?.unpaidBreakMinutes).toBe(15);
+    expect(firstWeek.days[0]?.unpaidLunchMinutes).toBe(30);
+    expect(employee.totals.paidBreakMinutes).toBe(0);
+    expect(employee.totals.unpaidBreakMinutes).toBe(75);
+    expect(employee.totals.unpaidLunchMinutes).toBe(150);
+    expect(firstWeek.unpaidBreakMinutes).toBe(75);
+    expect(firstWeek.unpaidLunchMinutes).toBe(150);
     expect(snapshot.totals.payableMinutes).toBe(2520);
+    expect(snapshot.totals.unpaidBreakMinutes).toBe(75);
+    expect(snapshot.totals.unpaidLunchMinutes).toBe(150);
     expect(employee.exceptions).toHaveLength(1);
   });
 
@@ -370,6 +380,62 @@ describe("payroll accountant server snapshot", () => {
     expect(snapshot.completenessStatus).toBe("complete");
     expect(snapshot.payload.forceEmitReason).toBeNull();
     expect(JSON.stringify(snapshot.payload)).not.toContain("ne doit pas apparaitre");
+  });
+
+  it("accepts an optional cycle and keeps names on the payload", () => {
+    const snapshot = buildPayrollAccountantSnapshot({
+      tenant: {
+        ...TENANT,
+        cycleId: null,
+        cycleKind: undefined,
+        organizationName: "Oliem QA",
+        organizationCompanyName: "Oliem Solutions",
+      },
+      profiles: [profile()],
+      shifts: [shift({ id: "s1", work_date: "2026-08-10" })],
+      events: [],
+      exceptions: [],
+    });
+    expect(snapshot.payload.cycleId).toBeNull();
+    expect(snapshot.payload.organizationName).toBe("Oliem QA");
+    expect(snapshot.payload.organizationCompanyName).toBe("Oliem Solutions");
+  });
+
+  it("rejects a blank cycle id", () => {
+    expect(() =>
+      buildPayrollAccountantSnapshot({
+        tenant: { ...TENANT, cycleId: "   " },
+        profiles: [profile()],
+        shifts: [shift({ id: "s1", work_date: "2026-08-10" })],
+        events: [],
+        exceptions: [],
+      })
+    ).toThrow(/cycle_id invalide/);
+  });
+
+  it("changes source_hash when break minutes change", () => {
+    const base = {
+      tenant: TENANT,
+      profiles: [profile()],
+      events: [] as HorodateurPhase1EventRecord[],
+      exceptions: [] as HorodateurPhase1ExceptionRecord[],
+    };
+    const a = buildPayrollAccountantSnapshot({
+      ...base,
+      shifts: [shift({ id: "s1", work_date: "2026-08-10" })],
+    });
+    const b = buildPayrollAccountantSnapshot({
+      ...base,
+      shifts: [
+        shift({
+          id: "s1",
+          work_date: "2026-08-10",
+          paid_break_minutes: 20,
+        }),
+      ],
+    });
+    expect(a.sourceHash).not.toBe(b.sourceHash);
+    expect(b.payload.employees[0]?.totals.paidBreakMinutes).toBe(20);
   });
 
   it("is deterministic for the same sources", () => {

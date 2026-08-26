@@ -1292,6 +1292,7 @@ export async function listShiftsInWorkDateRange(options: {
   endWorkDate: string;
   employeeId?: number;
   organizationId?: string;
+  organizationCompanyId?: string;
   companyContext?: HorodateurPhase1EmployeeProfile["primaryCompany"] | null;
 }) {
   const supabase = createAdminSupabaseClient();
@@ -1304,6 +1305,10 @@ export async function listShiftsInWorkDateRange(options: {
 
   if (options.organizationId) {
     query = query.eq("organization_id", options.organizationId);
+  }
+
+  if (options.organizationCompanyId) {
+    query = query.eq("organization_company_id", options.organizationCompanyId);
   }
 
   if (options.companyContext) {
@@ -1336,28 +1341,51 @@ export async function listHorodateurEventsInWorkDateRange(options: {
   startWorkDate: string;
   endWorkDate: string;
   employeeIds: number[];
+  organizationId?: string;
+  organizationCompanyId?: string;
 }) {
   if (!options.employeeIds.length) {
     return [];
   }
 
   const supabase = createAdminSupabaseClient();
-  const { data, error } = await supabase
+  let query = supabase
     .from("horodateur_events")
     .select("*")
     .gte("work_date", options.startWorkDate)
     .lte("work_date", options.endWorkDate)
-    .in("employee_id", options.employeeIds)
+    .in("employee_id", options.employeeIds);
+
+  if (options.organizationId) {
+    query = query.eq("organization_id", options.organizationId);
+  }
+  if (options.organizationCompanyId) {
+    query = query.eq("organization_company_id", options.organizationCompanyId);
+  }
+
+  const { data, error } = await query
     .order("occurred_at", { ascending: true })
     .returns<HorodateurEventRowRaw[]>();
 
   if (error && isMissingColumnError(error, "occurred_at")) {
-    const legacy = await supabase
+    let legacyQuery = supabase
       .from("horodateur_events")
       .select("*")
       .gte("work_date", options.startWorkDate)
       .lte("work_date", options.endWorkDate)
-      .in("employee_id", options.employeeIds)
+      .in("employee_id", options.employeeIds);
+
+    if (options.organizationId) {
+      legacyQuery = legacyQuery.eq("organization_id", options.organizationId);
+    }
+    if (options.organizationCompanyId) {
+      legacyQuery = legacyQuery.eq(
+        "organization_company_id",
+        options.organizationCompanyId
+      );
+    }
+
+    const legacy = await legacyQuery
       .order("event_time", { ascending: true })
       .returns<HorodateurEventRowRaw[]>();
 
@@ -1405,14 +1433,18 @@ export async function getEmployeesByIdsForRegistre(ids: number[]) {
 }
 
 export async function listHorodateurExceptionsForEmployees(
-  employeeIds: number[]
+  employeeIds: number[],
+  options?: {
+    organizationId?: string;
+    organizationCompanyId?: string;
+  }
 ) {
   if (!employeeIds.length) {
     return [];
   }
 
   const supabase = createAdminSupabaseClient();
-  const { data, error } = await supabase
+  let query = supabase
     .from("horodateur_exceptions")
     .select(`
       *,
@@ -1421,7 +1453,16 @@ export async function listHorodateurExceptionsForEmployees(
         work_date
       )
     `)
-    .in("employee_id", employeeIds)
+    .in("employee_id", employeeIds);
+
+  if (options?.organizationId) {
+    query = query.eq("organization_id", options.organizationId);
+  }
+  if (options?.organizationCompanyId) {
+    query = query.eq("organization_company_id", options.organizationCompanyId);
+  }
+
+  const { data, error } = await query
     .returns<
       Array<
         HorodateurPhase1ExceptionRecord & {

@@ -179,6 +179,9 @@ describe("hasUserPermission payroll special case", () => {
     expect(getRequiredPermissionForPath("/direction/horodateur/rapport-comptable")).toBe(
       "horodateur_payroll_read"
     );
+    expect(
+      getRequiredPermissionForPath("/api/direction/horodateur/payroll/preview")
+    ).toBe("horodateur_payroll_read");
     expect(getRequiredPermissionForPath("/direction/horodateur/registre")).toBe("terrain");
   });
 });
