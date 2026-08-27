@@ -63,6 +63,7 @@ describe("POST /api/direction/horodateur/payroll/preview", () => {
     previewPayrollAccountantReportSnapshot.mockResolvedValue({
       ok: true,
       datesAdjustedFromCycle: false,
+      access: { canRead: true, canManage: true, allowed: true, source: "app_metadata", reason: "direction_app_metadata" },
       snapshot: {
         sourceHash: "a".repeat(64),
         completenessStatus: "complete",

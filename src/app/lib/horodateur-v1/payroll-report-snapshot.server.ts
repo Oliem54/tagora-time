@@ -142,6 +142,7 @@ export async function previewPayrollAccountantReportSnapshot(input: {
   required?: HorodateurPayrollAccessAction;
   query: PayrollReportSnapshotQueryInput;
   untrustedBrowserOrganizationCompanyId?: string | null;
+  forceEmitReason?: string | null;
 }) {
   void input.user?.user_metadata;
 
@@ -274,6 +275,7 @@ export async function previewPayrollAccountantReportSnapshot(input: {
     shifts,
     events,
     exceptions,
+    forceEmitReason: input.forceEmitReason,
   });
   if (!built.ok) {
     return built;

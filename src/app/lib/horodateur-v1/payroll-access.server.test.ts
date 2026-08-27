@@ -182,6 +182,18 @@ describe("hasUserPermission payroll special case", () => {
     expect(
       getRequiredPermissionForPath("/api/direction/horodateur/payroll/preview")
     ).toBe("horodateur_payroll_read");
+    expect(
+      getRequiredPermissionForPath("/api/direction/horodateur/payroll/issue")
+    ).toBe("horodateur_payroll_read");
+    expect(
+      getRequiredPermissionForPath("/api/direction/horodateur/payroll/draft")
+    ).toBe("horodateur_payroll_read");
+    expect(
+      getRequiredPermissionForPath("/api/direction/horodateur/payroll/export/csv")
+    ).toBe("horodateur_payroll_read");
+    expect(
+      getRequiredPermissionForPath("/api/direction/horodateur/payroll/export/pdf")
+    ).toBe("horodateur_payroll_read");
     expect(getRequiredPermissionForPath("/direction/horodateur/registre")).toBe("terrain");
   });
 });

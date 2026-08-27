@@ -6,10 +6,15 @@ import {
   CalendarRange,
   FileSpreadsheet,
   LayoutDashboard,
+  Wallet,
 } from "lucide-react";
 import { cn } from "@/app/components/ui/cn";
 
-export type HorodateurDirectionModuleNavActive = "live" | "registre" | "quarts";
+export type HorodateurDirectionModuleNavActive =
+  | "live"
+  | "registre"
+  | "quarts"
+  | "paie";
 
 const MODULE_LINKS: {
   id: HorodateurDirectionModuleNavActive;
@@ -29,6 +34,12 @@ const MODULE_LINKS: {
     href: "/direction/horodateur/quarts",
     label: "Quarts passés",
     icon: CalendarRange,
+  },
+  {
+    id: "paie",
+    href: "/direction/horodateur/rapport-comptable",
+    label: "Rapport comptable",
+    icon: Wallet,
   },
 ];
 

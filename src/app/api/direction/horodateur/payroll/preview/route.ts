@@ -71,6 +71,7 @@ export async function POST(req: NextRequest) {
         body,
         "organizationCompanyId"
       ),
+      forceEmitReason: readString(body, "forceEmitReason"),
     });
 
     if (!result.ok) {
@@ -101,6 +102,7 @@ export async function POST(req: NextRequest) {
       sourceHash: result.snapshot.sourceHash,
       completenessStatus: result.snapshot.completenessStatus,
       canIssue: result.snapshot.canIssue,
+      canManage: result.access.canManage,
       totals: result.snapshot.totals,
       payload: result.snapshot.payload,
     });

@@ -159,6 +159,17 @@ export function isRecurringFourteenDayPeriod(
   );
 }
 
+export function defaultBiweeklyPayrollPeriod(todayIso: string) {
+  const today = todayIso.trim();
+  if (!isoDate(today)) {
+    throw new Error("periode invalide.");
+  }
+  return {
+    periodStart: addUtcDays(today, -(PAYROLL_RECURRING_INTERVAL_DAYS - 1)),
+    periodEnd: today,
+  };
+}
+
 function stableJson(value: unknown): unknown {
   if (Array.isArray(value)) {
     return value.map(stableJson);

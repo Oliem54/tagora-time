@@ -16,6 +16,7 @@ import {
   PAYROLL_ACCOUNTANT_SNAPSHOT_SCHEMA,
   addUtcDays,
   buildPayrollAccountantSnapshot,
+  defaultBiweeklyPayrollPeriod,
   isRecurringFourteenDayPeriod,
   planPayrollAccountantReportWrite,
   refuseIssuedReportMutation,
@@ -125,6 +126,17 @@ describe("payroll accountant server snapshot", () => {
     expect(isRecurringFourteenDayPeriod("2026-08-10", "2026-08-23")).toBe(true);
     expect(addUtcDays("2026-08-10", 13)).toBe("2026-08-23");
     expect(isRecurringFourteenDayPeriod("2026-08-10", "2026-08-24")).toBe(false);
+  });
+
+  it("defaults the operational window to an inclusive 14-day period ending today", () => {
+    const period = defaultBiweeklyPayrollPeriod("2026-08-27");
+    expect(period).toEqual({
+      periodStart: "2026-08-14",
+      periodEnd: "2026-08-27",
+    });
+    expect(isRecurringFourteenDayPeriod(period.periodStart, period.periodEnd)).toBe(
+      true
+    );
   });
 
   it("groups by employee and week with daily punch, breaks, regular and overtime", () => {

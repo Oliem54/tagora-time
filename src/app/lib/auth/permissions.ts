@@ -250,8 +250,8 @@ export function getRequiredPermissionForPath(pathname: string) {
   if (
     pathname === "/direction/horodateur/rapport-comptable" ||
     pathname.startsWith("/direction/horodateur/rapport-comptable/") ||
-    pathname === "/api/direction/horodateur/payroll/preview" ||
-    pathname.startsWith("/api/direction/horodateur/payroll/preview/")
+    pathname === "/api/direction/horodateur/payroll" ||
+    pathname.startsWith("/api/direction/horodateur/payroll/")
   ) {
     return HORODATEUR_PAYROLL_READ_PERMISSION;
   }

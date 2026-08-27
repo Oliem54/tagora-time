@@ -395,7 +395,7 @@ describe("previewPayrollAccountantReportSnapshot", () => {
     });
     expect(result.ok).toBe(false);
     if (result.ok) return;
-    expect("access" in result && result.access.reason).toBe(
+    expect("access" in result && result.access?.reason).toBe(
       "payroll_permission_missing"
     );
     expect(from).not.toHaveBeenCalled();
