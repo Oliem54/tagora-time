@@ -39,6 +39,8 @@ const TENANT = {
 
 const MIGRATION =
   "20260826015229_horodateur_payroll_accountant_report_persist_rpc.sql";
+const HOTFIX_MIGRATION =
+  "20260827121213_horodateur_payroll_accountant_report_persist_rpc_current_user_hotfix.sql";
 
 function profile(
   partial?: Partial<HorodateurPhase1EmployeeProfile>
@@ -603,5 +605,25 @@ describe("payroll accountant persist memory and RPC SQL", () => {
     expect(lower).not.toContain("salary");
     expect(lower).not.toContain("hourly_rate");
     expect(lower).not.toContain("commission");
+  });
+
+  it("hotfixes the role guard to pg_catalog.current_user() without changing grants", () => {
+    const sql = readFileSync(
+      join(process.cwd(), "supabase", "migrations", HOTFIX_MIGRATION),
+      "utf8"
+    );
+    const lower = sql.toLowerCase();
+    expect(sql).toContain("pg_catalog.current_user()");
+    expect(sql).not.toMatch(/pg_catalog\.current_user(?!\s*\()/);
+    expect(lower).toContain("security invoker");
+    expect(lower).not.toContain("security definer");
+    expect(lower).toContain("revoke execute");
+    expect(lower).toContain("from public");
+    expect(lower).toContain("from anon");
+    expect(lower).toContain("from authenticated");
+    expect(lower).toContain("grant execute");
+    expect(lower).toContain("to service_role");
+    expect(sql).toContain("persist_horodateur_payroll_accountant_report");
+    expect(lower).not.toContain("raise log");
   });
 });
