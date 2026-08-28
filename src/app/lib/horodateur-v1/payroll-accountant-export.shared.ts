@@ -95,6 +95,20 @@ export function formatPayrollDateTimeFrCa(
   }).format(date);
 }
 
+export function formatPayrollTimeFrCa(
+  value: string | null | undefined,
+  timezone = PAYROLL_DISPLAY_TIMEZONE
+) {
+  const raw = (value ?? "").trim();
+  if (!raw) return "";
+  const date = new Date(raw);
+  if (Number.isNaN(date.getTime())) return "";
+  return new Intl.DateTimeFormat("fr-CA", {
+    timeStyle: "short",
+    timeZone: timezone || PAYROLL_DISPLAY_TIMEZONE,
+  }).format(date);
+}
+
 export function isTechnicalAccountantNote(value: string) {
   const text = value.trim();
   if (!text) return true;

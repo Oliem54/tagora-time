@@ -1,0 +1,862 @@
+/* HORORA Direction — Premium 2027 structural chrome and payroll workspace.
+   Tokens come from horora-premium-2027.css. No dark hero, no massive blue. */
+
+.horora-direction-shell {
+  --horora-shell-text: var(--horora-color-tagora-base, #182643);
+  --horora-shell-muted: var(--horora-color-neutral-muted, #5c6570);
+  --horora-shell-border: var(--horora-color-neutral-border, #e3e6ec);
+  --horora-shell-canvas: var(--horora-color-canvas, #f6f7f9);
+  --horora-shell-canvas-muted: var(--horora-color-canvas-muted, #eef0f4);
+  --horora-shell-sidebar: var(--horora-color-sidebar, #f4f5f8);
+  --horora-shell-surface: var(--horora-color-surface-light, #ffffff);
+  --horora-shell-accent: var(--horora-color-accent, #1f79e0);
+  --horora-shell-action: var(--horora-color-action, #1a64bb);
+  --horora-shell-focus: var(--horora-color-focus, #154a8e);
+  --horora-shell-radius: var(--horora-radius-control, 8px);
+  --horora-shell-radius-card: var(--horora-radius-card, 12px);
+  --horora-shell-sidebar-width: var(--horora-size-sidebar-width, 232px);
+  --horora-shell-topbar: var(--horora-size-topbar-height, 52px);
+
+  display: grid;
+  grid-template-columns: var(--horora-shell-sidebar-width) minmax(0, 1fr);
+  min-height: 100vh;
+  background: var(--horora-shell-canvas);
+  color: var(--horora-shell-text);
+}
+
+.horora-direction-shell-scrim {
+  display: none;
+}
+
+.horora-direction-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  min-height: 100vh;
+  padding: 20px 14px 24px;
+  background: var(--horora-shell-sidebar);
+  border-right: 1px solid var(--horora-shell-border);
+}
+
+.horora-direction-sidebar-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 40px;
+  padding: 0 8px;
+}
+
+.horora-direction-sidebar-logo {
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+}
+
+.horora-direction-sidebar-logo img {
+  width: 100%;
+  height: 100%;
+  object-fit: var(--horora-logo-object-fit, contain);
+  display: block;
+}
+
+.horora-direction-sidebar-product {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 650;
+  letter-spacing: 0.08em;
+  color: var(--horora-shell-text);
+}
+
+.horodateur-direction-module-nav--sidebar {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 24px;
+  flex: 1;
+  min-height: 0;
+}
+
+.horodateur-direction-module-nav--sidebar .horodateur-direction-module-nav-links {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.horodateur-direction-module-nav--sidebar .horodateur-direction-module-nav-item,
+.horodateur-direction-module-nav--sidebar .horodateur-direction-module-nav-dashboard {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 40px;
+  padding: 8px 10px 8px 12px;
+  border-radius: var(--horora-shell-radius);
+  border: 0;
+  background: transparent;
+  color: var(--horora-shell-muted);
+  font-size: 13.5px;
+  font-weight: 500;
+  line-height: 1.3;
+  text-decoration: none;
+  box-shadow: none;
+}
+
+.horodateur-direction-module-nav--sidebar .horodateur-direction-module-nav-item:hover,
+.horodateur-direction-module-nav--sidebar .horodateur-direction-module-nav-dashboard:hover {
+  background: rgb(24 38 67 / 0.04);
+  color: var(--horora-shell-text);
+}
+
+.horodateur-direction-module-nav--sidebar .horodateur-direction-module-nav-item--active {
+  background: rgb(31 121 224 / 0.08);
+  color: var(--horora-shell-text);
+  font-weight: 600;
+  box-shadow: inset 2px 0 0 var(--horora-shell-accent);
+}
+
+.horodateur-direction-module-nav--sidebar .horodateur-direction-module-nav-dashboard {
+  margin-top: auto;
+  border-top: 1px solid var(--horora-shell-border);
+  border-radius: 0;
+  padding-top: 16px;
+}
+
+.horora-direction-frame {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 100vh;
+}
+
+.horora-direction-topbar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-height: var(--horora-shell-topbar);
+  padding: 0 28px;
+  background: var(--horora-shell-surface);
+  border-bottom: 1px solid var(--horora-shell-border);
+}
+
+.horora-direction-menu-toggle {
+  display: none;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 0 10px;
+  border: 1px solid var(--horora-shell-border);
+  border-radius: var(--horora-shell-radius);
+  background: var(--horora-shell-surface);
+  color: var(--horora-shell-text);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.horora-direction-breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: 13px;
+  color: var(--horora-shell-muted);
+}
+
+.horora-direction-breadcrumb a {
+  color: var(--horora-shell-muted);
+  text-decoration: none;
+}
+
+.horora-direction-breadcrumb a:hover {
+  color: var(--horora-shell-text);
+}
+
+.horora-direction-breadcrumb [aria-current="page"] {
+  color: var(--horora-shell-text);
+  font-weight: 600;
+}
+
+.horora-direction-topbar-meta {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-left: auto;
+  min-width: 0;
+}
+
+.horora-direction-company {
+  display: grid;
+  gap: 1px;
+  margin: 0;
+  padding-right: 12px;
+  border-right: 1px solid var(--horora-shell-border);
+}
+
+.horora-direction-company span {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--horora-shell-muted);
+}
+
+.horora-direction-company strong {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--horora-shell-text);
+}
+
+.horora-direction-shell .ui-user-identity-badge,
+.horora-direction-shell .horora-direction-account {
+  display: inline-flex;
+  align-items: center;
+  min-height: 36px;
+  max-width: 220px;
+  padding: 0 10px;
+  border-radius: var(--horora-shell-radius);
+  background: var(--horora-shell-canvas);
+  border: 1px solid var(--horora-shell-border);
+  color: var(--horora-shell-text);
+  box-shadow: none;
+  backdrop-filter: none;
+}
+
+.horora-direction-shell .ui-user-identity-badge-role-value {
+  color: var(--horora-shell-text);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.horora-direction-shell .ui-user-identity-avatar {
+  color: #fff;
+  background: var(--horora-shell-action);
+  box-shadow: none;
+}
+
+.horora-direction-shell .ui-user-identity-menu {
+  background: var(--horora-shell-surface);
+  border: 1px solid var(--horora-shell-border);
+  border-radius: var(--horora-shell-radius-card);
+  color: var(--horora-shell-text);
+  box-shadow: var(--horora-shadow-md, 0 8px 24px rgb(24 38 67 / 0.12));
+  backdrop-filter: none;
+}
+
+.horora-direction-topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.horora-direction-topbar-actions .ui-button,
+.horora-direction-topbar-actions .tagora-dark-outline-action {
+  min-height: 36px;
+  padding: 0 12px;
+  border-radius: var(--horora-shell-radius);
+  font-size: 12.5px;
+  font-weight: 600;
+  box-shadow: none;
+  transform: none;
+  background: var(--horora-shell-surface);
+  color: var(--horora-shell-text);
+  border: 1px solid var(--horora-shell-border);
+}
+
+.horora-direction-workspace {
+  flex: 1;
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  padding: 28px 40px 56px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.horora-direction-pagehead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+}
+
+.horora-direction-pagehead-copy h1 {
+  margin: 0;
+  font-size: 1.5rem;
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  line-height: 1.2;
+}
+
+.horora-direction-pagehead-copy p {
+  margin: 8px 0 0;
+  max-width: 42rem;
+  font-size: 0.9375rem;
+  line-height: 1.5;
+  color: var(--horora-shell-muted);
+}
+
+.horora-direction-pagehead-aside {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.horora-direction-loading {
+  margin: 0;
+  color: var(--horora-shell-muted);
+  font-size: 0.9375rem;
+}
+
+.horora-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.horora-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 0 14px;
+  border-radius: var(--horora-shell-radius);
+  border: 1px solid transparent;
+  font-size: 13.5px;
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+  background: transparent;
+  color: var(--horora-shell-text);
+}
+
+.horora-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.horora-btn:focus-visible,
+.horora-payroll-filter select:focus-visible,
+.horora-payroll-filter input:focus-visible,
+.horora-payroll-filter textarea:focus-visible,
+.horora-direction-menu-toggle:focus-visible {
+  outline: 2px solid var(--horora-shell-focus);
+  outline-offset: 2px;
+}
+
+.horora-btn-primary {
+  background: var(--horora-shell-action);
+  color: var(--horora-color-action-on, #ffffff);
+  border-color: var(--horora-shell-action);
+}
+
+.horora-btn-primary:hover:not(:disabled) {
+  background: var(--horora-shell-focus);
+  border-color: var(--horora-shell-focus);
+}
+
+.horora-btn-secondary {
+  background: var(--horora-shell-surface);
+  border-color: var(--horora-shell-border);
+}
+
+.horora-btn-secondary:hover:not(:disabled) {
+  border-color: rgb(24 38 67 / 0.22);
+}
+
+.horora-btn-ghost {
+  min-height: 36px;
+  padding: 0 10px;
+  color: var(--horora-shell-muted);
+  font-weight: 550;
+}
+
+.horora-btn-ghost:hover:not(:disabled) {
+  color: var(--horora-shell-text);
+  background: rgb(24 38 67 / 0.04);
+}
+
+.horora-payroll-accountant {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.horora-payroll-filterbar {
+  display: grid;
+  grid-template-columns: minmax(160px, 1.3fr) repeat(2, minmax(132px, 0.8fr)) minmax(180px, 1.2fr) auto;
+  align-items: end;
+  gap: 12px 14px;
+  padding: 14px 16px;
+  background: var(--horora-shell-surface);
+  border: 1px solid var(--horora-shell-border);
+  border-radius: var(--horora-shell-radius-card);
+}
+
+.horora-payroll-filter {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.horora-payroll-filter span {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--horora-shell-muted);
+}
+
+.horora-payroll-filter select,
+.horora-payroll-filter input,
+.horora-payroll-filter textarea {
+  width: 100%;
+  min-height: 40px;
+  padding: 8px 10px;
+  border: 1px solid var(--horora-shell-border);
+  border-radius: var(--horora-shell-radius);
+  background: var(--horora-shell-surface);
+  color: var(--horora-shell-text);
+  font: inherit;
+  font-size: 13.5px;
+}
+
+.horora-payroll-refresh {
+  justify-self: start;
+}
+
+.horora-payroll-hint {
+  margin: -8px 2px 0;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--horora-shell-muted);
+}
+
+.horora-payroll-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.horora-payroll-actions-export {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.horora-payroll-status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.horora-payroll-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 10px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  background: var(--horora-shell-canvas-muted, #eef0f4);
+  color: var(--horora-shell-muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.horora-payroll-chip--info {
+  background: transparent;
+  border-color: var(--horora-shell-border);
+  color: var(--horora-shell-muted);
+}
+
+.horora-payroll-chip--success {
+  background: #ecf8f0;
+  color: #166534;
+}
+
+.horora-payroll-chip--warning {
+  background: #fff7ed;
+  color: #9a3412;
+}
+
+.horora-payroll-chip--danger {
+  background: #fef2f2;
+  color: #991b1b;
+}
+
+.horora-payroll-lock,
+.horora-callout {
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: var(--horora-shell-radius);
+  border: 1px solid var(--horora-shell-border);
+  background: var(--horora-shell-surface);
+  color: var(--horora-shell-text);
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
+.horora-payroll-lock {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #fff7ed;
+  border-color: #fed7aa;
+  color: #9a3412;
+}
+
+.horora-callout-danger {
+  background: #fef2f2;
+  border-color: #fecaca;
+  color: #991b1b;
+}
+
+.horora-callout-success {
+  background: #ecf8f0;
+  border-color: #bbf7d0;
+  color: #166534;
+}
+
+.horora-payroll-report {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.horora-payroll-report-head h3 {
+  margin: 0 0 6px;
+  font-size: 1.05rem;
+  font-weight: 600;
+}
+
+.horora-payroll-report-head p {
+  margin: 0;
+  color: var(--horora-shell-muted);
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+.horora-payroll-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.horora-payroll-kpi {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 14px;
+  min-height: 96px;
+  padding: 16px 18px;
+  background: var(--horora-shell-surface);
+  border: 1px solid var(--horora-shell-border);
+  border-radius: var(--horora-shell-radius-card);
+}
+
+.horora-payroll-kpi-label {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--horora-shell-muted);
+  line-height: 1.35;
+}
+
+.horora-payroll-kpi-value {
+  margin: 0;
+  font-size: 1.6rem;
+  font-weight: 650;
+  letter-spacing: -0.03em;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+
+.horora-payroll-kpi-value span {
+  font-size: 0.95rem;
+  font-weight: 550;
+  color: var(--horora-shell-muted);
+}
+
+.horora-payroll-employee {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding-top: 8px;
+}
+
+.horora-payroll-employee-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.horora-payroll-employee-head h4 {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 650;
+}
+
+.horora-payroll-employee-total {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin: 0;
+  font-size: 13px;
+  color: var(--horora-shell-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.horora-payroll-week h5 {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 0 10px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.horora-payroll-week h5 span {
+  font-weight: 500;
+  color: var(--horora-shell-muted);
+}
+
+.horora-payroll-table-wrap {
+  overflow: auto;
+  max-height: min(62vh, 680px);
+  border: 1px solid var(--horora-shell-border);
+  border-radius: var(--horora-shell-radius);
+  background: var(--horora-shell-surface);
+}
+
+.horora-payroll-table {
+  width: 100%;
+  min-width: 860px;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 13px;
+}
+
+.horora-payroll-table th,
+.horora-payroll-table td {
+  padding: 12px 14px;
+  text-align: left;
+  vertical-align: top;
+  border-bottom: 1px solid var(--horora-shell-border);
+  line-height: 1.45;
+}
+
+.horora-payroll-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--horora-shell-canvas);
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--horora-shell-muted);
+}
+
+.horora-payroll-table .is-numeric,
+.horora-payroll-table td.is-numeric,
+.horora-payroll-table th.is-numeric {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.horora-payroll-table tbody th {
+  font-weight: 550;
+}
+
+.horora-payroll-table tr.is-incomplete td,
+.horora-payroll-table tr.is-incomplete th {
+  background: #fff7ed;
+}
+
+.horora-payroll-incomplete {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 0 8px;
+  border-radius: 4px;
+  background: #fff7ed;
+  color: #9a3412;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.horora-payroll-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgb(24 38 67 / 0.36);
+}
+
+.horora-payroll-dialog {
+  width: min(480px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 24px;
+  background: var(--horora-shell-surface);
+  border-radius: var(--horora-shell-radius-card);
+  box-shadow: var(--horora-shadow-md, 0 8px 24px rgb(24 38 67 / 0.12));
+}
+
+.horora-payroll-dialog h3 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.horora-payroll-dialog p {
+  margin: 0;
+  color: var(--horora-shell-muted);
+  line-height: 1.5;
+}
+
+.horora-payroll-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.horora-direction-workspace .tagora-panel,
+.horora-direction-workspace .ui-card,
+.horora-direction-workspace .ui-section-card {
+  box-shadow: none;
+}
+
+@media (max-width: 1199px) {
+  .horora-direction-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .horora-direction-menu-toggle {
+    display: inline-flex;
+  }
+
+  .horora-direction-sidebar {
+    position: fixed;
+    z-index: 40;
+    inset: 0 auto 0 0;
+    width: min(var(--horora-shell-sidebar-width), 86vw);
+    transform: translateX(-110%);
+    transition: transform 160ms ease;
+    box-shadow: none;
+  }
+
+  .horora-direction-sidebar.is-open {
+    transform: none;
+    box-shadow: var(--horora-shadow-md, 0 8px 24px rgb(24 38 67 / 0.12));
+  }
+
+  .horora-direction-shell.is-nav-open .horora-direction-shell-scrim {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 30;
+    background: rgb(24 38 67 / 0.28);
+    border: 0;
+  }
+
+  .horora-direction-topbar {
+    padding: 8px 16px;
+    flex-wrap: wrap;
+  }
+
+  .horora-direction-workspace {
+    padding: 20px 16px 40px;
+  }
+
+  .horora-payroll-kpi-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 900px) {
+  .horora-payroll-filterbar {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .horora-payroll-refresh {
+    grid-column: 1 / -1;
+    justify-self: stretch;
+  }
+
+  .horora-direction-pagehead {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .horora-direction-pagehead-aside {
+    justify-content: flex-start;
+    position: sticky;
+    bottom: 0;
+    z-index: 8;
+    padding: 8px 0;
+    background: linear-gradient(180deg, transparent, var(--horora-shell-canvas) 24%);
+  }
+
+  .horora-payroll-actions {
+    position: sticky;
+    bottom: 0;
+    z-index: 7;
+    padding: 8px 0 4px;
+    background: var(--horora-shell-canvas);
+  }
+}
+
+@media (max-width: 640px) {
+  .horora-payroll-filterbar,
+  .horora-payroll-kpi-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .horora-direction-company {
+    display: none;
+  }
+
+  .horora-direction-breadcrumb span:not([aria-current="page"]) {
+    display: none;
+  }
+}
+
+@media print {
+  .horora-direction-sidebar,
+  .horora-direction-topbar,
+  .horora-payroll-filterbar,
+  .horora-payroll-actions,
+  .horora-payroll-dialog-backdrop,
+  .horora-direction-pagehead-aside {
+    display: none !important;
+  }
+
+  .horora-direction-shell,
+  .horora-direction-workspace {
+    display: block;
+    width: 100%;
+    padding: 0;
+    background: #fff;
+  }
+}

@@ -11,17 +11,13 @@ import {
   Send,
 } from "lucide-react";
 import AccessNotice from "@/app/components/AccessNotice";
-import PrimaryButton from "@/app/components/ui/PrimaryButton";
-import SecondaryButton from "@/app/components/ui/SecondaryButton";
-import StatusBadge from "@/app/components/ui/StatusBadge";
-import TagoraLoadingScreen from "@/app/components/ui/TagoraLoadingScreen";
 import HorodateurDirectionPageShell from "@/app/direction/horodateur/HorodateurDirectionPageShell";
 import { useCurrentAccess } from "@/app/hooks/useCurrentAccess";
 import {
   collectPayrollAccountantHumanNotes,
   formatPayrollDateFrCa,
-  formatPayrollDateTimeFrCa,
   formatPayrollHours,
+  formatPayrollTimeFrCa,
   payrollCompletenessLabel,
   payrollReportStatusLabel,
 } from "@/app/lib/horodateur-v1/payroll-accountant-export.shared";
@@ -308,13 +304,17 @@ export default function DirectionPayrollAccountantReportClient() {
     setBusy(false);
   }
 
+  const selectedCompanyName =
+    companies.find((company) => company.id === companyId)?.name ?? "";
+
   if (accessLoading || (canRead && loadingContext)) {
     return (
-      <TagoraLoadingScreen
-        isLoading
-        message="Chargement du rapport comptable..."
-        fullScreen
-      />
+      <HorodateurDirectionPageShell
+        active="paie"
+        subtitle="Préparer, vérifier, émettre et exporter le rapport comptable."
+      >
+        <p className="horora-direction-loading">Chargement du rapport comptable…</p>
+      </HorodateurDirectionPageShell>
     );
   }
 
@@ -322,7 +322,7 @@ export default function DirectionPayrollAccountantReportClient() {
     return (
       <HorodateurDirectionPageShell
         active="paie"
-      subtitle="Rapport comptable de paie HORORA"
+        subtitle="Rapport comptable de paie HORORA."
       >
         <AccessNotice description="La permission horodateur_payroll_read est requise." />
       </HorodateurDirectionPageShell>
@@ -336,160 +336,212 @@ export default function DirectionPayrollAccountantReportClient() {
       selectedCycle.periodStart === periodStart &&
       selectedCycle.periodEnd === periodEnd
   );
+  const issueDisabled =
+    busy || issuedLocked || !manageAllowed || !datesMatchCycle || !cycleId;
+
+  const reportStatus = (
+    <div className="horora-payroll-status">
+      {preview ? (
+        <>
+          <span
+            className={`horora-payroll-chip horora-payroll-chip--${completenessTone(preview.completenessStatus)}`}
+          >
+            {payrollCompletenessLabel(preview.completenessStatus)}
+          </span>
+          <span
+            className={`horora-payroll-chip horora-payroll-chip--${persistMeta?.status === "issued" ? "success" : "info"}`}
+          >
+            {payrollReportStatusLabel(persistMeta?.status ?? "preview")}
+          </span>
+          {persistMeta ? (
+            <span className="horora-payroll-chip">Révision {persistMeta.revision}</span>
+          ) : null}
+        </>
+      ) : (
+        <span className="horora-payroll-chip">En attente d&apos;aperçu</span>
+      )}
+    </div>
+  );
+
+  const primaryAction = (
+    <button
+      type="button"
+      className="horora-btn horora-btn-primary"
+      onClick={() => setConfirmOpen(true)}
+      disabled={issueDisabled}
+    >
+      <Send size={16} aria-hidden />
+      Émettre
+    </button>
+  );
 
   return (
     <HorodateurDirectionPageShell
       active="paie"
-      subtitle="Préparer, vérifier, émettre et exporter le rapport comptable"
+      title="Rapport comptable"
+      subtitle="Préparer, vérifier, émettre et exporter les heures payables de la période."
+      companyLabel={selectedCompanyName || undefined}
+      status={reportStatus}
+      primaryAction={primaryAction}
     >
       <section className="horora-payroll-accountant" aria-labelledby="horora-payroll-title">
-        <div className="horora-payroll-accountant-toolbar">
-          <h2 id="horora-payroll-title" className="horora-payroll-accountant-heading">
-            Sélection du rapport
-          </h2>
-          <div className="horora-payroll-accountant-filters">
-            <label className="tagora-field">
-              <span className="tagora-label">Entreprise opérante</span>
-              <select
-                className="tagora-input"
-                value={companyId}
-                onChange={(event) => {
-                  const next = event.target.value;
-                  setCompanyId(next);
-                  setPreview(null);
-                  void loadContext(next);
-                }}
-              >
-                {companies.length === 0 ? (
-                  <option value="">Aucune entreprise</option>
-                ) : null}
-                {companies.map((company) => (
-                  <option key={company.id} value={company.id}>
-                    {company.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="tagora-field">
-              <span className="tagora-label">Date de début</span>
-              <input
-                type="date"
-                className="tagora-input"
-                value={periodStart}
-                onChange={(event) => setPeriodStart(event.target.value)}
-              />
-            </label>
-            <label className="tagora-field">
-              <span className="tagora-label">Date de fin</span>
-              <input
-                type="date"
-                className="tagora-input"
-                value={periodEnd}
-                onChange={(event) => setPeriodEnd(event.target.value)}
-              />
-            </label>
-            <label className="tagora-field">
-              <span className="tagora-label">Cycle</span>
-              <select
-                className="tagora-input"
-                value={cycleId}
-                onChange={(event) => {
-                  const next = event.target.value;
-                  setCycleId(next);
-                  const cycle = cycles.find((item) => item.id === next);
-                  if (cycle) {
-                    setPeriodStart(cycle.periodStart);
-                    setPeriodEnd(cycle.periodEnd);
-                    setTimezone(cycle.timezone);
-                  }
-                }}
-              >
-                <option value="">Aucun cycle</option>
-                {cycles.map((cycle) => (
-                  <option key={cycle.id} value={cycle.id}>
-                    {formatPayrollDateFrCa(cycle.periodStart)} → {formatPayrollDateFrCa(cycle.periodEnd)}
-                  </option>
-                ))}
-              </select>
-            </label>
-          </div>
-          <p className="horora-payroll-accountant-hint">
-            Cycle par défaut : deux semaines inclusives.
-            {biweekly ? " Période de 14 jours confirmée." : " Période personnalisée."}
-            {selectedCycle && !datesMatchCycle
-              ? " Les dates diffèrent du cycle : l'enregistrement exigera le calendrier exact du cycle."
-              : null}
-          </p>
+        <h2 id="horora-payroll-title" className="horora-visually-hidden">
+          Rapport comptable
+        </h2>
+
+        <div className="horora-payroll-filterbar" role="search">
+          <label className="horora-payroll-filter">
+            <span>Entreprise</span>
+            <select
+              value={companyId}
+              onChange={(event) => {
+                const next = event.target.value;
+                setCompanyId(next);
+                setPreview(null);
+                void loadContext(next);
+              }}
+            >
+              {companies.length === 0 ? (
+                <option value="">Aucune entreprise</option>
+              ) : null}
+              {companies.map((company) => (
+                <option key={company.id} value={company.id}>
+                  {company.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="horora-payroll-filter">
+            <span>Début</span>
+            <input
+              type="date"
+              value={periodStart}
+              onChange={(event) => setPeriodStart(event.target.value)}
+            />
+          </label>
+          <label className="horora-payroll-filter">
+            <span>Fin</span>
+            <input
+              type="date"
+              value={periodEnd}
+              onChange={(event) => setPeriodEnd(event.target.value)}
+            />
+          </label>
+          <label className="horora-payroll-filter">
+            <span>Cycle</span>
+            <select
+              value={cycleId}
+              onChange={(event) => {
+                const next = event.target.value;
+                setCycleId(next);
+                const cycle = cycles.find((item) => item.id === next);
+                if (cycle) {
+                  setPeriodStart(cycle.periodStart);
+                  setPeriodEnd(cycle.periodEnd);
+                  setTimezone(cycle.timezone);
+                }
+              }}
+            >
+              <option value="">Aucun cycle</option>
+              {cycles.map((cycle) => (
+                <option key={cycle.id} value={cycle.id}>
+                  {formatPayrollDateFrCa(cycle.periodStart)} → {formatPayrollDateFrCa(cycle.periodEnd)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button
+            type="button"
+            className="horora-btn horora-btn-secondary horora-payroll-refresh"
+            onClick={() => void refreshPreview()}
+            disabled={loadingPreview || busy}
+          >
+            <RefreshCw size={16} aria-hidden />
+            Actualiser
+          </button>
         </div>
 
-        <div className="horora-payroll-accountant-actions" role="toolbar" aria-label="Actions du rapport">
-          <SecondaryButton onClick={() => void refreshPreview()} disabled={loadingPreview || busy}>
-            <RefreshCw size={16} aria-hidden />
-            Actualiser l&apos;aperçu
-          </SecondaryButton>
-          <SecondaryButton
+        <p className="horora-payroll-hint">
+          Cycle par défaut : deux semaines inclusives.
+          {biweekly ? " Période de 14 jours confirmée." : " Période personnalisée."}
+          {selectedCycle && !datesMatchCycle
+            ? " Les dates diffèrent du cycle : l'enregistrement exigera le calendrier exact du cycle."
+            : null}
+        </p>
+
+        <div className="horora-payroll-actions" role="toolbar" aria-label="Actions du rapport">
+          <button
+            type="button"
+            className="horora-btn horora-btn-secondary"
             onClick={() => void persist("draft")}
             disabled={busy || issuedLocked || !datesMatchCycle || !cycleId}
           >
             <Save size={16} aria-hidden />
             Enregistrer le brouillon
-          </SecondaryButton>
-          <PrimaryButton
-            onClick={() => setConfirmOpen(true)}
-            disabled={
-              busy ||
-              issuedLocked ||
-              !manageAllowed ||
-              !datesMatchCycle ||
-              !cycleId
-            }
-          >
-            <Send size={16} aria-hidden />
-            Émettre le rapport
-          </PrimaryButton>
-          <SecondaryButton onClick={() => void exportFile("csv")} disabled={busy || !preview}>
-            <FileSpreadsheet size={16} aria-hidden />
-            Télécharger CSV
-          </SecondaryButton>
-          <SecondaryButton onClick={() => void exportFile("pdf")} disabled={busy || !preview}>
-            <Download size={16} aria-hidden />
-            Télécharger PDF
-          </SecondaryButton>
-          <SecondaryButton onClick={() => window.print()} disabled={!preview}>
-            <Printer size={16} aria-hidden />
-            Imprimer
-          </SecondaryButton>
+          </button>
+          <div className="horora-payroll-actions-export">
+            <button
+              type="button"
+              className="horora-btn horora-btn-ghost"
+              onClick={() => void exportFile("csv")}
+              disabled={busy || !preview}
+              aria-label="Télécharger CSV"
+            >
+              <FileSpreadsheet size={16} aria-hidden />
+              CSV
+            </button>
+            <button
+              type="button"
+              className="horora-btn horora-btn-ghost"
+              onClick={() => void exportFile("pdf")}
+              disabled={busy || !preview}
+              aria-label="Télécharger PDF"
+            >
+              <Download size={16} aria-hidden />
+              PDF
+            </button>
+            <button
+              type="button"
+              className="horora-btn horora-btn-ghost"
+              onClick={() => window.print()}
+              disabled={!preview}
+            >
+              <Printer size={16} aria-hidden />
+              Imprimer
+            </button>
+          </div>
         </div>
 
         {issuedLocked ? (
-          <p className="horora-payroll-accountant-lock" role="status">
+          <p className="horora-payroll-lock" role="status">
             <Lock size={16} aria-hidden />
             Rapport émis verrouillé. Aucune modification n&apos;est possible.
           </p>
         ) : null}
         {errorMessage ? (
-          <AccessNotice title="Erreur" description={errorMessage} />
+          <p className="horora-callout horora-callout-danger" role="alert">
+            {errorMessage}
+          </p>
         ) : null}
         {message ? (
-          <p className="horora-payroll-accountant-success" role="status" aria-live="polite">
+          <p className="horora-callout horora-callout-success" role="status" aria-live="polite">
             {message}
           </p>
         ) : null}
 
         {loadingPreview ? (
-          <AccessNotice description="Chargement de l'aperçu comptable..." />
+          <p className="horora-direction-loading">Chargement de l&apos;aperçu comptable…</p>
         ) : null}
 
         {!loadingPreview && !preview ? (
-          <AccessNotice
-            title="Aperçu vide"
-            description="Actualisez l'aperçu pour charger les heures de la période."
-          />
+          <p className="horora-callout">
+            Actualisez l&apos;aperçu pour charger les heures de la période.
+          </p>
         ) : null}
 
         {preview ? (
-          <article className="horora-payroll-accountant-report" aria-labelledby="horora-payroll-report-title">
-            <header className="horora-payroll-accountant-report-head">
+          <article className="horora-payroll-report" aria-labelledby="horora-payroll-report-title">
+            <header className="horora-payroll-report-head">
               <div>
                 <h3 id="horora-payroll-report-title">Aperçu comptable</h3>
                 <p>
@@ -500,113 +552,153 @@ export default function DirectionPayrollAccountantReportClient() {
                   {formatPayrollDateFrCa(preview.payload.periodEnd)}
                 </p>
               </div>
-              <div className="horora-payroll-accountant-badges">
-                <StatusBadge
-                  label={payrollCompletenessLabel(preview.completenessStatus)}
-                  tone={completenessTone(preview.completenessStatus)}
-                />
-                <StatusBadge
-                  label={payrollReportStatusLabel(persistMeta?.status ?? "preview")}
-                  tone={persistMeta?.status === "issued" ? "success" : "info"}
-                />
-                {persistMeta ? (
-                  <StatusBadge label={`Révision ${persistMeta.revision}`} tone="default" />
-                ) : null}
-              </div>
             </header>
 
             {preview.completenessStatus === "blocked_incomplete" ? (
-              <AccessNotice
-                title="Émission bloquée"
-                description="Des pointages sont incomplets. Corrigez-les ou forcez l'émission avec un motif."
-              />
+              <p className="horora-callout horora-callout-danger">
+                Émission bloquée. Des pointages sont incomplets. Corrigez-les ou forcez
+                l&apos;émission avec un motif.
+              </p>
             ) : null}
 
-            <div className="horora-payroll-accountant-totals" aria-label="Totaux generaux">
-              <div>
-                <span>Heures régulières</span>
-                <strong>{formatPayrollHours(preview.totals.regularMinutes)} h</strong>
-              </div>
-              <div>
-                <span>Heures supplémentaires</span>
-                <strong>{formatPayrollHours(preview.totals.overtimeMinutes)} h</strong>
-              </div>
-              <div>
-                <span>Heures payables</span>
-                <strong>{formatPayrollHours(preview.totals.payableMinutes)} h</strong>
-              </div>
-              <div>
-                <span>Employés</span>
-                <strong>{preview.totals.employeeCount}</strong>
-              </div>
+            <div className="horora-payroll-kpi-grid" aria-label="Totaux généraux">
+              <article className="horora-payroll-kpi">
+                <p className="horora-payroll-kpi-label">Heures régulières</p>
+                <p className="horora-payroll-kpi-value">
+                  {formatPayrollHours(preview.totals.regularMinutes)}
+                  <span> h</span>
+                </p>
+              </article>
+              <article className="horora-payroll-kpi">
+                <p className="horora-payroll-kpi-label">Heures supplémentaires</p>
+                <p className="horora-payroll-kpi-value">
+                  {formatPayrollHours(preview.totals.overtimeMinutes)}
+                  <span> h</span>
+                </p>
+              </article>
+              <article className="horora-payroll-kpi">
+                <p className="horora-payroll-kpi-label">Heures payables</p>
+                <p className="horora-payroll-kpi-value">
+                  {formatPayrollHours(preview.totals.payableMinutes)}
+                  <span> h</span>
+                </p>
+              </article>
+              <article className="horora-payroll-kpi">
+                <p className="horora-payroll-kpi-label">Employés</p>
+                <p className="horora-payroll-kpi-value">{preview.totals.employeeCount}</p>
+              </article>
             </div>
 
             {preview.payload.employees.length === 0 ? (
-              <AccessNotice description="Aucune heure sur la période sélectionnée." />
+              <p className="horora-callout">Aucune heure sur la période sélectionnée.</p>
             ) : (
               preview.payload.employees.map((employee) => (
                 <section
                   key={employee.employeeId}
-                  className="horora-payroll-accountant-employee"
+                  className="horora-payroll-employee"
                   aria-labelledby={`employee-${employee.employeeId}`}
                 >
-                  <h4 id={`employee-${employee.employeeId}`}>
-                    {employee.employeeName ?? `Employé ${employee.employeeId}`}
-                  </h4>
+                  <header className="horora-payroll-employee-head">
+                    <h4 id={`employee-${employee.employeeId}`}>
+                      {employee.employeeName ?? `Employé ${employee.employeeId}`}
+                    </h4>
+                    <p className="horora-payroll-employee-total">
+                      <span>
+                        Régulier {formatPayrollHours(employee.totals.regularMinutes)} h
+                      </span>
+                      <span>
+                        Supp. {formatPayrollHours(employee.totals.overtimeMinutes)} h
+                      </span>
+                      <span>
+                        Payable {formatPayrollHours(employee.totals.payableMinutes)} h
+                      </span>
+                    </p>
+                  </header>
                   {employee.weeks.map((week) => (
-                    <div key={`${employee.employeeId}-${week.weekStart}`}>
+                    <div
+                      key={`${employee.employeeId}-${week.weekStart}`}
+                      className="horora-payroll-week"
+                    >
                       <h5>
-                        Semaine {formatPayrollDateFrCa(week.weekStart)} — {formatPayrollDateFrCa(week.weekEnd)} · R{" "}
-                        {formatPayrollHours(week.regularMinutes)} h · S{" "}
-                        {formatPayrollHours(week.overtimeMinutes)} h
+                        Semaine {formatPayrollDateFrCa(week.weekStart)} —{" "}
+                        {formatPayrollDateFrCa(week.weekEnd)}
+                        <span>
+                          R {formatPayrollHours(week.regularMinutes)} h · S{" "}
+                          {formatPayrollHours(week.overtimeMinutes)} h
+                        </span>
                       </h5>
-                      <div className="horora-payroll-accountant-table-wrap">
-                        <table>
+                      <div className="horora-payroll-table-wrap">
+                        <table className="horora-payroll-table">
                           <thead>
                             <tr>
                               <th scope="col">Journée</th>
                               <th scope="col">Entrée</th>
                               <th scope="col">Sortie</th>
-                              <th scope="col">Regulier</th>
-                              <th scope="col">Supp.</th>
-                              <th scope="col">Pauses</th>
-                              <th scope="col">Corrections / notes</th>
+                              <th scope="col" className="is-numeric">
+                                Régulier
+                              </th>
+                              <th scope="col" className="is-numeric">
+                                Supp.
+                              </th>
+                              <th scope="col" className="is-numeric">
+                                Pauses
+                              </th>
+                              <th scope="col">Statut</th>
+                              <th scope="col">Notes</th>
                             </tr>
                           </thead>
                           <tbody>
-                            {week.days.map((day) => (
-                              <tr key={day.workDate}>
-                                <th scope="row">{formatPayrollDateFrCa(day.workDate)}</th>
-                                <td>{formatPayrollDateTimeFrCa(day.punchInAt, preview.payload.timezone) || "—"}</td>
-                                <td>{formatPayrollDateTimeFrCa(day.punchOutAt, preview.payload.timezone) || "—"}</td>
-                                <td>{formatPayrollHours(day.regularMinutes)} h</td>
-                                <td>{formatPayrollHours(day.overtimeMinutes)} h</td>
-                                <td>
-                                  {day.paidBreakMinutes +
-                                    day.unpaidBreakMinutes +
-                                    day.unpaidLunchMinutes}{" "}
-                                  min
-                                  {day.hasIncompletePunch ? " · incomplet" : ""}
-                                </td>
-                                <td>
-                                  {collectPayrollAccountantHumanNotes([
-                                    ...day.corrections.map((item) => item.notes ?? "Correction"),
-                                    ...day.notes,
-                                  ]).join(" · ") || "—"}
-                                </td>
-                              </tr>
-                            ))}
+                            {week.days.map((day) => {
+                              const notes =
+                                collectPayrollAccountantHumanNotes([
+                                  ...day.corrections.map((item) => item.notes ?? "Correction"),
+                                  ...day.notes,
+                                ]).join(" · ") || "—";
+                              const breakMinutes =
+                                day.paidBreakMinutes +
+                                day.unpaidBreakMinutes +
+                                day.unpaidLunchMinutes;
+                              return (
+                                <tr
+                                  key={day.workDate}
+                                  className={day.hasIncompletePunch ? "is-incomplete" : undefined}
+                                >
+                                  <th scope="row">{formatPayrollDateFrCa(day.workDate)}</th>
+                                  <td>
+                                    {formatPayrollTimeFrCa(
+                                      day.punchInAt,
+                                      preview.payload.timezone
+                                    ) || "—"}
+                                  </td>
+                                  <td>
+                                    {formatPayrollTimeFrCa(
+                                      day.punchOutAt,
+                                      preview.payload.timezone
+                                    ) || "—"}
+                                  </td>
+                                  <td className="is-numeric">
+                                    {formatPayrollHours(day.regularMinutes)} h
+                                  </td>
+                                  <td className="is-numeric">
+                                    {formatPayrollHours(day.overtimeMinutes)} h
+                                  </td>
+                                  <td className="is-numeric">{breakMinutes} min</td>
+                                  <td>
+                                    {day.hasIncompletePunch ? (
+                                      <span className="horora-payroll-incomplete">Incomplet</span>
+                                    ) : (
+                                      "—"
+                                    )}
+                                  </td>
+                                  <td>{notes}</td>
+                                </tr>
+                              );
+                            })}
                           </tbody>
                         </table>
                       </div>
                     </div>
                   ))}
-                  <p className="horora-payroll-accountant-employee-total">
-                    Total employé : {formatPayrollHours(employee.totals.regularMinutes)} h
-                    régulières, {formatPayrollHours(employee.totals.overtimeMinutes)} h
-                    supplémentaires, {formatPayrollHours(employee.totals.payableMinutes)} h
-                    payables.
-                  </p>
                 </section>
               ))
             )}
@@ -615,12 +707,9 @@ export default function DirectionPayrollAccountantReportClient() {
       </section>
 
       {confirmOpen ? (
-        <div
-          className="horora-payroll-accountant-dialog-backdrop"
-          role="presentation"
-        >
+        <div className="horora-payroll-dialog-backdrop" role="presentation">
           <div
-            className="horora-payroll-accountant-dialog"
+            className="horora-payroll-dialog"
             role="alertdialog"
             aria-modal="true"
             aria-labelledby="horora-payroll-confirm-title"
@@ -632,10 +721,9 @@ export default function DirectionPayrollAccountantReportClient() {
             </p>
             {preview?.completenessStatus === "blocked_incomplete" ||
             preview?.completenessStatus === "forced" ? (
-              <label className="tagora-field">
-                <span className="tagora-label">Motif d&apos;émission forcée</span>
+              <label className="horora-payroll-filter horora-payroll-filter--stack">
+                <span>Motif d&apos;émission forcée</span>
                 <textarea
-                  className="tagora-input"
                   value={forceReason}
                   onChange={(event) => setForceReason(event.target.value)}
                   rows={3}
@@ -643,11 +731,18 @@ export default function DirectionPayrollAccountantReportClient() {
                 />
               </label>
             ) : null}
-            <div className="horora-payroll-accountant-dialog-actions">
-              <SecondaryButton onClick={() => setConfirmOpen(false)} disabled={busy}>
+            <div className="horora-payroll-dialog-actions">
+              <button
+                type="button"
+                className="horora-btn horora-btn-ghost"
+                onClick={() => setConfirmOpen(false)}
+                disabled={busy}
+              >
                 Annuler
-              </SecondaryButton>
-              <PrimaryButton
+              </button>
+              <button
+                type="button"
+                className="horora-btn horora-btn-primary"
                 onClick={() => void persist("issue")}
                 disabled={
                   busy ||
@@ -657,7 +752,7 @@ export default function DirectionPayrollAccountantReportClient() {
                 }
               >
                 Confirmer l&apos;émission
-              </PrimaryButton>
+              </button>
             </div>
           </div>
         </div>

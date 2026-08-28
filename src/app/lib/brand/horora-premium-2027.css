@@ -10,9 +10,14 @@
   --horora-color-action-on: #ffffff;
   --horora-color-focus: #154a8e;
   --horora-color-surface-light: #ffffff;
+  --horora-color-canvas: #f6f7f9;
+  --horora-color-canvas-muted: #eef0f4;
+  --horora-color-sidebar: #f4f5f8;
   --horora-color-text: #182643;
   --horora-color-text-muted: #4174ba;
+  --horora-color-neutral-muted: #5c6570;
   --horora-color-border: #4174ba;
+  --horora-color-neutral-border: #e3e6ec;
 
   --horora-size-login-logo-mobile: 128px;
   --horora-size-login-logo-tablet: 144px;
@@ -22,6 +27,9 @@
   --horora-size-header-logo-desktop: 64px;
   --horora-size-login-card-max: 480px;
   --horora-size-touch-target-min: 44px;
+  --horora-size-sidebar-width: 232px;
+  --horora-size-sidebar-logo: 32px;
+  --horora-size-topbar-height: 52px;
 
   --horora-radius-control: 8px;
   --horora-radius-card: 12px;

@@ -7,6 +7,7 @@ import {
   buildPayrollAccountantPdfBytes,
   escapeCsvCell,
   formatPayrollHours,
+  formatPayrollTimeFrCa,
   guardCsvFormulaInjection,
   parsePayrollAccountantCsvFrCa,
   payrollAccountantExportFileStem,
@@ -159,6 +160,16 @@ describe("payroll accountant CSV and PDF export", () => {
   it("formats canonical hours deterministically", () => {
     expect(formatPayrollHours(480)).toBe("8.00");
     expect(formatPayrollHours(90)).toBe("1.50");
+  });
+
+  it("formats local punch times without ISO timestamps", () => {
+    const formatted = formatPayrollTimeFrCa(
+      "2026-08-10T12:00:00.000Z",
+      "America/Toronto"
+    );
+    expect(formatted).toBe("08 h 00");
+    expect(formatted).not.toMatch(/T\d{2}:\d{2}/);
+    expect(formatted).not.toContain("2026-08-10T");
   });
 
   it("guards CSV formula injection and escapes quotes", () => {

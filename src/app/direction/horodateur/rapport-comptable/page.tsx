@@ -3,7 +3,7 @@ import DirectionPayrollAccountantReportClient from "./DirectionPayrollAccountant
 
 export const metadata: Metadata = {
   title: "Rapport comptable de paie",
-  description: "Preparer, verifier, emettre et exporter le rapport comptable HORORA.",
+  description: "Préparer, vérifier, émettre et exporter le rapport comptable HORORA.",
 };
 
 export default function DirectionPayrollAccountantReportPage() {

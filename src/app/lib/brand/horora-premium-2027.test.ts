@@ -100,6 +100,11 @@ describe("HORORA Premium 2027 — Phase 1 tokens and assets", () => {
     expect(HORORA_COLOR.actionOn).toBe("#FFFFFF");
     expect(HORORA_COLOR.focus).toBe("#154A8E");
     expect(HORORA_COLOR.surfaceLight).toBe("#FFFFFF");
+    expect(HORORA_COLOR.canvas).toBe("#F6F7F9");
+    expect(HORORA_COLOR.canvasMuted).toBe("#EEF0F4");
+    expect(HORORA_COLOR.sidebar).toBe("#F4F5F8");
+    expect(HORORA_COLOR.neutralMuted).toBe("#5C6570");
+    expect(HORORA_COLOR.neutralBorder).toBe("#E3E6EC");
     expect(HORORA_LEGACY_COLOR.base).toBe("#1B2641");
     expect(HORORA_LEGACY_COLOR.lightSurface).toBe("#F6F7ED");
     expect(HORORA_COLOR.tagoraBase).not.toBe(HORORA_LEGACY_COLOR.base);
@@ -114,6 +119,9 @@ describe("HORORA Premium 2027 — Phase 1 tokens and assets", () => {
     expect(HORORA_SIZE.headerLogoDesktopPx).toBe(64);
     expect(HORORA_SIZE.loginCardMaxWidthPx).toBe(480);
     expect(HORORA_SIZE.touchTargetMinPx).toBe(44);
+    expect(HORORA_SIZE.sidebarWidthPx).toBe(232);
+    expect(HORORA_SIZE.sidebarLogoPx).toBe(32);
+    expect(HORORA_SIZE.topbarHeightPx).toBe(52);
     expect(HORORA_RADIUS.controlPx).toBe(8);
     expect(HORORA_RADIUS.cardPx).toBe(12);
   });
@@ -175,6 +183,10 @@ describe("HORORA Premium 2027 — Phase 1 tokens and assets", () => {
     expect(css).toContain("--horora-color-action-on: #ffffff");
     expect(css).toContain("--horora-color-focus: #154a8e");
     expect(css).toContain("--horora-color-surface-light: #ffffff");
+    expect(css).toContain("--horora-color-canvas: #f6f7f9");
+    expect(css).toContain("--horora-color-sidebar: #f4f5f8");
+    expect(css).toContain("--horora-color-neutral-muted: #5c6570");
+    expect(css).toContain("--horora-color-neutral-border: #e3e6ec");
     expect(css).toContain("--horora-size-login-logo-mobile: 128px");
     expect(css).toContain("--horora-size-login-logo-tablet: 144px");
     expect(css).toContain("--horora-size-login-logo-desktop: 160px");
@@ -183,6 +195,9 @@ describe("HORORA Premium 2027 — Phase 1 tokens and assets", () => {
     expect(css).toContain("--horora-size-header-logo-desktop: 64px");
     expect(css).toContain("--horora-size-login-card-max: 480px");
     expect(css).toContain("--horora-size-touch-target-min: 44px");
+    expect(css).toContain("--horora-size-sidebar-width: 232px");
+    expect(css).toContain("--horora-size-sidebar-logo: 32px");
+    expect(css).toContain("--horora-size-topbar-height: 52px");
     expect(css).toContain("--horora-logo-object-fit: contain");
     expect(css).not.toContain("@import");
   });

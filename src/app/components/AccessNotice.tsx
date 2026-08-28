@@ -6,7 +6,7 @@ type AccessNoticeProps = {
 };
 
 export default function AccessNotice({
-  title = "Acces limite",
+  title = "Accès limité",
   description,
 }: AccessNoticeProps) {
   return (

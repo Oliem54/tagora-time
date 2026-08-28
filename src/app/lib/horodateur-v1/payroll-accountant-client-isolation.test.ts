@@ -6,6 +6,7 @@ const CLIENT_FILES = [
   "src/app/direction/horodateur/rapport-comptable/DirectionPayrollAccountantReportClient.tsx",
   "src/app/direction/horodateur/rapport-comptable/page.tsx",
   "src/app/direction/horodateur/HorodateurDirectionModuleNav.tsx",
+  "src/app/direction/horodateur/HorodateurDirectionPageShell.tsx",
   "src/app/lib/horodateur-v1/payroll-accountant-export.shared.ts",
   "src/app/lib/horodateur-v1/payroll-accountant-operational.shared.ts",
 ];

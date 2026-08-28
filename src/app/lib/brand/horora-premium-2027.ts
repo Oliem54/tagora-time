@@ -25,6 +25,11 @@ export const HORORA_COLOR = {
   actionOn: "#FFFFFF",
   focus: "#154A8E",
   surfaceLight: "#FFFFFF",
+  canvas: "#F6F7F9",
+  canvasMuted: "#EEF0F4",
+  sidebar: "#F4F5F8",
+  neutralMuted: "#5C6570",
+  neutralBorder: "#E3E6EC",
 } as const;
 
 export const HORORA_LEGACY_COLOR = {
@@ -46,6 +51,9 @@ export const HORORA_SIZE = {
   headerLogoDesktopPx: 64,
   loginCardMaxWidthPx: 480,
   touchTargetMinPx: 44,
+  sidebarWidthPx: 232,
+  sidebarLogoPx: 32,
+  topbarHeightPx: 52,
 } as const;
 
 export const HORORA_RADIUS = {

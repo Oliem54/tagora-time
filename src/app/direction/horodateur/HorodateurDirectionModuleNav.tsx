@@ -46,22 +46,25 @@ const MODULE_LINKS: {
 type HorodateurDirectionModuleNavProps = {
   active: HorodateurDirectionModuleNavActive;
   className?: string;
-  variant?: "header" | "default";
+  variant?: "sidebar" | "header" | "default";
+  onNavigate?: () => void;
 };
 
 export default function HorodateurDirectionModuleNav({
   active,
   className,
-  variant = "default",
+  variant = "sidebar",
+  onNavigate,
 }: HorodateurDirectionModuleNavProps) {
-  const isHeader = variant === "header";
+  const isSidebar = variant === "sidebar";
 
   return (
     <nav
       aria-label="Navigation module horodateur"
       className={cn(
         "horodateur-direction-module-nav",
-        isHeader && "horodateur-direction-module-nav--header",
+        isSidebar && "horodateur-direction-module-nav--sidebar",
+        variant === "header" && "horodateur-direction-module-nav--header",
         className
       )}
     >
@@ -71,7 +74,7 @@ export default function HorodateurDirectionModuleNav({
           const Icon = item.icon;
           const content = (
             <>
-              <Icon size={16} strokeWidth={2.1} aria-hidden />
+              <Icon size={16} strokeWidth={1.8} aria-hidden />
               <span>{item.label}</span>
             </>
           );
@@ -93,6 +96,7 @@ export default function HorodateurDirectionModuleNav({
               key={item.id}
               href={item.href}
               className="horodateur-direction-module-nav-item"
+              onClick={onNavigate}
             >
               {content}
             </Link>
@@ -102,8 +106,9 @@ export default function HorodateurDirectionModuleNav({
       <Link
         href="/direction/dashboard"
         className="horodateur-direction-module-nav-dashboard"
+        onClick={onNavigate}
       >
-        <LayoutDashboard size={16} strokeWidth={2.1} aria-hidden />
+        <LayoutDashboard size={16} strokeWidth={1.8} aria-hidden />
         <span>Tableau de bord</span>
       </Link>
     </nav>
