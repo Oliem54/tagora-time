@@ -35,7 +35,7 @@ export default function PageHeader({
 }: PageHeaderProps) {
   const isPremiumHeader = className?.includes("ui-page-header-premium-2027");
   const showEyebrow = Boolean(eyebrow) && !isPremiumHeader;
-  const showSubtitle = Boolean(subtitle) && !isPremiumHeader;
+  const showSubtitle = Boolean(subtitle);
   const hasCopy = Boolean(showEyebrow || title || showSubtitle || navigation);
 
   return (

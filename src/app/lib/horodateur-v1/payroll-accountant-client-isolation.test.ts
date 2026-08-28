@@ -43,8 +43,8 @@ describe("payroll accountant client isolation", () => {
     expect(client).toContain("Motif");
     expect(client).toContain("issuedLocked");
     expect(client).toContain("blocked_incomplete");
-    expect(client).toContain("Telecharger CSV");
-    expect(client).toContain("Telecharger PDF");
+    expect(client).toContain("Télécharger CSV");
+    expect(client).toContain("Télécharger PDF");
     expect(client).toContain("Imprimer");
     expect(client).not.toContain("node:crypto");
     expect(client).not.toContain("createHash");

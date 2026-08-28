@@ -1,7 +1,12 @@
 "use client";
 
 import { Suspense, type ComponentProps } from "react";
+import {
+  HORORA_ACCESSIBLE_PRODUCT_NAME,
+  HORORA_LIGHT_ASSET_PATH,
+} from "@/app/lib/brand/horora-premium-2027";
 import { useCurrentAccess } from "@/app/hooks/useCurrentAccess";
+import { cn } from "./cn";
 import PageHeader from "./PageHeader";
 import TagoraPageNavigation from "./TagoraPageNavigation";
 
@@ -18,6 +23,9 @@ export default function AuthenticatedPageHeader({
   showUserIdentity = true,
   showNavigation = true,
   navigation,
+  className,
+  logoSrc,
+  logoAlt,
   ...props
 }: AuthenticatedPageHeaderProps) {
   const { user, role } = useCurrentAccess();
@@ -40,6 +48,9 @@ export default function AuthenticatedPageHeader({
   return (
     <PageHeader
       {...props}
+      className={cn("ui-page-header-premium-2027", className)}
+      logoSrc={logoSrc ?? HORORA_LIGHT_ASSET_PATH}
+      logoAlt={logoAlt ?? HORORA_ACCESSIBLE_PRODUCT_NAME}
       navigation={resolvedNavigation}
       userIdentity={showUserIdentity ? user?.email ?? null : null}
       userRoleLabel={showUserIdentity ? roleLabel : null}

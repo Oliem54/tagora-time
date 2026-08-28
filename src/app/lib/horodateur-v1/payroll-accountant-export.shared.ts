@@ -6,31 +6,33 @@ import type {
 
 const CSV_FORMULA_PREFIX = /^[=+\-@\t\r]/;
 const UTF8_BOM = "\uFEFF";
+export const PAYROLL_CSV_FIELD_SEPARATOR = ";";
+export const PAYROLL_DISPLAY_TIMEZONE = "America/Toronto";
 
 export const PAYROLL_ACCOUNTANT_CSV_HEADERS = [
-  "organisation",
-  "entreprise",
-  "periode_debut",
-  "periode_fin",
-  "fuseau",
-  "statut_completude",
-  "ligne",
-  "employe_id",
-  "employe",
-  "semaine_debut",
-  "semaine_fin",
-  "date",
-  "entree",
-  "sortie",
-  "heures_regulieres",
-  "heures_supplementaires",
-  "heures_payables",
-  "minutes_pause_payee",
-  "minutes_pause_non_payee",
-  "minutes_diner_non_paye",
-  "incomplet",
-  "corrections",
-  "notes",
+  "Organisation",
+  "Entreprise",
+  "Date de début",
+  "Date de fin",
+  "Fuseau",
+  "Statut de complétude",
+  "Ligne",
+  "Identifiant employé",
+  "Employé",
+  "Semaine début",
+  "Semaine fin",
+  "Journée",
+  "Entrée",
+  "Sortie",
+  "Heures régulières",
+  "Heures supplémentaires",
+  "Heures payables",
+  "Minutes pause payée",
+  "Minutes pause non payée",
+  "Minutes dîner non payé",
+  "Incomplet",
+  "Corrections",
+  "Notes",
 ] as const;
 
 export type PayrollAccountantExportMeta = {
@@ -47,14 +49,77 @@ export function formatPayrollHours(minutes: number) {
 
 export function payrollCompletenessLabel(status: PayrollCompletenessStatus) {
   if (status === "complete") return "Complet";
-  if (status === "forced") return "Force";
-  return "Bloque (incomplet)";
+  if (status === "forced") return "Forcé";
+  return "Bloqué (incomplet)";
 }
 
 export function payrollReportStatusLabel(status: "draft" | "issued" | "preview") {
-  if (status === "issued") return "Emis";
+  if (status === "issued") return "Émis";
   if (status === "draft") return "Brouillon";
-  return "Apercu";
+  return "Aperçu";
+}
+
+export function formatPayrollDateFrCa(value: string | null | undefined) {
+  const raw = (value ?? "").trim();
+  if (!raw) return "";
+  const dateOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(raw);
+  const date = dateOnly
+    ? new Date(
+        Date.UTC(
+          Number(dateOnly[1]),
+          Number(dateOnly[2]) - 1,
+          Number(dateOnly[3]),
+          12
+        )
+      )
+    : new Date(raw);
+  if (Number.isNaN(date.getTime())) return raw;
+  return new Intl.DateTimeFormat("fr-CA", {
+    dateStyle: "long",
+    timeZone: PAYROLL_DISPLAY_TIMEZONE,
+  }).format(date);
+}
+
+export function formatPayrollDateTimeFrCa(
+  value: string | null | undefined,
+  timezone = PAYROLL_DISPLAY_TIMEZONE
+) {
+  const raw = (value ?? "").trim();
+  if (!raw) return "";
+  const date = new Date(raw);
+  if (Number.isNaN(date.getTime())) return "";
+  return new Intl.DateTimeFormat("fr-CA", {
+    dateStyle: "short",
+    timeStyle: "short",
+    timeZone: timezone || PAYROLL_DISPLAY_TIMEZONE,
+  }).format(date);
+}
+
+export function isTechnicalAccountantNote(value: string) {
+  const text = value.trim();
+  if (!text) return true;
+  if (/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(text)) return true;
+  if (/\b(lat(itude)?|lng|lon(gitude)?|gps|accuracy|altitude|telemetry|geojson|wkt|srid|punch_zone)\b/i.test(text)) {
+    return true;
+  }
+  if (/\b[-+]?\d{1,3}\.\d{4,}\s*,\s*[-+]?\d{1,3}\.\d{4,}\b/.test(text)) {
+    return true;
+  }
+  return false;
+}
+
+export function sanitizePayrollAccountantNote(value: string | null | undefined) {
+  const text = (value ?? "").trim();
+  if (!text || isTechnicalAccountantNote(text)) return "";
+  return text;
+}
+
+export function collectPayrollAccountantHumanNotes(
+  notes: Array<string | null | undefined>
+) {
+  return notes
+    .map((note) => sanitizePayrollAccountantNote(note))
+    .filter(Boolean);
 }
 
 export function slugPayrollExportSegment(value: string | null | undefined) {
@@ -87,7 +152,7 @@ export function escapeCsvCell(value: string | number | boolean | null | undefine
   const raw =
     value === null || value === undefined ? "" : String(value);
   const guarded = guardCsvFormulaInjection(raw);
-  if (/[",\n\r]/.test(guarded)) {
+  if (/[";\n\r]/.test(guarded)) {
     return `"${guarded.replace(/"/g, '""')}"`;
   }
   return guarded;
@@ -99,30 +164,35 @@ export function buildPayrollAccountantCsvRows(
 ) {
   void meta;
   const payload = snapshot.payload;
+  const timezone = payload.timezone || PAYROLL_DISPLAY_TIMEZONE;
   const rows: string[][] = [[...PAYROLL_ACCOUNTANT_CSV_HEADERS]];
 
   const base = [
     payload.organizationName ?? payload.organizationId,
     payload.organizationCompanyName ?? payload.organizationCompanyId,
-    payload.periodStart,
-    payload.periodEnd,
-    payload.timezone,
+    formatPayrollDateFrCa(payload.periodStart),
+    formatPayrollDateFrCa(payload.periodEnd),
+    timezone,
     payrollCompletenessLabel(payload.completenessStatus),
   ];
 
   for (const employee of payload.employees) {
     for (const week of employee.weeks) {
       for (const day of week.days) {
+        const humanNotes = collectPayrollAccountantHumanNotes([
+          ...day.corrections.map((item) => item.notes),
+          ...day.notes,
+        ]);
         rows.push([
           ...base,
-          "journee",
+          "journée",
           String(employee.employeeId),
           employee.employeeName ?? "",
-          week.weekStart,
-          week.weekEnd,
-          day.workDate,
-          day.punchInAt ?? "",
-          day.punchOutAt ?? "",
+          formatPayrollDateFrCa(week.weekStart),
+          formatPayrollDateFrCa(week.weekEnd),
+          formatPayrollDateFrCa(day.workDate),
+          formatPayrollDateTimeFrCa(day.punchInAt, timezone),
+          formatPayrollDateTimeFrCa(day.punchOutAt, timezone),
           formatPayrollHours(day.regularMinutes),
           formatPayrollHours(day.overtimeMinutes),
           formatPayrollHours(day.payableMinutes),
@@ -130,17 +200,19 @@ export function buildPayrollAccountantCsvRows(
           String(day.unpaidBreakMinutes),
           String(day.unpaidLunchMinutes),
           day.hasIncompletePunch ? "oui" : "non",
-          day.corrections.map((item) => item.notes ?? item.id).join(" | "),
-          day.notes.join(" | "),
+          collectPayrollAccountantHumanNotes(
+            day.corrections.map((item) => item.notes ?? "Correction")
+          ).join(" | "),
+          humanNotes.join(" | "),
         ]);
       }
       rows.push([
         ...base,
-        "sous_total_semaine",
+        "sous-total semaine",
         String(employee.employeeId),
         employee.employeeName ?? "",
-        week.weekStart,
-        week.weekEnd,
+        formatPayrollDateFrCa(week.weekStart),
+        formatPayrollDateFrCa(week.weekEnd),
         "",
         "",
         "",
@@ -157,7 +229,7 @@ export function buildPayrollAccountantCsvRows(
     }
     rows.push([
       ...base,
-      "total_employe",
+      "total employé",
       String(employee.employeeId),
       employee.employeeName ?? "",
       "",
@@ -172,16 +244,16 @@ export function buildPayrollAccountantCsvRows(
       String(employee.totals.unpaidBreakMinutes),
       String(employee.totals.unpaidLunchMinutes),
       "",
-      employee.exceptions
-        .map((item) => item.reasonLabel || item.exceptionType)
-        .join(" | "),
+      collectPayrollAccountantHumanNotes(
+        employee.exceptions.map((item) => item.reasonLabel || item.exceptionType)
+      ).join(" | "),
       "",
     ]);
   }
 
   rows.push([
     ...base,
-    "total_entreprise",
+    "total entreprise",
     "",
     "",
     "",
@@ -197,7 +269,7 @@ export function buildPayrollAccountantCsvRows(
     String(payload.companyTotals.unpaidLunchMinutes),
     "",
     "",
-    `employes=${payload.companyTotals.employeeCount}`,
+    `Employés = ${payload.companyTotals.employeeCount}`,
   ]);
 
   return rows;
@@ -208,9 +280,59 @@ export function serializePayrollAccountantCsv(
   meta: PayrollAccountantExportMeta = {}
 ) {
   const body = buildPayrollAccountantCsvRows(snapshot, meta)
-    .map((row) => row.map((cell) => escapeCsvCell(cell)).join(","))
+    .map((row) => row.map((cell) => escapeCsvCell(cell)).join(PAYROLL_CSV_FIELD_SEPARATOR))
     .join("\r\n");
   return `${UTF8_BOM}${body}\r\n`;
+}
+
+export function parsePayrollAccountantCsvFrCa(csv: string) {
+  const text = csv.replace(/^\uFEFF/, "");
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let cell = "";
+  let quoted = false;
+  for (let i = 0; i < text.length; i += 1) {
+    const char = text[i]!;
+    const next = text[i + 1];
+    if (quoted) {
+      if (char === '"' && next === '"') {
+        cell += '"';
+        i += 1;
+        continue;
+      }
+      if (char === '"') {
+        quoted = false;
+        continue;
+      }
+      cell += char;
+      continue;
+    }
+    if (char === '"') {
+      quoted = true;
+      continue;
+    }
+    if (char === PAYROLL_CSV_FIELD_SEPARATOR) {
+      row.push(cell);
+      cell = "";
+      continue;
+    }
+    if (char === "\r") continue;
+    if (char === "\n") {
+      row.push(cell);
+      if (row.some((value) => value.length > 0) || rows.length === 0) {
+        rows.push(row);
+      }
+      row = [];
+      cell = "";
+      continue;
+    }
+    cell += char;
+  }
+  if (cell.length > 0 || row.length > 0) {
+    row.push(cell);
+    rows.push(row);
+  }
+  return rows.filter((item) => item.some((value) => value.length > 0));
 }
 
 const WINANSI: Record<string, number> = {
@@ -276,48 +398,49 @@ function pdfLinesForSnapshot(
   meta: PayrollAccountantExportMeta
 ) {
   const payload = snapshot.payload;
+  const timezone = payload.timezone || PAYROLL_DISPLAY_TIMEZONE;
   const status = meta.status ?? "preview";
   const lines: string[] = [
-    "HORORA — Rapport comptable de paie",
+    "HORORA par TAGORA",
+    "Rapport comptable de paie",
     `Organisation : ${payload.organizationName ?? payload.organizationId}`,
     `Entreprise : ${payload.organizationCompanyName ?? payload.organizationCompanyId}`,
-    `Periode : ${payload.periodStart} au ${payload.periodEnd} (${payload.timezone})`,
+    `Période : ${formatPayrollDateFrCa(payload.periodStart)} au ${formatPayrollDateFrCa(payload.periodEnd)}`,
+    `Fuseau : ${timezone}`,
     `Statut : ${payrollReportStatusLabel(status)} / ${payrollCompletenessLabel(payload.completenessStatus)}`,
-    `Revision : ${meta.revision ?? "—"}`,
-    `Date d'emission : ${meta.issuedAt ?? "—"}`,
-    `Hash source : ${snapshot.sourceHash}`,
+    `Révision : ${meta.revision ?? "—"}`,
+    `Date d'émission : ${formatPayrollDateTimeFrCa(meta.issuedAt, timezone) || "—"}`,
     "",
   ];
 
   if (payload.employees.length === 0) {
-    lines.push("Aucune heure sur la periode selectionnee.");
+    lines.push("Aucune heure sur la période sélectionnée.");
   }
 
   for (const employee of payload.employees) {
-    lines.push(
-      `Employe : ${employee.employeeName ?? employee.employeeId}`
-    );
+    lines.push(`Employé : ${employee.employeeName ?? employee.employeeId}`);
     for (const week of employee.weeks) {
       lines.push(
-        `  Semaine ${week.weekStart} - ${week.weekEnd} | regular ${formatPayrollHours(week.regularMinutes)} h | extra ${formatPayrollHours(week.overtimeMinutes)} h | pauses ${week.paidBreakMinutes + week.unpaidBreakMinutes + week.unpaidLunchMinutes} min`
+        `  Semaine ${formatPayrollDateFrCa(week.weekStart)} — ${formatPayrollDateFrCa(week.weekEnd)} | régulier ${formatPayrollHours(week.regularMinutes)} h | extra ${formatPayrollHours(week.overtimeMinutes)} h | pauses ${week.paidBreakMinutes + week.unpaidBreakMinutes + week.unpaidLunchMinutes} min`
       );
       for (const day of week.days) {
-        const notes = [...day.notes, ...day.corrections.map((item) => item.notes ?? "correction")]
-          .filter(Boolean)
-          .join("; ");
+        const notes = collectPayrollAccountantHumanNotes([
+          ...day.corrections.map((item) => item.notes ?? "Correction"),
+          ...day.notes,
+        ]).join("; ");
         lines.push(
-          `    ${day.workDate}  ${day.punchInAt ?? "—"} -> ${day.punchOutAt ?? "—"}  R ${formatPayrollHours(day.regularMinutes)}  S ${formatPayrollHours(day.overtimeMinutes)}${day.hasIncompletePunch ? "  INCOMPLET" : ""}${notes ? `  ${notes}` : ""}`
+          `    ${formatPayrollDateFrCa(day.workDate)}  ${formatPayrollDateTimeFrCa(day.punchInAt, timezone) || "—"} -> ${formatPayrollDateTimeFrCa(day.punchOutAt, timezone) || "—"}  R ${formatPayrollHours(day.regularMinutes)}  S ${formatPayrollHours(day.overtimeMinutes)}${day.hasIncompletePunch ? "  INCOMPLET" : ""}${notes ? `  ${notes}` : ""}`
         );
       }
     }
     lines.push(
-      `  Total employe : R ${formatPayrollHours(employee.totals.regularMinutes)} h | S ${formatPayrollHours(employee.totals.overtimeMinutes)} h | payable ${formatPayrollHours(employee.totals.payableMinutes)} h`
+      `  Total employé : R ${formatPayrollHours(employee.totals.regularMinutes)} h | S ${formatPayrollHours(employee.totals.overtimeMinutes)} h | payable ${formatPayrollHours(employee.totals.payableMinutes)} h`
     );
     lines.push("");
   }
 
   lines.push(
-    `Totaux entreprise : R ${formatPayrollHours(payload.companyTotals.regularMinutes)} h | S ${formatPayrollHours(payload.companyTotals.overtimeMinutes)} h | payable ${formatPayrollHours(payload.companyTotals.payableMinutes)} h | employes ${payload.companyTotals.employeeCount}`
+    `Totaux entreprise : R ${formatPayrollHours(payload.companyTotals.regularMinutes)} h | S ${formatPayrollHours(payload.companyTotals.overtimeMinutes)} h | payable ${formatPayrollHours(payload.companyTotals.payableMinutes)} h | employés ${payload.companyTotals.employeeCount}`
   );
   return lines;
 }
@@ -343,8 +466,8 @@ export function buildPayrollAccountantPdfBytes(
   );
   const pageWidth = 612;
   const pageHeight = 792;
-  const margin = 40;
-  const lineHeight = 12;
+  const margin = 48;
+  const lineHeight = 14;
   const linesPerPage = Math.floor((pageHeight - margin * 2) / lineHeight);
   const pages: string[][] = [];
   for (let i = 0; i < wrapped.length; i += linesPerPage) {
@@ -365,13 +488,21 @@ export function buildPayrollAccountantPdfBytes(
 
   for (let i = 0; i < pages.length; i += 1) {
     const footer = `Page ${i + 1} / ${pages.length}`;
+    const headerBar =
+      "0.094 0.149 0.263 rg 0 760 612 32 re f 0.122 0.475 0.878 rg 0 756 612 4 re f";
     const streamLines = [
+      headerBar,
       "BT",
-      "/F1 10 Tf",
-      `${margin} ${pageHeight - margin} Td`,
+      "/F1 11 Tf",
+      "1 1 1 rg",
+      `${margin} ${pageHeight - 28} Td`,
+      "(HORORA par TAGORA) Tj",
+      "0.094 0.149 0.263 rg",
+      `/F1 10 Tf`,
+      `0 -${28} Td`,
       `${lineHeight} TL`,
       ...pages[i]!.map((line) => `(${pdfEscape(line)}) '`),
-      `0 ${margin - (pageHeight - margin - pages[i]!.length * lineHeight)} Td`,
+      `0 ${margin - (pageHeight - 56 - pages[i]!.length * lineHeight)} Td`,
       `(${pdfEscape(footer)}) '`,
       "ET",
     ];

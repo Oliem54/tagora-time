@@ -8,7 +8,10 @@ import {
   escapeCsvCell,
   formatPayrollHours,
   guardCsvFormulaInjection,
+  parsePayrollAccountantCsvFrCa,
   payrollAccountantExportFileStem,
+  PAYROLL_ACCOUNTANT_CSV_HEADERS,
+  PAYROLL_CSV_FIELD_SEPARATOR,
   serializePayrollAccountantCsv,
 } from "./payroll-accountant-export.shared";
 import type {
@@ -121,6 +124,32 @@ function snapshot() {
         is_manual_correction: true,
         notes: "=CMD()",
       },
+      {
+        id: "e2",
+        employee_id: 7,
+        organization_id: ORG,
+        organization_company_id: COMPANY,
+        work_date: "2026-08-10",
+        week_start_date: "2026-08-10",
+        event_type: "anomalie",
+        occurred_at: "2026-08-10T12:05:00.000Z",
+        status: "approuve",
+        is_manual_correction: false,
+        notes: "45.501700, -73.567300 gps accuracy=12",
+      },
+      {
+        id: "e3",
+        employee_id: 7,
+        organization_id: ORG,
+        organization_company_id: COMPANY,
+        work_date: "2026-08-10",
+        week_start_date: "2026-08-10",
+        event_type: "anomalie",
+        occurred_at: "2026-08-10T12:06:00.000Z",
+        status: "approuve",
+        is_manual_correction: false,
+        notes: "Correction entrée retard autorisée",
+      },
     ],
     exceptions: [],
   });
@@ -142,28 +171,42 @@ describe("payroll accountant CSV and PDF export", () => {
     );
   });
 
-  it("builds a deterministic UTF-8 CSV with employee/week/day grouping", () => {
+  it("builds a deterministic UTF-8 CSV with Excel fr-CA columns and no GPS leakage", () => {
     const built = snapshot();
     const first = serializePayrollAccountantCsv(built);
     const second = serializePayrollAccountantCsv(built);
     expect(first).toBe(second);
     expect(first.startsWith("\uFEFF")).toBe(true);
-    expect(first).toContain("journee");
-    expect(first).toContain("sous_total_semaine");
-    expect(first).toContain("total_employe");
-    expect(first).toContain("total_entreprise");
+    expect(first).toContain(PAYROLL_CSV_FIELD_SEPARATOR);
+    expect(first).toContain("journée");
+    expect(first).toContain("sous-total semaine");
+    expect(first).toContain("total employé");
+    expect(first).toContain("total entreprise");
     expect(first).toContain("Yves Test");
-    expect(first).toContain("2026-08-10");
+    expect(first).toContain("Correction entrée retard autorisée");
     expect(first).toContain("'=CMD()");
+    expect(first).not.toContain("45.501700");
+    expect(first).not.toContain("gps");
+    expect(first).not.toMatch(/2026-08-10T12:00:00/);
+    const parsed = parsePayrollAccountantCsvFrCa(first);
+    expect(parsed[0]).toEqual([...PAYROLL_ACCOUNTANT_CSV_HEADERS]);
+    expect(parsed[0]?.length).toBe(PAYROLL_ACCOUNTANT_CSV_HEADERS.length);
+    expect(parsed.slice(1).every((row) => row.length === parsed[0]?.length)).toBe(
+      true
+    );
+    expect(first.split("\r\n")[0]?.split(",").length).toBe(1);
     const rows = buildPayrollAccountantCsvRows(built);
-    expect(rows[0]?.[0]).toBe("organisation");
-    expect(rows.some((row) => row[6] === "journee")).toBe(true);
+    expect(rows[0]?.[0]).toBe("Organisation");
+    expect(rows.some((row) => row[6] === "journée")).toBe(true);
+    expect(built.payload.employees[0]?.weeks[0]?.days[0]?.notes.join(" ")).toContain(
+      "45.501700"
+    );
     expect(payrollAccountantExportFileStem(built.payload)).toBe(
       "horora-rapport-comptable-oliem-solutions-2026-08-10-2026-08-23"
     );
   });
 
-  it("generates a non-empty PDF with HORORA identity and tenant scope", () => {
+  it("generates a non-empty PDF with HORORA identity, local dates and no technical GPS", () => {
     const pdf = buildPayrollAccountantPdfBytes(snapshot(), {
       status: "issued",
       revision: 1,
@@ -173,9 +216,11 @@ describe("payroll accountant CSV and PDF export", () => {
     const text = new TextDecoder("latin1").decode(pdf);
     expect(text.startsWith("%PDF-1.4")).toBe(true);
     expect(text).toContain("%%EOF");
-    expect(text).toContain("HORORA");
+    expect(text).toContain("HORORA par TAGORA");
     expect(text).toContain("Oliem Solutions");
-    expect(text).toContain("2026-08-10");
+    expect(text).not.toContain("Hash source");
+    expect(text).not.toContain("45.501700");
+    expect(text).not.toContain("2026-08-10T12:00:00.000Z");
     expect(text).not.toContain("22222222-2222-4222-8222-222222222222");
   });
 });

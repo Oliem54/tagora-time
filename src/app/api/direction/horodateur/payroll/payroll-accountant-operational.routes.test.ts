@@ -380,7 +380,7 @@ describe("payroll accountant operational API routes", () => {
     const csv = bytes.toString("utf8");
     expect(csv).toContain("'=CMD()");
     expect(csv).toContain("Yves Test");
-    expect(csv).toContain("sous_total_semaine");
+    expect(csv).toContain("sous-total semaine");
     expect(csv).not.toContain(OTHER_ORG);
   });
 

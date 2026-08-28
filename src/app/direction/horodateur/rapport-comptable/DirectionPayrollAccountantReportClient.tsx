@@ -18,6 +18,9 @@ import TagoraLoadingScreen from "@/app/components/ui/TagoraLoadingScreen";
 import HorodateurDirectionPageShell from "@/app/direction/horodateur/HorodateurDirectionPageShell";
 import { useCurrentAccess } from "@/app/hooks/useCurrentAccess";
 import {
+  collectPayrollAccountantHumanNotes,
+  formatPayrollDateFrCa,
+  formatPayrollDateTimeFrCa,
   formatPayrollHours,
   payrollCompletenessLabel,
   payrollReportStatusLabel,
@@ -181,7 +184,7 @@ export default function DirectionPayrollAccountantReportClient() {
 
   const refreshPreview = useCallback(async () => {
     if (!companyId || !periodStart || !periodEnd) {
-      setErrorMessage("Choisissez une entreprise et une periode.");
+      setErrorMessage("Choisissez une entreprise et une période.");
       return;
     }
     setLoadingPreview(true);
@@ -263,14 +266,14 @@ export default function DirectionPayrollAccountantReportClient() {
       setLatestIssuedHash(body.result.sourceHash);
       setMessage(
         body.result.idempotent
-          ? `Rapport deja emis (revision ${body.result.revision}).`
-          : `Rapport emis (revision ${body.result.revision}).`
+          ? `Rapport déjà émis (révision ${body.result.revision}).`
+          : `Rapport émis (révision ${body.result.revision}).`
       );
     } else {
       setMessage(
         body.result.idempotent
-          ? "Brouillon deja a jour."
-          : "Brouillon enregistre."
+          ? "Brouillon déjà à jour."
+          : "Brouillon enregistré."
       );
     }
     setConfirmOpen(false);
@@ -319,7 +322,7 @@ export default function DirectionPayrollAccountantReportClient() {
     return (
       <HorodateurDirectionPageShell
         active="paie"
-        subtitle="Rapport comptable de paie HORORA"
+      subtitle="Rapport comptable de paie HORORA"
       >
         <AccessNotice description="La permission horodateur_payroll_read est requise." />
       </HorodateurDirectionPageShell>
@@ -337,16 +340,16 @@ export default function DirectionPayrollAccountantReportClient() {
   return (
     <HorodateurDirectionPageShell
       active="paie"
-      subtitle="Preparer, verifier, emettre et exporter le rapport comptable"
+      subtitle="Préparer, vérifier, émettre et exporter le rapport comptable"
     >
       <section className="horora-payroll-accountant" aria-labelledby="horora-payroll-title">
         <div className="horora-payroll-accountant-toolbar">
           <h2 id="horora-payroll-title" className="horora-payroll-accountant-heading">
-            Selection du rapport
+            Sélection du rapport
           </h2>
           <div className="horora-payroll-accountant-filters">
             <label className="tagora-field">
-              <span className="tagora-label">Entreprise operante</span>
+              <span className="tagora-label">Entreprise opérante</span>
               <select
                 className="tagora-input"
                 value={companyId}
@@ -368,7 +371,7 @@ export default function DirectionPayrollAccountantReportClient() {
               </select>
             </label>
             <label className="tagora-field">
-              <span className="tagora-label">Date de debut</span>
+              <span className="tagora-label">Date de début</span>
               <input
                 type="date"
                 className="tagora-input"
@@ -404,17 +407,17 @@ export default function DirectionPayrollAccountantReportClient() {
                 <option value="">Aucun cycle</option>
                 {cycles.map((cycle) => (
                   <option key={cycle.id} value={cycle.id}>
-                    {cycle.periodStart} → {cycle.periodEnd}
+                    {formatPayrollDateFrCa(cycle.periodStart)} → {formatPayrollDateFrCa(cycle.periodEnd)}
                   </option>
                 ))}
               </select>
             </label>
           </div>
           <p className="horora-payroll-accountant-hint">
-            Cycle par defaut : deux semaines inclusives.
-            {biweekly ? " Periode de 14 jours confirmee." : " Periode personnalisee."}
+            Cycle par défaut : deux semaines inclusives.
+            {biweekly ? " Période de 14 jours confirmée." : " Période personnalisée."}
             {selectedCycle && !datesMatchCycle
-              ? " Les dates different du cycle : l'enregistrement exigera le calendrier exact du cycle."
+              ? " Les dates diffèrent du cycle : l'enregistrement exigera le calendrier exact du cycle."
               : null}
           </p>
         </div>
@@ -422,7 +425,7 @@ export default function DirectionPayrollAccountantReportClient() {
         <div className="horora-payroll-accountant-actions" role="toolbar" aria-label="Actions du rapport">
           <SecondaryButton onClick={() => void refreshPreview()} disabled={loadingPreview || busy}>
             <RefreshCw size={16} aria-hidden />
-            Actualiser l&apos;apercu
+            Actualiser l&apos;aperçu
           </SecondaryButton>
           <SecondaryButton
             onClick={() => void persist("draft")}
@@ -442,15 +445,15 @@ export default function DirectionPayrollAccountantReportClient() {
             }
           >
             <Send size={16} aria-hidden />
-            Emettre le rapport
+            Émettre le rapport
           </PrimaryButton>
           <SecondaryButton onClick={() => void exportFile("csv")} disabled={busy || !preview}>
             <FileSpreadsheet size={16} aria-hidden />
-            Telecharger CSV
+            Télécharger CSV
           </SecondaryButton>
           <SecondaryButton onClick={() => void exportFile("pdf")} disabled={busy || !preview}>
             <Download size={16} aria-hidden />
-            Telecharger PDF
+            Télécharger PDF
           </SecondaryButton>
           <SecondaryButton onClick={() => window.print()} disabled={!preview}>
             <Printer size={16} aria-hidden />
@@ -461,7 +464,7 @@ export default function DirectionPayrollAccountantReportClient() {
         {issuedLocked ? (
           <p className="horora-payroll-accountant-lock" role="status">
             <Lock size={16} aria-hidden />
-            Rapport emis verrouille. Aucune modification n&apos;est possible.
+            Rapport émis verrouillé. Aucune modification n&apos;est possible.
           </p>
         ) : null}
         {errorMessage ? (
@@ -474,13 +477,13 @@ export default function DirectionPayrollAccountantReportClient() {
         ) : null}
 
         {loadingPreview ? (
-          <AccessNotice description="Chargement de l'apercu comptable..." />
+          <AccessNotice description="Chargement de l'aperçu comptable..." />
         ) : null}
 
         {!loadingPreview && !preview ? (
           <AccessNotice
-            title="Apercu vide"
-            description="Actualisez l'apercu pour charger les heures de la periode."
+            title="Aperçu vide"
+            description="Actualisez l'aperçu pour charger les heures de la période."
           />
         ) : null}
 
@@ -488,12 +491,13 @@ export default function DirectionPayrollAccountantReportClient() {
           <article className="horora-payroll-accountant-report" aria-labelledby="horora-payroll-report-title">
             <header className="horora-payroll-accountant-report-head">
               <div>
-                <h3 id="horora-payroll-report-title">Apercu comptable</h3>
+                <h3 id="horora-payroll-report-title">Aperçu comptable</h3>
                 <p>
                   {preview.payload.organizationName} — {preview.payload.organizationCompanyName}
                 </p>
                 <p>
-                  {preview.payload.periodStart} au {preview.payload.periodEnd} ({preview.payload.timezone})
+                  {formatPayrollDateFrCa(preview.payload.periodStart)} au{" "}
+                  {formatPayrollDateFrCa(preview.payload.periodEnd)}
                 </p>
               </div>
               <div className="horora-payroll-accountant-badges">
@@ -506,25 +510,25 @@ export default function DirectionPayrollAccountantReportClient() {
                   tone={persistMeta?.status === "issued" ? "success" : "info"}
                 />
                 {persistMeta ? (
-                  <StatusBadge label={`Revision ${persistMeta.revision}`} tone="default" />
+                  <StatusBadge label={`Révision ${persistMeta.revision}`} tone="default" />
                 ) : null}
               </div>
             </header>
 
             {preview.completenessStatus === "blocked_incomplete" ? (
               <AccessNotice
-                title="Emission bloquee"
-                description="Des pointages sont incomplets. Corrigez-les ou forcez l'emission avec un motif."
+                title="Émission bloquée"
+                description="Des pointages sont incomplets. Corrigez-les ou forcez l'émission avec un motif."
               />
             ) : null}
 
             <div className="horora-payroll-accountant-totals" aria-label="Totaux generaux">
               <div>
-                <span>Heures regulieres</span>
+                <span>Heures régulières</span>
                 <strong>{formatPayrollHours(preview.totals.regularMinutes)} h</strong>
               </div>
               <div>
-                <span>Heures supplementaires</span>
+                <span>Heures supplémentaires</span>
                 <strong>{formatPayrollHours(preview.totals.overtimeMinutes)} h</strong>
               </div>
               <div>
@@ -532,13 +536,13 @@ export default function DirectionPayrollAccountantReportClient() {
                 <strong>{formatPayrollHours(preview.totals.payableMinutes)} h</strong>
               </div>
               <div>
-                <span>Employes</span>
+                <span>Employés</span>
                 <strong>{preview.totals.employeeCount}</strong>
               </div>
             </div>
 
             {preview.payload.employees.length === 0 ? (
-              <AccessNotice description="Aucune heure sur la periode selectionnee." />
+              <AccessNotice description="Aucune heure sur la période sélectionnée." />
             ) : (
               preview.payload.employees.map((employee) => (
                 <section
@@ -547,12 +551,12 @@ export default function DirectionPayrollAccountantReportClient() {
                   aria-labelledby={`employee-${employee.employeeId}`}
                 >
                   <h4 id={`employee-${employee.employeeId}`}>
-                    {employee.employeeName ?? `Employe ${employee.employeeId}`}
+                    {employee.employeeName ?? `Employé ${employee.employeeId}`}
                   </h4>
                   {employee.weeks.map((week) => (
                     <div key={`${employee.employeeId}-${week.weekStart}`}>
                       <h5>
-                        Semaine {week.weekStart} — {week.weekEnd} · R{" "}
+                        Semaine {formatPayrollDateFrCa(week.weekStart)} — {formatPayrollDateFrCa(week.weekEnd)} · R{" "}
                         {formatPayrollHours(week.regularMinutes)} h · S{" "}
                         {formatPayrollHours(week.overtimeMinutes)} h
                       </h5>
@@ -560,8 +564,8 @@ export default function DirectionPayrollAccountantReportClient() {
                         <table>
                           <thead>
                             <tr>
-                              <th scope="col">Journee</th>
-                              <th scope="col">Entree</th>
+                              <th scope="col">Journée</th>
+                              <th scope="col">Entrée</th>
                               <th scope="col">Sortie</th>
                               <th scope="col">Regulier</th>
                               <th scope="col">Supp.</th>
@@ -572,9 +576,9 @@ export default function DirectionPayrollAccountantReportClient() {
                           <tbody>
                             {week.days.map((day) => (
                               <tr key={day.workDate}>
-                                <th scope="row">{day.workDate}</th>
-                                <td>{day.punchInAt ?? "—"}</td>
-                                <td>{day.punchOutAt ?? "—"}</td>
+                                <th scope="row">{formatPayrollDateFrCa(day.workDate)}</th>
+                                <td>{formatPayrollDateTimeFrCa(day.punchInAt, preview.payload.timezone) || "—"}</td>
+                                <td>{formatPayrollDateTimeFrCa(day.punchOutAt, preview.payload.timezone) || "—"}</td>
                                 <td>{formatPayrollHours(day.regularMinutes)} h</td>
                                 <td>{formatPayrollHours(day.overtimeMinutes)} h</td>
                                 <td>
@@ -585,12 +589,10 @@ export default function DirectionPayrollAccountantReportClient() {
                                   {day.hasIncompletePunch ? " · incomplet" : ""}
                                 </td>
                                 <td>
-                                  {[
-                                    ...day.corrections.map((item) => item.notes ?? "correction"),
+                                  {collectPayrollAccountantHumanNotes([
+                                    ...day.corrections.map((item) => item.notes ?? "Correction"),
                                     ...day.notes,
-                                  ]
-                                    .filter(Boolean)
-                                    .join(" · ") || "—"}
+                                  ]).join(" · ") || "—"}
                                 </td>
                               </tr>
                             ))}
@@ -600,9 +602,9 @@ export default function DirectionPayrollAccountantReportClient() {
                     </div>
                   ))}
                   <p className="horora-payroll-accountant-employee-total">
-                    Total employe : {formatPayrollHours(employee.totals.regularMinutes)} h
-                    regulieres, {formatPayrollHours(employee.totals.overtimeMinutes)} h
-                    supplementaires, {formatPayrollHours(employee.totals.payableMinutes)} h
+                    Total employé : {formatPayrollHours(employee.totals.regularMinutes)} h
+                    régulières, {formatPayrollHours(employee.totals.overtimeMinutes)} h
+                    supplémentaires, {formatPayrollHours(employee.totals.payableMinutes)} h
                     payables.
                   </p>
                 </section>
@@ -623,15 +625,15 @@ export default function DirectionPayrollAccountantReportClient() {
             aria-modal="true"
             aria-labelledby="horora-payroll-confirm-title"
           >
-            <h3 id="horora-payroll-confirm-title">Confirmer l&apos;emission</h3>
+            <h3 id="horora-payroll-confirm-title">Confirmer l&apos;émission</h3>
             <p>
-              Le rapport sera emis et verrouille. Une emission identique restera
+              Le rapport sera émis et verrouillé. Une émission identique restera
               idempotente.
             </p>
             {preview?.completenessStatus === "blocked_incomplete" ||
             preview?.completenessStatus === "forced" ? (
               <label className="tagora-field">
-                <span className="tagora-label">Motif d&apos;emission forcee</span>
+                <span className="tagora-label">Motif d&apos;émission forcée</span>
                 <textarea
                   className="tagora-input"
                   value={forceReason}
@@ -654,7 +656,7 @@ export default function DirectionPayrollAccountantReportClient() {
                     !forceReason.trim())
                 }
               >
-                Confirmer l&apos;emission
+                Confirmer l&apos;émission
               </PrimaryButton>
             </div>
           </div>
