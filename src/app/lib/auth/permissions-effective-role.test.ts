@@ -142,7 +142,28 @@ describe("access admin effective-role wiring", () => {
     );
     expect(authGate).toContain("fetchSessionAuthorizationContext");
     expect(authGate).toContain("membershipAdminModuleBypass");
+    expect(authGate).toContain(
+      "hasUserPermission(user, requiredPermission, role)"
+    );
+    expect(authGate).not.toMatch(
+      /hasUserPermission\(user, requiredPermission\)(?!\s*,\s*role)/
+    );
     expect(authGate).toMatch(/H4 membership is required/i);
+  });
+
+  it("grants payroll to H4 admin even when JWT is also admin, without JWT payroll claims", () => {
+    const jwtAdmin = makeUser({ jwtRole: "admin", permissions: [] });
+    expect(hasUserPermission(jwtAdmin, "horodateur_payroll_read")).toBe(false);
+    expect(hasUserPermission(jwtAdmin, "horodateur_payroll_manage")).toBe(false);
+    expect(hasUserPermission(jwtAdmin, "horodateur_payroll_read", "admin")).toBe(
+      true
+    );
+    expect(
+      hasUserPermission(jwtAdmin, "horodateur_payroll_manage", "admin")
+    ).toBe(true);
+    expect(
+      hasUserPermission(jwtAdmin, "horodateur_payroll_read", "direction")
+    ).toBe(false);
   });
 
   it("wires AccountAuthGate membership as authorization source", () => {

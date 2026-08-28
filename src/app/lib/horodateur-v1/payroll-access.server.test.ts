@@ -141,6 +141,31 @@ describe("evaluateHorodateurPayrollAccess", () => {
     expect(canReadHorodateurPayroll(user, null)).toBe(false);
     expect(canManageHorodateurPayroll(user, null)).toBe(false);
   });
+
+  it("grants JWT admin payroll only through active owner/admin membership, not JWT", () => {
+    const user = makeUser({ jwtRole: "admin", appPermissions: [] });
+    expect(
+      canManageHorodateurPayroll(user, {
+        role: "organization_admin",
+        status: "active",
+      })
+    ).toBe(true);
+    expect(
+      canReadHorodateurPayroll(user, {
+        role: "organization_owner",
+        status: "active",
+      })
+    ).toBe(true);
+    expect(
+      canReadHorodateurPayroll(user, { role: "direction", status: "active" })
+    ).toBe(false);
+    expect(
+      canReadHorodateurPayroll(user, {
+        role: "organization_admin",
+        status: "inactive",
+      })
+    ).toBe(false);
+  });
 });
 
 describe("hasUserPermission payroll special case", () => {

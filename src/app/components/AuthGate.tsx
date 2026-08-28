@@ -188,8 +188,13 @@ export default function AuthGate({
           const requiredPermission = getRequiredPermissionForPath(pathname);
 
           // Finance stays JWT-admin only (hasAdminFinanceAccess).
-          // Membership-mapped admin may lack JWT permission lists for non-finance modules.
-          if (requiredPermission && !hasUserPermission(user, requiredPermission)) {
+          // Membership AppRole is authoritative for payroll and other direction modules:
+          // H4 admin/owner must not be blocked when JWT is also admin (legacy omit-role
+          // payroll check returns false).
+          if (
+            requiredPermission &&
+            !hasUserPermission(user, requiredPermission, role)
+          ) {
             const membershipAdminModuleBypass =
               requiredPermission !== "admin_finance" &&
               role === "admin" &&
