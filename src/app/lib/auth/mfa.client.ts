@@ -8,6 +8,8 @@ import {
   isStagingQaMfaBypassAllowed,
   roleRequiresMandatoryMfa,
 } from "@/app/lib/auth/mfa.shared";
+import { resolveMfaVerifyPersistence } from "@/app/lib/auth/mfa-verify-session.shared";
+import { persistServerSessionCookie } from "@/app/lib/auth/session-cookie";
 
 export type MandatoryMfaGate =
   | { kind: "none" }
@@ -222,6 +224,72 @@ export async function verifyMfaWithChallenge(params: {
 export async function refreshSessionAfterMfa() {
   const { data, error } = await supabase.auth.refreshSession();
   return { data, error };
+}
+
+export async function persistVerifiedMfaSession(verifyResult: {
+  data?: unknown;
+  error?: { code?: string; message?: string } | null;
+}): Promise<{
+  ok: boolean;
+  deny:
+    | "wrong_code"
+    | "expired_code"
+    | "replayed_code"
+    | "session_missing"
+    | "cookie_persist_failed"
+    | null;
+  accessToken: string | null;
+}> {
+  let decision = resolveMfaVerifyPersistence(verifyResult);
+  if (!decision.ok && decision.deny === "session_missing" && !verifyResult.error) {
+    const { data } = await supabase.auth.getSession();
+    decision = resolveMfaVerifyPersistence({
+      data: data.session,
+      error: null,
+    });
+  }
+  if (!decision.ok) {
+    return { ok: false, deny: decision.deny, accessToken: null };
+  }
+
+  if (decision.refreshToken) {
+    const { error } = await supabase.auth.setSession({
+      access_token: decision.accessToken,
+      refresh_token: decision.refreshToken,
+    });
+    if (error) {
+      console.warn("[mfa] setSession after verify", error.message);
+    }
+  }
+
+  if (decision.refreshSession) {
+    const refresh = await refreshSessionAfterMfa();
+    if (refresh.error) {
+      console.warn("[mfa] refreshSession after verify", refresh.error.message);
+    }
+  }
+
+  const persist = await persistServerSessionCookie(decision.accessToken, "mfa");
+  if (!persist.ok) {
+    return {
+      ok: false,
+      deny: "cookie_persist_failed",
+      accessToken: decision.accessToken,
+    };
+  }
+
+  console.info("[auth-cookie] post-verify MFA cookie", {
+    action: "written",
+    cookieName: "tagora_app_session",
+    httpOnly: true,
+    sameSite: "lax",
+    path: "/",
+    domain: null,
+    valuePresent: true,
+    valueLength: decision.accessToken.length,
+  });
+
+  return { ok: true, deny: null, accessToken: decision.accessToken };
 }
 
 export async function pickPreferredVerifiedMfaFactor(): Promise<

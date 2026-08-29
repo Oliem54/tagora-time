@@ -16,8 +16,8 @@ import {
   enrollTotpFactor,
   fetchChauffeurTelephoneHint,
   listMfaFactorsForUi,
+  persistVerifiedMfaSession,
   postMfaAuditEvent,
-  refreshSessionAfterMfa,
   resetMfaVerifyFailureTracking,
   trackMfaVerifyFailureForAlerts,
   verifyMfaWithChallenge,
@@ -35,10 +35,6 @@ import {
 import { signOutToSwitchAccount } from "@/app/lib/auth/password-mfa.client";
 import { getHomePathForRole, getUserRole } from "@/app/lib/auth/roles";
 import { supabase } from "@/app/lib/supabase/client";
-import {
-  buildAppSessionCookieWriteDebug,
-  writeBrowserSessionCookie,
-} from "@/app/lib/auth/session-cookie";
 
 export default function MfaSetupPage() {
   const router = useRouter();
@@ -153,22 +149,6 @@ export default function MfaSetupPage() {
       router.refresh();
     } finally {
       setSwitchAccountBusy(false);
-    }
-  }
-
-  async function syncCookie() {
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
-    writeBrowserSessionCookie(session?.access_token ?? null);
-    if (session?.access_token) {
-      console.info(
-        "[auth-cookie] post-MFA cookie",
-        buildAppSessionCookieWriteDebug(
-          session.access_token,
-          window.location.protocol === "https:"
-        )
-      );
     }
   }
 
@@ -287,30 +267,37 @@ export default function MfaSetupPage() {
     setSmsMessage("");
     setSmsMessageType(null);
     try {
-      const { error } = await verifyMfaWithChallenge({
+      const verifyResult = await verifyMfaWithChallenge({
         factorId: smsFactorId,
         challengeId: smsChallengeId,
         code: trimmed,
       });
-      if (error) {
+      if (verifyResult.error) {
         const {
           data: { session },
         } = await supabase.auth.getSession();
         void postMfaAuditEvent("mfa_verify_failed", session?.access_token ?? null);
         trackMfaVerifyFailureForAlerts(session?.access_token ?? null);
-        const code = readErrCode(error);
-        setSmsMessage(describeSupabaseMfaPhoneError(code, error.message || "Code invalide."));
+        const code = readErrCode(verifyResult.error);
+        setSmsMessage(
+          describeSupabaseMfaPhoneError(code, verifyResult.error.message || "Code invalide.")
+        );
+        setSmsMessageType("error");
+        return;
+      }
+
+      const persist = await persistVerifiedMfaSession(verifyResult);
+      if (!persist.ok) {
+        setSmsMessage(
+          persist.deny === "cookie_persist_failed"
+            ? "La vérification a réussi, mais la session n’a pas pu être enregistrée. Réessayez."
+            : "Impossible d’ouvrir la session après la vérification. Réessayez."
+        );
         setSmsMessageType("error");
         return;
       }
 
       resetMfaVerifyFailureTracking();
-
-      const refresh = await refreshSessionAfterMfa();
-      if (refresh.error) {
-        console.warn("[mfa] refreshSession", refresh.error.message);
-      }
-      await syncCookie();
 
       const {
         data: { session },
@@ -376,29 +363,37 @@ export default function MfaSetupPage() {
     setTotpMessage("");
     setTotpMessageType(null);
     try {
-      const { error } = await challengeAndVerifyTotp(totpFactorId, trimmed);
-      if (error) {
+      const verifyResult = await challengeAndVerifyTotp(totpFactorId, trimmed);
+      if (verifyResult.error) {
         const {
           data: { session },
         } = await supabase.auth.getSession();
         void postMfaAuditEvent("mfa_verify_failed", session?.access_token ?? null);
         trackMfaVerifyFailureForAlerts(session?.access_token ?? null);
         setTotpMessage(
-          typeof error === "object" && error && "message" in error && typeof error.message === "string"
-            ? error.message
+          typeof verifyResult.error === "object" &&
+            verifyResult.error &&
+            "message" in verifyResult.error &&
+            typeof verifyResult.error.message === "string"
+            ? verifyResult.error.message
             : "Code invalide ou expiré."
         );
         setTotpMessageType("error");
         return;
       }
 
-      resetMfaVerifyFailureTracking();
-
-      const refresh = await refreshSessionAfterMfa();
-      if (refresh.error) {
-        console.warn("[mfa] refreshSession totp", refresh.error.message);
+      const persist = await persistVerifiedMfaSession(verifyResult);
+      if (!persist.ok) {
+        setTotpMessage(
+          persist.deny === "cookie_persist_failed"
+            ? "La vérification a réussi, mais la session n’a pas pu être enregistrée. Réessayez."
+            : "Impossible d’ouvrir la session après la vérification. Réessayez."
+        );
+        setTotpMessageType("error");
+        return;
       }
-      await syncCookie();
+
+      resetMfaVerifyFailureTracking();
 
       const {
         data: { session },

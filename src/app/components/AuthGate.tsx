@@ -24,6 +24,7 @@ import { fetchSessionAuthorizationContext } from "@/app/lib/auth/session-context
 import { hasPasswordChangeRequired } from "@/app/lib/auth/passwords";
 import { getMandatoryMfaGate } from "@/app/lib/auth/mfa.client";
 import { isAuthMfaPath } from "@/app/lib/auth/mfa.shared";
+import { clearServerSessionCookie } from "@/app/lib/auth/session-cookie";
 import TagoraLoadingScreen from "@/app/components/ui/TagoraLoadingScreen";
 
 type CrossAreaReadRule = {
@@ -136,6 +137,7 @@ export default function AuthGate({
           // H4 membership is required. JWT alone (including admin) does not authorize.
           if (!ctx.authorized || !ctx.appRole) {
             await supabase.auth.signOut();
+            await clearServerSessionCookie();
             if (!cancelled) {
               router.replace(getLoginPathForRole(areaRole));
             }
@@ -215,6 +217,7 @@ export default function AuthGate({
         if (cancelled) return;
         try {
           await supabase.auth.signOut({ scope: "local" });
+          await clearServerSessionCookie();
         } catch {
           // ignore
         }

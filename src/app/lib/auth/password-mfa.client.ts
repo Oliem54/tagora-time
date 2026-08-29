@@ -2,7 +2,10 @@
 
 import { listMfaFactorsForUi } from "@/app/lib/auth/mfa.client";
 import { getLoginPathForRole, getUserRole } from "@/app/lib/auth/roles";
-import { writeBrowserSessionCookie } from "@/app/lib/auth/session-cookie";
+import {
+  clearServerSessionCookie,
+  writeBrowserSessionCookie,
+} from "@/app/lib/auth/session-cookie";
 import { supabase } from "@/app/lib/supabase/client";
 
 export { isSafeInternalReturnPath, loginPathForMissingMfaSession } from "@/app/lib/auth/password-mfa.shared";
@@ -57,6 +60,7 @@ export async function signOutToSwitchAccount(): Promise<string> {
   const role = getUserRole(data.user);
   const loginPath = role ? getLoginPathForRole(role) : "/direction/login";
   await supabase.auth.signOut();
+  await clearServerSessionCookie();
   clearTagoraAuthBrowserSession();
   return loginPath;
 }

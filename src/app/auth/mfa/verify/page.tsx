@@ -11,9 +11,9 @@ import {
   challengeAndVerifyTotp,
   challengePhoneMfa,
   listMfaFactorsForUi,
+  persistVerifiedMfaSession,
   pickPreferredVerifiedMfaFactor,
   postMfaAuditEvent,
-  refreshSessionAfterMfa,
   resetMfaVerifyFailureTracking,
   trackMfaVerifyFailureForAlerts,
   verifyMfaWithChallenge,
@@ -25,10 +25,6 @@ import {
 } from "@/app/lib/auth/password-mfa.client";
 import { getHomePathForRole, getUserRole } from "@/app/lib/auth/roles";
 import { supabase } from "@/app/lib/supabase/client";
-import {
-  buildAppSessionCookieWriteDebug,
-  writeBrowserSessionCookie,
-} from "@/app/lib/auth/session-cookie";
 
 export default function MfaVerifyPage() {
   const router = useRouter();
@@ -129,22 +125,6 @@ export default function MfaVerifyPage() {
     void sendPhoneChallengeForFactor(phoneFactorId);
   }, [loading, mode, phoneFactorId, sendPhoneChallengeForFactor]);
 
-  async function syncCookie() {
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
-    writeBrowserSessionCookie(session?.access_token ?? null);
-    if (session?.access_token) {
-      console.info(
-        "[auth-cookie] post-verify MFA cookie",
-        buildAppSessionCookieWriteDebug(
-          session.access_token,
-          window.location.protocol === "https:"
-        )
-      );
-    }
-  }
-
   function readErrCode(e: unknown): string | undefined {
     if (typeof e === "object" && e !== null && "code" in e) {
       const c = (e as { code?: unknown }).code;
@@ -194,34 +174,59 @@ export default function MfaVerifyPage() {
           setBusy(false);
           return;
         }
-        const { error } = await verifyMfaWithChallenge({
+        const verifyResult = await verifyMfaWithChallenge({
           factorId,
           challengeId,
           code: trimmed,
         });
-        if (error) {
+        if (verifyResult.error) {
           const {
             data: { session },
           } = await supabase.auth.getSession();
           void postMfaAuditEvent("mfa_verify_failed", session?.access_token ?? null);
           trackMfaVerifyFailureForAlerts(session?.access_token ?? null);
-          const c = readErrCode(error);
-          setMessage(describeSupabaseMfaPhoneError(c, error.message || "Code invalide."));
+          const c = readErrCode(verifyResult.error);
+          setMessage(
+            describeSupabaseMfaPhoneError(c, verifyResult.error.message || "Code invalide.")
+          );
+          setMessageType("error");
+          return;
+        }
+        const persist = await persistVerifiedMfaSession(verifyResult);
+        if (!persist.ok) {
+          setMessage(
+            persist.deny === "cookie_persist_failed"
+              ? "La vérification a réussi, mais la session n’a pas pu être enregistrée. Réessayez."
+              : "Impossible d’ouvrir la session après la vérification. Réessayez."
+          );
           setMessageType("error");
           return;
         }
       } else {
-        const { error } = await challengeAndVerifyTotp(factorId, trimmed);
-        if (error) {
+        const verifyResult = await challengeAndVerifyTotp(factorId, trimmed);
+        if (verifyResult.error) {
           const {
             data: { session },
           } = await supabase.auth.getSession();
           void postMfaAuditEvent("mfa_verify_failed", session?.access_token ?? null);
           trackMfaVerifyFailureForAlerts(session?.access_token ?? null);
           setMessage(
-            typeof error === "object" && error && "message" in error && typeof error.message === "string"
-              ? error.message
+            typeof verifyResult.error === "object" &&
+              verifyResult.error &&
+              "message" in verifyResult.error &&
+              typeof verifyResult.error.message === "string"
+              ? verifyResult.error.message
               : "Code invalide."
+          );
+          setMessageType("error");
+          return;
+        }
+        const persist = await persistVerifiedMfaSession(verifyResult);
+        if (!persist.ok) {
+          setMessage(
+            persist.deny === "cookie_persist_failed"
+              ? "La vérification a réussi, mais la session n’a pas pu être enregistrée. Réessayez."
+              : "Impossible d’ouvrir la session après la vérification. Réessayez."
           );
           setMessageType("error");
           return;
@@ -229,12 +234,6 @@ export default function MfaVerifyPage() {
       }
 
       resetMfaVerifyFailureTracking();
-
-      const refresh = await refreshSessionAfterMfa();
-      if (refresh.error) {
-        console.warn("[mfa] refreshSession verify", refresh.error.message);
-      }
-      await syncCookie();
 
       {
         const {
@@ -248,6 +247,13 @@ export default function MfaVerifyPage() {
       }
 
       const { data: userData } = await supabase.auth.getUser();
+      if (!userData.user) {
+        setMessage(
+          "La vérification a réussi, mais la session n’est plus disponible. Reconnectez-vous."
+        );
+        setMessageType("error");
+        return;
+      }
       const role = getUserRole(userData.user);
       router.replace(resolveNextHref(role));
     } finally {
