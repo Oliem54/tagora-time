@@ -49,7 +49,7 @@ export function evaluateSessionCookiePersistRequest(input: {
     return { ok: false, action: "denied", reason: "token_too_large" };
   }
 
-  if (input.purpose === "mfa" && input.aal !== "aal2") {
+  if (input.aal !== "aal2") {
     return { ok: false, action: "denied", reason: "aal2_required" };
   }
 

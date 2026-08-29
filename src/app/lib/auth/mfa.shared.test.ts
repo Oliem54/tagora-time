@@ -49,14 +49,14 @@ describe("isProductionTagoraHostname", () => {
 });
 
 describe("isStagingQaMfaBypassAllowed", () => {
-  it("autorise admin/direction sur preview staging", () => {
+  it("autorise admin/direction seulement en local ou staging Time canonique", () => {
     expect(
       isStagingQaMfaBypassAllowed({
         role: "admin",
         supabaseUrl: STAGING_SUPABASE_URL,
         hostname: PREVIEW_HOST,
       })
-    ).toBe(true);
+    ).toBe(false);
     expect(
       isStagingQaMfaBypassAllowed({
         role: "direction",
@@ -148,7 +148,7 @@ describe("readRequestHostname", () => {
 });
 
 describe("shouldBlockJwtAal1ForMandatoryMfaRole", () => {
-  it("ne bloque pas admin preview staging en aal1", () => {
+  it("bloque admin AAL1 sur une Preview Vercel", () => {
     expect(
       shouldBlockJwtAal1ForMandatoryMfaRole({
         role: "admin",
@@ -156,7 +156,7 @@ describe("shouldBlockJwtAal1ForMandatoryMfaRole", () => {
         hostname: PREVIEW_HOST,
         supabaseUrl: STAGING_SUPABASE_URL,
       })
-    ).toBe(false);
+    ).toBe(true);
   });
 
   it("ne bloque pas admin sur staging Time canonique en aal1 (Supabase staging)", () => {

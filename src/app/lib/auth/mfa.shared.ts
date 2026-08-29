@@ -45,7 +45,7 @@ export function isStagingPreviewHostname(hostname: string | null | undefined): b
   return isVercelPreviewHostname(hostname);
 }
 
-/** QA preview uniquement : admin/direction + Supabase staging + hôte local ou Vercel preview (jamais tagora.ca). */
+/** QA locale / staging Time uniquement pour le bypass MFA. Les previews Vercel restent fail-closed. */
 export function readConfiguredSupabasePublicUrl(): string | undefined {
   return process.env.NEXT_PUBLIC_SUPABASE_URL;
 }
@@ -99,7 +99,9 @@ export function isStagingQaMfaBypassAllowed(options: {
     return true;
   }
 
-  return isStagingPreviewHostname(hostname);
+  // Local QA + canonical Time staging only. Vercel Preview must enforce MFA
+  // for real-user security retests (fresh AAL1 session).
+  return isLocalHostname(hostname);
 }
 
 /** Garde-fou serveur/API : bloquer admin/direction en JWT aal1 sauf bypass staging/preview QA. */
@@ -130,4 +132,73 @@ export function isAuthMfaPath(pathname: string): boolean {
     pathname === "/auth/mfa/verify" ||
     pathname.startsWith("/auth/mfa/")
   );
+}
+
+export function isMfaProtectedAppPath(pathname: string): boolean {
+  if (isAuthMfaPath(pathname)) {
+    return false;
+  }
+  if (
+    pathname === "/direction" ||
+    pathname === "/direction/login" ||
+    pathname === "/login" ||
+    pathname === "/connexion" ||
+    pathname === "/employe/login"
+  ) {
+    return false;
+  }
+  return (
+    pathname.startsWith("/admin") ||
+    pathname.startsWith("/direction/") ||
+    pathname.startsWith("/account")
+  );
+}
+
+export type MandatoryMfaGateKind = "none" | "setup" | "verify";
+
+export function resolveMandatoryMfaGateFromAssessment(input: {
+  role: AppRole | null | undefined;
+  bypassAllowed: boolean;
+  hasVerifiedMfa: boolean;
+  factorAssessmentFailed: boolean;
+  jwtAal: "aal1" | "aal2" | null;
+  currentAal: "aal1" | "aal2" | null;
+  aalAssessmentFailed: boolean;
+}): { kind: MandatoryMfaGateKind; message?: string } {
+  if (!roleRequiresMandatoryMfa(input.role)) {
+    return { kind: "none" };
+  }
+
+  if (input.bypassAllowed) {
+    return { kind: "none" };
+  }
+
+  // AAL2 on the JWT or assurance API is the only proof of a completed step-up.
+  // Missing/failed assessments stay on verify instead of granting the dashboard.
+  if (input.jwtAal === "aal2" || input.currentAal === "aal2") {
+    return { kind: "none" };
+  }
+
+  if (!input.hasVerifiedMfa && !input.factorAssessmentFailed) {
+    return {
+      kind: "setup",
+      message:
+        "Votre rôle exige la vérification en deux étapes. Configurez-la pour continuer.",
+    };
+  }
+
+  return { kind: "verify" };
+}
+
+export function resolvePostLoginPathFromMfaGate(
+  gateKind: MandatoryMfaGateKind,
+  homePath: string
+): string {
+  if (gateKind === "setup") {
+    return "/auth/mfa/setup?required=1";
+  }
+  if (gateKind === "verify") {
+    return "/auth/mfa/verify";
+  }
+  return homePath;
 }

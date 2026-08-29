@@ -8,10 +8,7 @@ import TimeLoginShell from "@/app/components/time-public/TimeLoginShell";
 import TimeRoleSwitchLink from "@/app/components/time-public/TimeRoleSwitchLink";
 import { getUserRole } from "@/app/lib/auth/roles";
 import { resolvePostLoginNavigationPath } from "@/app/lib/auth/mfa.client";
-import {
-  buildAppSessionCookieWriteDebug,
-  writeBrowserSessionCookie,
-} from "@/app/lib/auth/session-cookie";
+import { writeBrowserSessionCookie } from "@/app/lib/auth/session-cookie";
 import {
   getSupabaseBrowserLoginDebug,
   probeSupabaseAuthSettingsReachable,
@@ -184,14 +181,8 @@ export default function DirectionLoginPage() {
       } = await supabase.auth.getSession();
 
       if (session?.access_token) {
-        writeBrowserSessionCookie(session.access_token);
-        console.info(
-          "[auth-cookie] login cookie written",
-          buildAppSessionCookieWriteDebug(
-            session.access_token,
-            window.location.protocol === "https:"
-          )
-        );
+        writeBrowserSessionCookie(null);
+        console.info("[auth-cookie] login cookie deferred until AAL2 MFA");
 
         try {
           const syncResponse = await fetch("/api/account-requests/sync-activation", {
