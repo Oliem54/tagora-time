@@ -3,6 +3,7 @@ import type { NextRequest } from "next/server";
 import { APP_SESSION_COOKIE_NAME } from "@/app/lib/auth/session-cookie";
 import { getJwtAppRole, isJwtExplicitlyAal1Only } from "@/app/lib/auth/jwt-access-token";
 import {
+  isMfaProtectedAppPath,
   readRequestHostname,
   shouldBlockJwtAal1ForMandatoryMfaRole,
 } from "@/app/lib/auth/mfa.shared";
@@ -31,6 +32,29 @@ export function middleware(request: NextRequest) {
       return new NextResponse(null, { status: 404 });
     }
 
+    const hostname = readRequestHostname(request.headers, request.nextUrl.hostname);
+    const cookieToken = request.cookies.get(APP_SESSION_COOKIE_NAME)?.value ?? null;
+
+    if (isMfaProtectedAppPath(path) && cookieToken) {
+      try {
+        const jwtRole = getJwtAppRole(cookieToken);
+        if (
+          shouldBlockJwtAal1ForMandatoryMfaRole({
+            role: jwtRole,
+            isExplicitlyAal1Only: isJwtExplicitlyAal1Only(cookieToken),
+            hostname,
+          })
+        ) {
+          const verifyUrl = request.nextUrl.clone();
+          verifyUrl.pathname = "/auth/mfa/verify";
+          verifyUrl.search = "";
+          return NextResponse.redirect(verifyUrl);
+        }
+      } catch {
+        // AuthGate remains the fail-closed page gate if JWT decode fails.
+      }
+    }
+
     if (path.startsWith("/api/") && !isMfaExemptApiPath(path)) {
       const token = readApiAccessToken(request);
       let blockMfa = false;
@@ -39,7 +63,7 @@ export function middleware(request: NextRequest) {
         blockMfa = shouldBlockJwtAal1ForMandatoryMfaRole({
           role: jwtRole,
           isExplicitlyAal1Only: isJwtExplicitlyAal1Only(token),
-          hostname: readRequestHostname(request.headers, request.nextUrl.hostname),
+          hostname,
         });
       } catch {
         // Ne jamais bloquer tout le site si le décodage JWT échoue (Edge / jeton inattendu).

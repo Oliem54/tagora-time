@@ -6,8 +6,10 @@ import type { AppRole } from "@/app/lib/auth/roles";
 import { getHomePathForRole } from "@/app/lib/auth/roles";
 import {
   isStagingQaMfaBypassAllowed,
-  roleRequiresMandatoryMfa,
+  resolveMandatoryMfaGateFromAssessment,
+  resolvePostLoginPathFromMfaGate,
 } from "@/app/lib/auth/mfa.shared";
+import { getJwtAal } from "@/app/lib/auth/jwt-access-token";
 import { resolveMfaVerifyPersistence } from "@/app/lib/auth/mfa-verify-session.shared";
 import { persistServerSessionCookie } from "@/app/lib/auth/session-cookie";
 
@@ -75,20 +77,16 @@ export function resetMfaVerifyFailureTracking() {
 }
 
 export async function getMandatoryMfaGate(role: AppRole | null): Promise<MandatoryMfaGate> {
-  if (!roleRequiresMandatoryMfa(role)) {
-    return { kind: "none" };
-  }
-
-  if (
+  const bypassAllowed =
     typeof window !== "undefined" &&
     isStagingQaMfaBypassAllowed({
       role,
       supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL,
       hostname: window.location.hostname,
-    })
-  ) {
-    return { kind: "none" };
-  }
+    });
+
+  const { data: sessionData } = await supabase.auth.getSession();
+  const jwtAal = getJwtAal(sessionData.session?.access_token ?? null);
 
   const [{ data: factorData, error: factorError }, { data: aalData, error: aalError }] =
     await Promise.all([
@@ -101,39 +99,37 @@ export async function getMandatoryMfaGate(role: AppRole | null): Promise<Mandato
   }
 
   const factors = readListedFactors(factorData);
-
   const hasVerifiedMfa = factors.some(
     (f) =>
       (f.factor_type === "totp" || f.factor_type === "phone") && f.status === "verified"
   );
-
-  if (!hasVerifiedMfa) {
-    return {
-      kind: "setup",
-      message:
-        "Votre rôle exige la vérification en deux étapes. Configurez-la pour continuer.",
-    };
-  }
-
   const currentLevel = (aalData as { currentLevel?: string } | null)?.currentLevel ?? null;
-  const nextLevel = (aalData as { nextLevel?: string } | null)?.nextLevel ?? null;
 
-  if (currentLevel === "aal1" && nextLevel === "aal2") {
-    return { kind: "verify" };
-  }
+  const gate = resolveMandatoryMfaGateFromAssessment({
+    role,
+    bypassAllowed,
+    hasVerifiedMfa,
+    factorAssessmentFailed: Boolean(factorError),
+    jwtAal,
+    currentAal: currentLevel === "aal1" || currentLevel === "aal2" ? currentLevel : null,
+    aalAssessmentFailed: Boolean(aalError),
+  });
 
-  return { kind: "none" };
+  console.info("[mfa] fresh_session_gate", {
+    kind: gate.kind,
+    jwtAal,
+    currentAal: currentLevel === "aal1" || currentLevel === "aal2" ? currentLevel : null,
+    hasVerifiedMfa,
+    factorAssessmentFailed: Boolean(factorError),
+    aalAssessmentFailed: Boolean(aalError),
+  });
+
+  return gate;
 }
 
 export async function resolvePostLoginNavigationPath(role: AppRole): Promise<string> {
   const gate = await getMandatoryMfaGate(role);
-  if (gate.kind === "setup") {
-    return "/auth/mfa/setup?required=1";
-  }
-  if (gate.kind === "verify") {
-    return "/auth/mfa/verify";
-  }
-  return getHomePathForRole(role);
+  return resolvePostLoginPathFromMfaGate(gate.kind, getHomePathForRole(role));
 }
 
 export async function listMfaFactorsForUi(): Promise<ListedFactor[]> {

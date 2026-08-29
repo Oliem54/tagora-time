@@ -50,7 +50,7 @@ describe("evaluateSessionCookiePersistRequest", () => {
     ).toEqual({ ok: false, action: "denied", reason: "aal2_required" });
   });
 
-  it("allows an AAL1 login cookie without treating it as an MFA session", () => {
+  it("refuses to persist an AAL1 token as a login cookie", () => {
     expect(
       evaluateSessionCookiePersistRequest({
         purpose: "login",
@@ -58,7 +58,7 @@ describe("evaluateSessionCookiePersistRequest", () => {
         aal: "aal1",
         tokenLength: 800,
       })
-    ).toEqual({ ok: true, action: "written" });
+    ).toEqual({ ok: false, action: "denied", reason: "aal2_required" });
   });
 
   it("refuses unauthenticated or oversized cookie writes", () => {

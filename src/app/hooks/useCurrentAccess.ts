@@ -17,6 +17,7 @@ import {
   buildAppSessionCookieWriteDebug,
   writeBrowserSessionCookie,
 } from "@/app/lib/auth/session-cookie";
+import { getJwtAal } from "@/app/lib/auth/jwt-access-token";
 import { fetchSessionAuthorizationContext } from "@/app/lib/auth/session-context.client";
 import { devInfo } from "@/app/lib/logger";
 import {
@@ -68,12 +69,14 @@ export function useCurrentAccess() {
 
         const token = session?.access_token;
 
-        writeBrowserSessionCookie(token ?? null);
+        if (!token || getJwtAal(token) !== "aal2") {
+          writeBrowserSessionCookie(null);
+        }
         devInfo(
           "auth-cookie",
-          "refresh cookie written",
+          "refresh cookie gated to AAL2",
           buildAppSessionCookieWriteDebug(
-            token ?? null,
+            token && getJwtAal(token) === "aal2" ? token : null,
             window.location.protocol === "https:"
           )
         );
