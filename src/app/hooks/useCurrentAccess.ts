@@ -17,7 +17,8 @@ import {
   buildAppSessionCookieWriteDebug,
   writeBrowserSessionCookie,
 } from "@/app/lib/auth/session-cookie";
-import { getJwtAal } from "@/app/lib/auth/jwt-access-token";
+import { getJwtAal, getJwtAppRole } from "@/app/lib/auth/jwt-access-token";
+import { shouldClearAppModuleCookieForSession } from "@/app/lib/auth/mfa-fresh-session.shared";
 import { fetchSessionAuthorizationContext } from "@/app/lib/auth/session-context.client";
 import { devInfo } from "@/app/lib/logger";
 import {
@@ -68,15 +69,22 @@ export function useCurrentAccess() {
         }
 
         const token = session?.access_token;
+        const jwtAal = getJwtAal(token ?? null);
+        const jwtRole = getJwtAppRole(token ?? null);
+        const clearModuleCookie = shouldClearAppModuleCookieForSession({
+          hasToken: Boolean(token),
+          jwtAal,
+          role: jwtRole,
+        });
 
-        if (!token || getJwtAal(token) !== "aal2") {
+        if (clearModuleCookie) {
           writeBrowserSessionCookie(null);
         }
         devInfo(
           "auth-cookie",
-          "refresh cookie gated to AAL2",
+          "refresh cookie gated to AAL2 for MFA roles",
           buildAppSessionCookieWriteDebug(
-            token && getJwtAal(token) === "aal2" ? token : null,
+            token && jwtAal === "aal2" ? token : null,
             window.location.protocol === "https:"
           )
         );

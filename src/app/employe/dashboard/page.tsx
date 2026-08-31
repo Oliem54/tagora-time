@@ -15,6 +15,7 @@ import {
   Waypoints,
 } from "lucide-react";
 import { useCurrentAccess } from "@/app/hooks/useCurrentAccess";
+import { signOutToSwitchAccount } from "@/app/lib/auth/password-mfa.client";
 import { supabase } from "../../lib/supabase/client";
 import AuthenticatedPageHeader from "@/app/components/ui/AuthenticatedPageHeader";
 import SectionCard from "@/app/components/ui/SectionCard";
@@ -240,8 +241,8 @@ export default function EmployeDashboardPage() {
   }, [accessLoading, canUseDossiers, router, userId]);
 
   const handleLogout = async () => {
-    await supabase.auth.signOut();
-    router.push("/employe/login");
+    const loginPath = await signOutToSwitchAccount();
+    router.push(loginPath);
   };
 
   const handleDelete = async (id: number) => {

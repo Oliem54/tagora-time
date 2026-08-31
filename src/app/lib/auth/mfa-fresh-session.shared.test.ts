@@ -3,6 +3,7 @@ import {
   canPersistAppModuleCookie,
   resolveFreshLoginDestination,
   resolveFreshSessionAccess,
+  shouldClearAppModuleCookieForSession,
 } from "@/app/lib/auth/mfa-fresh-session.shared";
 import {
   isMfaProtectedAppPath,
@@ -147,5 +148,36 @@ describe("fresh login MFA enforcement", () => {
         hostname: PREVIEW_HOST,
       })
     ).toBe(false);
+  });
+
+  it("clears the AAL1 module cookie for Direction but keeps the employee login cookie", () => {
+    expect(
+      shouldClearAppModuleCookieForSession({
+        hasToken: true,
+        jwtAal: "aal1",
+        role: "admin",
+      })
+    ).toBe(true);
+    expect(
+      shouldClearAppModuleCookieForSession({
+        hasToken: true,
+        jwtAal: "aal2",
+        role: "admin",
+      })
+    ).toBe(false);
+    expect(
+      shouldClearAppModuleCookieForSession({
+        hasToken: true,
+        jwtAal: "aal1",
+        role: "employe",
+      })
+    ).toBe(false);
+    expect(
+      shouldClearAppModuleCookieForSession({
+        hasToken: false,
+        jwtAal: null,
+        role: null,
+      })
+    ).toBe(true);
   });
 });

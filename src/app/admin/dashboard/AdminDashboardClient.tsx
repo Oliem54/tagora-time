@@ -25,6 +25,7 @@ import {
 import { useRouter } from "next/navigation";
 import { supabase } from "@/app/lib/supabase/client";
 import { useCurrentAccess } from "@/app/hooks/useCurrentAccess";
+import { signOutToSwitchAccount } from "@/app/lib/auth/password-mfa.client";
 import AuthenticatedPageHeader from "@/app/components/ui/AuthenticatedPageHeader";
 import SectionCard from "@/app/components/ui/SectionCard";
 import AppCard from "@/app/components/ui/AppCard";
@@ -343,8 +344,8 @@ export default function AdminDashboardClient() {
   );
 
   async function handleLogout() {
-    await supabase.auth.signOut();
-    router.push("/direction/login");
+    const loginPath = await signOutToSwitchAccount();
+    router.push(loginPath);
   }
 
   function badgeForModule(m: ModuleDefinition) {

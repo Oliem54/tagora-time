@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import HeaderTagora from "@/app/components/HeaderTagora";
 import { supabase } from "../../lib/supabase/client";
 import { useCurrentAccess } from "@/app/hooks/useCurrentAccess";
+import { signOutToSwitchAccount } from "@/app/lib/auth/password-mfa.client";
 
 export default function DirectionDocumentsPage() {
   const router = useRouter();
@@ -31,8 +32,8 @@ export default function DirectionDocumentsPage() {
   }, [router]);
 
   const handleLogout = async () => {
-    await supabase.auth.signOut();
-    router.push("/direction/login");
+    const loginPath = await signOutToSwitchAccount();
+    router.push(loginPath);
   };
 
   function openArchives(searchValue?: string) {

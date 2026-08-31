@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import PasswordUpdateSection from "@/app/components/auth/PasswordUpdateSection";
 import { useCurrentAccess } from "@/app/hooks/useCurrentAccess";
 import { getCompanyLabel } from "@/app/lib/account-requests.shared";
-import { supabase } from "@/app/lib/supabase/client";
+import { signOutToSwitchAccount } from "@/app/lib/auth/password-mfa.client";
 import AuthenticatedPageHeader from "@/app/components/ui/AuthenticatedPageHeader";
 import SectionCard from "@/app/components/ui/SectionCard";
 import AppCard from "@/app/components/ui/AppCard";
@@ -24,8 +24,8 @@ export default function EmployeProfilPage() {
   }, [loading, router, user]);
 
   async function handleLogout() {
-    await supabase.auth.signOut();
-    router.replace("/employe/login");
+    const loginPath = await signOutToSwitchAccount();
+    router.replace(loginPath);
   }
 
   if (loading || !user) {

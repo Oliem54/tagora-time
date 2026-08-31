@@ -203,6 +203,7 @@ export default function DirectionLoginPage() {
 
       if (!role) {
         await supabase.auth.signOut();
+        writeBrowserSessionCookie(null);
         setMessage("Aucun role n'est defini sur ce compte Supabase.");
         setMessageType("error");
         return;
@@ -210,6 +211,7 @@ export default function DirectionLoginPage() {
 
       if (role !== "direction" && role !== "admin") {
         await supabase.auth.signOut();
+        writeBrowserSessionCookie(null);
         setMessage("Ce compte n'a pas acces au portail direction.");
         setMessageType("error");
         return;

@@ -2,6 +2,7 @@ import { appRoleMatchesArea } from "@/app/lib/auth/organization-role-mapping.sha
 import {
   resolveMandatoryMfaGateFromAssessment,
   resolvePostLoginPathFromMfaGate,
+  roleRequiresMandatoryMfa,
 } from "@/app/lib/auth/mfa.shared";
 import type { AppRole } from "@/app/lib/auth/roles";
 import { getHomePathForRole } from "@/app/lib/auth/roles";
@@ -85,4 +86,22 @@ export function canPersistAppModuleCookie(aal: "aal1" | "aal2" | null): boolean 
     aal,
     tokenLength: 800,
   }).ok;
+}
+
+/**
+ * Direction/admin AAL1 must not keep the app module cookie (Preview MFA loop).
+ * Employees stay on AAL1 and keep the cookie written at login.
+ */
+export function shouldClearAppModuleCookieForSession(input: {
+  hasToken: boolean;
+  jwtAal: "aal1" | "aal2" | null;
+  role: AppRole | null;
+}): boolean {
+  if (!input.hasToken) {
+    return true;
+  }
+  if (input.jwtAal === "aal2") {
+    return false;
+  }
+  return roleRequiresMandatoryMfa(input.role);
 }

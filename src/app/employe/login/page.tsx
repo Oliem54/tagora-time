@@ -128,6 +128,7 @@ export default function LoginPage() {
 
       if (!role) {
         await supabase.auth.signOut();
+        writeBrowserSessionCookie(null);
         setMessage("Aucun role n'est defini sur ce compte Supabase.");
         setMessageType("error");
         return;
@@ -135,6 +136,7 @@ export default function LoginPage() {
 
       if (role !== "employe") {
         await supabase.auth.signOut();
+        writeBrowserSessionCookie(null);
         setMessage("Ce compte n'a pas acces au portail employe.");
         setMessageType("error");
         return;

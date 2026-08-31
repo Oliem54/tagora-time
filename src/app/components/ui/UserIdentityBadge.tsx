@@ -1,8 +1,10 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { AppRole } from "@/app/lib/auth/roles";
+import { signOutToSwitchAccount } from "@/app/lib/auth/password-mfa.client";
 
 type UserIdentityBadgeProps = {
   value: string;
@@ -19,7 +21,9 @@ export default function UserIdentityBadge({
   className,
 }: UserIdentityBadgeProps) {
   void role;
+  const router = useRouter();
   const [open, setOpen] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
   const classes = ["ui-user-identity-badge", className].filter(Boolean).join(" ");
   const normalizedRole = useMemo(
@@ -56,6 +60,17 @@ export default function UserIdentityBadge({
     };
   }, []);
 
+  async function onLogout() {
+    if (loggingOut) return;
+    setLoggingOut(true);
+    try {
+      const loginPath = await signOutToSwitchAccount();
+      router.replace(loginPath);
+    } finally {
+      setLoggingOut(false);
+    }
+  }
+
   return (
     <div className="ui-user-identity-shell" ref={rootRef}>
       <button
@@ -87,6 +102,16 @@ export default function UserIdentityBadge({
           >
             Sécurité du compte
           </Link>
+          <button
+            type="button"
+            className="ui-button ui-button-secondary"
+            role="menuitem"
+            style={{ marginTop: 8, display: "inline-flex", justifyContent: "center", width: "100%" }}
+            disabled={loggingOut}
+            onClick={() => void onLogout()}
+          >
+            {loggingOut ? "Déconnexion…" : "Se déconnecter"}
+          </button>
         </div>
       ) : null}
     </div>
