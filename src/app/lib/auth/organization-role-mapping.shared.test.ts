@@ -18,6 +18,7 @@ describe("organization role mapping (H4 → AppRole)", () => {
     expect(mapOrganizationMembershipRoleToAppRole("employe")).toBe("employe");
     expect(mapOrganizationMembershipRoleToAppRole("none")).toBeNull();
     expect(mapOrganizationMembershipRoleToAppRole("admin")).toBeNull();
+    expect(mapOrganizationMembershipRoleToAppRole("chauffeur")).toBeNull();
   });
 
   it("enforces area hierarchy owner/admin ≥ direction ≥ employe", () => {

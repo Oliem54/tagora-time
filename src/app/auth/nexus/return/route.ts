@@ -1,8 +1,6 @@
 import { NextResponse } from "next/server";
-import {
-  NEXUS_CALLBACK_FAIL_CLOSED_PATH,
-  resolveNexusPortalReturnUrl,
-} from "@/app/lib/auth/nexus-handoff-config";
+import { resolveNexusPortalReturnUrl } from "@/app/lib/auth/nexus-handoff-config";
+import { redirectFailClosed } from "@/app/lib/auth/nexus-callback.server";
 import {
   applyClearedBrokeredSessionCookie,
   readBrokeredSessionCookieFromHeader,
@@ -13,7 +11,7 @@ import {
 export const runtime = "nodejs";
 
 function localLoginRedirect(requestUrl: string): NextResponse {
-  return NextResponse.redirect(new URL(NEXUS_CALLBACK_FAIL_CLOSED_PATH, requestUrl), 303);
+  return redirectFailClosed(requestUrl, "handoff_refused");
 }
 
 function logLocalLogout(fingerprint: string | null): void {

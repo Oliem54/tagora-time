@@ -29,7 +29,56 @@ export const FORBIDDEN_NEXUS_AUTHORITY_CLAIMS = [
 export const NEXUS_HANDOFF_MAX_TTL_SECONDS = 120;
 export const NEXUS_HANDOFF_CLOCK_SKEW_SECONDS = 30;
 export const NEXUS_RETURN_PATH = "/modules" as const;
-export const NEXUS_CALLBACK_FAIL_CLOSED_PATH = "/employe/login" as const;
+export const NEXUS_CALLBACK_FAIL_CLOSED_PATH = "/auth/nexus/denied" as const;
+export const NEXUS_PASSWORD_LOGIN_PATHS = [
+  "/employe/login",
+  "/direction/login",
+  "/login",
+] as const;
+
+export function isNexusPasswordLoginPath(pathname: string | null | undefined): boolean {
+  const path = (pathname ?? "").split("?")[0]?.trim() ?? "";
+  return (NEXUS_PASSWORD_LOGIN_PATHS as readonly string[]).includes(path);
+}
+
+export type NexusCallbackPublicDenyReason =
+  | "membership_missing"
+  | "membership_ambiguous"
+  | "role_mapping_denied"
+  | "handoff_expired"
+  | "replay"
+  | "cross_tenant"
+  | "handoff_missing"
+  | "handoff_refused";
+
+export function publicNexusCallbackDenyReason(
+  reason: string | null | undefined
+): NexusCallbackPublicDenyReason {
+  switch (reason) {
+    case "membership_absent":
+    case "membership_missing":
+      return "membership_missing";
+    case "membership_ambiguous":
+      return "membership_ambiguous";
+    case "membership_role_invalid":
+    case "role_mapping_denied":
+      return "role_mapping_denied";
+    case "expired_token":
+    case "handoff_expired":
+    case "ttl_exceeded":
+      return "handoff_expired";
+    case "replay":
+      return "replay";
+    case "cross_tenant":
+      return "cross_tenant";
+    case "missing_token":
+    case "missing_claim":
+    case "invalid_token":
+      return "handoff_missing";
+    default:
+      return "handoff_refused";
+  }
+}
 export const DEFAULT_HORORA_NEXUS_ORGANIZATION_ID = "org_tagora_internal" as const;
 
 export const NEXUS_HANDOFF_ENV_KEYS = {

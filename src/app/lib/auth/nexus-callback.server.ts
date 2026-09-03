@@ -28,6 +28,8 @@ import { verifyConfiguredNexusPublicJwks, type NexusJwksFetch } from "@/app/lib/
 import {
   NEXUS_CALLBACK_FAIL_CLOSED_PATH,
   NEXUS_TECHNICAL_MODULE_KEY,
+  isNexusPasswordLoginPath,
+  publicNexusCallbackDenyReason,
   readNexusHandoffConfig,
 } from "@/app/lib/auth/nexus-handoff-config";
 
@@ -80,20 +82,22 @@ export function reverifyNexusCallbackAllow(
     return { ok: false, reason: "organization_mismatch" };
   }
   if (!binding.role) {
-    return { ok: false, reason: "membership_role_invalid" };
+    return { ok: false, reason: "role_mapping_denied" };
   }
   return { ok: true };
 }
 
-function failClosedRedirect(): NextResponse {
-  return NextResponse.redirect(
-    new URL(NEXUS_CALLBACK_FAIL_CLOSED_PATH, "http://localhost"),
-    303
-  );
+function failClosedRedirect(reason = "handoff_refused"): NextResponse {
+  return redirectFailClosed("http://localhost", reason);
 }
 
-export function redirectFailClosed(requestUrl: string): NextResponse {
-  return NextResponse.redirect(new URL(NEXUS_CALLBACK_FAIL_CLOSED_PATH, requestUrl), 303);
+export function redirectFailClosed(
+  requestUrl: string,
+  reason = "handoff_refused"
+): NextResponse {
+  const url = new URL(NEXUS_CALLBACK_FAIL_CLOSED_PATH, requestUrl);
+  url.searchParams.set("reason", publicNexusCallbackDenyReason(reason));
+  return NextResponse.redirect(url, 303);
 }
 
 export async function inspectNexusHandoff(
@@ -107,6 +111,10 @@ export async function inspectNexusHandoff(
     searchParams: input.searchParams,
     body: input.body,
   });
+  if (!token) {
+    logNexusCallbackDecision("missing_token", deps.logger);
+    return { ok: false, reason: "missing_token" };
+  }
 
   let verifyOptions = deps.verifyOptions;
   if (!verifyOptions?.jwks) {
@@ -203,6 +211,14 @@ export async function completeNexusCallbackPhaseA(
   ) {
     logNexusCallbackDecision("session_mint_unavailable", deps.logger);
     return { ok: false, reason: "session_mint_unavailable" };
+  }
+  if (
+    isNexusPasswordLoginPath(minted.redirectPath) ||
+    minted.redirectPath === NEXUS_CALLBACK_FAIL_CLOSED_PATH ||
+    minted.redirectPath.startsWith(`${NEXUS_CALLBACK_FAIL_CLOSED_PATH}?`)
+  ) {
+    logNexusCallbackDecision("role_mapping_denied", deps.logger);
+    return { ok: false, reason: "role_mapping_denied" };
   }
 
   return {

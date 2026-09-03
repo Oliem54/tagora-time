@@ -7,6 +7,7 @@ export type SessionContextResponse = {
   authenticated: boolean;
   authorized: boolean;
   reason: string | null;
+  userId: string | null;
   jwtAppRole: AppRole | null;
   appRole: AppRole | null;
   organizationId: string | null;
@@ -36,6 +37,7 @@ export async function fetchSessionAuthorizationContext(
       authenticated: false,
       authorized: false,
       reason: "lookup_failed",
+      userId: null,
       jwtAppRole: null,
       appRole: null,
       organizationId: null,

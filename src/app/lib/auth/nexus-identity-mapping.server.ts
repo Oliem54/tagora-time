@@ -40,10 +40,10 @@ export type NexusMappingDenyReason =
   | "mapping_absent"
   | "mapping_ambiguous"
   | "auth_user_missing"
-  | "membership_absent"
+  | "membership_missing"
   | "membership_inactive"
   | "membership_ambiguous"
-  | "membership_role_invalid"
+  | "role_mapping_denied"
   | "organization_mapping_absent"
   | "organization_mapping_ambiguous"
   | "organization_missing"
@@ -218,7 +218,7 @@ function selectableMembershipInOrg(
   if (elsewhereActive.length > 0) {
     return { ok: false, reason: "cross_tenant" };
   }
-  return { ok: false, reason: "membership_absent" };
+  return { ok: false, reason: "membership_missing" };
 }
 
 async function maybeInsertAuthorizedMaps(
@@ -305,7 +305,7 @@ export async function resolveNexusHororaBinding(
     if (!selected.ok) return fail(selected.reason);
 
     const appRole = mapOrganizationMembershipRoleToAppRole(selected.row.role);
-    if (!appRole) return fail("membership_role_invalid");
+    if (!appRole) return fail("role_mapping_denied");
 
     return {
       ok: true,

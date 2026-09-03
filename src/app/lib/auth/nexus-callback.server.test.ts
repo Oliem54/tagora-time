@@ -238,12 +238,14 @@ describe("Nexus callback Phase A", () => {
     expect(issued).toEqual([AUTH_USER]);
   });
 
-  it("redirects fail-closed to /employe/login without Set-Cookie", async () => {
+  it("redirects fail-closed to /auth/nexus/denied without Set-Cookie or a password login", async () => {
     const response = await callbackGet(
       new Request("http://localhost:3002/auth/nexus/callback")
     );
     expect(response.status).toBe(303);
-    expect(response.headers.get("location")).toContain("/employe/login");
+    const location = new URL(response.headers.get("location") ?? "http://localhost");
+    expect(location.pathname).toBe("/auth/nexus/denied");
+    expect(location.searchParams.get("reason")).toBe("handoff_missing");
     expect(response.headers.get("set-cookie")).toBeNull();
     const posted = await callbackPost(
       new Request("http://localhost:3002/auth/nexus/callback", {
@@ -253,17 +255,20 @@ describe("Nexus callback Phase A", () => {
       })
     );
     expect(posted.headers.get("set-cookie")).toBeNull();
+    expect(new URL(posted.headers.get("location") ?? "http://localhost").pathname).toBe(
+      "/auth/nexus/denied"
+    );
   });
 });
 
 describe("Nexus return route", () => {
-  it("stays on /employe/login when the allowlist is missing", async () => {
+  it("stays on /auth/nexus/denied when the allowlist is missing", async () => {
     const response = await returnGet(
       new Request(
         "http://localhost:3002/auth/nexus/return?next=https://evil.example/modules"
       )
     );
     expect(response.status).toBe(303);
-    expect(new URL(response.headers.get("location") ?? "").pathname).toBe("/employe/login");
+    expect(new URL(response.headers.get("location") ?? "").pathname).toBe("/auth/nexus/denied");
   });
 });

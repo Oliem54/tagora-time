@@ -215,6 +215,32 @@ describe("Nexus HORORA identity mapping", () => {
     ).resolves.toEqual({ ok: false, reason: "membership_ambiguous" });
   });
 
+  it("denies a missing membership without choosing employe", async () => {
+    await expect(
+      resolveNexusHororaBinding(
+        CLAIMS,
+        lookups({
+          async findMembershipsForUser() {
+            return [];
+          },
+        })
+      )
+    ).resolves.toEqual({ ok: false, reason: "membership_missing" });
+  });
+
+  it("denies an unrecognized membership role without defaulting to employe", async () => {
+    await expect(
+      resolveNexusHororaBinding(
+        CLAIMS,
+        lookups({
+          async findMembershipsForUser() {
+            return [membership({ role: "chauffeur" })];
+          },
+        })
+      )
+    ).resolves.toEqual({ ok: false, reason: "role_mapping_denied" });
+  });
+
   it("denies an absent Auth user", async () => {
     await expect(
       resolveNexusHororaBinding(

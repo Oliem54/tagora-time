@@ -17,7 +17,7 @@ export async function GET(req: NextRequest) {
     const { user, sessionSource } = authenticated;
     if (!user) {
       return NextResponse.json(
-        { authenticated: false, authorized: false, reason: "unauthenticated" },
+        { authenticated: false, authorized: false, reason: "unauthenticated", userId: null },
         { status: 401 }
       );
     }
@@ -32,6 +32,7 @@ export async function GET(req: NextRequest) {
         authenticated: true,
         authorized: true,
         reason: null,
+        userId: user.id,
         jwtAppRole: null,
         appRole: authenticated.role,
         organizationId: authenticated.organizationId,
@@ -55,6 +56,7 @@ export async function GET(req: NextRequest) {
           organizationId: null,
           membershipId: null,
           membershipRole: null,
+          userId: user.id,
           source: null,
         },
         { status: resolved.status === 500 ? 500 : 403 }
@@ -71,11 +73,12 @@ export async function GET(req: NextRequest) {
       organizationId: context.organizationId,
       membershipId: context.membershipId,
       membershipRole: context.membershipRole,
+      userId: user.id,
       source: sessionSource === "nexus_handoff" ? "nexus_handoff" : context.source,
     });
   } catch {
     return NextResponse.json(
-      { authenticated: false, authorized: false, reason: "lookup_failed" },
+      { authenticated: false, authorized: false, reason: "lookup_failed", userId: null },
       { status: 500 }
     );
   }

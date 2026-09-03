@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   NEXUS_BROKERED_SESSION_COOKIE_NAME,
+  NEXUS_CALLBACK_FAIL_CLOSED_PATH,
   NEXUS_HANDOFF_AUDIENCE,
   NEXUS_TECHNICAL_MODULE_KEY,
 } from "@/app/lib/auth/nexus-handoff-config";
@@ -21,6 +22,7 @@ const HANDOFF_FILES = [
   "src/app/lib/auth/nexus-callback.server.ts",
   "src/app/lib/auth/nexus-brokered-session.ts",
   "src/app/auth/nexus/callback/route.ts",
+  "src/app/auth/nexus/denied/page.tsx",
   "src/app/components/AuthGate.tsx",
   "src/app/api/auth/session-context/route.ts",
 ] as const;
@@ -50,6 +52,7 @@ describe("HORORA Nexus handoff source guards", () => {
     expect(NEXUS_HANDOFF_AUDIENCE).toBe("tagora:time");
     expect(NEXUS_TECHNICAL_MODULE_KEY).toBe("tagora_time");
     expect(NEXUS_BROKERED_SESSION_COOKIE_NAME).toBe("horora_nx_session");
+    expect(NEXUS_CALLBACK_FAIL_CLOSED_PATH).toBe("/auth/nexus/denied");
     const verifier = read("src/app/lib/auth/nexus-handoff.ts");
     expect(verifier).toContain("jwtVerify");
     expect(verifier).toContain('algorithms: [NEXUS_HANDOFF_ALGORITHM]');
@@ -88,6 +91,9 @@ describe("HORORA Nexus handoff source guards", () => {
     expect(sessionClient).toContain('"nexus_handoff"');
     expect(gate).toContain('source === "nexus_handoff"');
     expect(gate).not.toContain('router.replace("/direction/login")');
+    expect(read("src/app/auth/nexus/callback/route.ts")).not.toContain("/employe/login");
+    expect(read("src/app/auth/nexus/denied/page.tsx")).not.toContain("/employe/login");
+    expect(read("src/app/auth/nexus/denied/page.tsx")).not.toMatch(/type=["']password["']/);
     expect(brokered).not.toContain("SUPABASE_SERVICE_ROLE_KEY");
     expect(callback).not.toMatch(/console\.(info|log|error).*token/);
   });

@@ -9,7 +9,7 @@ import {
   NEXUS_HANDOFF_AUDIENCE,
 } from "@/app/lib/auth/nexus-handoff-config";
 import { mapOrganizationMembershipRoleToAppRole } from "@/app/lib/auth/organization-role-mapping.shared";
-import { getDashboardPathForRole, type AppRole } from "@/app/lib/auth/roles";
+import { type AppRole } from "@/app/lib/auth/roles";
 import type { MembershipRow } from "@/app/lib/saas/organization-membership.shared";
 import type { OrganizationMembershipRole } from "@/app/lib/saas/tenant-foundation.shared";
 
@@ -113,7 +113,10 @@ export function resolveBrokeredCookieEnvironment(
 }
 
 export function authorizedHororaPathForRole(role: AppRole): string {
-  return getDashboardPathForRole(role);
+  if (role === "admin") return "/admin/dashboard";
+  if (role === "direction") return "/direction/dashboard";
+  if (role === "employe") return "/employe/dashboard";
+  return "/auth/nexus/denied";
 }
 
 export function generateOpaqueSessionToken(): string {

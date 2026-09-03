@@ -27,7 +27,11 @@ export function mapOrganizationMembershipRoleToAppRole(
     return "direction";
   }
 
-  return "employe";
+  if (membershipRole === "employe") {
+    return "employe";
+  }
+
+  return null;
 }
 
 /** Area access using H4 hierarchy: owner/admin ≥ direction ≥ employe. */

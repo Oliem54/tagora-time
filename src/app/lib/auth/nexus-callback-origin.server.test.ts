@@ -206,7 +206,7 @@ describe("Nexus callback trusted external origin", () => {
       }
     );
     expect(response.status).toBe(303);
-    expect(new URL(response.headers.get("location") ?? "").pathname).toBe("/employe/login");
+    expect(new URL(response.headers.get("location") ?? "").pathname).toBe("/auth/nexus/denied");
     expect(response.headers.get("set-cookie")).toBeNull();
   });
 
@@ -227,7 +227,7 @@ describe("Nexus callback trusted external origin", () => {
         },
       }
     );
-    expect(new URL(response.headers.get("location") ?? "").pathname).toBe("/employe/login");
+    expect(new URL(response.headers.get("location") ?? "").pathname).toBe("/auth/nexus/denied");
     expect(response.headers.get("set-cookie")).toBeNull();
     expect(consumed).toEqual([]);
   });

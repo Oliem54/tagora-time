@@ -128,6 +128,31 @@ export function useCurrentAccess() {
     async function loadAccess(allowRetryAfterPurge = true) {
       try {
         await runWithBrowserAuthReadLock(async () => {
+          const brokered = await fetchSessionAuthorizationContext();
+          if (
+            brokered.authorized &&
+            brokered.source === "nexus_handoff" &&
+            brokered.userId &&
+            brokered.appRole
+          ) {
+            if (cancelled) return;
+            setState({
+              user: {
+                id: brokered.userId,
+                aud: "authenticated",
+                app_metadata: {},
+                user_metadata: {},
+                created_at: new Date(0).toISOString(),
+              } as User,
+              role: brokered.appRole,
+              permissions: [],
+              companyAccess: buildUserCompanyAccess(null),
+              organizationId: brokered.organizationId,
+              loading: false,
+            });
+            return;
+          }
+
           await syncAccountActivation();
 
           let { data, error: userError } = await supabase.auth.getUser();

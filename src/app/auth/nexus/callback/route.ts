@@ -16,6 +16,7 @@ import {
   nexusCallbackOriginLogFields,
   resolveCanonicalNexusCallbackOrigin,
 } from "@/app/lib/auth/nexus-callback-origin.server";
+import { isNexusPasswordLoginPath } from "@/app/lib/auth/nexus-handoff-config";
 import { applyBrokeredSessionCookieHeader } from "@/app/lib/auth/nexus-brokered-session";
 import { isNexusHandoffReplayConsumed } from "@/app/lib/auth/nexus-handoff-replay.server";
 
@@ -61,11 +62,14 @@ async function mintBrokeredSessionResponse(
     body,
   });
   if (!result.ok) {
-    return redirectFailClosed(request.url);
+    return redirectFailClosed(request.url, result.reason);
+  }
+  if (isNexusPasswordLoginPath(result.redirectPath)) {
+    return redirectFailClosed(request.url, "role_mapping_denied");
   }
   const response = NextResponse.redirect(new URL(result.redirectPath, request.url), 303);
   if (!applyBrokeredSessionCookieHeader(response, result.cookieHeader)) {
-    return redirectFailClosed(request.url);
+    return redirectFailClosed(request.url, "session_mint_unavailable");
   }
   return response;
 }
@@ -85,7 +89,7 @@ async function handleNexusCallbackGet(
     body: null,
   });
   if (!inspected.ok) {
-    return redirectFailClosed(request.url);
+    return redirectFailClosed(request.url, inspected.reason);
   }
 
   const consumedLookup = deps.isReplayConsumed ?? isNexusHandoffReplayConsumed;
@@ -98,11 +102,11 @@ async function handleNexusCallbackGet(
       decision: "closed",
       reason: "store_unavailable",
     });
-    return redirectFailClosed(request.url);
+    return redirectFailClosed(request.url, "store_unavailable");
   }
   if (consumed.consumed) {
     console.info("[horora.nexus.callback]", { decision: "closed", reason: "replay" });
-    return redirectFailClosed(request.url);
+    return redirectFailClosed(request.url, "replay");
   }
 
   console.info("[horora.nexus.callback]", { decision: "handoff_continue_document" });
@@ -126,7 +130,7 @@ async function handleNexusCallbackPost(
         failed_origin_check: originDecision.failed_origin_check,
         ...originFields,
       });
-      return redirectFailClosed(request.url);
+      return redirectFailClosed(request.url, "cross_origin_post");
     }
     console.info("[horora.nexus.callback]", {
       decision: "same_origin_post",
