@@ -74,7 +74,10 @@ export function publicNexusCallbackDenyReason(
     case "missing_token":
     case "missing_claim":
     case "invalid_token":
+    case "handoff_missing":
       return "handoff_missing";
+    case "handoff_refused":
+      return "handoff_refused";
     default:
       return "handoff_refused";
   }

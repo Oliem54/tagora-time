@@ -146,6 +146,7 @@ describe("HORORA account-type routing after Nexus handoff", () => {
     expect(isNexusPasswordLoginPath("/admin/dashboard")).toBe(false);
     expect(publicNexusCallbackDenyReason("membership_absent")).toBe("membership_missing");
     expect(publicNexusCallbackDenyReason("expired_token")).toBe("handoff_expired");
+    expect(publicNexusCallbackDenyReason("handoff_missing")).toBe("handoff_missing");
   });
 
   it("routes organization_admin and organization_owner to /admin/dashboard", async () => {

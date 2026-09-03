@@ -90,5 +90,12 @@ describe("HORORA Nexus handoff config", () => {
     expect(publicNexusCallbackDenyReason("membership_role_invalid")).toBe("role_mapping_denied");
     expect(publicNexusCallbackDenyReason("expired_token")).toBe("handoff_expired");
     expect(publicNexusCallbackDenyReason("missing_token")).toBe("handoff_missing");
+    expect(publicNexusCallbackDenyReason("handoff_missing")).toBe("handoff_missing");
+    expect(publicNexusCallbackDenyReason("handoff_refused")).toBe("handoff_refused");
+    expect(publicNexusCallbackDenyReason("replay")).toBe("replay");
+    expect(publicNexusCallbackDenyReason("cross_tenant")).toBe("cross_tenant");
+    expect(publicNexusCallbackDenyReason("membership_ambiguous")).toBe(
+      "membership_ambiguous"
+    );
   });
 });
