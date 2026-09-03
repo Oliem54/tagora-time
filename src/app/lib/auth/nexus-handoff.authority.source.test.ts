@@ -93,6 +93,10 @@ describe("HORORA Nexus handoff source guards", () => {
     expect(gate).not.toContain('router.replace("/direction/login")');
     expect(read("src/app/auth/nexus/callback/route.ts")).not.toContain("/employe/login");
     expect(read("src/app/auth/nexus/denied/page.tsx")).not.toContain("/employe/login");
+    expect(read("src/app/auth/nexus/denied/page.tsx")).toContain("resolveNexusDeniedReturnUrl");
+    expect(read("src/app/lib/auth/nexus-handoff-config.ts")).toContain(
+      "https://tagora-nexus-staging.vercel.app/modules"
+    );
     expect(read("src/app/auth/nexus/denied/page.tsx")).not.toMatch(/type=["']password["']/);
     expect(brokered).not.toContain("SUPABASE_SERVICE_ROLE_KEY");
     expect(callback).not.toMatch(/console\.(info|log|error).*token/);

@@ -328,6 +328,8 @@ describe("HORORA account-type routing after Nexus handoff", () => {
     expect(page).toContain("membership_missing");
     expect(page).toContain("membership_ambiguous");
     expect(page).toContain("role_mapping_denied");
+    expect(page).toContain("mapping_unavailable");
+    expect(page).toContain("resolveNexusDeniedReturnUrl");
     expect(page).not.toMatch(/type=["']password["']/);
     expect(page).not.toContain("user_metadata");
     expect(page).not.toContain("signInWithPassword");

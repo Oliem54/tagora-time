@@ -383,4 +383,30 @@ describe("Nexus HORORA identity mapping", () => {
     const mappingSource = import.meta.url;
     expect(mappingSource).not.toContain("HORORA_AUTH_USER_ID=");
   });
+
+  it("resolves env-authorized binding when Nexus map tables are unavailable", async () => {
+    const env = {
+      HORORA_AUTH_USER_ID: AUTH_USER,
+      HORORA_ORGANIZATION_ID: ORG_ID,
+    };
+    const claims = { ...CLAIMS, organization_id: DEFAULT_HORORA_NEXUS_ORGANIZATION_ID };
+    const result = await resolveNexusHororaBinding(
+      claims,
+      lookups({
+        async findIdentityMaps() {
+          throw new Error('relation "public.horora_nexus_identity_map" does not exist');
+        },
+        async findOrganizationMaps() {
+          throw new Error('relation "public.horora_nexus_organization_map" does not exist');
+        },
+      }),
+      env
+    );
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.binding.authUserId).toBe(AUTH_USER);
+      expect(result.binding.organizationId).toBe(ORG_ID);
+      expect(result.binding.role).toBe("admin");
+    }
+  });
 });

@@ -29,6 +29,8 @@ export const FORBIDDEN_NEXUS_AUTHORITY_CLAIMS = [
 export const NEXUS_HANDOFF_MAX_TTL_SECONDS = 120;
 export const NEXUS_HANDOFF_CLOCK_SKEW_SECONDS = 30;
 export const NEXUS_RETURN_PATH = "/modules" as const;
+export const NEXUS_STAGING_PORTAL_MODULES_URL =
+  "https://tagora-nexus-staging.vercel.app/modules" as const;
 export const NEXUS_CALLBACK_FAIL_CLOSED_PATH = "/auth/nexus/denied" as const;
 export const NEXUS_PASSWORD_LOGIN_PATHS = [
   "/employe/login",
@@ -49,7 +51,8 @@ export type NexusCallbackPublicDenyReason =
   | "replay"
   | "cross_tenant"
   | "handoff_missing"
-  | "handoff_refused";
+  | "handoff_refused"
+  | "mapping_unavailable";
 
 export function publicNexusCallbackDenyReason(
   reason: string | null | undefined
@@ -78,6 +81,8 @@ export function publicNexusCallbackDenyReason(
       return "handoff_missing";
     case "handoff_refused":
       return "handoff_refused";
+    case "mapping_unavailable":
+      return "mapping_unavailable";
     default:
       return "handoff_refused";
   }
@@ -244,4 +249,12 @@ export function resolveNexusPortalReturnUrl(
   parsed.pathname = NEXUS_RETURN_PATH;
   parsed.hash = "";
   return { ok: true, url: parsed.toString() };
+}
+
+export function resolveNexusDeniedReturnUrl(
+  env: NexusHandoffEnvSource = process.env
+): string {
+  const portal = resolveNexusPortalReturnUrl(env);
+  if (portal.ok) return portal.url;
+  return NEXUS_STAGING_PORTAL_MODULES_URL;
 }

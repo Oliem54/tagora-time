@@ -6,6 +6,11 @@
 
 import type { NexusHandoffClaims } from "@/app/lib/auth/nexus-handoff";
 import {
+  isMappingStoreUnavailableError,
+  logNexusCallbackClosed,
+  sanitizeMappingStoreError,
+} from "@/app/lib/auth/nexus-callback-logging.shared";
+import {
   DEFAULT_HORORA_NEXUS_ORGANIZATION_ID,
   HORORA_NEXUS_MAPPING_ENV_KEYS,
   type NexusHandoffEnvSource,
@@ -221,17 +226,11 @@ function selectableMembershipInOrg(
   return { ok: false, reason: "membership_missing" };
 }
 
-async function maybeInsertAuthorizedMaps(
+async function buildBindingFromAuthorizedTarget(
   claims: NexusHandoffClaims,
   ports: NexusMappingLookups,
-  env: NexusHandoffEnvSource
-): Promise<NexusMappingResult | { ok: true; continue: true }> {
-  const authorized = resolveAuthorizedMappingTarget(claims.user_id, env);
-  if (!authorized) return { ok: true, continue: true };
-  if (claims.organization_id !== authorized.nexusOrganizationId) {
-    return fail("organization_mapping_absent");
-  }
-
+  authorized: { authUserId: string; organizationId: string; nexusOrganizationId: string }
+): Promise<NexusMappingResult> {
   const authExists = await ports.authUserExists(authorized.authUserId);
   if (!authExists) return fail("auth_user_missing");
 
@@ -245,17 +244,70 @@ async function maybeInsertAuthorizedMaps(
     return fail("organization_inactive");
   }
 
+  const appRole = mapOrganizationMembershipRoleToAppRole(selected.row.role);
+  if (!appRole) return fail("role_mapping_denied");
+
+  return {
+    ok: true,
+    binding: {
+      nexusActorId: claims.user_id,
+      nexusOrganizationId: claims.organization_id,
+      nexusMembershipId: claims.membership_id,
+      authUserId: authorized.authUserId,
+      organizationId: organization.id,
+      membershipId: selected.row.id,
+      membershipRole: selected.row.role as OrganizationMembershipRole,
+      role: appRole,
+    },
+  };
+}
+
+async function resolveBindingFromAuthorizedEnv(
+  claims: NexusHandoffClaims,
+  ports: NexusMappingLookups,
+  env: NexusHandoffEnvSource
+): Promise<NexusMappingResult | null> {
+  const authorized = resolveAuthorizedMappingTarget(claims.user_id, env);
+  if (!authorized) return null;
+  if (claims.organization_id !== authorized.nexusOrganizationId) {
+    return fail("organization_mapping_absent");
+  }
+  return buildBindingFromAuthorizedTarget(claims, ports, authorized);
+}
+
+async function maybeInsertAuthorizedMaps(
+  claims: NexusHandoffClaims,
+  ports: NexusMappingLookups,
+  env: NexusHandoffEnvSource
+): Promise<NexusMappingResult | { ok: true; continue: true }> {
+  const authorized = resolveAuthorizedMappingTarget(claims.user_id, env);
+  if (!authorized) return { ok: true, continue: true };
+  if (claims.organization_id !== authorized.nexusOrganizationId) {
+    return fail("organization_mapping_absent");
+  }
+
+  const binding = await buildBindingFromAuthorizedTarget(claims, ports, authorized);
+  if (!binding.ok) return binding;
+
   if (ports.insertIdentityMap) {
-    await ports.insertIdentityMap({
-      nexus_actor_id: claims.user_id,
-      auth_user_id: authorized.authUserId,
-    });
+    try {
+      await ports.insertIdentityMap({
+        nexus_actor_id: claims.user_id,
+        auth_user_id: authorized.authUserId,
+      });
+    } catch (error) {
+      if (!isMappingStoreUnavailableError(error)) throw error;
+    }
   }
   if (ports.insertOrganizationMap) {
-    await ports.insertOrganizationMap({
-      nexus_organization_id: claims.organization_id,
-      organization_id: authorized.organizationId,
-    });
+    try {
+      await ports.insertOrganizationMap({
+        nexus_organization_id: claims.organization_id,
+        organization_id: authorized.organizationId,
+      });
+    } catch (error) {
+      if (!isMappingStoreUnavailableError(error)) throw error;
+    }
   }
   return { ok: true, continue: true };
 }
@@ -267,13 +319,50 @@ export async function resolveNexusHororaBinding(
 ): Promise<NexusMappingResult> {
   try {
     const ports = lookups ?? (await defaultNexusMappingLookups());
-    let identityRows = await ports.findIdentityMaps(claims.user_id);
+
+    let identityRows: NexusIdentityMapRow[] = [];
+    try {
+      identityRows = await ports.findIdentityMaps(claims.user_id);
+    } catch (error) {
+      if (!isMappingStoreUnavailableError(error)) throw error;
+      logNexusCallbackClosed({
+        stage: "identity_mapping",
+        reason_code: "mapping_unavailable",
+        detail: sanitizeMappingStoreError(error),
+      });
+      const envBinding = await resolveBindingFromAuthorizedEnv(claims, ports, env);
+      if (envBinding) return envBinding;
+      return fail("mapping_unavailable");
+    }
+
     if (identityRows.length === 0) {
       const inserted = await maybeInsertAuthorizedMaps(claims, ports, env);
-      if (!inserted.ok) return inserted;
-      identityRows = await ports.findIdentityMaps(claims.user_id);
+      if (!inserted.ok && !("continue" in inserted)) {
+        return inserted;
+      }
+
+      const envBinding = await resolveBindingFromAuthorizedEnv(claims, ports, env);
+      if (envBinding?.ok) return envBinding;
+
+      try {
+        identityRows = await ports.findIdentityMaps(claims.user_id);
+      } catch (error) {
+        if (!isMappingStoreUnavailableError(error)) throw error;
+        if (envBinding) return envBinding;
+        logNexusCallbackClosed({
+          stage: "identity_mapping",
+          reason_code: "mapping_unavailable",
+          detail: sanitizeMappingStoreError(error),
+        });
+        return fail("mapping_unavailable");
+      }
     }
-    if (identityRows.length === 0) return fail("mapping_absent");
+
+    if (identityRows.length === 0) {
+      const envBinding = await resolveBindingFromAuthorizedEnv(claims, ports, env);
+      if (envBinding) return envBinding;
+      return fail("mapping_absent");
+    }
     if (identityRows.length > 1) return fail("mapping_ambiguous");
 
     const identity = identityRows[0];
@@ -287,8 +376,26 @@ export async function resolveNexusHororaBinding(
     const authExists = await ports.authUserExists(identity.auth_user_id);
     if (!authExists) return fail("auth_user_missing");
 
-    const orgMaps = await ports.findOrganizationMaps(claims.organization_id);
-    if (orgMaps.length === 0) return fail("organization_mapping_absent");
+    let orgMaps: NexusOrganizationMapRow[] = [];
+    try {
+      orgMaps = await ports.findOrganizationMaps(claims.organization_id);
+    } catch (error) {
+      if (!isMappingStoreUnavailableError(error)) throw error;
+      const envBinding = await resolveBindingFromAuthorizedEnv(claims, ports, env);
+      if (envBinding) return envBinding;
+      logNexusCallbackClosed({
+        stage: "identity_mapping",
+        reason_code: "mapping_unavailable",
+        detail: sanitizeMappingStoreError(error),
+      });
+      return fail("mapping_unavailable");
+    }
+
+    if (orgMaps.length === 0) {
+      const envBinding = await resolveBindingFromAuthorizedEnv(claims, ports, env);
+      if (envBinding) return envBinding;
+      return fail("organization_mapping_absent");
+    }
     if (orgMaps.length > 1) return fail("organization_mapping_ambiguous");
 
     const orgMap = orgMaps[0];
@@ -320,7 +427,12 @@ export async function resolveNexusHororaBinding(
         role: appRole,
       },
     };
-  } catch {
+  } catch (error) {
+    logNexusCallbackClosed({
+      stage: "identity_mapping",
+      reason_code: "mapping_unavailable",
+      detail: sanitizeMappingStoreError(error),
+    });
     return fail("mapping_unavailable");
   }
 }

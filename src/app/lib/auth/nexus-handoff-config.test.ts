@@ -92,6 +92,7 @@ describe("HORORA Nexus handoff config", () => {
     expect(publicNexusCallbackDenyReason("missing_token")).toBe("handoff_missing");
     expect(publicNexusCallbackDenyReason("handoff_missing")).toBe("handoff_missing");
     expect(publicNexusCallbackDenyReason("handoff_refused")).toBe("handoff_refused");
+    expect(publicNexusCallbackDenyReason("mapping_unavailable")).toBe("mapping_unavailable");
     expect(publicNexusCallbackDenyReason("replay")).toBe("replay");
     expect(publicNexusCallbackDenyReason("cross_tenant")).toBe("cross_tenant");
     expect(publicNexusCallbackDenyReason("membership_ambiguous")).toBe(

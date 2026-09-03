@@ -26,6 +26,10 @@ import {
 } from "@/app/lib/auth/nexus-session-mint.server";
 import { verifyConfiguredNexusPublicJwks, type NexusJwksFetch } from "@/app/lib/auth/nexus-jwks.server";
 import {
+  logNexusCallbackClosed,
+  type NexusCallbackStage,
+} from "@/app/lib/auth/nexus-callback-logging.shared";
+import {
   NEXUS_CALLBACK_FAIL_CLOSED_PATH,
   NEXUS_TECHNICAL_MODULE_KEY,
   isNexusPasswordLoginPath,
@@ -39,9 +43,10 @@ export function logNexusCallbackDecision(
   reason: string,
   logger: (message: string, fields: Record<string, string>) => void = (message, fields) => {
     console.info(message, fields);
-  }
+  },
+  stage: NexusCallbackStage = "identity_mapping"
 ): void {
-  logger("[horora.nexus.callback]", { decision: "closed", reason });
+  logNexusCallbackClosed({ stage, reason_code: reason, logger });
 }
 
 export type NexusCallbackDependencies = {
@@ -112,7 +117,7 @@ export async function inspectNexusHandoff(
     body: input.body,
   });
   if (!token) {
-    logNexusCallbackDecision("missing_token", deps.logger);
+    logNexusCallbackDecision("missing_token", deps.logger, "extract_token");
     return { ok: false, reason: "missing_token" };
   }
 
@@ -120,14 +125,14 @@ export async function inspectNexusHandoff(
   if (!verifyOptions?.jwks) {
     const config = readNexusHandoffConfig(verifyOptions?.env ?? process.env);
     if (!config.ok) {
-      logNexusCallbackDecision(config.reason, deps.logger);
+      logNexusCallbackDecision(config.reason, deps.logger, "verify_config");
       return { ok: false, reason: config.reason };
     }
     const jwks = await verifyConfiguredNexusPublicJwks(verifyOptions?.env ?? process.env, {
       fetch: deps.fetchJwks,
     });
     if (!jwks.ok) {
-      logNexusCallbackDecision(jwks.reason, deps.logger);
+      logNexusCallbackDecision(jwks.reason, deps.logger, "verify_jwks");
       return { ok: false, reason: jwks.reason };
     }
     verifyOptions = {
@@ -138,7 +143,7 @@ export async function inspectNexusHandoff(
 
   const verified = await verifyTagoraHandoffV1(token, verifyOptions);
   if (!verified.ok) {
-    logNexusCallbackDecision(verified.reason, deps.logger);
+    logNexusCallbackDecision(verified.reason, deps.logger, "verify_signature");
     return { ok: false, reason: verified.reason };
   }
 
@@ -154,13 +159,13 @@ export async function inspectNexusHandoff(
 
   const consistent = assertHandoffBindingConsistency(verified.claims, mapped.binding);
   if (!consistent.ok) {
-    logNexusCallbackDecision(consistent.reason, deps.logger);
+    logNexusCallbackDecision(consistent.reason, deps.logger, "binding_consistency");
     return { ok: false, reason: consistent.reason };
   }
 
   const reverified = reverifyNexusCallbackAllow(verified.claims, mapped.binding);
   if (!reverified.ok) {
-    logNexusCallbackDecision(reverified.reason, deps.logger);
+    logNexusCallbackDecision(reverified.reason, deps.logger, "binding_consistency");
     return { ok: false, reason: reverified.reason };
   }
 
@@ -195,12 +200,16 @@ export async function completeNexusCallbackPhaseA(
     nowSeconds: deps.verifyOptions?.nowSeconds,
   });
   if (!consumed.ok) {
-    logNexusCallbackDecision(consumed.reason, deps.logger);
+    logNexusCallbackDecision(consumed.reason, deps.logger, "replay_consume");
     return { ok: false, reason: consumed.reason };
   }
 
   const minted = await mintNexusHororaSession(inspected.binding, deps.mintOptions);
-  logNexusCallbackDecision(minted.ok ? "session_ready" : minted.reason, deps.logger);
+  logNexusCallbackDecision(
+    minted.ok ? "session_ready" : minted.reason,
+    deps.logger,
+    "session_mint"
+  );
   if (!minted.ok) {
     return { ok: false, reason: minted.reason };
   }
