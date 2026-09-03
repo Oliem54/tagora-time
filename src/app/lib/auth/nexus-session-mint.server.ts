@@ -47,9 +47,22 @@ export async function defaultLoadAuthUserByExactId(
   const { createAdminSupabaseClient } = await import("@/app/lib/supabase/admin");
   const supabase = createAdminSupabaseClient();
   const { data, error } = await supabase.auth.admin.getUserById(authUserId);
-  if (error || !data.user?.id) return null;
-  if (data.user.id !== authUserId) return null;
-  return { id: data.user.id };
+  if (!error && data.user?.id === authUserId) {
+    return { id: data.user.id };
+  }
+
+  // Opaque brokered sessions do not mint Supabase Auth JWTs. If Auth Admin is
+  // unavailable but an active membership already proves the user id, continue.
+  const { data: memberships, error: membershipError } = await supabase
+    .from("organization_memberships")
+    .select("id")
+    .eq("user_id", authUserId)
+    .eq("status", "active")
+    .limit(1);
+  if (membershipError || !memberships || memberships.length === 0) {
+    return null;
+  }
+  return { id: authUserId };
 }
 
 async function defaultIssueBrokeredSession(

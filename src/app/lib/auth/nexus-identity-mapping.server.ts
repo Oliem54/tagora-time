@@ -115,10 +115,15 @@ export function resolveAuthorizedMappingTarget(
 
   const actor = readEnv(env, HORORA_NEXUS_MAPPING_ENV_KEYS.nexusActorId);
   const authUserId = readEnv(env, HORORA_NEXUS_MAPPING_ENV_KEYS.authUserId);
-  if (authUserId && isUuid(authUserId)) {
-    if (!actor || claimsUserId === actor) {
-      return { authUserId, organizationId, nexusOrganizationId: nexusOrg };
-    }
+  // Exact Nexus actor binding is mandatory. Never map an arbitrary Nexus user
+  // onto HORORA_AUTH_USER_ID when HORORA_NEXUS_ACTOR_ID is absent or mismatched.
+  if (
+    actor &&
+    authUserId &&
+    isUuid(authUserId) &&
+    claimsUserId === actor
+  ) {
+    return { authUserId, organizationId, nexusOrganizationId: nexusOrg };
   }
 
   const employeeActor = readEnv(env, HORORA_NEXUS_MAPPING_ENV_KEYS.employeeNexusActorId);
@@ -231,12 +236,49 @@ async function buildBindingFromAuthorizedTarget(
   ports: NexusMappingLookups,
   authorized: { authUserId: string; organizationId: string; nexusOrganizationId: string }
 ): Promise<NexusMappingResult> {
-  const authExists = await ports.authUserExists(authorized.authUserId);
-  if (!authExists) return fail("auth_user_missing");
+  let authExists = false;
+  try {
+    authExists = await ports.authUserExists(authorized.authUserId);
+  } catch (error) {
+    logNexusCallbackClosed({
+      stage: "identity_mapping",
+      reason_code: "auth_user_missing",
+      detail: sanitizeMappingStoreError(error),
+    });
+    authExists = false;
+  }
 
-  const memberships = await ports.findMembershipsForUser(authorized.authUserId);
+  let memberships: MembershipRow[] = [];
+  try {
+    memberships = await ports.findMembershipsForUser(authorized.authUserId);
+  } catch (error) {
+    if (!isMappingStoreUnavailableError(error)) throw error;
+    if (!authExists) {
+      logNexusCallbackClosed({
+        stage: "identity_mapping",
+        reason_code: "mapping_unavailable",
+        detail: sanitizeMappingStoreError(error),
+      });
+      return fail("mapping_unavailable");
+    }
+    throw error;
+  }
+
   const selected = selectableMembershipInOrg(memberships, authorized.organizationId);
-  if (!selected.ok) return fail(selected.reason);
+  if (!selected.ok) {
+    if (!authExists) return fail("auth_user_missing");
+    return fail(selected.reason);
+  }
+
+  // Membership in the configured organization corroborates the configured Auth
+  // user id when auth.admin.getUserById is unavailable or falsely negative.
+  if (!authExists) {
+    logNexusCallbackClosed({
+      stage: "identity_mapping",
+      reason_code: "auth_admin_miss_membership_corroborated",
+      detail: "membership_row_present",
+    });
+  }
 
   const organization = await ports.findOrganization(authorized.organizationId);
   if (!organization) return fail("organization_missing");

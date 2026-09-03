@@ -26,6 +26,15 @@ export function sanitizeMappingStoreError(error: unknown): string {
   if (message.includes("does not exist")) {
     return "database_relation_missing";
   }
+  if (message.includes("pgrst205") || message.includes("schema cache")) {
+    return "database_relation_missing";
+  }
+  if (message.includes("permission denied") || message.includes("rls")) {
+    return "mapping_permission_denied";
+  }
+  if (message.includes("jwt") || message.includes("invalid api key")) {
+    return "supabase_auth_config_error";
+  }
   return "mapping_store_error";
 }
 
@@ -36,6 +45,8 @@ export function isMappingStoreUnavailableError(error: unknown): boolean {
     code === "organization_map_table_missing" ||
     code === "database_relation_missing" ||
     code === "mapping_store_error" ||
+    code === "mapping_permission_denied" ||
+    code === "supabase_auth_config_error" ||
     code === "supabase_url_missing" ||
     code === "supabase_service_role_missing"
   );

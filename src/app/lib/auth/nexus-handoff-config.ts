@@ -83,6 +83,8 @@ export function publicNexusCallbackDenyReason(
       return "handoff_refused";
     case "mapping_unavailable":
       return "mapping_unavailable";
+    case "auth_user_missing":
+      return "mapping_unavailable";
     default:
       return "handoff_refused";
   }

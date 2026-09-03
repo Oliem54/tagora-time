@@ -295,6 +295,7 @@ describe("Nexus HORORA identity mapping", () => {
     const orgs: Array<{ nexus_organization_id: string; organization_id: string; status: string }> =
       [];
     const env = {
+      HORORA_NEXUS_ACTOR_ID: CLAIMS.user_id,
       HORORA_AUTH_USER_ID: AUTH_USER,
       HORORA_ORGANIZATION_ID: ORG_ID,
     };
@@ -375,17 +376,21 @@ describe("Nexus HORORA identity mapping", () => {
         HORORA_AUTH_USER_ID: AUTH_USER,
         HORORA_ORGANIZATION_ID: ORG_ID,
       })
-    ).toEqual({
-      authUserId: AUTH_USER,
-      organizationId: ORG_ID,
-      nexusOrganizationId: DEFAULT_HORORA_NEXUS_ORGANIZATION_ID,
-    });
+    ).toBeNull();
+    expect(
+      resolveAuthorizedMappingTarget("nuser_other", {
+        HORORA_NEXUS_ACTOR_ID: "nuser_martin_staging",
+        HORORA_AUTH_USER_ID: AUTH_USER,
+        HORORA_ORGANIZATION_ID: ORG_ID,
+      })
+    ).toBeNull();
     const mappingSource = import.meta.url;
     expect(mappingSource).not.toContain("HORORA_AUTH_USER_ID=");
   });
 
   it("resolves env-authorized binding when Nexus map tables are unavailable", async () => {
     const env = {
+      HORORA_NEXUS_ACTOR_ID: CLAIMS.user_id,
       HORORA_AUTH_USER_ID: AUTH_USER,
       HORORA_ORGANIZATION_ID: ORG_ID,
     };
@@ -406,6 +411,51 @@ describe("Nexus HORORA identity mapping", () => {
     if (result.ok) {
       expect(result.binding.authUserId).toBe(AUTH_USER);
       expect(result.binding.organizationId).toBe(ORG_ID);
+      expect(result.binding.role).toBe("admin");
+    }
+  });
+
+  it("refuses shared auth-user fallback without exact Nexus actor binding", async () => {
+    const env = {
+      HORORA_AUTH_USER_ID: AUTH_USER,
+      HORORA_ORGANIZATION_ID: ORG_ID,
+    };
+    const claims = { ...CLAIMS, organization_id: DEFAULT_HORORA_NEXUS_ORGANIZATION_ID };
+    await expect(
+      resolveNexusHororaBinding(
+        claims,
+        lookups({
+          async findIdentityMaps() {
+            throw new Error('relation "public.horora_nexus_identity_map" does not exist');
+          },
+        }),
+        env
+      )
+    ).resolves.toEqual({ ok: false, reason: "mapping_unavailable" });
+  });
+
+  it("corroborates configured Auth user via membership when auth.admin misses", async () => {
+    const env = {
+      HORORA_NEXUS_ACTOR_ID: CLAIMS.user_id,
+      HORORA_AUTH_USER_ID: AUTH_USER,
+      HORORA_ORGANIZATION_ID: ORG_ID,
+    };
+    const claims = { ...CLAIMS, organization_id: DEFAULT_HORORA_NEXUS_ORGANIZATION_ID };
+    const result = await resolveNexusHororaBinding(
+      claims,
+      lookups({
+        async findIdentityMaps() {
+          throw new Error('relation "public.horora_nexus_identity_map" does not exist');
+        },
+        async authUserExists() {
+          return false;
+        },
+      }),
+      env
+    );
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.binding.authUserId).toBe(AUTH_USER);
       expect(result.binding.role).toBe("admin");
     }
   });
