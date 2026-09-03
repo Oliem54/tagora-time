@@ -264,6 +264,41 @@ describe("Nexus HORORA identity mapping", () => {
     expect(orgs).toHaveLength(1);
   });
 
+  it("inserts env-authorized maps when only the existing HORORA user is configured", async () => {
+    const identity: Array<{ nexus_actor_id: string; auth_user_id: string; disabled_at: null }> = [];
+    const orgs: Array<{ nexus_organization_id: string; organization_id: string; status: string }> =
+      [];
+    const env = {
+      HORORA_AUTH_USER_ID: AUTH_USER,
+      HORORA_ORGANIZATION_ID: ORG_ID,
+    };
+    const claims = { ...CLAIMS, organization_id: DEFAULT_HORORA_NEXUS_ORGANIZATION_ID };
+    const result = await resolveNexusHororaBinding(
+      claims,
+      lookups({
+        async findIdentityMaps() {
+          return identity;
+        },
+        async findOrganizationMaps() {
+          return orgs;
+        },
+        async insertIdentityMap(row) {
+          identity.push({ ...row, disabled_at: null });
+          return { duplicate: false };
+        },
+        async insertOrganizationMap(row) {
+          orgs.push({ ...row, status: "active" });
+          return { duplicate: false };
+        },
+      }),
+      env
+    );
+    expect(result.ok).toBe(true);
+    expect(identity).toEqual([
+      { nexus_actor_id: CLAIMS.user_id, auth_user_id: AUTH_USER, disabled_at: null },
+    ]);
+  });
+
   it("does not env-insert when the actor is not authorized", async () => {
     let inserted = false;
     await expect(
@@ -301,6 +336,16 @@ describe("Nexus HORORA identity mapping", () => {
     expect(
       resolveAuthorizedMappingTarget("actor-1", {
         HORORA_NEXUS_ACTOR_ID: "actor-1",
+        HORORA_AUTH_USER_ID: AUTH_USER,
+        HORORA_ORGANIZATION_ID: ORG_ID,
+      })
+    ).toEqual({
+      authUserId: AUTH_USER,
+      organizationId: ORG_ID,
+      nexusOrganizationId: DEFAULT_HORORA_NEXUS_ORGANIZATION_ID,
+    });
+    expect(
+      resolveAuthorizedMappingTarget("nuser_martin_staging", {
         HORORA_AUTH_USER_ID: AUTH_USER,
         HORORA_ORGANIZATION_ID: ORG_ID,
       })

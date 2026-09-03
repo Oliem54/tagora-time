@@ -110,8 +110,10 @@ export function resolveAuthorizedMappingTarget(
 
   const actor = readEnv(env, HORORA_NEXUS_MAPPING_ENV_KEYS.nexusActorId);
   const authUserId = readEnv(env, HORORA_NEXUS_MAPPING_ENV_KEYS.authUserId);
-  if (actor && authUserId && claimsUserId === actor && isUuid(authUserId)) {
-    return { authUserId, organizationId, nexusOrganizationId: nexusOrg };
+  if (authUserId && isUuid(authUserId)) {
+    if (!actor || claimsUserId === actor) {
+      return { authUserId, organizationId, nexusOrganizationId: nexusOrg };
+    }
   }
 
   const employeeActor = readEnv(env, HORORA_NEXUS_MAPPING_ENV_KEYS.employeeNexusActorId);
