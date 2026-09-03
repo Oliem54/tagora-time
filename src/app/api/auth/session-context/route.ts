@@ -13,12 +13,32 @@ export const dynamic = "force-dynamic";
  */
 export async function GET(req: NextRequest) {
   try {
-    const { user } = await getAuthenticatedRequestUser(req);
+    const authenticated = await getAuthenticatedRequestUser(req);
+    const { user, sessionSource } = authenticated;
     if (!user) {
       return NextResponse.json(
         { authenticated: false, authorized: false, reason: "unauthenticated" },
         { status: 401 }
       );
+    }
+
+    if (
+      sessionSource === "nexus_handoff" &&
+      authenticated.role &&
+      authenticated.organizationId &&
+      authenticated.membershipId
+    ) {
+      return NextResponse.json({
+        authenticated: true,
+        authorized: true,
+        reason: null,
+        jwtAppRole: null,
+        appRole: authenticated.role,
+        organizationId: authenticated.organizationId,
+        membershipId: authenticated.membershipId,
+        membershipRole: authenticated.membershipRole,
+        source: "nexus_handoff",
+      });
     }
 
     const jwtAppRole = extractRoleFromUser(user);
@@ -51,7 +71,7 @@ export async function GET(req: NextRequest) {
       organizationId: context.organizationId,
       membershipId: context.membershipId,
       membershipRole: context.membershipRole,
-      source: context.source,
+      source: sessionSource === "nexus_handoff" ? "nexus_handoff" : context.source,
     });
   } catch {
     return NextResponse.json(

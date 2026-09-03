@@ -16,6 +16,8 @@ import {
   shouldBlockJwtAal1ForMandatoryMfaRole,
 } from "@/app/lib/auth/mfa.shared";
 import { bindEffectiveAppRole } from "@/app/lib/auth/permissions";
+import { NEXUS_BROKERED_SESSION_COOKIE_NAME } from "@/app/lib/auth/nexus-handoff-config";
+import { resolveBrokeredHororaSessionFromCookies } from "@/app/lib/auth/nexus-brokered-session";
 import { resolveOrganizationAuthContextForUser } from "@/app/lib/saas/organization-membership.server";
 
 export { getJwtAal };
@@ -283,35 +285,68 @@ export function getRequestIp(req: NextRequest) {
   return forwardedFor?.split(",")[0]?.trim() || realIp?.trim() || "unknown";
 }
 
+export type AuthenticatedSessionSource = "nexus_handoff" | null;
+
+function unauthenticatedRequestUser(authSource: "bearer" | "cookie" | "none") {
+  return {
+    user: null,
+    role: null,
+    authSource,
+    organizationId: null as string | null,
+    membershipId: null as string | null,
+    membershipRole: null as string | null,
+    authorizationSource: null as "membership" | null,
+    sessionSource: null as AuthenticatedSessionSource,
+  };
+}
+
 export async function getAuthenticatedRequestUser(req: NextRequest) {
+  const brokeredCookie = req.cookies.get(NEXUS_BROKERED_SESSION_COOKIE_NAME)?.value ?? null;
+  if (brokeredCookie) {
+    const resolved = await resolveBrokeredHororaSessionFromCookies({
+      get(name: string) {
+        return req.cookies.get(name)?.value;
+      },
+    });
+    if (resolved.ok) {
+      let admin;
+      try {
+        admin = createAdminSupabaseClient();
+      } catch {
+        return unauthenticatedRequestUser("none");
+      }
+
+      const { data, error } = await admin.auth.admin.getUserById(resolved.principal.authUserId);
+      if (error || !data.user || data.user.id !== resolved.principal.authUserId) {
+        return unauthenticatedRequestUser("none");
+      }
+
+      bindEffectiveAppRole(data.user, resolved.principal.role);
+      return {
+        user: data.user,
+        role: resolved.principal.role,
+        authSource: "cookie" as const,
+        organizationId: resolved.principal.organizationId,
+        membershipId: resolved.principal.membershipId,
+        membershipRole: resolved.principal.membershipRole,
+        authorizationSource: "membership" as const,
+        sessionSource: "nexus_handoff" as AuthenticatedSessionSource,
+      };
+    }
+  }
+
   const accessToken = getRequestAccessToken(req);
   const token = accessToken.token;
 
   if (!token) {
-    return {
-      user: null,
-      role: null,
-      authSource: accessToken.source,
-      organizationId: null as string | null,
-      membershipId: null as string | null,
-      membershipRole: null as string | null,
-      authorizationSource: null as "membership" | null,
-    };
+    return unauthenticatedRequestUser(accessToken.source);
   }
 
   const supabase = createPublicServerSupabaseClient();
   const { data, error } = await supabase.auth.getUser(token);
 
   if (error || !data.user) {
-    return {
-      user: null,
-      role: null,
-      authSource: accessToken.source,
-      organizationId: null as string | null,
-      membershipId: null as string | null,
-      membershipRole: null as string | null,
-      authorizationSource: null as "membership" | null,
-    };
+    return unauthenticatedRequestUser(accessToken.source);
   }
 
   const jwtRole = extractRoleFromUser(data.user);
@@ -328,6 +363,7 @@ export async function getAuthenticatedRequestUser(req: NextRequest) {
       membershipId: null as string | null,
       membershipRole: null as string | null,
       authorizationSource: null as "membership" | null,
+      sessionSource: null as AuthenticatedSessionSource,
     };
   }
 
@@ -341,6 +377,7 @@ export async function getAuthenticatedRequestUser(req: NextRequest) {
     membershipId: orgAuth.context.membershipId,
     membershipRole: orgAuth.context.membershipRole,
     authorizationSource: orgAuth.context.source,
+    sessionSource: null as AuthenticatedSessionSource,
   };
 }
 

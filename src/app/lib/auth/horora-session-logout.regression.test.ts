@@ -17,6 +17,7 @@ describe("HORORA session logout and MFA loop non-regression", () => {
     const helper = read("src/app/lib/auth/password-mfa.client.ts");
 
     expect(helper).toContain("await clearServerSessionCookie()");
+    expect(helper).toContain("/api/auth/nexus-session");
     expect(helper).toContain("clearTagoraAuthBrowserSession()");
     expect(badge).toContain("signOutToSwitchAccount");
     expect(badge).toContain("Se déconnecter");

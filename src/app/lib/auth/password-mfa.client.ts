@@ -61,6 +61,14 @@ export async function signOutToSwitchAccount(): Promise<string> {
   const loginPath = role ? getLoginPathForRole(role) : "/direction/login";
   await supabase.auth.signOut();
   await clearServerSessionCookie();
+  try {
+    await fetch("/api/auth/nexus-session", {
+      method: "DELETE",
+      credentials: "same-origin",
+    });
+  } catch {
+    // Best-effort brokered cookie clear.
+  }
   clearTagoraAuthBrowserSession();
   return loginPath;
 }

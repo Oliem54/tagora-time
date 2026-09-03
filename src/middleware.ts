@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
+import { NEXUS_BROKERED_SESSION_COOKIE_NAME } from "@/app/lib/auth/nexus-handoff-config";
 import { APP_SESSION_COOKIE_NAME } from "@/app/lib/auth/session-cookie";
 import { getJwtAppRole, isJwtExplicitlyAal1Only } from "@/app/lib/auth/jwt-access-token";
 import {
@@ -34,8 +35,10 @@ export function middleware(request: NextRequest) {
 
     const hostname = readRequestHostname(request.headers, request.nextUrl.hostname);
     const cookieToken = request.cookies.get(APP_SESSION_COOKIE_NAME)?.value ?? null;
+    const brokeredCookie = request.cookies.get(NEXUS_BROKERED_SESSION_COOKIE_NAME)?.value ?? null;
+    const skipJwtMfaBlocks = Boolean(brokeredCookie);
 
-    if (isMfaProtectedAppPath(path) && cookieToken) {
+    if (!skipJwtMfaBlocks && isMfaProtectedAppPath(path) && cookieToken) {
       try {
         const jwtRole = getJwtAppRole(cookieToken);
         if (
@@ -55,7 +58,7 @@ export function middleware(request: NextRequest) {
       }
     }
 
-    if (path.startsWith("/api/") && !isMfaExemptApiPath(path)) {
+    if (!skipJwtMfaBlocks && path.startsWith("/api/") && !isMfaExemptApiPath(path)) {
       const token = readApiAccessToken(request);
       let blockMfa = false;
       try {

@@ -12,17 +12,19 @@ export type SessionContextResponse = {
   organizationId: string | null;
   membershipId: string | null;
   membershipRole: OrganizationMembershipRole | null;
-  source: "membership" | null;
+  source: "membership" | "nexus_handoff" | null;
 };
 
 export async function fetchSessionAuthorizationContext(
-  accessToken: string
+  accessToken?: string
 ): Promise<SessionContextResponse> {
+  const headers: HeadersInit = {};
+  if (accessToken) {
+    headers.Authorization = `Bearer ${accessToken}`;
+  }
   const res = await fetch("/api/auth/session-context", {
     method: "GET",
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-    },
+    headers,
     credentials: "same-origin",
     cache: "no-store",
   });

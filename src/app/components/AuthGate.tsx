@@ -89,10 +89,53 @@ export default function AuthGate({
       }
     }
 
+    async function authorizeNexusHandoff(role: AppRole) {
+      const roleMatchesArea = appRoleMatchesArea(areaRole, role);
+      const crossReadOk =
+        Boolean(crossAreaReadMatch) &&
+        Boolean(role && crossAreaReadMatch?.roles.includes(role));
+
+      if (!roleMatchesArea && !crossReadOk && !wrongRoleRenderOk) {
+        router.replace(getHomePathForRole(role));
+        return;
+      }
+
+      if (isPublicPath) {
+        router.replace(getHomePathForRole(role));
+        return;
+      }
+
+      const requiredPermission = getRequiredPermissionForPath(pathname);
+      if (requiredPermission === "admin_finance") {
+        setMissingPermission(requiredPermission);
+        router.replace(getHomePathForRole(role));
+        return;
+      }
+
+      setStatus("allowed");
+    }
+
     async function evaluateAccess() {
       try {
         await runWithBrowserAuthReadLock(async () => {
           setMissingPermission(null);
+
+          let brokeredCtx: Awaited<ReturnType<typeof fetchSessionAuthorizationContext>> | null =
+            null;
+          try {
+            brokeredCtx = await fetchSessionAuthorizationContext();
+          } catch {
+            brokeredCtx = null;
+          }
+          if (cancelled) return;
+          if (
+            brokeredCtx?.authorized &&
+            brokeredCtx.source === "nexus_handoff" &&
+            brokeredCtx.appRole
+          ) {
+            await authorizeNexusHandoff(brokeredCtx.appRole);
+            return;
+          }
 
           let { data, error: userError } = await getUserOnce();
           if (userError && isAuthClientLockContentionError(userError)) {
