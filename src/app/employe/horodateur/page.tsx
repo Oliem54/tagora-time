@@ -1,8 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import AuthenticatedPageHeader from "@/app/components/ui/AuthenticatedPageHeader";
+import HororaAppShell from "@/app/components/horora/HororaAppShell";
 import AccessNotice from "@/app/components/AccessNotice";
 import styles from "./horodateur-employe.module.css";
 import CorrectionRequestModal, {
@@ -530,16 +530,18 @@ function formatHorodateurApiError(
   return details ? `${error} (${details})` : error;
 }
 
-function HorodateurEmployeHeader() {
+function HorodateurEmployeChrome({ children }: { children: ReactNode }) {
   return (
-    <AuthenticatedPageHeader
+    <HororaAppShell
+      workspace="employe"
+      active="punch"
       title="TAGORA HORORA"
       subtitle="Horodateur employé"
       logoSrc="/brand/horora/horora.png"
       logoAlt=""
-      compact
-      className={styles.header}
-    />
+    >
+      {children}
+    </HororaAppShell>
   );
 }
 
@@ -555,8 +557,7 @@ function HorodateurLoadingScreen({
   retryLabel?: string;
 }) {
   return (
-    <main className="page-container">
-      <HorodateurEmployeHeader />
+    <HorodateurEmployeChrome>
       <AccessNotice description={description} />
       {showRetry && onRetry ? (
         <div style={{ marginTop: 16 }}>
@@ -565,7 +566,7 @@ function HorodateurLoadingScreen({
           </button>
         </div>
       ) : null}
-    </main>
+    </HorodateurEmployeChrome>
   );
 }
 
@@ -1714,16 +1715,14 @@ export default function EmployeHorodateurPage() {
 
   if (!canUseTerrain) {
     return (
-      <main className="page-container">
-        <HorodateurEmployeHeader />
+      <HorodateurEmployeChrome>
         <AccessNotice description="La permission terrain est requise pour utiliser l horodateur." />
-      </main>
+      </HorodateurEmployeChrome>
     );
   }
 
   return (
-    <main className="page-container">
-      <HorodateurEmployeHeader />
+    <HorodateurEmployeChrome>
 
       {message ? <AccessNotice title="Information" description={message} /> : null}
 
@@ -2161,7 +2160,7 @@ export default function EmployeHorodateurPage() {
           <p className="tagora-note">Aucune exception pour cette journée.</p>
         )}
       </section>
-    </main>
+    </HorodateurEmployeChrome>
   );
 }
 

@@ -2,6 +2,8 @@
 
 import * as Sentry from "@sentry/nextjs";
 import { useEffect } from "react";
+import TimePublicShell from "@/app/components/time-public/TimePublicShell";
+import HororaStateBanner from "@/app/components/horora/HororaStateBanner";
 
 export default function Error({
   error,
@@ -15,18 +17,20 @@ export default function Error({
   }, [error]);
 
   return (
-    <div className="flex min-h-[40vh] flex-col items-center justify-center gap-4 p-6 text-center">
-      <h1 className="text-lg font-semibold text-neutral-900">Une erreur est survenue</h1>
-      <p className="max-w-md text-sm text-neutral-600">
-        {process.env.NODE_ENV === "development" ? error.message : "Veuillez reessayer dans un instant."}
-      </p>
-      <button
-        type="button"
-        onClick={() => reset()}
-        className="rounded-md border border-neutral-300 px-4 py-2 text-sm font-medium text-neutral-900 hover:bg-neutral-50"
+    <TimePublicShell brandSize="login" compact showWordmark={false}>
+      <HororaStateBanner
+        tone="danger"
+        title="Une erreur est survenue"
+        action={
+          <button type="button" className="ui-button ui-button-primary" onClick={() => reset()}>
+            Reessayer
+          </button>
+        }
       >
-        Reessayer
-      </button>
-    </div>
+        {process.env.NODE_ENV === "development"
+          ? error.message
+          : "Veuillez reessayer dans un instant."}
+      </HororaStateBanner>
+    </TimePublicShell>
   );
 }

@@ -232,6 +232,7 @@ export default function DirectionLoginPage() {
       roleLabel="Direction"
       title="Connexion direction"
       description="Entrez vos identifiants pour accéder au pilotage TAGORA HORORA."
+      showWordmark={false}
       footer={
         <>
           <TimeRoleSwitchLink target="employe" />

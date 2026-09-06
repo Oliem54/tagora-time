@@ -1527,24 +1527,24 @@
   --shadow-soft: 0 6px 18px rgba(31, 78, 121, 0.08);
   --radius: 12px;
 
-  --ui-color-bg-page: #f3f6fb;
-  --ui-color-bg-card: #ffffff;
-  --ui-color-bg-muted: #f7f9fc;
-  --ui-color-bg-accent: #eef4ff;
-  --ui-color-text: #102544;
-  --ui-color-text-muted: #66768f;
-  --ui-color-text-soft: #8e9bb1;
-  --ui-color-border: #dfe6f0;
-  --ui-color-border-strong: #c8d4e3;
-  --ui-color-primary: #173868;
-  --ui-color-primary-strong: #14315a;
-  --ui-color-primary-soft: #e8f0ff;
-  --ui-color-success: #1f8f54;
-  --ui-color-success-soft: #e6f6ec;
-  --ui-color-warning: #b26c14;
-  --ui-color-warning-soft: #fff3df;
-  --ui-color-danger: #cf4a4a;
-  --ui-color-danger-soft: #fdecec;
+  --ui-color-bg-page: var(--tagora-surface-soft, #f6f7ed);
+  --ui-color-bg-card: var(--tagora-surface, #ffffff);
+  --ui-color-bg-muted: color-mix(in srgb, #081029 4%, #f6f7ed);
+  --ui-color-bg-accent: var(--module-accent-soft, #d6e4eb);
+  --ui-color-text: var(--tagora-text, #081029);
+  --ui-color-text-muted: color-mix(in srgb, #081029 62%, #f6f7ed);
+  --ui-color-text-soft: color-mix(in srgb, #081029 62%, #f6f7ed);
+  --ui-color-border: color-mix(in srgb, #1b2641 14%, #ffffff);
+  --ui-color-border-strong: var(--module-accent-border, #95bee7);
+  --ui-color-primary: var(--module-action-bg, #1a64bb);
+  --ui-color-primary-strong: var(--module-accent-hover, #1a64bb);
+  --ui-color-primary-soft: var(--module-accent-soft, #d6e4eb);
+  --ui-color-success: var(--tagora-success-fg, #067647);
+  --ui-color-success-soft: var(--tagora-success-bg, #ecfdf3);
+  --ui-color-warning: var(--tagora-warning-fg, #b54708);
+  --ui-color-warning-soft: var(--tagora-warning-bg, #fffaeb);
+  --ui-color-danger: var(--tagora-danger-fg, #b42318);
+  --ui-color-danger-soft: var(--tagora-danger-bg, #fef3f2);
 
   --ui-space-1: 4px;
   --ui-space-2: 8px;
@@ -1576,11 +1576,9 @@ html,
 body {
   padding: 0;
   margin: 0;
-  font-family: Arial, Helvetica, sans-serif;
-  background:
-    radial-gradient(circle at top, rgba(61, 112, 184, 0.14), transparent 28%),
-    linear-gradient(180deg, #11335f 0%, #173d73 18%, #eef3fa 18%, #f3f6fb 100%);
-  color: var(--text-main);
+  font-family: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  background: var(--tagora-surface-soft, #f6f7ed);
+  color: var(--tagora-text, #081029);
 }
 
 a {
@@ -7194,9 +7192,7 @@ select {
     max(16px, env(safe-area-inset-right))
     max(24px, env(safe-area-inset-bottom))
     max(16px, env(safe-area-inset-left));
-  background:
-    radial-gradient(ellipse 80% 50% at 8% 0%, rgb(31 121 224 / 0.1), transparent 55%),
-    linear-gradient(180deg, var(--module-accent-soft) 0%, var(--tagora-surface-soft) 42%, var(--tagora-surface) 100%);
+  background: var(--tagora-surface-soft);
   color: var(--tagora-text);
 }
 

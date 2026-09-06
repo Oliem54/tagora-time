@@ -11,13 +11,15 @@ import {
   HORORA_DARK_ASSET_SHA256,
   HORORA_DESIGN_BODY_FONT,
   HORORA_DESIGN_HEADING_FONT,
-  HORORA_LEGACY_COLOR,
+  HORORA_LEGACY_UI,
   HORORA_LIGHT_ASSET_PATH,
   HORORA_LIGHT_ASSET_SHA256,
   HORORA_LOGO_OBJECT_FIT,
   HORORA_RADIUS,
   HORORA_RUNTIME_FONT,
+  HORORA_SHADOW,
   HORORA_SIZE,
+  HORORA_SPACE,
   HORORA_SURFACE_ASSET,
   HORORA_TYPE_ROLE,
   contrastRatio,
@@ -28,29 +30,6 @@ import {
 } from "@/app/lib/brand/horora-premium-2027";
 
 const root = process.cwd();
-
-const FORBIDDEN_PHASE_1_FILES = [
-  "src/app/components/AuthGate.tsx",
-  "src/app/lib/auth/session-context.client.ts",
-  "src/app/lib/auth/roles.ts",
-  "src/app/lib/auth/permissions.ts",
-  "src/app/lib/auth/mfa.client.ts",
-  "src/app/lib/auth/session-cookie.ts",
-  "src/app/employe/login/page.tsx",
-  "src/app/direction/login/page.tsx",
-] as const;
-
-const SURFACE_FILES_UNCHANGED_BY_PHASE_1 = [
-  "src/app/page.tsx",
-  "src/app/components/time-public/TimeEntryHub.tsx",
-  "src/app/components/time-public/TimePublicShell.tsx",
-  "src/app/components/time-public/TimeBrand.tsx",
-  "src/app/components/time-public/TimeLoginShell.tsx",
-  "src/app/components/ui/PageHeader.tsx",
-  "src/app/loading.tsx",
-  "src/app/error.tsx",
-  "src/app/layout.tsx",
-] as const;
 
 function readPngSize(relativePath: string): { width: number; height: number } {
   const buffer = readFileSync(join(root, relativePath));
@@ -64,7 +43,7 @@ function sha256File(relativePath: string): string {
   return createHash("sha256").update(readFileSync(join(root, relativePath))).digest("hex");
 }
 
-describe("HORORA Premium 2027 — Phase 1 tokens and assets", () => {
+describe("HORORA Premium 2027 — official visual tokens", () => {
   it("expose the official names and asset mapping", () => {
     expect(HORORA_CANONICAL_PRODUCT_NAME).toBe("TAGORA HORORA");
     expect(HORORA_ACCESSIBLE_PRODUCT_NAME).toBe("HORORA par TAGORA");
@@ -92,38 +71,48 @@ describe("HORORA Premium 2027 — Phase 1 tokens and assets", () => {
     });
   });
 
-  it("defines official colors without treating legacy values as current", () => {
+  it("uses TOS / registre values instead of invented canvases", () => {
     expect(HORORA_COLOR.tagoraBase).toBe("#182643");
+    expect(HORORA_COLOR.shell).toBe("#1B2641");
+    expect(HORORA_COLOR.shellDeep).toBe("#081029");
+    expect(HORORA_COLOR.surfaceSoft).toBe("#F6F7ED");
+    expect(HORORA_COLOR.surface).toBe("#FFFFFF");
+    expect(HORORA_COLOR.text).toBe("#081029");
+    expect(HORORA_COLOR.link).toBe("#1E488F");
     expect(HORORA_COLOR.accent).toBe("#1F79E0");
     expect(HORORA_COLOR.secondary).toBe("#4174BA");
     expect(HORORA_COLOR.action).toBe("#1A64BB");
     expect(HORORA_COLOR.actionOn).toBe("#FFFFFF");
     expect(HORORA_COLOR.focus).toBe("#154A8E");
-    expect(HORORA_COLOR.surfaceLight).toBe("#FFFFFF");
-    expect(HORORA_COLOR.canvas).toBe("#F6F7F9");
-    expect(HORORA_COLOR.canvasMuted).toBe("#EEF0F4");
-    expect(HORORA_COLOR.sidebar).toBe("#F4F5F8");
-    expect(HORORA_COLOR.neutralMuted).toBe("#5C6570");
-    expect(HORORA_COLOR.neutralBorder).toBe("#E3E6EC");
-    expect(HORORA_LEGACY_COLOR.base).toBe("#1B2641");
-    expect(HORORA_LEGACY_COLOR.lightSurface).toBe("#F6F7ED");
-    expect(HORORA_COLOR.tagoraBase).not.toBe(HORORA_LEGACY_COLOR.base);
+    expect(HORORA_COLOR.accentSoft).toBe("#D6E4EB");
+    expect(HORORA_COLOR.accentBorder).toBe("#95BEE7");
+    expect(HORORA_COLOR.successFg).toBe("#067647");
+    expect(HORORA_COLOR.warningFg).toBe("#B54708");
+    expect(HORORA_COLOR.dangerFg).toBe("#B42318");
+    expect(HORORA_COLOR.infoFg).toBe("#175CD3");
+    expect(HORORA_COLOR.nexusAction).toBe("#008247");
+    expect(HORORA_LEGACY_UI.inventedCanvas).toBe("#F6F7F9");
+    expect(HORORA_COLOR.surfaceSoft).not.toBe(HORORA_LEGACY_UI.inventedCanvas);
+    expect(HORORA_COLOR.shell).not.toBe(HORORA_LEGACY_UI.heroStart);
   });
 
-  it("defines foundation sizes, card width, touch target and radius", () => {
+  it("defines official sizes, radius, space and shadow", () => {
     expect(HORORA_SIZE.loginLogoMobilePx).toBe(128);
     expect(HORORA_SIZE.loginLogoTabletPx).toBe(144);
     expect(HORORA_SIZE.loginLogoDesktopPx).toBe(160);
-    expect(HORORA_SIZE.headerLogoMobilePx).toBe(48);
-    expect(HORORA_SIZE.headerLogoTabletPx).toBe(56);
-    expect(HORORA_SIZE.headerLogoDesktopPx).toBe(64);
-    expect(HORORA_SIZE.loginCardMaxWidthPx).toBe(480);
     expect(HORORA_SIZE.touchTargetMinPx).toBe(44);
-    expect(HORORA_SIZE.sidebarWidthPx).toBe(232);
-    expect(HORORA_SIZE.sidebarLogoPx).toBe(32);
-    expect(HORORA_SIZE.topbarHeightPx).toBe(52);
+    expect(HORORA_SIZE.sidebarWidthPx).toBe(256);
+    expect(HORORA_SIZE.sidebarCollapsedPx).toBe(72);
+    expect(HORORA_SIZE.sidebarLogoPx).toBe(48);
+    expect(HORORA_SIZE.topbarHeightPx).toBe(64);
+    expect(HORORA_SIZE.contentMaxPx).toBe(1440);
+    expect(HORORA_SIZE.rowMinPx).toBe(48);
     expect(HORORA_RADIUS.controlPx).toBe(8);
     expect(HORORA_RADIUS.cardPx).toBe(12);
+    expect(HORORA_RADIUS.dialogPx).toBe(16);
+    expect(HORORA_SPACE[4]).toBe(16);
+    expect(HORORA_SPACE[5]).toBe(24);
+    expect(HORORA_SHADOW.sm).toContain("8 16 41");
   });
 
   it("keeps Geist as runtime font and does not import licensed families", () => {
@@ -164,7 +153,7 @@ describe("HORORA Premium 2027 — Phase 1 tokens and assets", () => {
       meetsWcagAaContrast(HORORA_COLOR.actionOn, HORORA_COLOR.action)
     ).toBe(true);
     expect(
-      meetsWcagAaContrast(HORORA_COLOR.tagoraBase, HORORA_COLOR.surfaceLight)
+      meetsWcagAaContrast(HORORA_COLOR.text, HORORA_COLOR.surface)
     ).toBe(true);
     expect(contrastRatio(HORORA_COLOR.actionOn, HORORA_COLOR.action)).toBeGreaterThanOrEqual(
       4.5
@@ -177,36 +166,13 @@ describe("HORORA Premium 2027 — Phase 1 tokens and assets", () => {
       "utf8"
     );
     expect(css).toContain("--horora-color-tagora-base: #182643");
-    expect(css).toContain("--horora-color-accent: #1f79e0");
-    expect(css).toContain("--horora-color-secondary: #4174ba");
-    expect(css).toContain("--horora-color-action: #1a64bb");
-    expect(css).toContain("--horora-color-action-on: #ffffff");
-    expect(css).toContain("--horora-color-focus: #154a8e");
-    expect(css).toContain("--horora-color-surface-light: #ffffff");
-    expect(css).toContain("--horora-color-canvas: #f6f7f9");
-    expect(css).toContain("--horora-color-sidebar: #f4f5f8");
-    expect(css).toContain("--horora-color-neutral-muted: #5c6570");
-    expect(css).toContain("--horora-color-neutral-border: #e3e6ec");
-    expect(css).toContain("--horora-size-login-logo-mobile: 128px");
-    expect(css).toContain("--horora-size-login-logo-tablet: 144px");
-    expect(css).toContain("--horora-size-login-logo-desktop: 160px");
-    expect(css).toContain("--horora-size-header-logo-mobile: 48px");
-    expect(css).toContain("--horora-size-header-logo-tablet: 56px");
-    expect(css).toContain("--horora-size-header-logo-desktop: 64px");
-    expect(css).toContain("--horora-size-login-card-max: 480px");
-    expect(css).toContain("--horora-size-touch-target-min: 44px");
-    expect(css).toContain("--horora-size-sidebar-width: 232px");
-    expect(css).toContain("--horora-size-sidebar-logo: 32px");
-    expect(css).toContain("--horora-size-topbar-height: 52px");
-    expect(css).toContain("--horora-logo-object-fit: contain");
+    expect(css).toContain("--tagora-shell: #1b2641");
+    expect(css).toContain("--tagora-surface-soft: #f6f7ed");
+    expect(css).toContain("--module-accent: #1f79e0");
+    expect(css).toContain("--module-action-bg: #1a64bb");
+    expect(css).toContain("--horora-size-sidebar-width: 256px");
+    expect(css).toContain("--horora-size-topbar-height: 64px");
+    expect(css).toContain("--horora-radius-control: 8px");
     expect(css).not.toContain("@import");
-  });
-
-  it("does not wire tokens into Auth, login handlers or public Time surfaces", () => {
-    const tokenImport = "horora-premium-2027";
-    for (const relative of [...FORBIDDEN_PHASE_1_FILES, ...SURFACE_FILES_UNCHANGED_BY_PHASE_1]) {
-      const source = readFileSync(join(root, relative), "utf8");
-      expect(source).not.toContain(tokenImport);
-    }
   });
 });

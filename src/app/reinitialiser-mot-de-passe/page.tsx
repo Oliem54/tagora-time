@@ -2,12 +2,11 @@
 
 import { Suspense, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import TimePublicShell from "@/app/components/time-public/TimePublicShell";
 import FeedbackMessage from "@/app/components/FeedbackMessage";
 import FormField from "@/app/components/ui/FormField";
-import PageHeader from "@/app/components/ui/PageHeader";
 import PrimaryButton from "@/app/components/ui/PrimaryButton";
 import SecondaryButton from "@/app/components/ui/SecondaryButton";
-import SectionCard from "@/app/components/ui/SectionCard";
 import { getLoginPathForRole } from "@/app/lib/auth/roles";
 import { supabase } from "@/app/lib/supabase/client";
 
@@ -51,16 +50,14 @@ function ResetPasswordRequestPageContent() {
   }
 
   return (
-    <main className="ui-auth-shell">
-      <div className="ui-auth-content" style={{ maxWidth: 760 }}>
-        <PageHeader
-          title="Reinitialiser le mot de passe"
-          subtitle="Lien par courriel."
-          compact
-        />
+    <TimePublicShell brandSize="login" compact>
+      <section className="time-public-login" aria-labelledby="reset-password-title">
+        <h1 id="reset-password-title" className="time-public-title time-public-title--login">
+          Reinitialiser le mot de passe
+        </h1>
+        <p className="time-public-lead time-public-lead--login">Lien par courriel.</p>
 
-        <SectionCard title="Courriel" subtitle="Adresse de votre compte.">
-          <div className="ui-stack-md">
+        <div className="time-public-login-panel">
             <FeedbackMessage message={message} type={messageType} />
 
             <form className="tagora-form-grid" onSubmit={handleResetEmail}>
@@ -83,10 +80,9 @@ function ResetPasswordRequestPageContent() {
                 </SecondaryButton>
               </div>
             </form>
-          </div>
-        </SectionCard>
-      </div>
-    </main>
+        </div>
+      </section>
+    </TimePublicShell>
   );
 }
 
@@ -94,15 +90,9 @@ export default function ResetPasswordRequestPage() {
   return (
     <Suspense
       fallback={
-        <main className="tagora-app-shell">
-          <div className="tagora-app-content" style={{ maxWidth: 760 }}>
-            <PageHeader
-              title="Reinitialiser le mot de passe"
-              subtitle="Chargement"
-            />
-            <SectionCard title="Chargement" subtitle="Preparation." />
-          </div>
-        </main>
+        <TimePublicShell brandSize="login" compact>
+          <p className="time-public-lead">Chargement</p>
+        </TimePublicShell>
       }
     >
       <ResetPasswordRequestPageContent />

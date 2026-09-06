@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import HeaderTagora from "@/app/components/HeaderTagora";
+import TimePublicShell from "@/app/components/time-public/TimePublicShell";
 import FeedbackMessage from "@/app/components/FeedbackMessage";
 import { accountRequestPermissionOptions } from "@/app/lib/account-request-options";
 import { ACCOUNT_REQUEST_COMPANIES } from "@/app/lib/account-requests.shared";
@@ -122,12 +122,12 @@ function DemandeComptePageContent() {
   }
 
   return (
-    <main className="tagora-app-shell">
-      <div className="tagora-app-content" style={{ maxWidth: 1100 }}>
-        <HeaderTagora
-          title="Demande de creation de compte"
-          subtitle={subtitle}
-        />
+    <TimePublicShell wide>
+      <section className="time-public-hub" aria-labelledby="demande-compte-title">
+        <h1 id="demande-compte-title" className="time-public-title">
+          Demande de creation de compte
+        </h1>
+        <p className="time-public-lead">{subtitle}</p>
 
         <div className="tagora-split">
           <section className="tagora-panel">
@@ -291,8 +291,8 @@ function DemandeComptePageContent() {
             </div>
           </aside>
         </div>
-      </div>
-    </main>
+      </section>
+    </TimePublicShell>
   );
 }
 
@@ -300,14 +300,9 @@ export default function DemandeComptePage() {
   return (
     <Suspense
       fallback={
-        <main className="tagora-app-shell">
-          <div className="tagora-app-content" style={{ maxWidth: 1100 }}>
-            <HeaderTagora
-              title="Demande de creation de compte"
-              subtitle="Chargement du formulaire..."
-            />
-          </div>
-        </main>
+        <TimePublicShell wide>
+          <p className="time-public-lead">Chargement du formulaire...</p>
+        </TimePublicShell>
       }
     >
       <DemandeComptePageContent />

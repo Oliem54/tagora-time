@@ -2,10 +2,9 @@
 
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
-import AuthenticatedPageHeader from "@/app/components/ui/AuthenticatedPageHeader";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import HororaAppShell from "@/app/components/horora/HororaAppShell";
 import AccessNotice from "@/app/components/AccessNotice";
-import styles from "../horodateur-employe.module.css";
 import PrimaryButton from "@/app/components/ui/PrimaryButton";
 import { useCurrentAccess } from "@/app/hooks/useCurrentAccess";
 import { supabase } from "@/app/lib/supabase/client";
@@ -69,16 +68,18 @@ function statusLine(currentState: ContextOk["currentState"]): string {
   return s;
 }
 
-function HorodateurEmployeHeader() {
+function HorodateurEmployeChrome({ children }: { children: ReactNode }) {
   return (
-    <AuthenticatedPageHeader
+    <HororaAppShell
+      workspace="employe"
+      active="punch"
       title="TAGORA HORORA"
       subtitle="Horodateur employé"
       logoSrc="/brand/horora/horora.png"
       logoAlt=""
-      compact
-      className={styles.header}
-    />
+    >
+      {children}
+    </HororaAppShell>
   );
 }
 
@@ -253,81 +254,73 @@ export default function EmployeHorodateurQrClient() {
 
   if (!zoneKey || !token) {
     return (
-      <main className="page-container">
-        <HorodateurEmployeHeader />
+      <HorodateurEmployeChrome>
         <AccessNotice description="Lien incomplet : zone ou jeton manquant." />
         <p style={{ marginTop: 16 }}>
           <Link href="/employe/horodateur">Horodateur</Link>
         </p>
-      </main>
+      </HorodateurEmployeChrome>
     );
   }
 
   if (accessLoading || publicLoading) {
     return (
-      <main className="page-container">
-        <HorodateurEmployeHeader />
+      <HorodateurEmployeChrome>
         <AccessNotice description="Chargement…" />
-      </main>
+      </HorodateurEmployeChrome>
     );
   }
 
   if (publicCheck && !publicCheck.valid) {
     return (
-      <main className="page-container">
-        <HorodateurEmployeHeader />
+      <HorodateurEmployeChrome>
         <AccessNotice description="Code QR invalide ou expiré." />
         <p style={{ marginTop: 16 }}>
           <Link href="/employe/horodateur">Retour à l’horodateur</Link>
         </p>
-      </main>
+      </HorodateurEmployeChrome>
     );
   }
 
   if (!user) {
     return (
-      <main className="page-container">
-        <HorodateurEmployeHeader />
+      <HorodateurEmployeChrome>
         <AccessNotice description="Connexion…" />
-      </main>
+      </HorodateurEmployeChrome>
     );
   }
 
   if (!canUseTerrain) {
     return (
-      <main className="page-container">
-        <HorodateurEmployeHeader />
+      <HorodateurEmployeChrome>
         <AccessNotice description="La permission terrain est requise pour pointer." />
-      </main>
+      </HorodateurEmployeChrome>
     );
   }
 
   if (ctxLoading || ctx == null) {
     return (
-      <main className="page-container">
-        <HorodateurEmployeHeader />
+      <HorodateurEmployeChrome>
         <AccessNotice description="Vérification du QR…" />
-      </main>
+      </HorodateurEmployeChrome>
     );
   }
 
   if (!ctx.ok) {
     return (
-      <main className="page-container">
-        <HorodateurEmployeHeader />
+      <HorodateurEmployeChrome>
         <AccessNotice description={ctx.message ?? "Accès impossible."} />
         <p style={{ marginTop: 16 }}>
           <Link href="/employe/horodateur">Retour à l’horodateur</Link>
         </p>
-      </main>
+      </HorodateurEmployeChrome>
     );
   }
 
   const displayName = ctx.employee.fullName?.trim();
 
   return (
-    <main className="page-container" style={{ paddingBottom: 48 }}>
-      <HorodateurEmployeHeader />
+    <HorodateurEmployeChrome>
 
       <section className="tagora-panel" style={{ marginTop: 20 }}>
         <h1 style={{ fontSize: "1.35rem", margin: "0 0 12px" }}>
@@ -414,6 +407,6 @@ export default function EmployeHorodateurQrClient() {
       <p style={{ marginTop: 24 }}>
         <Link href="/employe/horodateur">Horodateur complet</Link>
       </p>
-    </main>
+    </HorodateurEmployeChrome>
   );
 }

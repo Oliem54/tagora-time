@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
+import "./lib/brand/horora-system.css";
 import AuthenticatedImprovementsFab from "@/app/components/AuthenticatedImprovementsFab";
 
 const geistSans = Geist({

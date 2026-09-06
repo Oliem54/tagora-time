@@ -26,7 +26,7 @@ import { useRouter } from "next/navigation";
 import { supabase } from "@/app/lib/supabase/client";
 import { useCurrentAccess } from "@/app/hooks/useCurrentAccess";
 import { signOutToSwitchAccount } from "@/app/lib/auth/password-mfa.client";
-import AuthenticatedPageHeader from "@/app/components/ui/AuthenticatedPageHeader";
+import HororaAppShell from "@/app/components/horora/HororaAppShell";
 import SectionCard from "@/app/components/ui/SectionCard";
 import AppCard from "@/app/components/ui/AppCard";
 import SecondaryButton from "@/app/components/ui/SecondaryButton";
@@ -397,26 +397,16 @@ export default function AdminDashboardClient() {
   }
 
   return (
-    <main className="tagora-app-shell">
-      <div className="tagora-app-content ui-stack-lg">
-        <AuthenticatedPageHeader
-          className="ui-page-header-premium-2027"
-          title="Tableau de bord administrateur"
-          subtitle=""
-          showNavigation={false}
-          actions={
-            <div
-              style={{
-                display: "flex",
-                gap: "var(--ui-space-3)",
-                flexWrap: "wrap",
-                alignItems: "center",
-              }}
-            >
-              <SecondaryButton onClick={handleLogout}>Se déconnecter</SecondaryButton>
-            </div>
-          }
-        />
+    <HororaAppShell
+      workspace="admin"
+      active="dashboard"
+      title="Tableau de bord"
+      subtitle="Administration HORORA — employés, horodateur et organisation."
+      primaryAction={
+        <SecondaryButton onClick={handleLogout}>Se déconnecter</SecondaryButton>
+      }
+    >
+      <div className="ui-stack-lg">
 
         <motion.section
           initial={{ opacity: 0, y: 12 }}
@@ -590,6 +580,6 @@ export default function AdminDashboardClient() {
           </motion.section>
         ))}
       </div>
-    </main>
+    </HororaAppShell>
   );
 }

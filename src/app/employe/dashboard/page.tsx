@@ -14,10 +14,10 @@ import {
   Truck,
   Waypoints,
 } from "lucide-react";
+import HororaAppShell from "@/app/components/horora/HororaAppShell";
 import { useCurrentAccess } from "@/app/hooks/useCurrentAccess";
 import { signOutToSwitchAccount } from "@/app/lib/auth/password-mfa.client";
 import { supabase } from "../../lib/supabase/client";
-import AuthenticatedPageHeader from "@/app/components/ui/AuthenticatedPageHeader";
 import SectionCard from "@/app/components/ui/SectionCard";
 import AppCard from "@/app/components/ui/AppCard";
 import InfoRow from "@/app/components/ui/InfoRow";
@@ -283,29 +283,21 @@ export default function EmployeDashboardPage() {
   }
 
   return (
-    <main className="tagora-app-shell tagora-dashboard-page tagora-dashboard-page--employe">
-      <div className="tagora-app-content ui-stack-lg">
-        <AuthenticatedPageHeader
-          title="Tableau de bord employe"
-          subtitle=""
-          showNavigation={false}
-          actions={
-            <div
-              className="tagora-dashboard-header-actions"
-              style={{
-                display: "flex",
-                gap: "var(--ui-space-3)",
-                flexWrap: "wrap",
-                alignItems: "center",
-              }}
-            >
-              <SecondaryButton onClick={() => router.push("/employe/profil")}>
-                Profil
-              </SecondaryButton>
-              <SecondaryButton onClick={handleLogout}>Se deconnecter</SecondaryButton>
-            </div>
-          }
-        />
+    <HororaAppShell
+      workspace="employe"
+      active="dashboard"
+      title="Tableau de bord"
+      subtitle="Pointage, heures du jour et registre personnel."
+      primaryAction={
+        <div className="tagora-dashboard-header-actions" style={{ display: "flex", gap: "var(--ui-space-3)", flexWrap: "wrap" }}>
+          <SecondaryButton onClick={() => router.push("/employe/profil")}>
+            Profil
+          </SecondaryButton>
+          <SecondaryButton onClick={handleLogout}>Se deconnecter</SecondaryButton>
+        </div>
+      }
+    >
+      <div className="ui-stack-lg tagora-dashboard-page tagora-dashboard-page--employe">
 
         <SectionCard title="Acces" subtitle="Modules prioritaires." className="tagora-dashboard-access-section">
           <div className="ui-grid-auto tagora-dashboard-module-grid">
@@ -612,6 +604,6 @@ export default function EmployeDashboardPage() {
           )}
         </SectionCard>
       </div>
-    </main>
+    </HororaAppShell>
   );
 }

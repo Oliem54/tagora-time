@@ -78,10 +78,10 @@ export default function TagoraLoadingScreen({
       <div className="tagora-loading-card">
         <div className="tagora-loading-logo-shell">
           <Image
-            src="/logo.png"
-            alt="TAGORA"
-            width={260}
-            height={260}
+            src="/brand/horora/horora-light.png"
+            alt="HORORA par TAGORA"
+            width={1080}
+            height={1080}
             priority
             className="tagora-loading-logo"
           />

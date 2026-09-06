@@ -1,23 +1,59 @@
-/* HORORA Premium 2027 — CSS custom properties (Phase 1 foundation).
-   Not imported by any surface yet. Values must stay aligned with
-   src/app/lib/brand/horora-premium-2027.ts. Font files are not embedded. */
+/* HORORA Premium 2027 — official CSS custom properties.
+   Aligned with src/app/lib/brand/horora-premium-2027.ts.
+   Font files are not embedded. */
 
 :root {
+  --tagora-shell: #1b2641;
+  --tagora-shell-deep: #081029;
+  --tagora-surface: #ffffff;
+  --tagora-surface-soft: #f6f7ed;
+  --tagora-text: #081029;
+  --tagora-text-inverse: #ffffff;
+  --tagora-link: #1e488f;
+  --tagora-base: #182643;
+
+  --module-accent: #1f79e0;
+  --module-accent-hover: #1a64bb;
+  --module-accent-soft: #d6e4eb;
+  --module-accent-border: #95bee7;
+  --module-on-accent: #081029;
+  --module-focus-ring: #154a8e;
+  --module-chart-primary: #1f79e0;
+  --module-chart-secondary: #4174ba;
+  --module-action-bg: #1a64bb;
+  --module-action-on: #ffffff;
+
+  --tagora-success-fg: #067647;
+  --tagora-success-bg: #ecfdf3;
+  --tagora-success-border: #abefc6;
+  --tagora-warning-fg: #b54708;
+  --tagora-warning-bg: #fffaeb;
+  --tagora-warning-border: #fedf89;
+  --tagora-danger-fg: #b42318;
+  --tagora-danger-bg: #fef3f2;
+  --tagora-danger-border: #fecdca;
+  --tagora-info-fg: #175cd3;
+  --tagora-info-bg: #eff8ff;
+  --tagora-info-border: #b2ddff;
+
   --horora-color-tagora-base: #182643;
+  --horora-color-shell: #1b2641;
+  --horora-color-shell-deep: #081029;
   --horora-color-accent: #1f79e0;
   --horora-color-secondary: #4174ba;
   --horora-color-action: #1a64bb;
   --horora-color-action-on: #ffffff;
   --horora-color-focus: #154a8e;
   --horora-color-surface-light: #ffffff;
-  --horora-color-canvas: #f6f7f9;
-  --horora-color-canvas-muted: #eef0f4;
-  --horora-color-sidebar: #f4f5f8;
-  --horora-color-text: #182643;
-  --horora-color-text-muted: #4174ba;
-  --horora-color-neutral-muted: #5c6570;
-  --horora-color-border: #4174ba;
-  --horora-color-neutral-border: #e3e6ec;
+  --horora-color-canvas: #f6f7ed;
+  --horora-color-canvas-muted: color-mix(in srgb, #081029 6%, #f6f7ed);
+  --horora-color-sidebar: #ffffff;
+  --horora-color-text: #081029;
+  --horora-color-text-muted: color-mix(in srgb, #081029 62%, #f6f7ed);
+  --horora-color-neutral-muted: color-mix(in srgb, #081029 62%, #f6f7ed);
+  --horora-color-border: #95bee7;
+  --horora-color-neutral-border: color-mix(in srgb, #1b2641 14%, #ffffff);
+  --horora-color-nexus: #008247;
 
   --horora-size-login-logo-mobile: 128px;
   --horora-size-login-logo-tablet: 144px;
@@ -27,21 +63,81 @@
   --horora-size-header-logo-desktop: 64px;
   --horora-size-login-card-max: 480px;
   --horora-size-touch-target-min: 44px;
-  --horora-size-sidebar-width: 232px;
-  --horora-size-sidebar-logo: 32px;
-  --horora-size-topbar-height: 52px;
+  --horora-size-sidebar-width: 256px;
+  --horora-size-sidebar-collapsed: 72px;
+  --horora-size-sidebar-logo: 48px;
+  --horora-size-topbar-height: 64px;
+  --horora-size-content-max: 1440px;
+  --horora-size-row-min: 48px;
 
   --horora-radius-control: 8px;
   --horora-radius-card: 12px;
+  --horora-radius-dialog: 16px;
+  --horora-radius-pill: 9999px;
 
+  --horora-space-1: 4px;
   --horora-space-2: 8px;
   --horora-space-3: 12px;
   --horora-space-4: 16px;
-  --horora-space-5: 20px;
-  --horora-space-6: 24px;
+  --horora-space-5: 24px;
+  --horora-space-6: 32px;
+  --horora-space-7: 48px;
+  --horora-space-8: 64px;
 
-  --horora-shadow-sm: 0 1px 2px rgb(24 38 67 / 0.08);
-  --horora-shadow-md: 0 8px 24px rgb(24 38 67 / 0.12);
+  --horora-shadow-sm: 0 1px 2px rgb(8 16 41 / 0.08);
+  --horora-shadow-md: 0 8px 24px rgb(8 16 41 / 0.12);
+  --horora-shadow-lg: 0 20px 48px rgb(8 16 41 / 0.16);
 
   --horora-logo-object-fit: contain;
+
+  --ui-color-bg-page: var(--tagora-surface-soft);
+  --ui-color-bg-card: var(--tagora-surface);
+  --ui-color-bg-muted: color-mix(in srgb, #081029 4%, #f6f7ed);
+  --ui-color-bg-accent: var(--module-accent-soft);
+  --ui-color-text: var(--tagora-text);
+  --ui-color-text-muted: var(--horora-color-text-muted);
+  --ui-color-text-soft: var(--horora-color-text-muted);
+  --ui-color-border: var(--horora-color-neutral-border);
+  --ui-color-border-strong: var(--module-accent-border);
+  --ui-color-primary: var(--module-action-bg);
+  --ui-color-primary-strong: var(--module-accent-hover);
+  --ui-color-primary-soft: var(--module-accent-soft);
+  --ui-color-success: var(--tagora-success-fg);
+  --ui-color-success-soft: var(--tagora-success-bg);
+  --ui-color-warning: var(--tagora-warning-fg);
+  --ui-color-warning-soft: var(--tagora-warning-bg);
+  --ui-color-danger: var(--tagora-danger-fg);
+  --ui-color-danger-soft: var(--tagora-danger-bg);
+
+  --ui-space-1: 4px;
+  --ui-space-2: 8px;
+  --ui-space-3: 12px;
+  --ui-space-4: 16px;
+  --ui-space-5: 24px;
+  --ui-space-6: 32px;
+  --ui-space-7: 32px;
+  --ui-space-8: 32px;
+  --ui-space-9: 48px;
+  --ui-space-10: 48px;
+
+  --ui-radius-sm: 8px;
+  --ui-radius-md: 12px;
+  --ui-radius-lg: 16px;
+  --ui-radius-xl: 16px;
+
+  --ui-shadow-xs: var(--horora-shadow-sm);
+  --ui-shadow-sm: var(--horora-shadow-sm);
+  --ui-shadow-md: var(--horora-shadow-md);
+  --ui-shadow-lg: var(--horora-shadow-lg);
+
+  --bg-main: var(--tagora-surface-soft);
+  --bg-card: var(--tagora-surface);
+  --text-main: var(--tagora-text);
+  --text-secondary: var(--horora-color-text-muted);
+  --border-light: var(--horora-color-neutral-border);
+  --success: var(--tagora-success-fg);
+  --error: var(--tagora-danger-fg);
+  --info: var(--tagora-info-fg);
+  --shadow-soft: var(--horora-shadow-sm);
+  --radius: var(--horora-radius-card);
 }

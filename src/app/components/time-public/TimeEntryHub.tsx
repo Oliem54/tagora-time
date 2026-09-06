@@ -3,7 +3,7 @@ import TimePublicShell from "./TimePublicShell";
 
 export default function TimeEntryHub() {
   return (
-    <TimePublicShell brandSize="hub">
+    <TimePublicShell brandSize="hub" showWordmark={false}>
       <section className="time-public-hub" aria-labelledby="time-public-hub-title">
         <p className="time-public-status" role="status">
           Application

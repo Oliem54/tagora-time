@@ -25,7 +25,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "../../lib/supabase/client";
 import { useCurrentAccess } from "../../hooks/useCurrentAccess";
 import { signOutToSwitchAccount } from "@/app/lib/auth/password-mfa.client";
-import AuthenticatedPageHeader from "@/app/components/ui/AuthenticatedPageHeader";
+import HororaAppShell from "@/app/components/horora/HororaAppShell";
 import SectionCard from "@/app/components/ui/SectionCard";
 import AppCard from "@/app/components/ui/AppCard";
 import SecondaryButton from "@/app/components/ui/SecondaryButton";
@@ -454,26 +454,16 @@ export default function DirectionDashboardClient() {
   }
 
   return (
-    <main className="tagora-app-shell tagora-dashboard-page tagora-dashboard-page--direction">
-      <div className="tagora-app-content ui-stack-lg">
-        <AuthenticatedPageHeader
-          title="Tableau de bord direction"
-          subtitle=""
-          showNavigation={false}
-          actions={
-            <div
-              className="tagora-dashboard-header-actions"
-              style={{
-                display: "flex",
-                gap: "var(--ui-space-3)",
-                flexWrap: "wrap",
-                alignItems: "center",
-              }}
-            >
-              <SecondaryButton onClick={handleLogout}>Se déconnecter</SecondaryButton>
-            </div>
-          }
-        />
+    <HororaAppShell
+      workspace="direction"
+      active="dashboard"
+      title="Tableau de bord"
+      subtitle="Pilotage, horodateur et opérations HORORA."
+      primaryAction={
+        <SecondaryButton onClick={handleLogout}>Se déconnecter</SecondaryButton>
+      }
+    >
+      <div className="ui-stack-lg tagora-dashboard-page tagora-dashboard-page--direction">
 
         {isDirectionCoreRole ? (
           <motion.section
@@ -712,6 +702,6 @@ export default function DirectionDashboardClient() {
           </motion.section>
         ) : null}
       </div>
-    </main>
+    </HororaAppShell>
   );
 }

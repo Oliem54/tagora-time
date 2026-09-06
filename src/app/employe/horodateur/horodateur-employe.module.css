@@ -1,4 +1,4 @@
-/* TAGORA HORORA — Horodateur Employé M3 visual pilot. Scoped to this layout only. */
+/* TAGORA HORORA — Horodateur Employé. Tokens only; chrome lives in HororaAppShell. */
 
 .shell {
   --heh-accent: #1f79e0;
@@ -10,15 +10,6 @@
   --heh-deep: #081029;
   --heh-surface: #ffffff;
   --heh-soft: #f6f7ed;
-  min-height: 100dvh;
-  min-height: 100vh;
-  background: var(--heh-soft);
-  color: var(--heh-deep);
-  padding:
-    max(16px, env(safe-area-inset-top))
-    max(16px, env(safe-area-inset-right))
-    max(24px, env(safe-area-inset-bottom))
-    max(16px, env(safe-area-inset-left));
 }
 
 .header :global(.ui-page-header-logo-shell img),

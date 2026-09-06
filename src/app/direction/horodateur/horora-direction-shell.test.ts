@@ -10,9 +10,7 @@ function read(rel: string) {
 
 describe("HORORA Premium 2027 direction shell structure", () => {
   it("replaces the hero header with a compact sidebar and topbar", () => {
-    const shell = read(
-      "src/app/direction/horodateur/HorodateurDirectionPageShell.tsx"
-    );
+    const shell = read("src/app/components/horora/HororaAppShell.tsx");
     expect(shell).toContain("horora-direction-sidebar");
     expect(shell).toContain("horora-direction-topbar");
     expect(shell).toContain("Fil d'Ariane");
@@ -24,15 +22,16 @@ describe("HORORA Premium 2027 direction shell structure", () => {
   });
 
   it("keeps module destinations in a vertical sidebar", () => {
-    const nav = read(
-      "src/app/direction/horodateur/HorodateurDirectionModuleNav.tsx"
-    );
-    expect(nav).toContain('variant = "sidebar"');
+    const nav = read("src/app/components/horora/horora-nav.ts");
     expect(nav).toContain("Horodateur live");
     expect(nav).toContain("Registre");
     expect(nav).toContain("Quarts passés");
     expect(nav).toContain("Rapport comptable");
     expect(nav).toContain("Tableau de bord");
+    const moduleNav = read(
+      "src/app/direction/horodateur/HorodateurDirectionModuleNav.tsx"
+    );
+    expect(moduleNav).toContain('variant = "sidebar"');
   });
 
   it("rebuilds payroll filters, KPIs, table and action hierarchy", () => {

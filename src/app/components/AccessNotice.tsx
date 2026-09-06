@@ -1,4 +1,4 @@
-import SectionCard from "@/app/components/ui/SectionCard";
+import HororaStateBanner from "@/app/components/horora/HororaStateBanner";
 
 type AccessNoticeProps = {
   title?: string;
@@ -10,6 +10,8 @@ export default function AccessNotice({
   description,
 }: AccessNoticeProps) {
   return (
-    <SectionCard title={title} subtitle={description} tone="muted" />
+    <HororaStateBanner tone="warning" title={title}>
+      {description}
+    </HororaStateBanner>
   );
 }

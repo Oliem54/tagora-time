@@ -5,6 +5,7 @@ type TimePublicShellProps = {
   children: ReactNode;
   brandSize?: "hub" | "login";
   compact?: boolean;
+  wide?: boolean;
   showWordmark?: boolean;
   logoSrc?: string;
 };
@@ -13,14 +14,15 @@ export default function TimePublicShell({
   children,
   brandSize = "hub",
   compact = false,
+  wide = false,
   showWordmark = true,
   logoSrc,
 }: TimePublicShellProps) {
   return (
     <main
       className={`time-public-shell${compact ? " time-public-shell--compact" : ""}${
-        brandSize === "login" ? " time-public-shell--login" : " time-public-shell--hub"
-      }`}
+        wide ? " time-public-shell--wide" : ""
+      }${brandSize === "login" ? " time-public-shell--login" : " time-public-shell--hub"}`}
     >
       <div className="time-public-shell-inner">
         <header className="time-public-shell-header">

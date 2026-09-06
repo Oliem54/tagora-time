@@ -1,6 +1,14 @@
 /**
  * HORORA Premium 2027 — brand token authority.
+ *
+ * Sources (read-only, not modified):
+ * - TOS SHA 688e750a503192b4ba87898938227f6a8cc5ab08 (TAGORA_BASE)
+ * - DEC-029 / ADR-0017 / VALD-108 standard + registre des thèmes
+ * - Nexus commercial catalog (HORORA accent) certified on Staging
+ *
  * Tokens describe visual roles. None grant a permission or role.
+ * Do not invent a hex when an official value exists.
+ * Font files are not embedded (FONT_INSTALLATION_AUTHORIZED=NO).
  */
 
 export const HORORA_CANONICAL_PRODUCT_NAME = "TAGORA HORORA";
@@ -17,24 +25,53 @@ export const HORORA_LIGHT_ASSET_SHA256 =
 export const HORORA_ASSET_CANVAS_PX = 1080;
 export const HORORA_LOGO_OBJECT_FIT = "contain" as const;
 
+/** Official TOS / Nexus / HORORA colors. */
 export const HORORA_COLOR = {
   tagoraBase: "#182643",
+  shell: "#1B2641",
+  shellDeep: "#081029",
+  surface: "#FFFFFF",
+  surfaceSoft: "#F6F7ED",
+  text: "#081029",
+  textInverse: "#FFFFFF",
+  link: "#1E488F",
+  lemon: "#DBDF5B",
+  lime: "#BCC320",
+  sea: "#00804C",
+  moss: "#74C365",
   accent: "#1F79E0",
-  secondary: "#4174BA",
+  accentHover: "#1A64BB",
+  accentSoft: "#D6E4EB",
+  accentBorder: "#95BEE7",
+  onAccent: "#081029",
   action: "#1A64BB",
   actionOn: "#FFFFFF",
   focus: "#154A8E",
-  surfaceLight: "#FFFFFF",
-  canvas: "#F6F7F9",
-  canvasMuted: "#EEF0F4",
-  sidebar: "#F4F5F8",
-  neutralMuted: "#5C6570",
-  neutralBorder: "#E3E6EC",
+  chartPrimary: "#1F79E0",
+  chartSecondary: "#4174BA",
+  secondary: "#4174BA",
+  successFg: "#067647",
+  successBg: "#ECFDF3",
+  successBorder: "#ABEFC6",
+  warningFg: "#B54708",
+  warningBg: "#FFFAEB",
+  warningBorder: "#FEDF89",
+  dangerFg: "#B42318",
+  dangerBg: "#FEF3F2",
+  dangerBorder: "#FECDCA",
+  infoFg: "#175CD3",
+  infoBg: "#EFF8FF",
+  infoBorder: "#B2DDFF",
+  nexusAction: "#008247",
 } as const;
 
-export const HORORA_LEGACY_COLOR = {
-  base: "#1B2641",
-  lightSurface: "#F6F7ED",
+/** Retired UI blues — never use as current tokens. */
+export const HORORA_LEGACY_UI = {
+  heroStart: "#11335F",
+  heroMid: "#173D73",
+  navyButton: "#173868",
+  oldTagoraBlue: "#1F4E79",
+  inventedCanvas: "#F6F7F9",
 } as const;
 
 export const HORORA_SURFACE_ASSET = {
@@ -51,27 +88,36 @@ export const HORORA_SIZE = {
   headerLogoDesktopPx: 64,
   loginCardMaxWidthPx: 480,
   touchTargetMinPx: 44,
-  sidebarWidthPx: 232,
-  sidebarLogoPx: 32,
-  topbarHeightPx: 52,
+  sidebarWidthPx: 256,
+  sidebarCollapsedPx: 72,
+  sidebarLogoPx: 48,
+  topbarHeightPx: 64,
+  contentMaxPx: 1440,
+  rowMinPx: 48,
 } as const;
 
 export const HORORA_RADIUS = {
   controlPx: 8,
   cardPx: 12,
+  dialogPx: 16,
+  pillPx: 9999,
 } as const;
 
 export const HORORA_SPACE = {
+  1: 4,
   2: 8,
   3: 12,
   4: 16,
-  5: 20,
-  6: 24,
+  5: 24,
+  6: 32,
+  7: 48,
+  8: 64,
 } as const;
 
 export const HORORA_SHADOW = {
-  sm: "0 1px 2px rgb(24 38 67 / 0.08)",
-  md: "0 8px 24px rgb(24 38 67 / 0.12)",
+  sm: "0 1px 2px rgb(8 16 41 / 0.08)",
+  md: "0 8px 24px rgb(8 16 41 / 0.12)",
+  lg: "0 20px 48px rgb(8 16 41 / 0.16)",
 } as const;
 
 export const HORORA_TYPE_ROLE = {

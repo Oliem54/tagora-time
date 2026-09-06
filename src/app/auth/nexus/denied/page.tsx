@@ -1,4 +1,6 @@
 import Link from "next/link";
+import TimePublicShell from "@/app/components/time-public/TimePublicShell";
+import HororaStateBanner from "@/app/components/horora/HororaStateBanner";
 import {
   publicNexusCallbackDenyReason,
   resolveNexusDeniedReturnUrl,
@@ -66,17 +68,16 @@ export default async function NexusHandoffDeniedPage({ searchParams }: PageProps
   const returnUrl = resolveNexusDeniedReturnUrl();
 
   return (
-    <main className="mx-auto flex min-h-[70vh] max-w-lg flex-col justify-center gap-4 px-6 py-16">
-      <p className="text-sm font-medium tracking-wide text-neutral-500">HORORA</p>
-      <h1 className="text-2xl font-semibold text-neutral-950">{copy.title}</h1>
-      <p className="text-base text-neutral-700">{copy.body}</p>
-      <p className="text-sm text-neutral-500">Code : {reason}</p>
-      <Link
-        href={returnUrl}
-        className="inline-flex min-h-11 items-center justify-center rounded-lg bg-[#008247] px-4 text-sm font-medium text-white"
-      >
-        Retour à Nexus
-      </Link>
-    </main>
+    <TimePublicShell brandSize="login" compact showWordmark={false}>
+      <HororaStateBanner tone="danger" headingLevel={1} title={copy.title}>
+        <p>{copy.body}</p>
+        <p>Code : {reason}</p>
+      </HororaStateBanner>
+      <p className="time-public-back">
+        <Link href={returnUrl} className="horora-nexus-return">
+          Retour à Nexus
+        </Link>
+      </p>
+    </TimePublicShell>
   );
 }

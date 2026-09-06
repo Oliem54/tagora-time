@@ -5,6 +5,9 @@ import { describe, expect, it } from "vitest";
 const CLIENT_FILES = [
   "src/app/direction/horodateur/rapport-comptable/DirectionPayrollAccountantReportClient.tsx",
   "src/app/direction/horodateur/rapport-comptable/page.tsx",
+  "src/app/components/horora/horora-nav.ts",
+  "src/app/components/horora/HororaAppShell.tsx",
+  "src/app/components/horora/HororaAppNav.tsx",
   "src/app/direction/horodateur/HorodateurDirectionModuleNav.tsx",
   "src/app/direction/horodateur/HorodateurDirectionPageShell.tsx",
   "src/app/lib/horodateur-v1/payroll-accountant-export.shared.ts",
@@ -52,9 +55,7 @@ describe("payroll accountant client isolation", () => {
   });
 
   it("exposes the accountant page in the direction module nav", () => {
-    const nav = read(
-      "src/app/direction/horodateur/HorodateurDirectionModuleNav.tsx"
-    );
+    const nav = read("src/app/components/horora/horora-nav.ts");
     expect(nav).toContain('href: "/direction/horodateur/rapport-comptable"');
     expect(nav).toContain("Rapport comptable");
   });

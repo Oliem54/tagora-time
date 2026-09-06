@@ -1,0 +1,434 @@
+/* HORORA Premium 2027 — shared visual system.
+   Loaded after globals.css so official tokens win over legacy blue shells. */
+
+html,
+body {
+  padding: 0;
+  margin: 0;
+  min-height: 100%;
+  font-family: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  background: var(--tagora-surface-soft);
+  color: var(--tagora-text);
+}
+
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid var(--module-focus-ring);
+  outline-offset: 2px;
+}
+
+.page-container,
+.tagora-app-shell,
+.ui-auth-shell {
+  min-height: 100vh;
+  background: var(--tagora-surface-soft);
+  color: var(--tagora-text);
+  padding: 24px 16px 48px;
+}
+
+@media (min-width: 768px) {
+  .page-container,
+  .tagora-app-shell,
+  .ui-auth-shell {
+    padding: 24px 24px 56px;
+  }
+}
+
+.tagora-app-content,
+.ui-auth-content {
+  width: min(var(--horora-size-content-max), 100%);
+  margin: 0 auto;
+}
+
+.page-header,
+.tagora-header,
+.ui-page-header,
+.ui-page-header-compact {
+  position: relative;
+  overflow: visible;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 16px;
+  min-height: var(--horora-size-topbar-height);
+  padding: 12px 16px;
+  border-radius: var(--horora-radius-card);
+  color: var(--tagora-text);
+  background: var(--tagora-surface);
+  border: 1px solid var(--horora-color-neutral-border);
+  border-left: 4px solid var(--module-accent);
+  box-shadow: var(--horora-shadow-sm);
+}
+
+.page-header::before,
+.tagora-header::before,
+.ui-page-header::before {
+  display: none;
+}
+
+.ui-page-header-logo,
+.ui-page-header-premium-2027 .ui-page-header-logo {
+  width: var(--horora-size-header-logo-desktop);
+  flex-shrink: 0;
+}
+
+.ui-page-header-logo-shell,
+.tagora-header-logo-shell,
+.ui-page-header-premium-2027 .ui-page-header-logo-shell {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  border-radius: var(--horora-radius-control);
+}
+
+.ui-page-header-title,
+.ui-page-header-title-premium-2027,
+.tagora-header-title,
+.page-title {
+  margin: 0;
+  font-size: 1.5rem;
+  font-weight: 650;
+  letter-spacing: -0.03em;
+  line-height: 1.2;
+  color: var(--tagora-text);
+}
+
+.ui-page-header-subtitle,
+.tagora-header-subtitle,
+.page-subtitle {
+  margin: 4px 0 0;
+  max-width: 42rem;
+  font-size: 0.9375rem;
+  line-height: 1.45;
+  color: var(--horora-color-text-muted);
+  white-space: normal;
+  overflow: visible;
+  text-overflow: unset;
+}
+
+.ui-page-header-eyebrow,
+.ui-eyebrow {
+  color: var(--horora-color-text-muted);
+}
+
+.ui-button,
+.tagora-dark-action,
+.tagora-navy-action,
+.tagora-btn,
+.tagora-btn-primary,
+.tagora-btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--horora-size-touch-target-min);
+  min-width: var(--horora-size-touch-target-min);
+  padding: 10px 16px;
+  border-radius: var(--horora-radius-control);
+  font-size: 0.9375rem;
+  font-weight: 650;
+  letter-spacing: 0;
+  cursor: pointer;
+  white-space: nowrap;
+  transform: none;
+  transition: background 140ms ease, border-color 140ms ease, box-shadow 140ms ease;
+}
+
+.ui-button-primary,
+.tagora-dark-action,
+.tagora-navy-action,
+.tagora-btn-secondary,
+.tagora-btn-primary {
+  background: var(--module-action-bg);
+  color: var(--module-action-on);
+  border: 1px solid transparent;
+  box-shadow: var(--horora-shadow-sm);
+}
+
+.ui-button-primary:hover,
+.tagora-dark-action:hover,
+.tagora-navy-action:hover,
+.tagora-btn-secondary:hover,
+.tagora-btn-primary:hover {
+  background: var(--module-accent-hover);
+  transform: none;
+  box-shadow: var(--horora-shadow-sm);
+}
+
+.ui-button-secondary,
+.tagora-dark-outline-action {
+  background: var(--tagora-surface);
+  color: var(--tagora-text);
+  border: 1px solid var(--horora-color-neutral-border);
+  box-shadow: none;
+}
+
+.ui-button-secondary:hover,
+.tagora-dark-outline-action:hover {
+  background: var(--tagora-surface);
+  border-color: var(--module-accent);
+  transform: none;
+}
+
+.tagora-btn-danger {
+  background: var(--tagora-danger-fg);
+  color: var(--tagora-text-inverse);
+  border: 1px solid transparent;
+  min-height: var(--horora-size-touch-target-min);
+  border-radius: var(--horora-radius-control);
+}
+
+.ui-card,
+.tagora-panel,
+.tagora-stat-card,
+.card {
+  background: var(--tagora-surface);
+  border: 1px solid var(--horora-color-neutral-border);
+  border-radius: var(--horora-radius-card);
+  box-shadow: var(--horora-shadow-sm);
+}
+
+.ui-card-muted,
+.tagora-panel-muted {
+  background: var(--ui-color-bg-muted);
+  border-color: var(--horora-color-neutral-border);
+}
+
+.section-title,
+.ui-section-card-title,
+.tagora-stat-value {
+  color: var(--tagora-text);
+}
+
+.tagora-input,
+.tagora-select,
+.tagora-textarea,
+.time-public-input,
+input.tagora-input,
+select.tagora-select,
+textarea.tagora-textarea {
+  min-height: var(--horora-size-touch-target-min);
+  border: 1px solid var(--horora-color-neutral-border);
+  border-radius: var(--horora-radius-control);
+  background: var(--tagora-surface);
+  color: var(--tagora-text);
+  padding: 10px 12px;
+}
+
+.tagora-field-label {
+  color: var(--tagora-text);
+  font-weight: 600;
+}
+
+.ui-status-badge-success {
+  background: var(--tagora-success-bg);
+  color: var(--tagora-success-fg);
+  border-color: var(--tagora-success-border);
+}
+
+.ui-status-badge-warning {
+  background: var(--tagora-warning-bg);
+  color: var(--tagora-warning-fg);
+  border-color: var(--tagora-warning-border);
+}
+
+.ui-status-badge-danger {
+  background: var(--tagora-danger-bg);
+  color: var(--tagora-danger-fg);
+  border-color: var(--tagora-danger-border);
+}
+
+.ui-status-badge-info {
+  background: var(--tagora-info-bg);
+  color: var(--tagora-info-fg);
+  border-color: var(--tagora-info-border);
+}
+
+.ui-status-badge-default {
+  background: var(--ui-color-bg-muted);
+  color: var(--tagora-text);
+  border-color: var(--horora-color-neutral-border);
+}
+
+.horora-state {
+  display: grid;
+  gap: 8px;
+  padding: 16px;
+  border-radius: var(--horora-radius-card);
+  border: 1px solid var(--horora-color-neutral-border);
+  background: var(--tagora-surface);
+}
+
+.horora-state-title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 650;
+}
+
+.horora-state-body {
+  margin: 0;
+  color: var(--horora-color-text-muted);
+  line-height: 1.5;
+}
+
+.horora-state--success {
+  background: var(--tagora-success-bg);
+  border-color: var(--tagora-success-border);
+  color: var(--tagora-success-fg);
+}
+
+.horora-state--warning {
+  background: var(--tagora-warning-bg);
+  border-color: var(--tagora-warning-border);
+  color: var(--tagora-warning-fg);
+}
+
+.horora-state--danger,
+.horora-state--error {
+  background: var(--tagora-danger-bg);
+  border-color: var(--tagora-danger-border);
+  color: var(--tagora-danger-fg);
+}
+
+.horora-state--info,
+.horora-state--empty {
+  background: var(--tagora-info-bg);
+  border-color: var(--tagora-info-border);
+  color: var(--tagora-info-fg);
+}
+
+.horora-table-wrap {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  border: 1px solid var(--horora-color-neutral-border);
+  border-radius: var(--horora-radius-card);
+  background: var(--tagora-surface);
+}
+
+.horora-table-wrap table,
+table.horora-table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 520px;
+}
+
+.horora-table-wrap th,
+.horora-table-wrap td,
+table.horora-table th,
+table.horora-table td {
+  min-height: var(--horora-size-row-min);
+  padding: 12px 14px;
+  text-align: left;
+  border-bottom: 1px solid var(--horora-color-neutral-border);
+}
+
+.tagora-loading-overlay,
+.tagora-loading-overlay.is-fullscreen {
+  background: var(--tagora-surface-soft);
+}
+
+.tagora-loading-card {
+  width: min(420px, 92vw);
+  gap: 16px;
+  padding: 32px 24px;
+  border-radius: var(--horora-radius-dialog);
+  border: 1px solid var(--horora-color-neutral-border);
+  background: var(--tagora-surface);
+  box-shadow: var(--horora-shadow-md);
+  backdrop-filter: none;
+}
+
+.tagora-loading-logo-shell {
+  width: 160px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  animation: none;
+}
+
+.tagora-loading-logo {
+  max-width: 160px;
+  filter: none;
+}
+
+.tagora-loading-progress-track {
+  background: var(--module-accent-soft);
+}
+
+.tagora-loading-progress-bar {
+  background: var(--module-action-bg);
+  box-shadow: none;
+}
+
+.tagora-loading-message {
+  color: var(--horora-color-text-muted);
+}
+
+.time-public-shell {
+  background: var(--tagora-surface-soft);
+}
+
+.horora-nexus-return {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--horora-size-touch-target-min);
+  padding: 12px 16px;
+  border-radius: var(--horora-radius-control);
+  background: var(--horora-color-nexus);
+  color: var(--tagora-text-inverse);
+  font-weight: 650;
+  text-decoration: none;
+}
+
+.horora-app-shell,
+.horora-direction-shell {
+  --horora-shell-text: var(--tagora-text);
+  --horora-shell-muted: var(--horora-color-text-muted);
+  --horora-shell-border: var(--horora-color-neutral-border);
+  --horora-shell-canvas: var(--tagora-surface-soft);
+  --horora-shell-canvas-muted: var(--horora-color-canvas-muted);
+  --horora-shell-sidebar: var(--horora-color-sidebar);
+  --horora-shell-surface: var(--tagora-surface);
+  --horora-shell-accent: var(--module-accent);
+  --horora-shell-action: var(--module-action-bg);
+  --horora-shell-focus: var(--module-focus-ring);
+  --horora-shell-radius: var(--horora-radius-control);
+  --horora-shell-radius-card: var(--horora-radius-card);
+  --horora-shell-sidebar-width: var(--horora-size-sidebar-width);
+  --horora-shell-topbar: var(--horora-size-topbar-height);
+}
+
+.horora-direction-sidebar-logo {
+  width: var(--horora-size-sidebar-logo);
+  height: var(--horora-size-sidebar-logo);
+}
+
+.horora-direction-topbar {
+  min-height: var(--horora-size-topbar-height);
+}
+
+.horora-direction-menu-toggle {
+  min-height: var(--horora-size-touch-target-min);
+}
+
+@media (max-width: 1023px) {
+  .horora-direction-menu-toggle {
+    display: inline-flex;
+  }
+}
+
+.ui-module-tile-title,
+.tagora-dashboard-module-card h3 {
+  color: var(--tagora-text) !important;
+}
+
+.ui-module-tile-description,
+.tagora-dashboard-module-card p {
+  color: var(--horora-color-text-muted) !important;
+}
