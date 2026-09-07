@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import AdminFinanceGate from "@/app/components/admin/AdminFinanceGate";
-import AuthenticatedPageHeader from "@/app/components/ui/AuthenticatedPageHeader";
+import HororaAppShell from "@/app/components/horora/HororaAppShell";
 import AppCard from "@/app/components/ui/AppCard";
 import { ADMIN_FINANCE_ROUTE_PREFIXES } from "@/app/lib/auth/admin-finance";
 
@@ -33,12 +33,12 @@ const FINANCE_MODULE_LINKS = [
 export default function AdminRemunerationPage() {
   return (
     <AdminFinanceGate moduleLabel="Finance & remuneration">
-      <main className="page-container">
-        <AuthenticatedPageHeader
-          title="Finance & remuneration"
-          subtitle="Hub admin pour paie, heures par compagnie, refacturation intercompagnies et donnees financieres reservees a l administration."
-        />
-
+      <HororaAppShell
+        workspace="admin"
+        active="paie"
+        title="Finance & remuneration"
+        subtitle="Hub admin pour paie, heures par compagnie, refacturation intercompagnies et donnees financieres reservees a l administration."
+      >
         <p className="tagora-note" style={{ marginTop: 0, lineHeight: 1.55 }}>
           Phase 1 : les ecrans financiers existants sont reutilises sous /admin avec protection role
           admin. Un module remuneration dedie (salaire annuel, avances, ventilation 50/50, etc.)
@@ -64,7 +64,7 @@ export default function AdminRemunerationPage() {
         <p className="tagora-note" style={{ marginTop: 24, fontSize: "0.85rem" }}>
           Prefixes routes finance admin : {ADMIN_FINANCE_ROUTE_PREFIXES.join(", ")}
         </p>
-      </main>
+      </HororaAppShell>
     </AdminFinanceGate>
   );
 }

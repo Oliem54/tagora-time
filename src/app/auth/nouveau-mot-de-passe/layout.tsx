@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 
 export const metadata: Metadata = {
   title: "Nouveau mot de passe",
-  description: "Mise a jour du mot de passe Tagora Time.",
+  description: "Mise a jour du mot de passe TAGORA HORORA.",
 };
 
 export default function NewPasswordLayout({

@@ -2034,7 +2034,8 @@ select {
 }
 
 .account-requests-page .ui-page-header-logo {
-  width: 60px;
+  width: var(--horora-size-header-logo-desktop, 120px);
+  height: var(--horora-size-header-logo-desktop, 120px);
 }
 
 .account-requests-page .ui-page-header-logo-shell {
@@ -2472,7 +2473,8 @@ select {
 }
 
 .ui-page-header-premium-2027 .ui-page-header-logo {
-  width: 96px;
+  width: var(--horora-size-header-logo-desktop, 120px);
+  height: var(--horora-size-header-logo-desktop, 120px);
   align-self: center;
 }
 
@@ -2625,7 +2627,8 @@ select {
   }
 
   .ui-page-header-premium-2027 .ui-page-header-logo {
-    width: 96px;
+    width: var(--horora-size-header-logo-mobile, 72px);
+    height: var(--horora-size-header-logo-mobile, 72px);
   }
 
   .ui-page-header-premium-2027 .ui-page-header-actions {
@@ -7201,7 +7204,7 @@ select {
 }
 
 .time-public-shell--login {
-  --time-public-logo-size: 120px;
+  --time-public-logo-size: 128px;
 }
 
 .time-public-shell--compact .time-public-shell-header {
@@ -7471,7 +7474,7 @@ select {
   }
 
   .time-public-shell--login {
-    --time-public-logo-size: 128px;
+    --time-public-logo-size: 160px;
   }
 
   .time-public-shell-inner {

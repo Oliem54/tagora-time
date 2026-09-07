@@ -3,10 +3,10 @@ import AuthGate from "@/app/components/AuthGate";
 
 export const metadata: Metadata = {
   title: {
-    default: "Employe",
-    template: "%s | Employe | Tagora",
+    default: "Employé",
+    template: "%s | Employé | TAGORA HORORA",
   },
-  description: "Espace employe Tagora.",
+  description: "Espace employé TAGORA HORORA.",
 };
 
 export default function EmployeLayout({

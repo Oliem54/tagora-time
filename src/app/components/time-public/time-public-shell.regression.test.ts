@@ -69,8 +69,8 @@ describe("HORORA M2 public shell — active routes", () => {
     expect(brand).not.toContain("/logo.png");
     expect(brand).toMatch(/desktop:\s*176/);
     expect(brand).toMatch(/mobile:\s*144/);
-    expect(brand).toMatch(/desktop:\s*128/);
-    expect(brand).toMatch(/mobile:\s*120/);
+    expect(brand).toMatch(/desktop:\s*160/);
+    expect(brand).toMatch(/mobile:\s*128/);
   });
 
   it("assets PNG HORORA existent dans public/brand/horora", () => {

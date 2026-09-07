@@ -6,7 +6,7 @@ import { KeyRound } from "lucide-react";
 import FeedbackMessage from "@/app/components/FeedbackMessage";
 import AdminCommissionsNavigation from "@/app/components/admin/AdminCommissionsNavigation";
 import AdminCommissionsMetricCard from "@/app/components/admin/AdminCommissionsMetricCard";
-import AuthenticatedPageHeader from "@/app/components/ui/AuthenticatedPageHeader";
+import HororaAppShell from "@/app/components/horora/HororaAppShell";
 import SectionCard from "@/app/components/ui/SectionCard";
 import AppCard from "@/app/components/ui/AppCard";
 import StatusBadge from "@/app/components/ui/StatusBadge";
@@ -391,15 +391,14 @@ export default function AdminCommissionsPageClient() {
   if (!user) return null;
 
   return (
-    <main className="page-container commissions-page">
-      <AuthenticatedPageHeader
-        className="ui-page-header-premium-2027"
-        eyebrow="Administration · Finance"
-        title="Commissions & objectifs"
-        subtitle="Pilotage finance : montants, regles, validation et paiement."
-        showNavigation={false}
-        navigation={<AdminCommissionsNavigation variant="commissions" />}
-      />
+    <HororaAppShell
+      workspace="admin"
+      active="paie"
+      title="Commissions & objectifs"
+      subtitle="Pilotage finance : montants, regles, validation et paiement."
+    >
+      <div className="commissions-page">
+      <AdminCommissionsNavigation variant="commissions" />
 
       {message && messageType ? <FeedbackMessage message={message} type={messageType} /> : null}
 
@@ -855,6 +854,7 @@ export default function AdminCommissionsPageClient() {
           }
         }
       `}</style>
-    </main>
+      </div>
+    </HororaAppShell>
   );
 }

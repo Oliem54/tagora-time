@@ -4,9 +4,9 @@ import AuthGate from "@/app/components/AuthGate";
 export const metadata: Metadata = {
   title: {
     default: "Direction",
-    template: "%s | Direction | Tagora",
+    template: "%s | Direction | TAGORA HORORA",
   },
-  description: "Espace direction Tagora.",
+  description: "Espace direction TAGORA HORORA.",
 };
 
 export default function DirectionLayout({

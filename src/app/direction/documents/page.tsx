@@ -4,6 +4,10 @@ import Image from "next/image";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import HeaderTagora from "@/app/components/HeaderTagora";
+import {
+  HORORA_ACCESSIBLE_PRODUCT_NAME,
+  HORORA_LIGHT_ASSET_PATH,
+} from "@/app/lib/brand/horora-premium-2027";
 import { supabase } from "../../lib/supabase/client";
 import { useCurrentAccess } from "@/app/hooks/useCurrentAccess";
 import { signOutToSwitchAccount } from "@/app/lib/auth/password-mfa.client";
@@ -90,8 +94,8 @@ export default function DirectionDocumentsPage() {
               }}
             >
               <Image
-                src="/logo.png"
-                alt="Logo TAGORA"
+                src={HORORA_LIGHT_ASSET_PATH}
+                alt={HORORA_ACCESSIBLE_PRODUCT_NAME}
                 width={180}
                 height={180}
                 priority

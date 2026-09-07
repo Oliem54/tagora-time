@@ -14,7 +14,7 @@ type TimeBrandProps = {
 
 const sizeMap = {
   hub: { desktop: 176, mobile: 144 },
-  login: { desktop: 128, mobile: 120 },
+  login: { desktop: 160, mobile: 128 },
 } as const;
 
 export default function TimeBrand({

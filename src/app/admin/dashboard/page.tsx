@@ -5,7 +5,7 @@ export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
   title: "Tableau de bord administrateur",
-  description: "Outils d administration Tagora Time.",
+  description: "Outils d’administration TAGORA HORORA.",
 };
 
 export default function AdminDashboardPage() {

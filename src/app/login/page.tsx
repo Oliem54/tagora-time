@@ -4,7 +4,7 @@ import { buildLoginStandardRedirectPath } from "@/app/lib/canonical-domains";
 
 export const metadata: Metadata = {
   title: "Connexion",
-  description: "Point d entree connexion standard TAGORA Time.",
+  description: "Point d entree connexion standard TAGORA HORORA.",
 };
 
 type LoginPageProps = {

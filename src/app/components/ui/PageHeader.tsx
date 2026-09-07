@@ -1,6 +1,11 @@
 import Image from "next/image";
 import type { ReactNode } from "react";
 import type { AppRole } from "@/app/lib/auth/roles";
+import {
+  HORORA_ACCESSIBLE_PRODUCT_NAME,
+  HORORA_ASSET_CANVAS_PX,
+  HORORA_LIGHT_ASSET_PATH,
+} from "@/app/lib/brand/horora-premium-2027";
 import { cn } from "./cn";
 import UserIdentityBadge from "./UserIdentityBadge";
 
@@ -28,8 +33,8 @@ export default function PageHeader({
   userIdentity,
   userRoleLabel,
   userRole,
-  logoSrc = "/logo.png",
-  logoAlt = "Logo TAGORA",
+  logoSrc = HORORA_LIGHT_ASSET_PATH,
+  logoAlt = HORORA_ACCESSIBLE_PRODUCT_NAME,
   className,
   compact = false,
 }: PageHeaderProps) {
@@ -47,12 +52,12 @@ export default function PageHeader({
           <Image
             src={logoSrc}
             alt={logoAlt}
-            width={260}
-            height={130}
+            width={HORORA_ASSET_CANVAS_PX}
+            height={HORORA_ASSET_CANVAS_PX}
             priority
             style={{
               width: "100%",
-              height: "auto",
+              height: "100%",
               objectFit: "contain",
               display: "block",
             }}

@@ -5,7 +5,7 @@ import { BookOpen, EyeOff, KeyRound, Shield, UserCheck, Users } from "lucide-rea
 import AdminCommissionsNavigation from "@/app/components/admin/AdminCommissionsNavigation";
 import AdminCommissionsMetricCard from "@/app/components/admin/AdminCommissionsMetricCard";
 import FeedbackMessage from "@/app/components/FeedbackMessage";
-import AuthenticatedPageHeader from "@/app/components/ui/AuthenticatedPageHeader";
+import HororaAppShell from "@/app/components/horora/HororaAppShell";
 import AppCard from "@/app/components/ui/AppCard";
 import SectionCard from "@/app/components/ui/SectionCard";
 import StatusBadge from "@/app/components/ui/StatusBadge";
@@ -446,15 +446,14 @@ export default function AdminCommissionBookAccessClient() {
   if (!user) return null;
 
   return (
-    <main className="page-container admin-grants-page">
-      <AuthenticatedPageHeader
-        className="ui-page-header-premium-2027"
-        eyebrow="Administration · Commissions"
-        title="Partage des livres de ventes"
-        subtitle="Acces individuels de consultation, montants masques."
-        showNavigation={false}
-        navigation={<AdminCommissionsNavigation variant="acces-direction" />}
-      />
+    <HororaAppShell
+      workspace="admin"
+      active="paie"
+      title="Partage des livres de ventes"
+      subtitle="Acces individuels de consultation, montants masques."
+    >
+      <div className="admin-grants-page">
+      <AdminCommissionsNavigation variant="acces-direction" />
 
       {message && messageType ? <FeedbackMessage message={message} type={messageType} /> : null}
 
@@ -1018,6 +1017,7 @@ export default function AdminCommissionBookAccessClient() {
           }
         }
       `}</style>
-    </main>
+      </div>
+    </HororaAppShell>
   );
 }

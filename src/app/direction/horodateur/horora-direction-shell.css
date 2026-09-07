@@ -5,17 +5,17 @@
   --horora-shell-text: var(--horora-color-tagora-base, #182643);
   --horora-shell-muted: var(--horora-color-neutral-muted, #5c6570);
   --horora-shell-border: var(--horora-color-neutral-border, #e3e6ec);
-  --horora-shell-canvas: var(--horora-color-canvas, #f6f7f9);
+  --horora-shell-canvas: var(--horora-color-canvas, #f6f7ed);
   --horora-shell-canvas-muted: var(--horora-color-canvas-muted, #eef0f4);
-  --horora-shell-sidebar: var(--horora-color-sidebar, #f4f5f8);
+  --horora-shell-sidebar: var(--horora-color-sidebar, #ffffff);
   --horora-shell-surface: var(--horora-color-surface-light, #ffffff);
   --horora-shell-accent: var(--horora-color-accent, #1f79e0);
   --horora-shell-action: var(--horora-color-action, #1a64bb);
   --horora-shell-focus: var(--horora-color-focus, #154a8e);
   --horora-shell-radius: var(--horora-radius-control, 8px);
   --horora-shell-radius-card: var(--horora-radius-card, 12px);
-  --horora-shell-sidebar-width: var(--horora-size-sidebar-width, 232px);
-  --horora-shell-topbar: var(--horora-size-topbar-height, 52px);
+  --horora-shell-sidebar-width: var(--horora-size-sidebar-width, 256px);
+  --horora-shell-topbar: var(--horora-size-topbar-height, 64px);
 
   display: grid;
   grid-template-columns: var(--horora-shell-sidebar-width) minmax(0, 1fr);
@@ -47,8 +47,8 @@
 }
 
 .horora-direction-sidebar-logo {
-  width: 36px;
-  height: 36px;
+  width: var(--horora-size-sidebar-logo, 72px);
+  height: var(--horora-size-sidebar-logo, 72px);
   flex-shrink: 0;
 }
 

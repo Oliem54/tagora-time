@@ -11,6 +11,10 @@ import {
 } from "lucide-react";
 import FeedbackMessage from "@/app/components/FeedbackMessage";
 import UserIdentityBadge from "@/app/components/ui/UserIdentityBadge";
+import {
+  HORORA_ACCESSIBLE_PRODUCT_NAME,
+  HORORA_LIGHT_ASSET_PATH,
+} from "@/app/lib/brand/horora-premium-2027";
 import StatusBadge from "@/app/components/ui/StatusBadge";
 import { useCurrentAccess } from "@/app/hooks/useCurrentAccess";
 import { accountRequestPermissionOptions } from "@/app/lib/account-request-options";
@@ -831,10 +835,10 @@ export default function DirectionEmployeeAccountsClient() {
         <section className="account-requests-premium-hero accounts-premium-hero--lite">
           <div className="account-requests-premium-logo-card accounts-premium-logo-card--lite">
             <Image
-              src="/logo.png"
-              alt="Logo TAGORA"
-              width={140}
-              height={70}
+              src={HORORA_LIGHT_ASSET_PATH}
+              alt={HORORA_ACCESSIBLE_PRODUCT_NAME}
+              width={120}
+              height={120}
               priority
               className="account-requests-premium-logo"
             />

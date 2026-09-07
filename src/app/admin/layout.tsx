@@ -4,9 +4,9 @@ import AuthGate from "@/app/components/AuthGate";
 export const metadata: Metadata = {
   title: {
     default: "Admin",
-    template: "%s | Admin | Tagora",
+    template: "%s | Admin | TAGORA HORORA",
   },
-  description: "Espace administrateur Tagora.",
+  description: "Espace administrateur TAGORA HORORA.",
 };
 
 export default function AdminLayout({

@@ -86,4 +86,52 @@ describe("HORORA Premium 2027 complete visual system", () => {
     expect(system).toContain("var(--module-action-bg)");
     expect(system).toContain("var(--tagora-success-fg)");
   });
+
+  it("keeps remaining admin finance pages on HororaAppShell", () => {
+    const remuneration = read("src/app/admin/remuneration/page.tsx");
+    const commissions = read("src/app/admin/commissions/AdminCommissionsPageClient.tsx");
+    const grants = read(
+      "src/app/admin/commissions/acces-direction/AdminCommissionBookAccessClient.tsx"
+    );
+    expect(remuneration).toContain("HororaAppShell");
+    expect(commissions).toContain("HororaAppShell");
+    expect(grants).toContain("HororaAppShell");
+    expect(remuneration).not.toContain("AuthenticatedPageHeader");
+    expect(commissions).not.toContain("AuthenticatedPageHeader");
+    expect(grants).not.toContain("AuthenticatedPageHeader");
+  });
+
+  it("does not keep the generic T logo on live UI surfaces", () => {
+    const files = [
+      "src/app/components/ui/PageHeader.tsx",
+      "src/app/direction/documents/page.tsx",
+      "src/app/direction/comptes-employes/EmployeeAccountsRegistryClient.tsx",
+      "src/app/direction/demandes-comptes/DirectionEmployeeAccountsClient.tsx",
+      "src/app/admin/layout.tsx",
+      "src/app/direction/layout.tsx",
+      "src/app/employe/layout.tsx",
+    ];
+    for (const file of files) {
+      const source = read(file);
+      expect(source).not.toContain('src="/logo.png"');
+      expect(source).not.toContain('logoSrc = "/logo.png"');
+    }
+    const shell = read("src/app/direction/horodateur/horora-direction-shell.css");
+    expect(shell).not.toContain("width: 36px");
+    expect(shell).not.toContain("#f6f7f9");
+    expect(shell).toContain("--horora-size-sidebar-logo");
+    expect(shell).toContain("--horora-size-sidebar-width, 256px");
+    expect(shell).toContain("--horora-size-topbar-height, 64px");
+  });
+
+  it("renders the official square HORORA mark in PageHeader, not a 2:1 crop", () => {
+    const header = read("src/app/components/ui/PageHeader.tsx");
+    expect(header).toContain("HORORA_ASSET_CANVAS_PX");
+    expect(header).not.toContain("width={260}");
+    expect(header).not.toContain("height={130}");
+    const system = read("src/app/lib/brand/horora-system.css");
+    expect(system).toContain("height: var(--horora-size-header-logo-desktop)");
+    expect(system).toContain("--horora-size-header-logo-mobile");
+    expect(system).toContain("--horora-size-header-logo-tablet");
+  });
 });
