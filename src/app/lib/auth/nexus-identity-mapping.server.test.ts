@@ -384,6 +384,29 @@ describe("Nexus HORORA identity mapping", () => {
         HORORA_ORGANIZATION_ID: ORG_ID,
       })
     ).toBeNull();
+    const employeeAuth = "22222222-2222-4222-8222-222222222222";
+    expect(
+      resolveAuthorizedMappingTarget("nuser_employee_pilot", {
+        HORORA_NEXUS_ACTOR_ID: "nuser_martin_owner",
+        HORORA_AUTH_USER_ID: AUTH_USER,
+        HORORA_NEXUS_EMPLOYEE_ACTOR_ID: "nuser_employee_pilot",
+        HORORA_EMPLOYEE_AUTH_USER_ID: employeeAuth,
+        HORORA_ORGANIZATION_ID: ORG_ID,
+      })
+    ).toEqual({
+      authUserId: employeeAuth,
+      organizationId: ORG_ID,
+      nexusOrganizationId: DEFAULT_HORORA_NEXUS_ORGANIZATION_ID,
+    });
+    expect(
+      resolveAuthorizedMappingTarget("nuser_employee_pilot", {
+        HORORA_NEXUS_ACTOR_ID: "nuser_martin_owner",
+        HORORA_AUTH_USER_ID: AUTH_USER,
+        HORORA_NEXUS_EMPLOYEE_ACTOR_ID: "nuser_employee_pilot",
+        HORORA_EMPLOYEE_AUTH_USER_ID: AUTH_USER,
+        HORORA_ORGANIZATION_ID: ORG_ID,
+      })
+    ).toBeNull();
     const mappingSource = import.meta.url;
     expect(mappingSource).not.toContain("HORORA_AUTH_USER_ID=");
   });

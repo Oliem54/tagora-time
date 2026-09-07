@@ -126,13 +126,19 @@ export function resolveAuthorizedMappingTarget(
     return { authUserId, organizationId, nexusOrganizationId: nexusOrg };
   }
 
+  // Distinct Production employee: nuser from tenant ID + oid/sub, bound to
+  // that employee's existing auth.users row. Never email. Never provision a
+  // new Auth user. Never reuse Martin's HORORA_NEXUS_ACTOR_ID or
+  // HORORA_AUTH_USER_ID.
   const employeeActor = readEnv(env, HORORA_NEXUS_MAPPING_ENV_KEYS.employeeNexusActorId);
   const employeeAuthUserId = readEnv(env, HORORA_NEXUS_MAPPING_ENV_KEYS.employeeAuthUserId);
   if (
     employeeActor &&
     employeeAuthUserId &&
     claimsUserId === employeeActor &&
-    isUuid(employeeAuthUserId)
+    isUuid(employeeAuthUserId) &&
+    employeeActor !== actor &&
+    employeeAuthUserId !== authUserId
   ) {
     return { authUserId: employeeAuthUserId, organizationId, nexusOrganizationId: nexusOrg };
   }
