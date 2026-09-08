@@ -90,7 +90,7 @@ export const HORORA_SIZE = {
   touchTargetMinPx: 44,
   sidebarWidthPx: 256,
   sidebarCollapsedPx: 72,
-  sidebarLogoPx: 72,
+  sidebarLogoPx: 144,
   topbarHeightPx: 64,
   contentMaxPx: 1440,
   rowMinPx: 48,

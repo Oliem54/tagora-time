@@ -19,6 +19,7 @@ describe("HORORA Premium 2027 direction shell structure", () => {
     expect(shell).not.toContain("tagora-app-shell");
     expect(shell).not.toContain("ui-page-header-premium-2027");
     expect(shell).not.toContain("Horodateur direction");
+    expect(shell).not.toContain("horora-direction-sidebar-product");
   });
 
   it("keeps module destinations in a vertical sidebar", () => {

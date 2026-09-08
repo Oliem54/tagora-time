@@ -41,14 +41,15 @@
 .horora-direction-sidebar-brand {
   display: flex;
   align-items: center;
-  gap: 10px;
-  min-height: 40px;
-  padding: 0 8px;
+  justify-content: center;
+  min-height: var(--horora-size-sidebar-logo, 144px);
+  padding: 4px 8px 12px;
+  border-bottom: 1px solid var(--horora-shell-border);
 }
 
 .horora-direction-sidebar-logo {
-  width: var(--horora-size-sidebar-logo, 72px);
-  height: var(--horora-size-sidebar-logo, 72px);
+  width: var(--horora-size-sidebar-logo, 144px);
+  height: var(--horora-size-sidebar-logo, 144px);
   flex-shrink: 0;
 }
 
@@ -57,14 +58,6 @@
   height: 100%;
   object-fit: var(--horora-logo-object-fit, contain);
   display: block;
-}
-
-.horora-direction-sidebar-product {
-  margin: 0;
-  font-size: 13px;
-  font-weight: 650;
-  letter-spacing: 0.08em;
-  color: var(--horora-shell-text);
 }
 
 .horodateur-direction-module-nav--sidebar {

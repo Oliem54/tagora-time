@@ -122,6 +122,7 @@ describe("HORORA Premium 2027 complete visual system", () => {
     expect(shell).toContain("--horora-size-sidebar-logo");
     expect(shell).toContain("--horora-size-sidebar-width, 256px");
     expect(shell).toContain("--horora-size-topbar-height, 64px");
+    expect(shell).not.toContain("horora-direction-sidebar-product");
   });
 
   it("renders the official square HORORA mark in PageHeader, not a 2:1 crop", () => {

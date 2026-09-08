@@ -15,7 +15,9 @@ import {
   Waypoints,
 } from "lucide-react";
 import HororaAppShell from "@/app/components/horora/HororaAppShell";
+import EmployeDashboardWelcome from "@/app/components/horora/EmployeDashboardWelcome";
 import { useCurrentAccess } from "@/app/hooks/useCurrentAccess";
+import { useEmployeePunchSnapshot } from "@/app/hooks/useEmployeePunchSnapshot";
 import { signOutToSwitchAccount } from "@/app/lib/auth/password-mfa.client";
 import { supabase } from "../../lib/supabase/client";
 import SectionCard from "@/app/components/ui/SectionCard";
@@ -101,7 +103,7 @@ function getTypeInterventionLabel(description: string) {
   if (normalized.includes("incident") || normalized.includes("dommage")) {
     return "Incident / dommage";
   }
-  if (normalized.includes("depense")) return "Depense employe";
+  if (normalized.includes("depense")) return "Dépense employé";
   if (normalized.includes("note")) return "Note interne";
   return "Intervention";
 }
@@ -113,6 +115,24 @@ function formatDateTime(value: string | null) {
   return date.toLocaleString("fr-CA");
 }
 
+function ModuleAction({
+  label,
+  onClick,
+  primary = false,
+}: {
+  label: string;
+  onClick: () => void;
+  primary?: boolean;
+}) {
+  const Button = primary ? PrimaryButton : SecondaryButton;
+  return (
+    <Button onClick={onClick} className="employe-dashboard-module-action">
+      <span>{label}</span>
+      <ArrowUpRight size={16} aria-hidden />
+    </Button>
+  );
+}
+
 export default function EmployeDashboardPage() {
   const router = useRouter();
   const { user, loading: accessLoading, hasPermission } = useCurrentAccess();
@@ -120,6 +140,7 @@ export default function EmployeDashboardPage() {
   const canUseTerrain = hasPermission("terrain");
   const canUseDossiers = hasPermission("dossiers");
   const canUseLivraisons = hasPermission("livraisons");
+  const punch = useEmployeePunchSnapshot(Boolean(userId) && canUseTerrain);
 
   const [dossiers, setDossiers] = useState<DossierCard[]>([]);
   const [loading, setLoading] = useState(true);
@@ -286,162 +307,148 @@ export default function EmployeDashboardPage() {
     <HororaAppShell
       workspace="employe"
       active="dashboard"
-      title="Tableau de bord"
-      subtitle="Pointage, heures du jour et registre personnel."
-      primaryAction={
-        <div className="tagora-dashboard-header-actions" style={{ display: "flex", gap: "var(--ui-space-3)", flexWrap: "wrap" }}>
-          <SecondaryButton onClick={() => router.push("/employe/profil")}>
-            Profil
-          </SecondaryButton>
-          <SecondaryButton onClick={handleLogout}>Se deconnecter</SecondaryButton>
-        </div>
+      hideWorkspaceHeader
+      actions={
+        <SecondaryButton onClick={handleLogout}>Se déconnecter</SecondaryButton>
       }
     >
       <div className="ui-stack-lg tagora-dashboard-page tagora-dashboard-page--employe">
+        <EmployeDashboardWelcome
+          user={user}
+          punch={punch}
+          onPrimaryAction={() => router.push("/employe/horodateur")}
+        />
 
-        <SectionCard title="Acces" subtitle="Modules prioritaires." className="tagora-dashboard-access-section">
-          <div className="ui-grid-auto tagora-dashboard-module-grid">
+        <SectionCard
+          title="Horodateur"
+          subtitle="Action principale : pointer, suivre le quart et consulter la progression."
+        >
+          <HorodateurEmployeeCard punch={punch} />
+        </SectionCard>
+
+        <SectionCard title="Accès" subtitle="Ouvrir vos outils de travail." className="tagora-dashboard-access-section">
+          <div className="employe-dashboard-module-grid">
             <ModuleTile
+              eyebrow={null}
               title="Horodateur"
-              description="Pointage."
+              description="Ouvrir la page complète de pointage."
               icon={<Clock3 size={24} strokeWidth={2.1} />}
               tone="orange"
+              className="employe-dashboard-module-card--primary"
               action={
-                <PrimaryButton onClick={() => router.push("/employe/horodateur")} style={{ width: "100%", justifyContent: "space-between" }}>
-                  <span>Acceder</span>
-                  <ArrowUpRight size={16} />
-                </PrimaryButton>
+                <ModuleAction
+                  label="Pointer"
+                  primary
+                  onClick={() => router.push("/employe/horodateur")}
+                />
               }
             />
             <ModuleTile
+              eyebrow={null}
               title="Terrain"
               description="Sorties."
               icon={<Waypoints size={24} strokeWidth={2.1} />}
               tone="cyan"
               action={
-                <SecondaryButton onClick={() => router.push("/employe/terrain")} style={{ width: "100%", justifyContent: "space-between" }}>
-                  <span>Acceder</span>
-                  <ArrowUpRight size={16} />
-                </SecondaryButton>
+                <ModuleAction label="Ouvrir" onClick={() => router.push("/employe/terrain")} />
               }
             />
             {canUseLivraisons ? (
               <>
                 <ModuleTile
+                  eyebrow={null}
                   title="Livraisons"
-                  description="Suivi des livraisons a venir."
+                  description="Suivi des livraisons à venir."
                   icon={<Truck size={24} strokeWidth={2.1} />}
                   tone="blue"
                   action={
-                    <SecondaryButton
+                    <ModuleAction
+                      label="Ouvrir"
                       onClick={() => router.push("/employe/livraisons")}
-                      style={{ width: "100%", justifyContent: "space-between" }}
-                    >
-                      <span>Acceder</span>
-                      <ArrowUpRight size={16} />
-                    </SecondaryButton>
+                    />
                   }
                 />
                 <ModuleTile
+                  eyebrow={null}
                   title="Ramassages"
-                  description="Suivi des ramassages a venir."
+                  description="Suivi des ramassages à venir."
                   icon={<Package size={24} strokeWidth={2.1} />}
                   tone="blue"
                   action={
-                    <SecondaryButton
+                    <ModuleAction
+                      label="Ouvrir"
                       onClick={() => router.push("/employe/livraisons?view=ramassages")}
-                      style={{ width: "100%", justifyContent: "space-between" }}
-                    >
-                      <span>Acceder</span>
-                      <ArrowUpRight size={16} />
-                    </SecondaryButton>
+                    />
                   }
                 />
               </>
             ) : null}
             {canUseDossiers ? (
               <ModuleTile
+                eyebrow={null}
                 title="Nouvelle intervention"
-                description="Creation."
+                description="Création."
                 icon={<FileStack size={24} strokeWidth={2.1} />}
                 tone="purple"
                 action={
-                  <PrimaryButton onClick={() => router.push("/employe/dossiers/new")} style={{ width: "100%", justifyContent: "space-between" }}>
-                    <span>Nouvelle intervention</span>
-                    <ArrowUpRight size={16} />
-                  </PrimaryButton>
+                  <ModuleAction
+                    label="Ouvrir"
+                    onClick={() => router.push("/employe/dossiers/new")}
+                  />
                 }
               />
             ) : null}
             <ModuleTile
+              eyebrow={null}
               title="Profil"
-              description="Securite."
+              description="Sécurité."
               icon={<ShieldCheck size={24} strokeWidth={2.1} />}
               tone="slate"
               action={
-                <SecondaryButton onClick={() => router.push("/employe/profil")} style={{ width: "100%", justifyContent: "space-between" }}>
-                  <span>Gerer</span>
-                  <ArrowUpRight size={16} />
-                </SecondaryButton>
+                <ModuleAction label="Gérer" onClick={() => router.push("/employe/profil")} />
               }
             />
             <ModuleTile
+              eyebrow={null}
               title="Mon livre"
               description="Objectifs et commissions personnels."
               icon={<BookOpen size={24} strokeWidth={2.1} />}
               tone="purple"
               action={
-                <SecondaryButton
-                  onClick={() => router.push("/employe/mon-livre")}
-                  style={{ width: "100%", justifyContent: "space-between" }}
-                >
-                  <span>Ouvrir</span>
-                  <ArrowUpRight size={16} />
-                </SecondaryButton>
+                <ModuleAction label="Ouvrir" onClick={() => router.push("/employe/mon-livre")} />
               }
             />
             <ModuleTile
+              eyebrow={null}
               title="Mon horaire"
               description="Voir mes quarts, mon équipe et mes demandes."
               icon={<CalendarDays size={24} strokeWidth={2.1} />}
               tone="cyan"
               action={
-                <SecondaryButton
-                  onClick={() => router.push("/employe/effectifs")}
-                  style={{ width: "100%", justifyContent: "space-between" }}
-                >
-                  <span>Ouvrir</span>
-                  <ArrowUpRight size={16} />
-                </SecondaryButton>
+                <ModuleAction label="Ouvrir" onClick={() => router.push("/employe/effectifs")} />
               }
             />
             <ModuleTile
+              eyebrow={null}
               title="Demandes d’horaire et exceptions"
               description="Soumettre une demande de congé, vacances, retard ou exception d’horaire."
               icon={<Clock3 size={24} strokeWidth={2.1} />}
               tone="blue"
               action={
-                <SecondaryButton
+                <ModuleAction
+                  label="Ouvrir"
                   onClick={() => router.push("/employe/effectifs/demandes")}
-                  style={{ width: "100%", justifyContent: "space-between" }}
-                >
-                  <span>Acceder</span>
-                  <ArrowUpRight size={16} />
-                </SecondaryButton>
+                />
               }
             />
           </div>
-        </SectionCard>
-
-        <SectionCard title="Horodateur" subtitle="Pointage et progression.">
-          <HorodateurEmployeeCard enabled={canUseTerrain} />
         </SectionCard>
 
         <SectionCard title="Mes interventions" subtitle="Interventions terrain.">
           {!canUseDossiers ? (
             <AppCard tone="muted">
               <p className="ui-text-muted" style={{ margin: 0 }}>
-                Module masque.
+                Module masqué.
               </p>
             </AppCard>
           ) : dossiers.length === 0 ? (
@@ -457,7 +464,7 @@ export default function EmployeDashboardPage() {
                 Aucune intervention pour le moment
               </div>
               <p className="ui-text-muted" style={{ margin: 0 }}>
-                Creez une intervention.
+                Créez une intervention.
               </p>
               <div style={{ display: "flex", justifyContent: "center" }}>
                 <PrimaryButton onClick={() => router.push("/employe/dossiers/new")}>
@@ -534,7 +541,7 @@ export default function EmployeDashboardPage() {
                     </div>
                     <InfoRow label="Type" value={dossier.typeLabel} />
                     <InfoRow label="Client" value={dossier.client} />
-                    <InfoRow label="Reference liee" value={dossier.referenceLiee} />
+                    <InfoRow label="Référence liée" value={dossier.referenceLiee} />
                     <InfoRow label="Date / heure" value={formatDateTime(dossier.createdAt)} />
                   </div>
 
@@ -544,7 +551,7 @@ export default function EmployeDashboardPage() {
                       <InfoRow label="Notes" value={String(dossier.notesCount)} compact />
                       <InfoRow label="Fichiers" value={String(dossier.fichiersCount)} compact />
                       <InfoRow label="Photos" value={String(dossier.photosCount)} compact />
-                      <InfoRow label="Videos" value={String(dossier.videosCount)} compact />
+                      <InfoRow label="Vidéos" value={String(dossier.videosCount)} compact />
                     </div>
                   </AppCard>
 
@@ -562,7 +569,7 @@ export default function EmployeDashboardPage() {
                     >
                       <Image
                         src={dossier.previewUrl}
-                        alt="Apercu dossier"
+                        alt="Aperçu dossier"
                         fill
                         unoptimized
                         sizes="120px"
