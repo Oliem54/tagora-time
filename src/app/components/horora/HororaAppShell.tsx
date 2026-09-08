@@ -136,7 +136,6 @@ export default function HororaAppShell({
               priority
             />
           </div>
-          <p className="horora-direction-sidebar-product">HORORA</p>
         </div>
         <HororaAppNav
           workspace={workspace}

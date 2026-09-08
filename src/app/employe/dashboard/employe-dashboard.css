@@ -1,0 +1,248 @@
+/* HORORA employee dashboard — Premium 2027 workspace.
+   Tokens come from horora-premium-2027.css. Visual only. */
+
+.tagora-dashboard-page--employe {
+  gap: var(--horora-space-5, 24px);
+  padding-bottom: calc(var(--horora-space-8, 64px) + env(safe-area-inset-bottom, 0px));
+}
+
+.tagora-dashboard-page--employe .ui-section-card-title {
+  font-size: 1.125rem;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  line-height: 1.3;
+}
+
+.tagora-dashboard-page--employe .ui-section-card-subtitle {
+  font-size: 0.9375rem;
+  color: var(--horora-color-text-muted);
+}
+
+.employe-dashboard-welcome {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(17rem, 0.85fr);
+  gap: var(--horora-space-5, 24px);
+  padding: var(--horora-space-5, 24px);
+  background: var(--tagora-surface);
+  border: 1px solid var(--horora-color-neutral-border);
+  border-radius: var(--horora-radius-card, 12px);
+  box-shadow: var(--horora-shadow-sm);
+}
+
+.employe-dashboard-welcome-kicker {
+  margin: 0 0 8px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--horora-color-text-muted);
+}
+
+.employe-dashboard-welcome-hello {
+  margin: 0;
+  font-size: 1.5rem;
+  font-weight: 650;
+  letter-spacing: -0.03em;
+  line-height: 1.2;
+  color: var(--horora-color-text);
+}
+
+.employe-dashboard-welcome-date {
+  margin: 8px 0 0;
+  font-size: 0.9375rem;
+  line-height: 1.45;
+  color: var(--horora-color-text-muted);
+}
+
+.employe-dashboard-welcome-status {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  padding: var(--horora-space-4, 16px);
+  background: var(--horora-color-canvas, #f6f7ed);
+  border: 1px solid var(--horora-color-neutral-border);
+  border-radius: var(--horora-radius-control, 8px);
+}
+
+.employe-dashboard-welcome-status-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.employe-dashboard-welcome-label {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--horora-color-text-muted);
+}
+
+.employe-dashboard-welcome-next {
+  margin: 0;
+  font-size: 0.9375rem;
+  color: var(--horora-color-text);
+}
+
+.employe-dashboard-welcome-action,
+.employe-dashboard-module-action,
+.employe-dashboard-punch-actions .ui-button {
+  width: 100%;
+  min-height: var(--horora-size-touch-target-min, 44px);
+  justify-content: space-between;
+  gap: 8px;
+  white-space: normal;
+}
+
+.employe-dashboard-welcome-action:disabled,
+.employe-dashboard-punch-actions .ui-button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.employe-dashboard-welcome-action:focus-visible,
+.employe-dashboard-module-action:focus-visible,
+.employe-dashboard-punch-actions .ui-button:focus-visible {
+  outline: 2px solid var(--module-focus-ring, #154a8e);
+  outline-offset: 2px;
+}
+
+.employe-dashboard-module-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--horora-space-4, 16px);
+  align-items: stretch;
+}
+
+.tagora-dashboard-page--employe .tagora-dashboard-module-card,
+.tagora-dashboard-page--employe .employe-dashboard-punch-primary {
+  height: 100%;
+  min-height: 0;
+  background: var(--tagora-surface);
+  border: 1px solid var(--horora-color-neutral-border);
+  box-shadow: var(--horora-shadow-sm);
+  border-radius: var(--horora-radius-card, 12px);
+}
+
+.tagora-dashboard-page--employe .ui-module-tile {
+  min-height: 214px;
+  gap: var(--horora-space-4, 16px);
+}
+
+.tagora-dashboard-page--employe .ui-module-tile-title {
+  font-size: 1.125rem;
+  line-height: 1.25;
+  letter-spacing: -0.02em;
+}
+
+.tagora-dashboard-page--employe .ui-module-tile:hover {
+  transform: translateY(-1px);
+  border-color: var(--module-accent-border, #95bee7);
+  box-shadow: var(--horora-shadow-md);
+}
+
+.tagora-dashboard-page--employe .ui-module-tile:focus-within {
+  border-color: var(--module-focus-ring, #154a8e);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--module-focus-ring, #154a8e) 22%, transparent);
+}
+
+.tagora-dashboard-page--employe .ui-module-tile:active {
+  transform: translateY(0);
+}
+
+.employe-dashboard-module-card--primary {
+  border-color: var(--module-accent-border, #95bee7);
+  box-shadow: var(--horora-shadow-sm), inset 0 0 0 1px color-mix(in srgb, var(--module-accent, #1f79e0) 16%, transparent);
+}
+
+.employe-dashboard-punch-stats,
+.employe-dashboard-punch-actions,
+.employe-dashboard-punch-exceptions {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--horora-space-3, 12px);
+}
+
+.employe-dashboard-punch-stat-row,
+.employe-dashboard-punch-primary-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.employe-dashboard-punch-primary h3 {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+  color: var(--horora-color-text);
+}
+
+.employe-dashboard-punch-primary strong,
+.employe-dashboard-punch-stats strong {
+  font-size: 1.125rem;
+  letter-spacing: -0.02em;
+}
+
+.employe-dashboard-punch-actions-primary {
+  background: var(--module-action-bg, #1a64bb);
+  color: var(--module-action-on, #ffffff);
+}
+
+@media (min-width: 768px) {
+  .employe-dashboard-module-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .employe-dashboard-punch-stats,
+  .employe-dashboard-punch-actions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .employe-dashboard-punch-actions-primary {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (min-width: 1200px) {
+  .employe-dashboard-module-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .employe-dashboard-punch-stats {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .employe-dashboard-punch-exceptions {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 900px) {
+  .employe-dashboard-welcome {
+    grid-template-columns: 1fr;
+    padding: var(--horora-space-4, 16px);
+  }
+
+  .employe-dashboard-welcome-hello {
+    font-size: 1.375rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .employe-dashboard-module-grid,
+  .employe-dashboard-punch-stats,
+  .employe-dashboard-punch-actions,
+  .employe-dashboard-punch-exceptions {
+    grid-template-columns: 1fr;
+  }
+
+  .tagora-dashboard-page--employe .ui-module-tile {
+    min-height: 0;
+  }
+}

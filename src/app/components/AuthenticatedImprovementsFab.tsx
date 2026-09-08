@@ -34,7 +34,8 @@ export default function AuthenticatedImprovementsFab() {
     hiddenPublicPaths.includes(pathname) ||
     pathname === "/ameliorations" ||
     pathname === "/feedback" ||
-    pathname === "/direction/dashboard"
+    pathname === "/direction/dashboard" ||
+    pathname === "/employe/dashboard"
   ) {
     return null;
   }
@@ -43,10 +44,10 @@ export default function AuthenticatedImprovementsFab() {
     <Link
       href="/ameliorations"
       className="tagora-improvements-fab"
-      aria-label="Acceder au module Ameliorations"
+      aria-label="Accéder au module Améliorations"
     >
-      <span className="tagora-improvements-fab-eyebrow">Ameliorations</span>
-      <span className="tagora-improvements-fab-label">Acceder</span>
+      <span className="tagora-improvements-fab-eyebrow">Améliorations</span>
+      <span className="tagora-improvements-fab-label">Accéder</span>
     </Link>
   );
 }

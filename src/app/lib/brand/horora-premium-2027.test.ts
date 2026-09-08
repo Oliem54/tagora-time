@@ -103,7 +103,7 @@ describe("HORORA Premium 2027 — official visual tokens", () => {
     expect(HORORA_SIZE.touchTargetMinPx).toBe(44);
     expect(HORORA_SIZE.sidebarWidthPx).toBe(256);
     expect(HORORA_SIZE.sidebarCollapsedPx).toBe(72);
-    expect(HORORA_SIZE.sidebarLogoPx).toBe(72);
+    expect(HORORA_SIZE.sidebarLogoPx).toBe(144);
     expect(HORORA_SIZE.headerLogoDesktopPx).toBe(120);
     expect(HORORA_SIZE.topbarHeightPx).toBe(64);
     expect(HORORA_SIZE.contentMaxPx).toBe(1440);
@@ -172,7 +172,7 @@ describe("HORORA Premium 2027 — official visual tokens", () => {
     expect(css).toContain("--module-accent: #1f79e0");
     expect(css).toContain("--module-action-bg: #1a64bb");
     expect(css).toContain("--horora-size-sidebar-width: 256px");
-    expect(css).toContain("--horora-size-sidebar-logo: 72px");
+    expect(css).toContain("--horora-size-sidebar-logo: 144px");
     expect(css).toContain("--horora-size-header-logo-mobile: 72px");
     expect(css).toContain("--horora-size-header-logo-tablet: 88px");
     expect(css).toContain("--horora-size-header-logo-desktop: 120px");

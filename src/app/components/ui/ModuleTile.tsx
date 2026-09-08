@@ -5,7 +5,7 @@ import AppCard from "./AppCard";
 import { cn } from "./cn";
 
 type ModuleTileProps = {
-  eyebrow?: string;
+  eyebrow?: string | null;
   title: string;
   description: string;
   icon?: ReactNode;
@@ -49,7 +49,7 @@ export default function ModuleTile({
                 </div>
               )
             ) : null}
-            <span className="ui-eyebrow">{eyebrow}</span>
+            {eyebrow ? <span className="ui-eyebrow">{eyebrow}</span> : null}
             <h3 className="ui-module-tile-title">{title}</h3>
           </div>
           {badge ? <div className="ui-module-tile-badge">{badge}</div> : null}
