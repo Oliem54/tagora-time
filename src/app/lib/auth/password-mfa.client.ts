@@ -2,6 +2,7 @@
 
 import { listMfaFactorsForUi } from "@/app/lib/auth/mfa.client";
 import { getLoginPathForRole, getUserRole } from "@/app/lib/auth/roles";
+import { NEXUS_PUBLIC_LOGIN_URL } from "@/app/lib/canonical-domains";
 import {
   clearServerSessionCookie,
   writeBrowserSessionCookie,
@@ -58,7 +59,7 @@ export function clearTagoraAuthBrowserSession(): void {
 export async function signOutToSwitchAccount(): Promise<string> {
   const { data } = await supabase.auth.getUser();
   const role = getUserRole(data.user);
-  const loginPath = role ? getLoginPathForRole(role) : "/direction/login";
+  const loginPath = role ? getLoginPathForRole(role) : NEXUS_PUBLIC_LOGIN_URL;
   await supabase.auth.signOut();
   await clearServerSessionCookie();
   try {

@@ -15,13 +15,9 @@ const BRAND = "src/app/components/time-public/TimeBrand.tsx";
 
 describe("HORORA employee login header — visual only", () => {
   it("centre horora.png et retire les textes adjacents visibles", () => {
-    const page = readSrc(PAGE);
     const layout = readSrc(LAYOUT);
     const css = readSrc(CSS);
     const brand = readSrc(BRAND);
-    expect(page).toContain("showWordmark={false}");
-    expect(page).toContain('logoSrc="/brand/horora/horora.png"');
-    expect(page).not.toContain("Pointage et heures");
     expect(layout).toContain("employe-login.module.css");
     expect(css).toContain("justify-content: center");
     expect(css).toContain("object-fit: contain");
@@ -32,15 +28,12 @@ describe("HORORA employee login header — visual only", () => {
     expect(existsSync(join(root, "public/brand/horora/horora.png"))).toBe(true);
   });
 
-  it("préserve Auth, badge, titre, champs et CTA", () => {
+  it("redirige la connexion employé vers Nexus sans mot de passe local", () => {
     const page = readSrc(PAGE);
-    expect(page).toContain("signInWithPassword");
-    expect(page).toContain("writeBrowserSessionCookie");
-    expect(page).toContain('roleLabel="Employé"');
-    expect(page).toContain('title="Connexion employé"');
-    expect(page).toContain("TimeLoginForm");
-    expect(page).toContain("TimeRoleSwitchLink");
-    expect(page).not.toContain("globals.css");
-    expect(page).not.toContain("TAGORA Nexus");
+    expect(page).toContain("NEXUS_PUBLIC_LOGIN_URL");
+    expect(page).toContain("redirect");
+    expect(page).not.toContain("signInWithPassword");
+    expect(page).not.toContain("writeBrowserSessionCookie");
+    expect(page).not.toContain("TimeLoginForm");
   });
 });

@@ -6,19 +6,10 @@ import { createAdminSupabaseClient } from "@/app/lib/supabase/admin";
 import { createPublicServerSupabaseClient } from "@/app/lib/supabase/server";
 import { normalizeEmail } from "@/app/lib/account-requests.shared";
 import { APP_SESSION_COOKIE_NAME } from "@/app/lib/auth/session-cookie";
-import {
-  decodeSupabaseJwtPayload,
-  getJwtAal,
-  isJwtExplicitlyAal1Only,
-} from "@/app/lib/auth/jwt-access-token";
-import {
-  readRequestHostname,
-  shouldBlockJwtAal1ForMandatoryMfaRole,
-} from "@/app/lib/auth/mfa.shared";
+import { getJwtAal } from "@/app/lib/auth/jwt-access-token";
 import { bindEffectiveAppRole } from "@/app/lib/auth/permissions";
 import { NEXUS_BROKERED_SESSION_COOKIE_NAME } from "@/app/lib/auth/nexus-handoff-config";
 import { resolveBrokeredHororaSessionFromCookies } from "@/app/lib/auth/nexus-brokered-session";
-import { resolveOrganizationAuthContextForUser } from "@/app/lib/saas/organization-membership.server";
 
 export { getJwtAal };
 
@@ -148,19 +139,23 @@ export type DirectionAccessDebug = {
 };
 
 export async function resolveDirectionRequestUser(req: NextRequest) {
-  const authHeader = req.headers.get("authorization");
-  const accessToken = getRequestAccessToken(req);
-  const token = accessToken.token;
-  const hasAuthorizationHeader = Boolean(authHeader);
+  const authenticated = await getAuthenticatedRequestUser(req);
+  const hasAuthorizationHeader = Boolean(req.headers.get("authorization"));
   const hasSessionCookie = Boolean(getCookieToken(req));
+  const hasNexusCookie = Boolean(
+    req.cookies.get(NEXUS_BROKERED_SESSION_COOKIE_NAME)?.value
+  );
+  const directionConfirmed =
+    authenticated.sessionSource === "nexus_handoff" &&
+    (authenticated.role === "direction" || authenticated.role === "admin");
 
-  if (!token) {
+  if (!authenticated.user || authenticated.sessionSource !== "nexus_handoff") {
     return {
       user: null,
       role: null,
       debug: {
-        apiBlockReason: "missing_session_token",
-        authSource: accessToken.source,
+        apiBlockReason: hasNexusCookie ? "session_missing" : "nexus_handoff_required",
+        authSource: authenticated.authSource,
         jwtRole: null,
         tokenRole: null,
         adminRole: null,
@@ -175,105 +170,43 @@ export async function resolveDirectionRequestUser(req: NextRequest) {
     };
   }
 
-  const jwtPayload = decodeSupabaseJwtPayload(token);
-  const appMeta = jwtPayload?.app_metadata as { role?: unknown } | undefined;
-  const userMeta = jwtPayload?.user_metadata as { role?: unknown } | undefined;
-  const jwtRole = normalizeAppRole(
-    appMeta?.role ?? userMeta?.role ?? jwtPayload?.role ?? null
-  );
-
-  const publicSupabase = createPublicServerSupabaseClient();
-  const { data, error } = await publicSupabase.auth.getUser(token);
-
-  const tokenUser = data.user;
-  const tokenReadable = !error && Boolean(tokenUser);
-  const tokenRole = extractRoleFromUser(tokenUser);
-
-  if (error || !tokenUser) {
+  if (!directionConfirmed) {
     return {
-      user: null,
+      user: authenticated.user,
       role: null,
       debug: {
-        apiBlockReason: error ? "token_user_lookup_failed" : "authenticated_user_missing",
-        authSource: accessToken.source,
-        jwtRole,
-        tokenRole,
-        adminRole: null,
-        userId: tokenUser?.id ?? null,
-        email: tokenUser?.email ?? null,
+        apiBlockReason: "direction_role_missing",
+        authSource: authenticated.authSource,
+        jwtRole: null,
+        tokenRole: authenticated.role,
+        adminRole: authenticated.role === "admin" ? authenticated.role : null,
+        userId: null,
+        email: null,
         hasAuthorizationHeader,
         hasSessionCookie,
-        tokenReadable,
-        adminReadable: false,
+        tokenReadable: true,
+        adminReadable: true,
         roleMismatch: false,
       } satisfies DirectionAccessDebug,
     };
   }
 
-  const adminSupabase = createAdminSupabaseClient();
-  const { data: adminUserData, error: adminUserError } =
-    await adminSupabase.auth.admin.getUserById(tokenUser.id);
-  const adminUser = adminUserData.user ?? null;
-  const adminReadable = !adminUserError && Boolean(adminUser);
-  const adminRole = extractRoleFromUser(adminUser);
-
-  const directionConfirmed =
-    jwtRole === "direction" ||
-    tokenRole === "direction" ||
-    adminRole === "direction" ||
-    jwtRole === "admin" ||
-    tokenRole === "admin" ||
-    adminRole === "admin";
-
-  const roleMismatch =
-    new Set([jwtRole, tokenRole, adminRole].filter(Boolean)).size > 1;
-
-  if (!directionConfirmed) {
-    return {
-      user: adminUser ?? tokenUser,
-      role: null,
-      debug: {
-        apiBlockReason: adminUserError
-          ? "admin_user_lookup_failed"
-          : adminUser
-            ? "direction_role_missing"
-            : "admin_user_missing",
-        authSource: accessToken.source,
-        jwtRole,
-        tokenRole,
-        adminRole,
-        userId: adminUser?.id ?? tokenUser.id ?? null,
-        email: adminUser?.email ?? tokenUser.email ?? null,
-        hasAuthorizationHeader,
-        hasSessionCookie,
-        tokenReadable,
-        adminReadable,
-        roleMismatch,
-      } satisfies DirectionAccessDebug,
-    };
-  }
-
-  const resolvedRole =
-    adminRole === "admin" || tokenRole === "admin" || jwtRole === "admin"
-      ? ("admin" as const)
-      : ("direction" as const);
-
   return {
-    user: adminUser ?? tokenUser,
-    role: resolvedRole,
+    user: authenticated.user,
+    role: authenticated.role === "admin" ? ("admin" as const) : ("direction" as const),
     debug: {
       apiBlockReason: null,
-      authSource: accessToken.source,
-      jwtRole,
-      tokenRole,
-      adminRole,
-      userId: adminUser?.id ?? tokenUser.id ?? null,
-      email: adminUser?.email ?? tokenUser.email ?? null,
+      authSource: authenticated.authSource,
+      jwtRole: null,
+      tokenRole: authenticated.role,
+      adminRole: authenticated.role === "admin" ? "admin" : null,
+      userId: null,
+      email: null,
       hasAuthorizationHeader,
       hasSessionCookie,
-      tokenReadable,
-      adminReadable,
-      roleMismatch,
+      tokenReadable: true,
+      adminReadable: true,
+      roleMismatch: false,
     } satisfies DirectionAccessDebug,
   };
 }
@@ -302,112 +235,46 @@ function unauthenticatedRequestUser(authSource: "bearer" | "cookie" | "none") {
 
 export async function getAuthenticatedRequestUser(req: NextRequest) {
   const brokeredCookie = req.cookies.get(NEXUS_BROKERED_SESSION_COOKIE_NAME)?.value ?? null;
-  if (brokeredCookie) {
-    const resolved = await resolveBrokeredHororaSessionFromCookies({
-      get(name: string) {
-        return req.cookies.get(name)?.value;
-      },
-    });
-    if (resolved.ok) {
-      let admin;
-      try {
-        admin = createAdminSupabaseClient();
-      } catch {
-        return unauthenticatedRequestUser("none");
-      }
-
-      const { data, error } = await admin.auth.admin.getUserById(resolved.principal.authUserId);
-      if (error || !data.user || data.user.id !== resolved.principal.authUserId) {
-        return unauthenticatedRequestUser("none");
-      }
-
-      bindEffectiveAppRole(data.user, resolved.principal.role);
-      return {
-        user: data.user,
-        role: resolved.principal.role,
-        authSource: "cookie" as const,
-        organizationId: resolved.principal.organizationId,
-        membershipId: resolved.principal.membershipId,
-        membershipRole: resolved.principal.membershipRole,
-        authorizationSource: "membership" as const,
-        sessionSource: "nexus_handoff" as AuthenticatedSessionSource,
-      };
-    }
+  if (!brokeredCookie) {
+    return unauthenticatedRequestUser("none");
   }
 
-  const accessToken = getRequestAccessToken(req);
-  const token = accessToken.token;
-
-  if (!token) {
-    return unauthenticatedRequestUser(accessToken.source);
+  const resolved = await resolveBrokeredHororaSessionFromCookies({
+    get(name: string) {
+      return req.cookies.get(name)?.value;
+    },
+  });
+  if (!resolved.ok) {
+    return unauthenticatedRequestUser("cookie");
   }
 
-  const supabase = createPublicServerSupabaseClient();
-  const { data, error } = await supabase.auth.getUser(token);
-
-  if (error || !data.user) {
-    return unauthenticatedRequestUser(accessToken.source);
+  let admin;
+  try {
+    admin = createAdminSupabaseClient();
+  } catch {
+    return unauthenticatedRequestUser("none");
   }
 
-  const jwtRole = extractRoleFromUser(data.user);
-  const orgAuth = await resolveOrganizationAuthContextForUser(data.user, jwtRole);
-
-  if (!orgAuth.ok) {
-    // Bind null so hasUserPermission does not fall back to JWT-admin bypass.
-    bindEffectiveAppRole(data.user, null);
-    return {
-      user: data.user,
-      role: null,
-      authSource: accessToken.source,
-      organizationId: null as string | null,
-      membershipId: null as string | null,
-      membershipRole: null as string | null,
-      authorizationSource: null as "membership" | null,
-      sessionSource: null as AuthenticatedSessionSource,
-    };
+  const { data, error } = await admin.auth.admin.getUserById(resolved.principal.authUserId);
+  if (error || !data.user || data.user.id !== resolved.principal.authUserId) {
+    return unauthenticatedRequestUser("none");
   }
 
-  bindEffectiveAppRole(data.user, orgAuth.context.appRole);
-
+  bindEffectiveAppRole(data.user, resolved.principal.role);
   return {
     user: data.user,
-    role: orgAuth.context.appRole,
-    authSource: accessToken.source,
-    organizationId: orgAuth.context.organizationId,
-    membershipId: orgAuth.context.membershipId,
-    membershipRole: orgAuth.context.membershipRole,
-    authorizationSource: orgAuth.context.source,
-    sessionSource: null as AuthenticatedSessionSource,
+    role: resolved.principal.role,
+    authSource: "cookie" as const,
+    organizationId: resolved.principal.organizationId,
+    membershipId: resolved.principal.membershipId,
+    membershipRole: resolved.principal.membershipRole,
+    authorizationSource: "membership" as const,
+    sessionSource: "nexus_handoff" as AuthenticatedSessionSource,
   };
 }
 
 export async function getStrictDirectionRequestUser(req: NextRequest) {
   const result = await resolveDirectionRequestUser(req);
-  const token = getRequestAccessToken(req).token;
-
-  if (
-    result.user &&
-    result.role &&
-    shouldBlockJwtAal1ForMandatoryMfaRole({
-      role: result.role,
-      isExplicitlyAal1Only: isJwtExplicitlyAal1Only(token),
-      hostname: readRequestHostname(req.headers, req.nextUrl.hostname),
-    })
-  ) {
-    return {
-      user: result.user,
-      role: result.role,
-      mfaError: NextResponse.json(
-        {
-          error:
-            "Vérification en deux étapes requise. Complétez le MFA dans l’application puis réessayez.",
-          code: "MFA_AAL2_REQUIRED",
-        },
-        { status: 403 }
-      ),
-    };
-  }
-
   return {
     user: result.user,
     role: result.role,

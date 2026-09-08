@@ -53,12 +53,13 @@ describe("HORORA M2 public shell — active routes", () => {
 
   it("hub expose HORORA, Employé et Direction", () => {
     const hub = readSrc("src/app/components/time-public/TimeEntryHub.tsx");
-    expect(hub).toContain('href="/employe/login"');
-    expect(hub).toContain('href="/direction/login"');
+    expect(hub).toContain("NEXUS_PUBLIC_LOGIN_URL");
     expect(hub).toContain("Employé");
     expect(hub).toContain("Direction");
     expect(hub).toContain("gérer les opérations");
     expect(hub).not.toContain("TAGORA Time");
+    expect(hub).not.toContain('href="/employe/login"');
+    expect(hub).not.toContain('href="/direction/login"');
   });
 
   it("TimeBrand utilise les assets HORORA officiels (≥120, pas logo.png)", () => {
@@ -93,37 +94,29 @@ describe("HORORA M2 public shell — active routes", () => {
     expect(block).toContain("outline: 2px solid var(--module-focus-ring)");
   });
 
-  it("logins préservent les handlers auth et le shell HORORA", () => {
+  it("logins redirigent vers Nexus et n’acceptent plus le mot de passe local", () => {
     const employee = readSrc("src/app/employe/login/page.tsx");
     const direction = readSrc("src/app/direction/login/page.tsx");
 
-    expect(employee).toContain("TimeLoginShell");
-    expect(employee).toContain("signInWithPassword");
-    expect(employee).toContain("writeBrowserSessionCookie");
-    expect(employee).toContain("/api/account-requests/sync-activation");
-    expect(employee).toContain('role !== "employe"');
-    expect(employee).toContain("hasPasswordChangeRequired");
-    expect(employee).toContain("TAGORA HORORA");
-    expect(employee).not.toContain("ModuleTile");
-    expect(employee).not.toContain("Portail");
+    expect(employee).toContain("NEXUS_PUBLIC_LOGIN_URL");
+    expect(employee).toContain("redirect");
+    expect(employee).not.toContain("signInWithPassword");
+    expect(employee).not.toContain("writeBrowserSessionCookie");
+    expect(employee).not.toContain("TimeLoginForm");
     expect(employee).not.toContain("TAGORA Time");
 
-    expect(direction).toContain("TimeLoginShell");
-    expect(direction).toContain("signInWithPasswordWithTimeout");
-    expect(direction).toContain("resolvePostLoginNavigationPath");
-    expect(direction).toContain('role !== "direction" && role !== "admin"');
-    expect(direction).toContain("TAGORA HORORA");
-    expect(direction).not.toContain("ModuleTile");
-    expect(direction).not.toContain("Cockpit");
+    expect(direction).toContain("NEXUS_PUBLIC_LOGIN_URL");
+    expect(direction).toContain("redirect");
+    expect(direction).not.toContain("signInWithPassword");
+    expect(direction).not.toContain("signInWithPasswordWithTimeout");
     expect(direction).not.toContain("TAGORA Time");
   });
 
-  it("diagnostic Direction est double-gated (dev + flag explicite)", () => {
+  it("diagnostic Direction n’est plus exposé sur une page de mot de passe locale", () => {
     const direction = readSrc("src/app/direction/login/page.tsx");
-    expect(direction).toContain('NEXT_PUBLIC_SHOW_LOGIN_DIAG === "1"');
-    expect(direction).toContain("showLoginDiag");
-    expect(direction).toContain("isDev && process.env.NEXT_PUBLIC_SHOW_LOGIN_DIAG");
-    expect(direction).toContain('NODE_ENV === "development"');
+    expect(direction).not.toContain('NEXT_PUBLIC_SHOW_LOGIN_DIAG === "1"');
+    expect(direction).not.toContain("showLoginDiag");
+    expect(direction).toContain("NEXUS_PUBLIC_LOGIN_URL");
   });
 
   it("n’embarque pas l’ancien faux site ni TAGORA Time sur les routes actives", () => {

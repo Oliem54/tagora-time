@@ -5,6 +5,13 @@
 
 import type { NexusResolvedBinding } from "@/app/lib/auth/nexus-identity-mapping.server";
 import {
+  encodeBrokeredSessionCookieValue,
+  HORORA_SESSION_CONTRACT_VERSION,
+  logSanitizedHororaSessionProvenance,
+  parseBrokeredSessionCookieValue,
+  storeMissReasonForParsedCookie,
+} from "@/app/lib/auth/horora-session-contract";
+import {
   NEXUS_BROKERED_SESSION_COOKIE_NAME,
   NEXUS_HANDOFF_AUDIENCE,
 } from "@/app/lib/auth/nexus-handoff-config";
@@ -32,7 +39,9 @@ export type NexusBrokeredSessionDenyReason =
   | "organization_inactive"
   | "cross_tenant"
   | "local_permissions_invalid"
-  | "cookie_missing";
+  | "cookie_missing"
+  | "pre_cutover_cookie"
+  | "legacy_session";
 
 export type NexusBrokeredSessionRecord = {
   readonly id: string;
@@ -383,7 +392,7 @@ export async function createBrokeredHororaSession(
   const ttl = options.ttlSeconds ?? NEXUS_BROKERED_SESSION_TTL_SECONDS;
   const createdAt = now.toISOString();
   const expiresAt = new Date(now.getTime() + ttl * 1000).toISOString();
-  const token = generateOpaqueSessionToken();
+  const token = encodeBrokeredSessionCookieValue(generateOpaqueSessionToken());
   const tokenHash = await hashOpaqueSessionToken(token);
   try {
     const store = options.store ?? (await defaultBrokeredSessionStore());
@@ -431,12 +440,13 @@ export async function resolveBrokeredHororaSessionFromCookies(
   | { readonly ok: false; readonly reason: NexusBrokeredSessionDenyReason }
 > {
   const raw = cookies.get(NEXUS_BROKERED_SESSION_COOKIE_NAME)?.trim() ?? "";
-  if (!raw) return { ok: false, reason: "cookie_missing" };
+  const parsed = parseBrokeredSessionCookieValue(raw);
+  if (!parsed.ok) return { ok: false, reason: parsed.reason };
   try {
     const tokenHash = await hashOpaqueSessionToken(raw);
     const store = options.store ?? (await defaultBrokeredSessionStore());
     const record = await store.findByTokenHash(tokenHash);
-    if (!record) return { ok: false, reason: "session_missing" };
+    if (!record) return { ok: false, reason: storeMissReasonForParsedCookie(parsed) };
     const now = options.now ?? new Date();
     if (record.revokedAt) return { ok: false, reason: "session_revoked" };
     if (Date.parse(record.expiresAt) <= now.getTime()) {
@@ -481,6 +491,16 @@ export async function resolveBrokeredHororaSessionFromCookies(
       createdAt: record.createdAt,
       expiresAt: record.expiresAt,
     };
+    logSanitizedHororaSessionProvenance({
+      source: "nexus_handoff",
+      identity_class: role,
+      tenant_present: record.organizationId ? "yes" : "no",
+      issued_at: record.createdAt,
+      contract_version:
+        parsed.format === "current" ? HORORA_SESSION_CONTRACT_VERSION : "absent",
+      validation: "accepted",
+      reason: "nexus_handoff",
+    });
     if (options.requestKey) {
       rememberBrokeredPrincipal(options.requestKey, principal);
     }

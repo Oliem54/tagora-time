@@ -246,7 +246,8 @@ describe("portal authority source contracts", () => {
     );
     expect(authGate).toContain("fetchSessionAuthorizationContext");
     expect(authGate).not.toContain("user_metadata");
-    expect(sessionRoute).toContain("resolveOrganizationAuthContextForUser");
+    expect(sessionRoute).toContain('source: "nexus_handoff"');
+    expect(sessionRoute).not.toContain("resolveOrganizationAuthContextForUser");
     expect(sessionRoute).not.toContain("user_metadata");
   });
 

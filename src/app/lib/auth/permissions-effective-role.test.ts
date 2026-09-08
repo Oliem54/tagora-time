@@ -141,14 +141,10 @@ describe("access admin effective-role wiring", () => {
       "utf8"
     );
     expect(authGate).toContain("fetchSessionAuthorizationContext");
-    expect(authGate).toContain("membershipAdminModuleBypass");
-    expect(authGate).toContain(
-      "hasUserPermission(user, requiredPermission, role)"
-    );
-    expect(authGate).not.toMatch(
-      /hasUserPermission\(user, requiredPermission\)(?!\s*,\s*role)/
-    );
-    expect(authGate).toMatch(/H4 membership is required/i);
+    expect(authGate).toContain('source === "nexus_handoff"');
+    expect(authGate).toContain("authorizeNexusHandoff");
+    expect(authGate).not.toContain("getUserOnce");
+    expect(authGate).not.toContain("supabase.auth.getUser");
   });
 
   it("grants payroll to H4 admin even when JWT is also admin, without JWT payroll claims", () => {

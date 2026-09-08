@@ -1,4 +1,5 @@
 import type { User } from "@supabase/supabase-js";
+import { NEXUS_PUBLIC_LOGIN_URL } from "@/app/lib/canonical-domains";
 
 export type AppRole = "employe" | "direction" | "admin";
 
@@ -60,12 +61,8 @@ export function getDashboardLabelForRole(role: AppRole): string {
   return "Tableau de bord direction";
 }
 
-export function getLoginPathForRole(role: AppRole): string {
-  if (role === "employe") {
-    return "/employe/login";
-  }
-
-  return "/direction/login";
+export function getLoginPathForRole(_role: AppRole): string {
+  return NEXUS_PUBLIC_LOGIN_URL;
 }
 
 export function getPasswordChangePathForRole(role: AppRole): string {

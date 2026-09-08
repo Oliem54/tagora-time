@@ -2,28 +2,17 @@
 
 import { ReactNode, useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import {
-  clearLocalAuthIfRefreshTokenDead,
-  isAuthClientLockContentionError,
-  runWithBrowserAuthReadLock,
-  supabase,
-} from "@/app/lib/supabase/client";
+import { supabase } from "@/app/lib/supabase/client";
 import {
   getRequiredPermissionForPath,
-  hasUserPermission,
 } from "@/app/lib/auth/permissions";
 import {
   AppRole,
   getHomePathForRole,
   getLoginPathForRole,
-  getPasswordChangePathForRole,
-  getUserRole,
 } from "@/app/lib/auth/roles";
 import { appRoleMatchesArea } from "@/app/lib/auth/organization-role-mapping.shared";
 import { fetchSessionAuthorizationContext } from "@/app/lib/auth/session-context.client";
-import { hasPasswordChangeRequired } from "@/app/lib/auth/passwords";
-import { getMandatoryMfaGate } from "@/app/lib/auth/mfa.client";
-import { isAuthMfaPath } from "@/app/lib/auth/mfa.shared";
 import { clearServerSessionCookie } from "@/app/lib/auth/session-cookie";
 import TagoraLoadingScreen from "@/app/components/ui/TagoraLoadingScreen";
 
@@ -78,17 +67,6 @@ export default function AuthGate({
   useEffect(() => {
     let cancelled = false;
 
-    async function getUserOnce() {
-      try {
-        return await supabase.auth.getUser();
-      } catch (e) {
-        if (isAuthClientLockContentionError(e)) {
-          return await supabase.auth.getUser();
-        }
-        throw e;
-      }
-    }
-
     async function authorizeNexusHandoff(role: AppRole) {
       const roleMatchesArea = appRoleMatchesArea(areaRole, role);
       const crossReadOk =
@@ -117,158 +95,39 @@ export default function AuthGate({
 
     async function evaluateAccess() {
       try {
-        await runWithBrowserAuthReadLock(async () => {
-          setMissingPermission(null);
-
-          let brokeredCtx: Awaited<ReturnType<typeof fetchSessionAuthorizationContext>> | null =
-            null;
-          try {
-            brokeredCtx = await fetchSessionAuthorizationContext();
-          } catch {
-            brokeredCtx = null;
-          }
-          if (cancelled) return;
-          if (
-            brokeredCtx?.authorized &&
-            brokeredCtx.source === "nexus_handoff" &&
-            brokeredCtx.appRole
-          ) {
-            await authorizeNexusHandoff(brokeredCtx.appRole);
-            return;
-          }
-
-          let { data, error: userError } = await getUserOnce();
-          if (userError && isAuthClientLockContentionError(userError)) {
-            const retry = await getUserOnce();
-            data = retry.data;
-            userError = retry.error;
-          }
-          if (await clearLocalAuthIfRefreshTokenDead(userError)) {
-            if (cancelled) return;
-            const second = await getUserOnce();
-            data = second.data;
-            userError = second.error;
-          }
-          const user = data.user;
-
-          if (cancelled) return;
-
-          if (!user) {
-            if (isPublicPath) {
-              setStatus("allowed");
-              return;
-            }
-
-            router.replace(getLoginPathForRole(areaRole));
-            return;
-          }
-
-          const sessionRes = await supabase.auth.getSession();
-          const accessToken = sessionRes.data.session?.access_token;
-          if (!accessToken) {
-            if (isPublicPath) {
-              setStatus("allowed");
-              return;
-            }
-            router.replace(getLoginPathForRole(areaRole));
-            return;
-          }
-
-          const ctx = await fetchSessionAuthorizationContext(accessToken);
-          if (cancelled) return;
-
-          // H4 membership is required. JWT alone (including admin) does not authorize.
-          if (!ctx.authorized || !ctx.appRole) {
-            await supabase.auth.signOut();
-            await clearServerSessionCookie();
-            if (!cancelled) {
-              router.replace(getLoginPathForRole(areaRole));
-            }
-            return;
-          }
-
-          const role = ctx.appRole;
-          const jwtRole = getUserRole(user);
-
-          const roleMatchesArea = appRoleMatchesArea(areaRole, role);
-
-          const crossReadOk =
-            Boolean(crossAreaReadMatch) &&
-            Boolean(role && crossAreaReadMatch?.roles.includes(role));
-
-          if (!roleMatchesArea && !crossReadOk && !wrongRoleRenderOk) {
-            router.replace(getHomePathForRole(role));
-            return;
-          }
-
-          const needsDirMfaGate =
-            !crossReadOk && (role === "direction" || role === "admin");
-
-          if (needsDirMfaGate && !isAuthMfaPath(pathname)) {
-            const gate = await getMandatoryMfaGate(role);
-            if (gate.kind === "setup") {
-              router.replace("/auth/mfa/setup?required=1");
-              return;
-            }
-            if (gate.kind === "verify") {
-              router.replace("/auth/mfa/verify");
-              return;
-            }
-          }
-
-          if (isPublicPath) {
-            router.replace(getHomePathForRole(role));
-            return;
-          }
-
-          if (
-            areaRole === "employe" &&
-            hasPasswordChangeRequired(user) &&
-            pathname !== getPasswordChangePathForRole(role)
-          ) {
-            router.replace(getPasswordChangePathForRole(role));
-            return;
-          }
-
-          const requiredPermission = getRequiredPermissionForPath(pathname);
-
-          // Finance stays JWT-admin only (hasAdminFinanceAccess).
-          // Membership AppRole is authoritative for payroll and other direction modules:
-          // H4 admin/owner must not be blocked when JWT is also admin (legacy omit-role
-          // payroll check returns false).
-          if (
-            requiredPermission &&
-            !hasUserPermission(user, requiredPermission, role)
-          ) {
-            const membershipAdminModuleBypass =
-              requiredPermission !== "admin_finance" &&
-              role === "admin" &&
-              jwtRole !== "admin";
-            if (!membershipAdminModuleBypass) {
-              setMissingPermission(requiredPermission);
-              router.replace(getHomePathForRole(role));
-              return;
-            }
-          }
-
-          setStatus("allowed");
-        });
-      } catch (e) {
-        if (isAuthClientLockContentionError(e)) {
-          if (!cancelled) {
-            void Promise.resolve().then(() => {
-              if (!cancelled) void evaluateAccess();
-            });
-          }
-          return;
+        setMissingPermission(null);
+        let brokeredCtx: Awaited<ReturnType<typeof fetchSessionAuthorizationContext>> | null =
+          null;
+        try {
+          brokeredCtx = await fetchSessionAuthorizationContext();
+        } catch {
+          brokeredCtx = null;
         }
         if (cancelled) return;
+        if (
+          brokeredCtx?.authorized &&
+          brokeredCtx.source === "nexus_handoff" &&
+          brokeredCtx.appRole
+        ) {
+          await authorizeNexusHandoff(brokeredCtx.appRole);
+          return;
+        }
+
         try {
           await supabase.auth.signOut({ scope: "local" });
           await clearServerSessionCookie();
         } catch {
-          // ignore
+          // Best-effort leftover Supabase/JWT clear.
         }
+
+        if (cancelled) return;
+        if (isPublicPath) {
+          setStatus("allowed");
+          return;
+        }
+        router.replace(getLoginPathForRole(areaRole));
+      } catch {
+        if (cancelled) return;
         if (isPublicPath) {
           setStatus("allowed");
         } else {
@@ -278,16 +137,8 @@ export default function AuthGate({
     }
 
     void evaluateAccess();
-
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange(() => {
-      void evaluateAccess();
-    });
-
     return () => {
       cancelled = true;
-      subscription.unsubscribe();
     };
   }, [areaRole, crossAreaReadMatch, isPublicPath, pathname, router, wrongRoleRenderOk]);
 

@@ -84,6 +84,7 @@ describe("HORORA Nexus handoff config", () => {
     expect(isNexusPasswordLoginPath("/employe/login")).toBe(true);
     expect(isNexusPasswordLoginPath("/direction/login")).toBe(true);
     expect(isNexusPasswordLoginPath("/login")).toBe(true);
+    expect(isNexusPasswordLoginPath("/connexion")).toBe(true);
     expect(isNexusPasswordLoginPath("/admin/dashboard")).toBe(false);
     expect(isNexusPasswordLoginPath(NEXUS_CALLBACK_FAIL_CLOSED_PATH)).toBe(false);
     expect(publicNexusCallbackDenyReason("membership_absent")).toBe("membership_missing");

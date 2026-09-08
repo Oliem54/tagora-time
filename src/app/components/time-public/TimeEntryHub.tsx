@@ -1,5 +1,6 @@
 import Link from "next/link";
 import TimePublicShell from "./TimePublicShell";
+import { NEXUS_PUBLIC_LOGIN_URL } from "@/app/lib/canonical-domains";
 
 export default function TimeEntryHub() {
   return (
@@ -16,10 +17,10 @@ export default function TimeEntryHub() {
         </p>
 
         <div className="time-public-hub-actions">
-          <Link href="/employe/login" className="time-public-cta time-public-cta--primary">
+          <Link href={NEXUS_PUBLIC_LOGIN_URL} className="time-public-cta time-public-cta--primary">
             Employé
           </Link>
-          <Link href="/direction/login" className="time-public-cta time-public-cta--secondary">
+          <Link href={NEXUS_PUBLIC_LOGIN_URL} className="time-public-cta time-public-cta--secondary">
             Direction
           </Link>
         </div>

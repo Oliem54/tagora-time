@@ -13,6 +13,7 @@ import {
   LOGIN_STANDARD_PATH,
   LOGIN_STANDARD_TARGET_PATH,
   NEXUS_PUBLIC_HOSTNAME,
+  NEXUS_PUBLIC_LOGIN_URL,
   NEXUS_PUBLIC_ORIGIN,
   resolveCanonicalOriginForEnvironment,
 } from "@/app/lib/canonical-domains";
@@ -25,6 +26,7 @@ describe("canonical domains DEC-015", () => {
     expect(LOGIN_STANDARD_TARGET_PATH).toBe("/");
     expect(NEXUS_PUBLIC_ORIGIN).toBe("https://app.tagora.ca");
     expect(NEXUS_PUBLIC_HOSTNAME).toBe("app.tagora.ca");
+    expect(NEXUS_PUBLIC_LOGIN_URL).toBe("https://app.tagora.ca/login");
   });
 
   it("classifie Production / staging / local / preview / Nexus / inconnu", () => {

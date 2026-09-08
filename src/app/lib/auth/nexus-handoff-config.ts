@@ -36,6 +36,7 @@ export const NEXUS_PASSWORD_LOGIN_PATHS = [
   "/employe/login",
   "/direction/login",
   "/login",
+  "/connexion",
 ] as const;
 
 export function isNexusPasswordLoginPath(pathname: string | null | undefined): boolean {

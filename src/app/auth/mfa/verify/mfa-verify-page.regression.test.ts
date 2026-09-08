@@ -29,18 +29,18 @@ describe("MFA verify session persistence regression", () => {
     expect(setupPage).not.toContain("refreshSessionAfterMfa");
   });
 
-  it("keeps middleware reading the same app session cookie name", () => {
+  it("keeps middleware fail-closed on the Nexus brokered session cookie", () => {
     expect(cookieRoute).toContain("APP_SESSION_COOKIE_NAME");
     expect(cookieRoute).toContain("httpOnly: true");
     expect(cookieRoute).toContain('sameSite: "lax"');
-    expect(middleware).toContain("APP_SESSION_COOKIE_NAME");
-    expect(middleware).toContain("shouldBlockJwtAal1ForMandatoryMfaRole");
-    expect(middleware).toContain("isMfaProtectedAppPath");
+    expect(middleware).toContain("NEXUS_BROKERED_SESSION_COOKIE_NAME");
+    expect(middleware).toContain("resolveHororaRequestAccess");
   });
 
-  it("does not write the app module cookie at password login", () => {
-    expect(loginPage).toContain("writeBrowserSessionCookie(null)");
-    expect(loginPage).toContain("login cookie deferred until AAL2 MFA");
-    expect(loginPage).not.toContain("writeBrowserSessionCookie(session.access_token)");
+  it("does not write a local password session from direction login", () => {
+    expect(loginPage).toContain("NEXUS_PUBLIC_LOGIN_URL");
+    expect(loginPage).toContain("redirect");
+    expect(loginPage).not.toContain("writeBrowserSessionCookie");
+    expect(loginPage).not.toContain("signInWithPassword");
   });
 });

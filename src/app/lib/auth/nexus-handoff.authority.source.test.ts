@@ -86,11 +86,14 @@ describe("HORORA Nexus handoff source guards", () => {
     expect(callback).not.toMatch(/\.user_metadata\b/);
     expect(gate).not.toContain("user_metadata");
     expect(session).not.toContain("user_metadata");
-    expect(session).toContain('sessionSource === "nexus_handoff"');
+    expect(session).toContain('source: "nexus_handoff"');
     expect(sessionClient).toContain("accessToken?: string");
     expect(sessionClient).toContain('"nexus_handoff"');
     expect(gate).toContain('source === "nexus_handoff"');
     expect(gate).not.toContain('router.replace("/direction/login")');
+    expect(read("src/app/lib/account-requests.server.ts")).not.toContain(
+      "resolveOrganizationAuthContextForUser"
+    );
     expect(read("src/app/auth/nexus/callback/route.ts")).not.toContain("/employe/login");
     expect(read("src/app/auth/nexus/denied/page.tsx")).not.toContain("/employe/login");
     expect(read("src/app/auth/nexus/denied/page.tsx")).toContain("resolveNexusDeniedReturnUrl");

@@ -35,11 +35,12 @@ describe("HORORA session logout and MFA loop non-regression", () => {
     expect(setup).not.toContain("refreshSessionAfterMfa");
   });
 
-  it("keeps AuthGate from bouncing an AAL2 session back to direction login", () => {
+  it("keeps AuthGate from bouncing a Nexus session back to direction login", () => {
     const gate = read("src/app/components/AuthGate.tsx");
-    expect(gate).toContain("getMandatoryMfaGate");
+    expect(gate).toContain('source === "nexus_handoff"');
     expect(gate).toContain("clearServerSessionCookie");
-    expect(gate).toContain('router.replace("/auth/mfa/verify")');
+    expect(gate).toContain("getLoginPathForRole");
     expect(gate).not.toContain('router.replace("/direction/login")');
+    expect(gate).not.toContain("getMandatoryMfaGate");
   });
 });

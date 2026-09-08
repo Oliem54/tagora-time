@@ -1,28 +1,7 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { NEXUS_BROKERED_SESSION_COOKIE_NAME } from "@/app/lib/auth/nexus-handoff-config";
-import { APP_SESSION_COOKIE_NAME } from "@/app/lib/auth/session-cookie";
-import { getJwtAppRole, isJwtExplicitlyAal1Only } from "@/app/lib/auth/jwt-access-token";
-import {
-  isMfaProtectedAppPath,
-  readRequestHostname,
-  shouldBlockJwtAal1ForMandatoryMfaRole,
-} from "@/app/lib/auth/mfa.shared";
-
-function readApiAccessToken(request: NextRequest): string | null {
-  const authHeader = request.headers.get("authorization");
-  if (authHeader?.startsWith("Bearer ")) {
-    return authHeader.slice("Bearer ".length);
-  }
-  return request.cookies.get(APP_SESSION_COOKIE_NAME)?.value ?? null;
-}
-
-function isMfaExemptApiPath(path: string): boolean {
-  if (path.startsWith("/api/auth/")) return true;
-  if (path === "/api/account-requests/sync-activation") return true;
-  if (path.startsWith("/api/security/mfa-audit")) return true;
-  return false;
-}
+import { resolveHororaRequestAccess } from "@/app/lib/auth/horora-session-contract";
 
 export function middleware(request: NextRequest) {
   try {
@@ -33,55 +12,13 @@ export function middleware(request: NextRequest) {
       return new NextResponse(null, { status: 404 });
     }
 
-    const hostname = readRequestHostname(request.headers, request.nextUrl.hostname);
-    const cookieToken = request.cookies.get(APP_SESSION_COOKIE_NAME)?.value ?? null;
     const brokeredCookie = request.cookies.get(NEXUS_BROKERED_SESSION_COOKIE_NAME)?.value ?? null;
-    const skipJwtMfaBlocks = Boolean(brokeredCookie);
-
-    if (!skipJwtMfaBlocks && isMfaProtectedAppPath(path) && cookieToken) {
-      try {
-        const jwtRole = getJwtAppRole(cookieToken);
-        if (
-          shouldBlockJwtAal1ForMandatoryMfaRole({
-            role: jwtRole,
-            isExplicitlyAal1Only: isJwtExplicitlyAal1Only(cookieToken),
-            hostname,
-          })
-        ) {
-          const verifyUrl = request.nextUrl.clone();
-          verifyUrl.pathname = "/auth/mfa/verify";
-          verifyUrl.search = "";
-          return NextResponse.redirect(verifyUrl);
-        }
-      } catch {
-        // AuthGate remains the fail-closed page gate if JWT decode fails.
-      }
-    }
-
-    if (!skipJwtMfaBlocks && path.startsWith("/api/") && !isMfaExemptApiPath(path)) {
-      const token = readApiAccessToken(request);
-      let blockMfa = false;
-      try {
-        const jwtRole = getJwtAppRole(token);
-        blockMfa = shouldBlockJwtAal1ForMandatoryMfaRole({
-          role: jwtRole,
-          isExplicitlyAal1Only: isJwtExplicitlyAal1Only(token),
-          hostname,
-        });
-      } catch {
-        // Ne jamais bloquer tout le site si le décodage JWT échoue (Edge / jeton inattendu).
-        blockMfa = false;
-      }
-      if (blockMfa) {
-        return NextResponse.json(
-          {
-            error:
-              "Vérification en deux étapes requise. Complétez le MFA puis réessayez.",
-            code: "MFA_AAL2_REQUIRED",
-          },
-          { status: 403 }
-        );
-      }
+    const gate = resolveHororaRequestAccess({
+      pathname: path,
+      hasBrokeredSessionCookie: Boolean(brokeredCookie),
+    });
+    if (gate.action === "redirect") {
+      return NextResponse.redirect(new URL(gate.location), 303);
     }
 
     const response = NextResponse.next();
