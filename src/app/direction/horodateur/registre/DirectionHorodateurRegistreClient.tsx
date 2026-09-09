@@ -28,7 +28,10 @@ import TagoraStatCard from "@/app/components/TagoraStatCard";
 import type { TagoraStatTone } from "@/app/components/tagora-stat-tone";
 import HorodateurDirectionPageShell from "@/app/direction/horodateur/HorodateurDirectionPageShell";
 import { useCurrentAccess } from "@/app/hooks/useCurrentAccess";
-import { supabase } from "@/app/lib/supabase/client";
+import {
+  hororaNexusSessionRequestInit,
+  redirectToNexusLoginIfUnauthenticated,
+} from "@/app/lib/auth/horora-nexus-session.client";
 import { getWeekStartDate } from "@/app/lib/horodateur-v1/rules";
 import type {
   HorodateurRegistreEmployeeRow,
@@ -323,15 +326,6 @@ export default function DirectionHorodateurRegistreClient() {
       return;
     }
 
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
-    const token = session?.access_token;
-    if (!token) {
-      setError("Session absente.");
-      return;
-    }
-
     setFetching(true);
     setError(null);
     try {
@@ -345,9 +339,13 @@ export default function DirectionHorodateurRegistreClient() {
         qs.set("employeeId", employeeId);
       }
 
-      const res = await fetch(`/api/direction/horodateur/registre?${qs}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const res = await fetch(
+        `/api/direction/horodateur/registre?${qs}`,
+        hororaNexusSessionRequestInit()
+      );
+      if (redirectToNexusLoginIfUnauthenticated(res.status)) {
+        return;
+      }
       const json = (await res.json()) as { success?: boolean; error?: string };
 
       if (!res.ok) {
@@ -377,19 +375,6 @@ export default function DirectionHorodateurRegistreClient() {
       empName: string | null,
       mode: "drawer" | "report"
     ) => {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      const token = session?.access_token;
-      if (!token) {
-        if (mode === "drawer") {
-          setDetailError("Session absente.");
-        } else {
-          setReportError("Session absente.");
-        }
-        return;
-      }
-
       if (mode === "drawer") {
         setDetailOpen(true);
         setDetailLoading(true);
@@ -402,9 +387,13 @@ export default function DirectionHorodateurRegistreClient() {
 
       try {
         const qs = new URLSearchParams({ startDate, endDate });
-        const res = await fetch(`/api/direction/horodateur/registre/${empId}?${qs}`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
+        const res = await fetch(
+          `/api/direction/horodateur/registre/${empId}?${qs}`,
+          hororaNexusSessionRequestInit()
+        );
+        if (redirectToNexusLoginIfUnauthenticated(res.status)) {
+          return;
+        }
         const json = (await res.json()) as {
           error?: string;
           events?: HorodateurRegistreEventDetail[];
@@ -894,7 +883,7 @@ export default function DirectionHorodateurRegistreClient() {
                   </tbody>
                 </table>
               </div>
-              {!fetching && (data?.employees?.length ?? 0) === 0 ? (
+              {!fetching && !error && (data?.employees?.length ?? 0) === 0 ? (
                 <p className="ui-text-muted" style={{ marginTop: "var(--ui-space-5)", textAlign: "center" }}>
                   Aucune heure trouvée pour cette période.
                 </p>

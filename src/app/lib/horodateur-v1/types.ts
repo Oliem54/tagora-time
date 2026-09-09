@@ -190,6 +190,7 @@ export type HorodateurPhase1EventRecord = {
   related_event_id?: string | null;
   work_date: string | null;
   week_start_date: string | null;
+  company_context?: AccountRequestCompany | null;
   is_manual_correction?: boolean;
   // Canonical DB column.
   notes?: string | null;

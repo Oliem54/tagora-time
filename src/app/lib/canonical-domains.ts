@@ -15,6 +15,9 @@ export const NEXUS_PUBLIC_HOSTNAME = "app.tagora.ca" as const;
 export const NEXUS_PUBLIC_LOGIN_PATH = "/login" as const;
 export const NEXUS_PUBLIC_LOGIN_URL =
   `${NEXUS_PUBLIC_ORIGIN}${NEXUS_PUBLIC_LOGIN_PATH}` as const;
+export const NEXUS_PUBLIC_MODULES_PATH = "/modules" as const;
+export const NEXUS_PUBLIC_MODULES_URL =
+  `${NEXUS_PUBLIC_ORIGIN}${NEXUS_PUBLIC_MODULES_PATH}` as const;
 
 /** Point d’entrée connexion standard DEC-015. */
 export const LOGIN_STANDARD_PATH = "/login" as const;

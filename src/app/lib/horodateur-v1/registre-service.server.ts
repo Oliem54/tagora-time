@@ -29,6 +29,7 @@ import {
   computeRegistreRowFlags,
   primaryStatusFromFlags,
   shiftBreakTotal,
+  unionRegistreScopeEmployeeIds,
 } from "./registre-aggregations.shared";
 import type {
   HorodateurPhase1EmployeeProfile,
@@ -177,20 +178,31 @@ export async function buildHorodateurRegistre(options: {
     companyContext: companyContextForQuery,
   });
 
-  let employeeIds = Array.from(new Set(shifts.map((s) => s.employee_id)));
-  if (typeof options.employeeId === "number" && options.employeeId > 0) {
-    employeeIds = [options.employeeId];
-    shifts = shifts.filter((s) => s.employee_id === options.employeeId);
+  let eventsAll = await listHorodateurEventsInWorkDateRange({
+    startWorkDate: start,
+    endWorkDate: end,
+    employeeIds:
+      typeof options.employeeId === "number" && options.employeeId > 0
+        ? [options.employeeId]
+        : undefined,
+    organizationId: options.organizationId,
+  });
+  if (companyContextForQuery) {
+    eventsAll = eventsAll.filter(
+      (event) => event.company_context === companyContextForQuery
+    );
   }
 
-  const eventsAll =
-    employeeIds.length > 0
-      ? await listHorodateurEventsInWorkDateRange({
-          startWorkDate: start,
-          endWorkDate: end,
-          employeeIds,
-        })
-      : [];
+  let employeeIds = unionRegistreScopeEmployeeIds({
+    shiftEmployeeIds: shifts.map((s) => s.employee_id),
+    eventEmployeeIds: eventsAll.map((e) => e.employee_id),
+    requestedEmployeeId: options.employeeId,
+  });
+  if (typeof options.employeeId === "number" && options.employeeId > 0) {
+    shifts = shifts.filter((s) => s.employee_id === options.employeeId);
+    eventsAll = eventsAll.filter((e) => e.employee_id === options.employeeId);
+    employeeIds = [options.employeeId];
+  }
 
   const eventsByEmployee = new Map<number, HorodateurPhase1EventRecord[]>();
   for (const e of eventsAll) {
@@ -205,7 +217,9 @@ export async function buildHorodateurRegistre(options: {
 
   const allExceptionsRaw =
     employeeIds.length > 0
-      ? await listHorodateurExceptionsForEmployees(employeeIds)
+      ? await listHorodateurExceptionsForEmployees(employeeIds, {
+          organizationId: options.organizationId,
+        })
       : [];
   const exceptionsInRange = filterExceptionsInRange(allExceptionsRaw, start, end);
 
@@ -266,6 +280,12 @@ export async function buildHorodateurRegistre(options: {
     }
 
     const profile = profileById.get(eid);
+    if (
+      profile?.organizationId &&
+      profile.organizationId !== options.organizationId
+    ) {
+      continue;
+    }
 
     const worked = empShifts.reduce((a, s) => a + (s.worked_minutes ?? 0), 0);
     const breaks = empShifts.reduce((a, s) => a + shiftBreakTotal(s), 0);
@@ -464,10 +484,13 @@ export async function buildHorodateurRegistreEmployeeDetail(options: {
     startWorkDate: options.startDate,
     endWorkDate: options.endDate,
     employeeIds: [options.employeeId],
+    organizationId: options.organizationId,
   });
 
   const exAll = filterExceptionsInRange(
-    await listHorodateurExceptionsForEmployees([options.employeeId]),
+    await listHorodateurExceptionsForEmployees([options.employeeId], {
+      organizationId: options.organizationId,
+    }),
     options.startDate,
     options.endDate
   );

@@ -11,6 +11,7 @@ import {
   readNexusHandoffConfig,
   resolveNexusPortalReturnUrl,
 } from "@/app/lib/auth/nexus-handoff-config";
+import { NEXUS_PUBLIC_MODULES_URL } from "@/app/lib/canonical-domains";
 
 const ISSUER = "https://nexus-handoff.test";
 const JWKS = "https://nexus-handoff.test/jwks.json";
@@ -78,6 +79,11 @@ describe("HORORA Nexus handoff config", () => {
     expect(
       resolveNexusPortalReturnUrl({ NEXUS_PORTAL_RETURN_URL: "//evil.example/modules" })
     ).toEqual({ ok: false, reason: "open_redirect" });
+    expect(
+      resolveNexusPortalReturnUrl({
+        NEXUS_PORTAL_RETURN_URL: "https://tagora-nexus.vercel.app/modules",
+      })
+    ).toEqual({ ok: true, url: NEXUS_PUBLIC_MODULES_URL });
   });
 
   it("never treats password login as the Nexus fail-closed path", () => {

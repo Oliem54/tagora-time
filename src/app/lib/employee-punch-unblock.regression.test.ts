@@ -158,9 +158,11 @@ describe("HORORA employee punch unblock", () => {
 
   it("authenticates employee punch through the Nexus cookie, not a Supabase JWT", () => {
     const session = read("src/app/lib/employee-punch-session.client.ts");
+    const shared = read("src/app/lib/auth/horora-nexus-session.client.ts");
     const hook = read("src/app/hooks/useEmployeePunchSnapshot.ts");
     const page = read("src/app/employe/horodateur/page.tsx");
-    expect(session).toContain('credentials: "same-origin"');
+    expect(session).toContain("hororaNexusSessionRequestInit");
+    expect(shared).toContain('credentials: "same-origin"');
     expect(hook).toContain("employeePunchRequestInit");
     expect(hook).not.toContain("supabase.auth.getSession");
     expect(page).toContain("employeePunchRequestInit");

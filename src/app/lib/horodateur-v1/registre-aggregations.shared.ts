@@ -7,6 +7,27 @@ import type {
   HorodateurPhase1ShiftRecord,
 } from "./types";
 
+export function unionRegistreScopeEmployeeIds(input: {
+  shiftEmployeeIds: Iterable<number>;
+  eventEmployeeIds: Iterable<number>;
+  requestedEmployeeId?: number | null;
+}): number[] {
+  const ids = new Set<number>();
+  for (const id of input.shiftEmployeeIds) {
+    if (Number.isFinite(id) && id > 0) ids.add(id);
+  }
+  for (const id of input.eventEmployeeIds) {
+    if (Number.isFinite(id) && id > 0) ids.add(id);
+  }
+  if (
+    typeof input.requestedEmployeeId === "number" &&
+    input.requestedEmployeeId > 0
+  ) {
+    ids.add(input.requestedEmployeeId);
+  }
+  return [...ids];
+}
+
 export function shiftBreakTotal(s: HorodateurPhase1ShiftRecord) {
   return (
     (s.paid_break_minutes ?? 0) +

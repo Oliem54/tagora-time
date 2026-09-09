@@ -28,7 +28,9 @@ import {
 import { MISSING_EXPECTED_PUNCH_PRIORITY_REASON_LABEL } from "@/app/lib/horodateur-expected-punch-missing.shared";
 import { resolveHorodateurPendingExceptionDisplay } from "@/app/lib/horodateur-exception-display.shared";
 import { getLocalWorkDate } from "@/app/lib/horodateur-v1/rules";
-import { supabase } from "@/app/lib/supabase/client";
+import {
+  fetchHororaNexusSession,
+} from "@/app/lib/auth/horora-nexus-session.client";
 import { getCompanyLabel } from "@/app/lib/account-requests.shared";
 import { normalizePhoneNumber } from "@/app/lib/timeclock-api.client";
 
@@ -717,18 +719,10 @@ export default function DirectionHorodateurPage() {
     }
   }, [board, liveFilter]);
 
-  const withToken = useCallback(async <T,>(
-    runner: (token: string) => Promise<T>
+  const withBrokeredSession = useCallback(async <T,>(
+    runner: () => Promise<T>
   ) => {
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
-
-    if (!session?.access_token) {
-      throw new Error("Session introuvable.");
-    }
-
-    return runner(session.access_token);
+    return runner();
   }, []);
 
   const loadData = useCallback(
@@ -745,19 +739,11 @@ export default function DirectionHorodateurPage() {
       setError("");
 
       try {
-        const result = await withToken(async (_token) => {
-          void _token;
-
+        const result = await withBrokeredSession(async () => {
           const [liveResponse, exceptionsResponse, configResponse] = await Promise.all([
-            fetch("/api/direction/horodateur/live", {
-              credentials: "same-origin",
-            }),
-            fetch("/api/direction/horodateur/exceptions", {
-              credentials: "same-origin",
-            }),
-            fetch("/api/direction/horodateur/notifications/config", {
-              credentials: "same-origin",
-            }),
+            fetchHororaNexusSession("/api/direction/horodateur/live"),
+            fetchHororaNexusSession("/api/direction/horodateur/exceptions"),
+            fetchHororaNexusSession("/api/direction/horodateur/notifications/config"),
           ]);
 
           const [livePayload, exceptionsPayload, configPayload] = await Promise.all([
@@ -909,7 +895,7 @@ export default function DirectionHorodateurPage() {
         setRefreshing(false);
       }
     },
-    [withToken]
+    [withBrokeredSession]
   );
 
   useEffect(() => {
@@ -918,7 +904,6 @@ export default function DirectionHorodateurPage() {
     }
 
     if (!canUseTerrain) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       setLoading(false);
       return;
     }
@@ -1022,11 +1007,10 @@ export default function DirectionHorodateurPage() {
     setError("");
 
     try {
-      await withToken(async (token) => {
-        const response = await fetch("/api/direction/horodateur/notifications/config", {
+      await withBrokeredSession(async () => {
+        const response = await fetchHororaNexusSession("/api/direction/horodateur/notifications/config", {
           method: "PUT",
           headers: {
-            Authorization: `Bearer ${token}`,
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
@@ -1081,11 +1065,10 @@ export default function DirectionHorodateurPage() {
     setError("");
 
     try {
-      const payload = await withToken(async (token) => {
-        const response = await fetch("/api/direction/horodateur/punch", {
+      const payload = await withBrokeredSession(async () => {
+        const response = await fetchHororaNexusSession("/api/direction/horodateur/punch", {
           method: "POST",
           headers: {
-            Authorization: `Bearer ${token}`,
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
@@ -1235,11 +1218,10 @@ export default function DirectionHorodateurPage() {
     setError("");
 
     try {
-      await withToken(async (token) => {
-        const response = await fetch("/api/direction/horodateur/retro-correction", {
+      await withBrokeredSession(async () => {
+        const response = await fetchHororaNexusSession("/api/direction/horodateur/retro-correction", {
           method: "POST",
           headers: {
-            Authorization: `Bearer ${token}`,
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
@@ -1309,13 +1291,12 @@ export default function DirectionHorodateurPage() {
     }
 
     try {
-      const payload = await withToken(async (token) => {
-        const response = await fetch(
+      const payload = await withBrokeredSession(async () => {
+        const response = await fetchHororaNexusSession(
           `/api/direction/horodateur/exceptions/${exceptionId}/approve`,
           {
             method: "POST",
             headers: {
-              Authorization: `Bearer ${token}`,
               "Content-Type": "application/json",
             },
             body: JSON.stringify({
@@ -1382,13 +1363,12 @@ export default function DirectionHorodateurPage() {
     setError("");
 
     try {
-      const payload = await withToken(async (token) => {
-        const response = await fetch(
+      const payload = await withBrokeredSession(async () => {
+        const response = await fetchHororaNexusSession(
           `/api/direction/horodateur/exceptions/${exceptionId}/refuse`,
           {
             method: "POST",
             headers: {
-              Authorization: `Bearer ${token}`,
               "Content-Type": "application/json",
             },
             body: JSON.stringify({ reviewNote: reviewNote.trim() }),

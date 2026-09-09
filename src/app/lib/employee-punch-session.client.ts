@@ -3,10 +3,8 @@
  * Do not require a Supabase Auth JWT in the browser.
  */
 
+import { hororaNexusSessionRequestInit } from "@/app/lib/auth/horora-nexus-session.client";
+
 export function employeePunchRequestInit(init: RequestInit = {}): RequestInit {
-  return {
-    cache: "no-store",
-    ...init,
-    credentials: "same-origin",
-  };
+  return hororaNexusSessionRequestInit(init);
 }

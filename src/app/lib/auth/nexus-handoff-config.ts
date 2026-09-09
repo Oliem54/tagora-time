@@ -3,6 +3,8 @@
  * Audience and module key are frozen; issuer and JWKS come from env only.
  */
 
+import { NEXUS_PUBLIC_MODULES_URL } from "@/app/lib/canonical-domains";
+
 export const NEXUS_HANDOFF_VERSION = "TAGORA_HANDOFF_V1" as const;
 export const NEXUS_HANDOFF_ALGORITHM = "ES256" as const;
 export const NEXUS_HANDOFF_AUDIENCE = "tagora:time" as const;
@@ -29,6 +31,7 @@ export const FORBIDDEN_NEXUS_AUTHORITY_CLAIMS = [
 export const NEXUS_HANDOFF_MAX_TTL_SECONDS = 120;
 export const NEXUS_HANDOFF_CLOCK_SKEW_SECONDS = 30;
 export const NEXUS_RETURN_PATH = "/modules" as const;
+export const NEXUS_PRODUCTION_PORTAL_MODULES_URL = NEXUS_PUBLIC_MODULES_URL;
 export const NEXUS_STAGING_PORTAL_MODULES_URL =
   "https://tagora-nexus-staging.vercel.app/modules" as const;
 export const NEXUS_CALLBACK_FAIL_CLOSED_PATH = "/auth/nexus/denied" as const;
@@ -251,7 +254,20 @@ export function resolveNexusPortalReturnUrl(
 
   parsed.pathname = NEXUS_RETURN_PATH;
   parsed.hash = "";
-  return { ok: true, url: parsed.toString() };
+  const canonical = canonicalizeProductionNexusPortalReturn(parsed);
+  return { ok: true, url: canonical.toString() };
+}
+
+const PRODUCTION_NEXUS_VERCEL_HOSTS = new Set([
+  "tagora-nexus.vercel.app",
+  "tagora-nexus-oliem54s-projects.vercel.app",
+]);
+
+export function canonicalizeProductionNexusPortalReturn(url: URL): URL {
+  if (PRODUCTION_NEXUS_VERCEL_HOSTS.has(url.hostname.toLowerCase())) {
+    return new URL(NEXUS_PRODUCTION_PORTAL_MODULES_URL);
+  }
+  return url;
 }
 
 export function resolveNexusDeniedReturnUrl(

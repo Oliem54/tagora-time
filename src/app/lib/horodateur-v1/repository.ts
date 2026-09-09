@@ -1336,15 +1336,18 @@ type HorodateurEventRowRaw = EventRow & {
   company_context?: string | null;
 };
 
-/** Events in work_date range for the given employees (all event rows, any status). */
+/** Events in work_date range, scoped by organization and optional employees. */
 export async function listHorodateurEventsInWorkDateRange(options: {
   startWorkDate: string;
   endWorkDate: string;
-  employeeIds: number[];
+  employeeIds?: number[];
   organizationId?: string;
   organizationCompanyId?: string;
 }) {
-  if (!options.employeeIds.length) {
+  const employeeIds = (options.employeeIds ?? []).filter(
+    (id) => Number.isFinite(id) && id > 0
+  );
+  if (!employeeIds.length && !options.organizationId) {
     return [];
   }
 
@@ -1353,9 +1356,11 @@ export async function listHorodateurEventsInWorkDateRange(options: {
     .from("horodateur_events")
     .select("*")
     .gte("work_date", options.startWorkDate)
-    .lte("work_date", options.endWorkDate)
-    .in("employee_id", options.employeeIds);
+    .lte("work_date", options.endWorkDate);
 
+  if (employeeIds.length) {
+    query = query.in("employee_id", employeeIds);
+  }
   if (options.organizationId) {
     query = query.eq("organization_id", options.organizationId);
   }
@@ -1372,9 +1377,11 @@ export async function listHorodateurEventsInWorkDateRange(options: {
       .from("horodateur_events")
       .select("*")
       .gte("work_date", options.startWorkDate)
-      .lte("work_date", options.endWorkDate)
-      .in("employee_id", options.employeeIds);
+      .lte("work_date", options.endWorkDate);
 
+    if (employeeIds.length) {
+      legacyQuery = legacyQuery.in("employee_id", employeeIds);
+    }
     if (options.organizationId) {
       legacyQuery = legacyQuery.eq("organization_id", options.organizationId);
     }

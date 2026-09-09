@@ -8,7 +8,7 @@ import PrimaryButton from "@/app/components/ui/PrimaryButton";
 import SecondaryButton from "@/app/components/ui/SecondaryButton";
 import SectionCard from "@/app/components/ui/SectionCard";
 import { useCurrentAccess } from "@/app/hooks/useCurrentAccess";
-import { supabase } from "@/app/lib/supabase/client";
+import { fetchHororaNexusSession } from "@/app/lib/auth/horora-nexus-session.client";
 import { PUNCH_ZONE_COMPANY_KEYS } from "@/app/lib/horodateur-qr-punch.shared";
 
 type ZoneRow = {
@@ -52,13 +52,7 @@ export default function DirectionHorodateurQrZonesClient() {
     setLoading(true);
     setError("");
     try {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      if (!session?.access_token) return;
-      const res = await fetch("/api/direction/horodateur/punch-zones", {
-        headers: { Authorization: `Bearer ${session.access_token}` },
-      });
+      const res = await fetchHororaNexusSession("/api/direction/horodateur/punch-zones");
       const j = (await res.json()) as { zones?: ZoneRow[]; error?: string };
       if (!res.ok) {
         setError(j.error ?? "Erreur chargement.");
@@ -88,14 +82,9 @@ export default function DirectionHorodateurQrZonesClient() {
     setMessage("");
     setError("");
     try {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      if (!session?.access_token) return;
-      const res = await fetch("/api/direction/horodateur/punch-zones", {
+      const res = await fetchHororaNexusSession("/api/direction/horodateur/punch-zones", {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${session.access_token}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
@@ -135,14 +124,9 @@ export default function DirectionHorodateurQrZonesClient() {
     id: string,
     payload: Record<string, unknown>
   ): Promise<{ plainToken?: string; qrUrl?: string; message?: string } | null> {
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
-    if (!session?.access_token) return null;
-    const res = await fetch(`/api/direction/horodateur/punch-zones/${id}`, {
+    const res = await fetchHororaNexusSession(`/api/direction/horodateur/punch-zones/${id}`, {
       method: "PATCH",
       headers: {
-        Authorization: `Bearer ${session.access_token}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify(payload),

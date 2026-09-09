@@ -359,7 +359,19 @@ export async function requireDirectionHorodateurAccess(req: NextRequest) {
     },
   };
 
-  if (!authenticated.user || !hasDirectionAccess) {
+  if (!authenticated.user) {
+    return {
+      ok: false as const,
+      response: buildHorodateurValidationErrorResponse({
+        error: "Authentification Nexus requise.",
+        code: "unauthenticated",
+        status: 401,
+        ...(isDev ? { details: JSON.stringify(debug) } : {}),
+      }),
+    };
+  }
+
+  if (!hasDirectionAccess) {
     return {
       ok: false as const,
       response: buildHorodateurValidationErrorResponse({

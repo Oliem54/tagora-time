@@ -36,7 +36,7 @@ import type {
   HorodateurPastShiftsPayload,
 } from "@/app/lib/horodateur-v1/past-shifts-types";
 import type { RegistreCompanyParam, RegistreStatusFilter } from "@/app/lib/horodateur-v1/registre-types";
-import { supabase } from "@/app/lib/supabase/client";
+import { fetchHororaNexusSession } from "@/app/lib/auth/horora-nexus-session.client";
 
 type PeriodPreset =
   | "week_current"
@@ -207,16 +207,6 @@ export default function DirectionHorodateurPastShiftsClient() {
     setLoading(true);
     setError(null);
     try {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      const token = session?.access_token;
-      if (!token) {
-        setError("Session expirée. Reconnectez-vous.");
-        setData(null);
-        return;
-      }
-
       const qs = new URLSearchParams({
         startDate,
         endDate,
@@ -227,9 +217,7 @@ export default function DirectionHorodateurPastShiftsClient() {
         qs.set("employeeId", employeeId);
       }
 
-      const res = await fetch(`/api/direction/horodateur/shifts?${qs}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const res = await fetchHororaNexusSession(`/api/direction/horodateur/shifts?${qs}`);
       const json = (await res.json().catch(() => ({}))) as HorodateurPastShiftsPayload & {
         success?: boolean;
         error?: string;
@@ -323,18 +311,9 @@ export default function DirectionHorodateurPastShiftsClient() {
     setMessage(null);
 
     try {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      const token = session?.access_token;
-      if (!token) {
-        throw new Error("Session expirée. Reconnectez-vous.");
-      }
-
-      const response = await fetch("/api/direction/horodateur/retro-correction", {
+      const response = await fetchHororaNexusSession("/api/direction/horodateur/retro-correction", {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
