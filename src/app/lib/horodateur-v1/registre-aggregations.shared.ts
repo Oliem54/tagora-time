@@ -1,5 +1,8 @@
-import { HORODATEUR_PHASE1_WEEKLY_TARGET_HOURS, getWeekStartDate } from "./rules";
-import type { HorodateurRegistreEmployeeRow } from "./registre-types";
+import { HORODATEUR_PHASE1_WEEKLY_TARGET_HOURS, getEventOccurredAt, getWeekStartDate } from "./rules";
+import type {
+  HorodateurRegistreEmployeeRow,
+  HorodateurRegistreExceptionDetail,
+} from "./registre-types";
 import type {
   HorodateurPhase1EmployeeProfile,
   HorodateurPhase1EventRecord,
@@ -10,6 +13,7 @@ import type {
 export function unionRegistreScopeEmployeeIds(input: {
   shiftEmployeeIds: Iterable<number>;
   eventEmployeeIds: Iterable<number>;
+  exceptionEmployeeIds?: Iterable<number>;
   requestedEmployeeId?: number | null;
 }): number[] {
   const ids = new Set<number>();
@@ -17,6 +21,9 @@ export function unionRegistreScopeEmployeeIds(input: {
     if (Number.isFinite(id) && id > 0) ids.add(id);
   }
   for (const id of input.eventEmployeeIds) {
+    if (Number.isFinite(id) && id > 0) ids.add(id);
+  }
+  for (const id of input.exceptionEmployeeIds ?? []) {
     if (Number.isFinite(id) && id > 0) ids.add(id);
   }
   if (
@@ -64,6 +71,49 @@ export function aggregateOvertimeForEmployee(
   return { normal, overtime };
 }
 
+export function pendingOperationalEventVisibleInRegistre(
+  event: HorodateurPhase1EventRecord
+): boolean {
+  return event.status === "en_attente";
+}
+
+export function toRegistreExceptionFromPendingEvent(
+  event: HorodateurPhase1EventRecord
+): HorodateurRegistreExceptionDetail {
+  return {
+    id: event.id,
+    exceptionType: event.exception_code ?? "pending_punch",
+    reasonLabel: `Pointage ${event.event_type} en attente`,
+    details: event.notes ?? event.approval_note ?? null,
+    impactMinutes: 0,
+    status: event.status,
+    requestedAt: getEventOccurredAt(event) ?? event.created_at ?? "",
+    reviewedAt: null,
+    reviewNote: null,
+    approvedMinutes: null,
+    sourceEventId: event.id,
+  };
+}
+
+export function countRegistreExceptionSignals(input: {
+  events: HorodateurPhase1EventRecord[];
+  exceptions: HorodateurPhase1ExceptionRecord[];
+}): number {
+  const exceptionIds = new Set(input.exceptions.map((item) => item.id));
+  const exceptionSourceIds = new Set(
+    input.exceptions
+      .map((item) => item.source_event_id)
+      .filter((id): id is string => typeof id === "string" && id.length > 0)
+  );
+  const pendingEventsWithoutException = input.events.filter(
+    (event) =>
+      pendingOperationalEventVisibleInRegistre(event) &&
+      !exceptionSourceIds.has(event.id) &&
+      !exceptionIds.has(event.id)
+  );
+  return input.exceptions.length + pendingEventsWithoutException.length;
+}
+
 export function computeRegistreRowFlags(input: {
   shifts: HorodateurPhase1ShiftRecord[];
   events: HorodateurPhase1EventRecord[];
@@ -79,6 +129,7 @@ export function computeRegistreRowFlags(input: {
   );
   const hasExc =
     input.exceptions.length > 0 ||
+    hasPendingEvent ||
     input.shifts.some(
       (s) =>
         (s.anomalies_count ?? 0) > 0 ||
@@ -104,11 +155,11 @@ export function computeRegistreRowFlags(input: {
 export function primaryStatusFromFlags(
   flags: HorodateurRegistreEmployeeRow["flags"]
 ): HorodateurRegistreEmployeeRow["statusKey"] {
-  if (flags.incomplet) {
-    return "incomplet";
-  }
   if (flags.en_attente) {
     return "en_attente";
+  }
+  if (flags.incomplet) {
+    return "incomplet";
   }
   if (flags.exception) {
     return "exception";

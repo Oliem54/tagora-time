@@ -168,4 +168,20 @@ describe("HORORA employee punch unblock", () => {
     expect(page).toContain("employeePunchRequestInit");
     expect(page).not.toContain("supabase.auth.getSession");
   });
+
+  it("refuses a punch when the Auth user is not uniquely linked to one active employee", () => {
+    const shared = read("src/app/api/horodateur/_shared.ts");
+    const eligibility = read(
+      "src/app/lib/horodateur-v1/employee-punch-eligibility.shared.ts"
+    );
+    const repository = read("src/app/lib/horodateur-v1/repository.ts");
+    expect(shared).toContain("getEmployeeByAuthUserId(user.id");
+    expect(shared).toContain("evaluateResolvedEmployeePunchProfile");
+    expect(eligibility).toContain("selectUniqueActiveEmployeeForPunch");
+    expect(eligibility).toContain("employee_ambiguous_for_auth_user");
+    expect(repository).toContain("employee_ambiguous_for_auth_user");
+    expect(shared).toContain("role !== \"employe\"");
+    expect(shared).toContain("hasUserPermission(user, \"terrain\", role)");
+    expect(shared).toContain("evaluateResolvedEmployeePunchProfile");
+  });
 });

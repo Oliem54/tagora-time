@@ -115,6 +115,7 @@ import {
   isOpenShiftBeyondSafetyLimit,
   isValidScheduledWorkDayForEmployee,
   isWithinScheduledWindowForEmployee,
+  isContinuableOpenShift,
   resolveCompanyContextForShift,
   resolveInitialCurrentState,
   resolveLiveAccrualEndIso,
@@ -842,8 +843,13 @@ export async function saveHorodateurDirectionAlertConfig(input: {
   });
 }
 
-export async function resolveEmployeeByAuthUserId(authUserId: string) {
-  const employee = await getEmployeeByAuthUserId(authUserId);
+export async function resolveEmployeeByAuthUserId(
+  authUserId: string,
+  options?: { organizationId?: string | null }
+) {
+  const employee = await getEmployeeByAuthUserId(authUserId, {
+    organizationId: options?.organizationId,
+  });
 
   throwIfEmployeePunchIneligible({
     present: Boolean(employee),
@@ -2392,11 +2398,32 @@ export async function recomputeCurrentState(
       : getLastApprovedEvent(approvedEvents);
   const pendingExceptionsCount = await countPendingExceptionsForEmployee(employeeId);
 
-  const currentState: HorodateurPhase1StateKind = operationalState.currentState;
-  const activeShiftStartEventId = operationalState.activeShiftStartEventId;
-  const activePauseStartEventId = operationalState.activePauseStartEventId;
-  const activeDinnerStartEventId = operationalState.activeDinnerStartEventId;
-  const hasSequenceAnomaly = operationalState.hasSequenceAnomaly;
+  const nowIso = new Date().toISOString();
+  const calendarWorkDate = getLocalWorkDate(nowIso);
+  const openWorkDate = resolveActiveOpenShiftWorkDate(approvedEvents);
+  const staleOpenShift =
+    isQuarterActiveState(operationalState.currentState) &&
+    !isContinuableOpenShift({
+      openWorkDate,
+      calendarWorkDate,
+      openShiftStartAt: resolveOpenShiftStartAt(approvedEvents),
+      occurredAt: nowIso,
+    });
+
+  const currentState: HorodateurPhase1StateKind = staleOpenShift
+    ? "hors_quart"
+    : operationalState.currentState;
+  const activeShiftStartEventId = staleOpenShift
+    ? null
+    : operationalState.activeShiftStartEventId;
+  const activePauseStartEventId = staleOpenShift
+    ? null
+    : operationalState.activePauseStartEventId;
+  const activeDinnerStartEventId = staleOpenShift
+    ? null
+    : operationalState.activeDinnerStartEventId;
+  const hasSequenceAnomaly =
+    operationalState.hasSequenceAnomaly || staleOpenShift;
 
   if (
     payrollState.currentState !== operationalState.currentState &&
@@ -3013,6 +3040,7 @@ async function closeOpenPauseOrMealBeforePunchOut(
 
 export async function createEmployeePunch(options: {
   actorUserId: string;
+  organizationId?: string | null;
   eventType: HorodateurPhase1InsertEventInput["eventType"];
   occurredAt?: string;
   note?: string | null;
@@ -3048,7 +3076,9 @@ export async function createEmployeePunch(options: {
     occurredAt,
     sourceKind: options.sourceKind ?? "employe",
   });
-  const employee = await resolveEmployeeByAuthUserId(options.actorUserId);
+  const employee = await resolveEmployeeByAuthUserId(options.actorUserId, {
+    organizationId: options.organizationId,
+  });
   assertNoPaidBreakOperationalPunch(employee, options.eventType);
 
   const companyContext = requireCompanyContext(

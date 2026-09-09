@@ -548,6 +548,42 @@ export function isOpenShiftBeyondSafetyLimit(
   );
 }
 
+export function addDaysToIsoDate(isoDate: string, days: number): string {
+  const probe = new Date(`${isoDate}T12:00:00Z`);
+  probe.setUTCDate(probe.getUTCDate() + days);
+  return probe.toISOString().slice(0, 10);
+}
+
+/**
+ * Continuation is only same Montréal work date, or the next calendar day
+ * within the 14 h safety window. A months-old open punch_in is not an
+ * active shift for a new punch.
+ */
+export function isContinuableOpenShift(options: {
+  openWorkDate: string | null;
+  calendarWorkDate: string;
+  openShiftStartAt: string | null;
+  occurredAt: string;
+}): boolean {
+  const openWorkDate = options.openWorkDate?.trim() || null;
+  if (!openWorkDate) {
+    return false;
+  }
+  if (openWorkDate === options.calendarWorkDate) {
+    return true;
+  }
+  if (addDaysToIsoDate(openWorkDate, 1) !== options.calendarWorkDate) {
+    return false;
+  }
+  if (!options.openShiftStartAt) {
+    return false;
+  }
+  return !isOpenShiftBeyondSafetyLimit(
+    options.openShiftStartAt,
+    options.occurredAt
+  );
+}
+
 export function resolveLiveAccrualEndIso(options: {
   nowIso: string;
   openShiftStartAt: string | null;
@@ -640,6 +676,20 @@ function classifyPunchOutAfterOpenShiftSafetyLimit(options: {
   if (!activeShiftStartAt) {
     return null;
   }
+  const calendarWorkDate = getLocalWorkDate(options.occurredAt);
+  const openWorkDate =
+    activeShiftStart.work_date?.trim() ||
+    getLocalWorkDate(activeShiftStartAt);
+  if (
+    !isContinuableOpenShift({
+      openWorkDate,
+      calendarWorkDate,
+      openShiftStartAt: activeShiftStartAt,
+      occurredAt: options.occurredAt,
+    })
+  ) {
+    return null;
+  }
 
   const elapsedMinutes = diffMinutes(activeShiftStartAt, options.occurredAt);
   if (elapsedMinutes < HORODATEUR_OPEN_SHIFT_SAFETY_MAX_ELAPSED_MINUTES) {
@@ -712,7 +762,24 @@ export function classifyEventPhase1(
     );
   }
 
-  const resolvedState = resolveInitialCurrentState(currentState);
+  let resolvedState = resolveInitialCurrentState(currentState);
+  const openShiftApprovedEvents = allApprovedEvents ?? latestApprovedEvents;
+  const openStart = resolveOpenShiftStartEvent(openShiftApprovedEvents);
+  const calendarWorkDate = getLocalWorkDate(occurredAt);
+  const openWorkDate = openStart
+    ? openStart.work_date?.trim() ||
+      getLocalWorkDate(getEventOccurredAt(openStart) ?? occurredAt)
+    : null;
+  if (
+    !isContinuableOpenShift({
+      openWorkDate,
+      calendarWorkDate,
+      openShiftStartAt: openStart ? getEventOccurredAt(openStart) : null,
+      occurredAt,
+    })
+  ) {
+    resolvedState = "hors_quart";
+  }
   const lastApprovedEvent = getLastApprovedEvent(latestApprovedEvents);
   const lastApprovedOccurredAt = getEventOccurredAt(lastApprovedEvent);
 
@@ -749,8 +816,6 @@ export function classifyEventPhase1(
       `Etat courant: ${resolvedState}; action: ${canonicalEventType}; ${canonicalReason}`
     );
   }
-
-  const openShiftApprovedEvents = allApprovedEvents ?? latestApprovedEvents;
   const punchOutSafetyClassification = classifyPunchOutAfterOpenShiftSafetyLimit({
     canonicalEventType,
     occurredAt,
@@ -778,8 +843,14 @@ export function classifyEventPhase1(
   }
 
   const activeShiftStart = resolveOpenShiftStartEvent(openShiftApprovedEvents);
+  const openShiftIsContinuable = isContinuableOpenShift({
+    openWorkDate,
+    calendarWorkDate,
+    openShiftStartAt: openStart ? getEventOccurredAt(openStart) : null,
+    occurredAt,
+  });
 
-  if (activeShiftStart) {
+  if (activeShiftStart && openShiftIsContinuable) {
     const activeShiftStartAt = getEventOccurredAt(activeShiftStart);
 
     if (!activeShiftStartAt) {

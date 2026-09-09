@@ -121,6 +121,26 @@ describe("overnight operational work_date", () => {
     expect(getLocalWorkDate(punchOutAt)).not.toBe(openWorkDate);
   });
 
+  it("does not attach a September punch_out to a June open shift", () => {
+    const punchInAt = "2026-06-04T07:00:00-04:00";
+    const punchOutAt = "2026-09-09T09:01:00-04:00";
+    const approved = [
+      event({
+        event_type: "quart_debut",
+        occurred_at: punchInAt,
+        work_date: "2026-06-04",
+      }),
+    ];
+    expect(
+      resolveOperationalWorkDate({
+        eventType: "quart_fin",
+        occurredAt: punchOutAt,
+        approvedEvents: approved,
+      })
+    ).toBe(getLocalWorkDate(punchOutAt));
+    expect(getLocalWorkDate(punchOutAt)).toBe("2026-09-09");
+  });
+
   it("uses calendar date for punch_in", () => {
     const at = "2026-08-18T08:00:00-04:00";
     expect(

@@ -17,6 +17,8 @@ import {
 import type { NextRequest } from "next/server";
 import { APP_SESSION_COOKIE_NAME } from "@/app/lib/auth/session-cookie";
 import { resolveActiveOrganizationMembershipForUserId } from "@/app/lib/saas/organization-membership.server";
+import { evaluateResolvedEmployeePunchProfile } from "@/app/lib/horodateur-v1/employee-punch-eligibility.shared";
+import { getEmployeeByAuthUserId } from "@/app/lib/horodateur-v1/repository";
 
 export function buildHorodateurErrorResponse(
   error: unknown,
@@ -291,7 +293,7 @@ export function isHorodateurPhase1ExceptionType(
 }
 
 export async function requireEmployeeHorodateurAccess(req: NextRequest) {
-  const { user, role } = await getAuthenticatedRequestUser(req);
+  const { user, role, organizationId } = await getAuthenticatedRequestUser(req);
 
   if (!user || role !== "employe") {
     return {
@@ -315,10 +317,51 @@ export async function requireEmployeeHorodateurAccess(req: NextRequest) {
     };
   }
 
-  return {
-    ok: true as const,
-    user,
-  };
+  try {
+    const employee = await getEmployeeByAuthUserId(user.id, {
+      organizationId: organizationId ?? null,
+    });
+    const eligibility = evaluateResolvedEmployeePunchProfile({
+      present: Boolean(employee),
+      active: employee?.active ?? false,
+      organizationId: employee?.organizationId,
+      organizationCompanyId: employee?.organizationCompanyId,
+      primaryCompany: employee?.primaryCompany,
+      requireTenantKeys: true,
+    });
+    if (!eligibility.ok || !employee) {
+      return {
+        ok: false as const,
+        response: buildHorodateurValidationErrorResponse({
+          error: eligibility.ok
+            ? "Aucune fiche employe n est liee a ce compte Auth."
+            : eligibility.message,
+          code: eligibility.ok
+            ? "employee_not_found_for_auth_user"
+            : eligibility.code,
+          status: eligibility.ok ? 404 : eligibility.status,
+        }),
+      };
+    }
+    return {
+      ok: true as const,
+      user,
+      organizationId: organizationId ?? employee.organizationId ?? null,
+      employee,
+    };
+  } catch (error) {
+    if (error instanceof HorodateurPhase1Error) {
+      return {
+        ok: false as const,
+        response: buildHorodateurValidationErrorResponse({
+          error: error.message,
+          code: error.code,
+          status: error.status,
+        }),
+      };
+    }
+    throw error;
+  }
 }
 
 export async function requireDirectionHorodateurAccess(req: NextRequest) {

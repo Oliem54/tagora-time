@@ -2,6 +2,8 @@ import {
   getEventOccurredAt,
   getLocalWorkDate,
   isApprovedHorodateurEventStatus,
+  isContinuableOpenShift,
+  resolveOpenShiftStartAt,
   shouldTreatApprovedEventAsShiftStart,
   toCanonicalEventType,
 } from "./rules";
@@ -276,9 +278,18 @@ export function resolveOperationalWorkDate(options: {
   ) {
     return calendarWorkDate;
   }
-  return (
-    resolveActiveOpenShiftWorkDate(options.approvedEvents) ?? calendarWorkDate
-  );
+  const openWorkDate = resolveActiveOpenShiftWorkDate(options.approvedEvents);
+  if (
+    isContinuableOpenShift({
+      openWorkDate,
+      calendarWorkDate,
+      openShiftStartAt: resolveOpenShiftStartAt(options.approvedEvents),
+      occurredAt: options.occurredAt,
+    })
+  ) {
+    return openWorkDate as string;
+  }
+  return calendarWorkDate;
 }
 
 export function compareHorodateurExceptionReviewPriority(

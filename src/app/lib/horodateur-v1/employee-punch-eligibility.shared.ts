@@ -11,6 +11,59 @@ export type EmployeePunchEligibilityResult =
   | { ok: true }
   | EmployeePunchEligibilityFailure;
 
+export type UniqueActiveEmployeeSelection<T> =
+  | { ok: true; employee: T }
+  | EmployeePunchEligibilityFailure;
+
+/**
+ * Fail-closed unique active chauffeur for a resolved Auth user.
+ * Role `employe`, terrain permission, and module entitlement are never enough.
+ * Name and email are not identity keys.
+ */
+export function selectUniqueActiveEmployeeForPunch<
+  T extends {
+    active: boolean;
+    organizationId?: string | null;
+  },
+>(
+  rows: T[],
+  options?: { organizationId?: string | null }
+): UniqueActiveEmployeeSelection<T> {
+  const callerOrganizationId = options?.organizationId?.trim() || null;
+  const inCallerTenant = callerOrganizationId
+    ? rows.filter((row) => row.organizationId === callerOrganizationId)
+    : rows;
+  const active = inCallerTenant.filter((row) => row.active);
+
+  if (active.length === 1) {
+    return { ok: true, employee: active[0] };
+  }
+  if (active.length > 1) {
+    return {
+      ok: false,
+      code: "employee_ambiguous_for_auth_user",
+      status: 409,
+      message:
+        "Plusieurs fiches employe actives sont liees a ce compte Auth. Le pointage est refuse tant que le lien n est pas unique.",
+    };
+  }
+  if (inCallerTenant.some((row) => !row.active)) {
+    return {
+      ok: false,
+      code: "employee_inactive",
+      status: 409,
+      message: "La fiche employe est inactive.",
+    };
+  }
+  return {
+    ok: false,
+    code: "employee_not_found_for_auth_user",
+    status: 404,
+    message:
+      "Aucune fiche employe n est liee a ce compte Auth. Un membership seul ne suffit pas : la fiche chauffeur doit avoir auth_user_id = ce compte, organization_id et organization_company_id.",
+  };
+}
+
 /**
  * Tenant-scoped punch eligibility for a chauffeur profile already loaded by
  * `auth_user_id`. Membership alone is never sufficient.

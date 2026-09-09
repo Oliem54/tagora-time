@@ -237,9 +237,7 @@ function exceptionEmployerLookup(data: HorodateurRegistrePayload | null) {
     return map;
   }
   for (const p of data.pendingApprovals ?? []) {
-    if (p.kind === "exception") {
-      map.set(p.id, { employeeId: p.employeeId, employeeName: p.employeeName });
-    }
+    map.set(p.id, { employeeId: p.employeeId, employeeName: p.employeeName });
   }
   return map;
 }

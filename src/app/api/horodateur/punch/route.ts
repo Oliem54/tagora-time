@@ -327,6 +327,7 @@ export async function POST(req: NextRequest) {
       try {
         const result = await createEmployeePunch({
           actorUserId: auth.user.id,
+          organizationId: evalResult.profile.organizationId,
           eventType: normalizedEventType,
           occurredAt: occurredAtValidation.value,
           note: normalizeNonEmptyString(body.note),
@@ -370,19 +371,14 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    const { data: chauffeurRow } = await admin
-      .from("chauffeurs")
-      .select("id, nom")
-      .eq("auth_user_id", auth.user.id)
-      .maybeSingle();
-    const chauffeurId =
-      chauffeurRow && typeof (chauffeurRow as { id?: unknown }).id === "number"
-        ? (chauffeurRow as { id: number }).id
-        : null;
-    const activeLeave =
-      chauffeurId != null
-        ? await getActiveLeaveForEmployeeOnDate(admin, chauffeurId, todayIso)
-        : null;
+    const preSnapshot = await getEmployeeDashboardSnapshotByAuthUserId(auth.user.id);
+    const chauffeurId = preSnapshot.employee.employeeId;
+    const chauffeurName = preSnapshot.employee.fullName;
+    const activeLeave = await getActiveLeaveForEmployeeOnDate(
+      admin,
+      chauffeurId,
+      todayIso
+    );
     const acknowledged = body.acknowledgeLongLeavePunch === true;
     if (activeLeave && !acknowledged) {
       return NextResponse.json(
@@ -396,7 +392,6 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const preSnapshot = await getEmployeeDashboardSnapshotByAuthUserId(auth.user.id);
     const punchCompany =
       preSnapshot.employee.primaryCompany ??
       normalizeDirectionCompanyContext(body.companyContext);
@@ -504,6 +499,7 @@ export async function POST(req: NextRequest) {
 
     const result = await createEmployeePunch({
       actorUserId: auth.user.id,
+      organizationId,
       eventType: normalizedEventType,
       occurredAt: occurredAtValidation.value,
       note: punchNote,
@@ -514,13 +510,10 @@ export async function POST(req: NextRequest) {
 
     const snapshot = await getEmployeeDashboardSnapshotByAuthUserId(auth.user.id);
 
-    if (activeLeave && acknowledged && chauffeurId != null) {
+    if (activeLeave && acknowledged) {
       await insertPunchDuringLongLeaveAlert(admin, {
         employeeId: chauffeurId,
-        employeeName:
-          typeof (chauffeurRow as { nom?: string | null })?.nom === "string"
-            ? (chauffeurRow as { nom: string }).nom
-            : null,
+        employeeName: chauffeurName,
       });
     }
 

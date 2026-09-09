@@ -18,17 +18,22 @@ import {
   listActiveEmployees,
   listHorodateurEventsInWorkDateRange,
   listHorodateurExceptionsForEmployees,
+  listPendingExceptions,
   listShiftsInWorkDateRange,
 } from "./repository";
 import {
   getEventOccurredAt,
+  getLocalWorkDate,
   toCanonicalEventType,
 } from "./rules";
 import {
   aggregateOvertimeForEmployee,
   computeRegistreRowFlags,
+  countRegistreExceptionSignals,
+  pendingOperationalEventVisibleInRegistre,
   primaryStatusFromFlags,
   shiftBreakTotal,
+  toRegistreExceptionFromPendingEvent,
   unionRegistreScopeEmployeeIds,
 } from "./registre-aggregations.shared";
 import type {
@@ -45,13 +50,20 @@ function safeDateOrder(a: string, b: string) {
 function exceptionWorkDate(
   ex: HorodateurPhase1ExceptionRecord & {
     source_event?: { work_date?: string } | Array<{ work_date?: string }>;
+    requested_at?: string;
   }
 ) {
   const src = ex.source_event;
   if (Array.isArray(src)) {
-    return src[0]?.work_date ?? null;
+    const fromJoin = src[0]?.work_date ?? null;
+    if (fromJoin) return fromJoin;
+  } else if (src?.work_date) {
+    return src.work_date;
   }
-  return src?.work_date ?? null;
+  if (typeof ex.requested_at === "string" && ex.requested_at.trim()) {
+    return getLocalWorkDate(ex.requested_at);
+  }
+  return null;
 }
 
 function filterExceptionsInRange(
@@ -70,6 +82,20 @@ function filterExceptionsInRange(
     }
     return safeDateOrder(wd, start) >= 0 && safeDateOrder(wd, end) <= 0;
   });
+}
+
+function mergeExceptionsById(
+  primary: HorodateurPhase1ExceptionRecord[],
+  extra: HorodateurPhase1ExceptionRecord[]
+) {
+  const byId = new Map<string, HorodateurPhase1ExceptionRecord>();
+  for (const item of [...primary, ...extra]) {
+    if (!item?.id) continue;
+    if (!byId.has(item.id)) {
+      byId.set(item.id, item);
+    }
+  }
+  return [...byId.values()];
 }
 
 function mapEventDetail(
@@ -193,9 +219,19 @@ export async function buildHorodateurRegistre(options: {
     );
   }
 
+  const orgPendingExceptions = await listPendingExceptions({
+    organizationId: options.organizationId,
+  });
+  const orgPendingInRange = filterExceptionsInRange(
+    orgPendingExceptions,
+    start,
+    end
+  );
+
   let employeeIds = unionRegistreScopeEmployeeIds({
     shiftEmployeeIds: shifts.map((s) => s.employee_id),
     eventEmployeeIds: eventsAll.map((e) => e.employee_id),
+    exceptionEmployeeIds: orgPendingInRange.map((ex) => ex.employee_id),
     requestedEmployeeId: options.employeeId,
   });
   if (typeof options.employeeId === "number" && options.employeeId > 0) {
@@ -221,7 +257,10 @@ export async function buildHorodateurRegistre(options: {
           organizationId: options.organizationId,
         })
       : [];
-  const exceptionsInRange = filterExceptionsInRange(allExceptionsRaw, start, end);
+  const exceptionsInRange = mergeExceptionsById(
+    filterExceptionsInRange(allExceptionsRaw, start, end),
+    orgPendingInRange
+  );
 
   const exceptionsByEmployee = new Map<number, HorodateurPhase1ExceptionRecord[]>();
   for (const ex of exceptionsInRange) {
@@ -275,7 +314,7 @@ export async function buildHorodateurRegistre(options: {
     const empEvents = eventsByEmployee.get(eid) ?? [];
     const empExceptions = exceptionsByEmployee.get(eid) ?? [];
 
-    if (empShifts.length === 0 && empEvents.length === 0) {
+    if (empShifts.length === 0 && empEvents.length === 0 && empExceptions.length === 0) {
       continue;
     }
 
@@ -309,7 +348,7 @@ export async function buildHorodateurRegistre(options: {
 
     const primary = primaryStatusFromFlags(flags);
 
-    const lastTs = empShifts.reduce<string | null>((best, s) => {
+    const lastShiftTs = empShifts.reduce<string | null>((best, s) => {
       const cand = s.last_recomputed_at ?? s.updated_at ?? null;
       if (!cand) {
         return best;
@@ -319,6 +358,23 @@ export async function buildHorodateurRegistre(options: {
       }
       return best;
     }, null);
+    const lastEventTs = empEvents.reduce<string | null>((best, event) => {
+      const cand = getEventOccurredAt(event) ?? event.created_at ?? null;
+      if (!cand) return best;
+      if (!best || cand > best) return cand;
+      return best;
+    }, null);
+    const lastExceptionTs = empExceptions.reduce<string | null>((best, ex) => {
+      const cand = ex.requested_at ?? null;
+      if (!cand) return best;
+      if (!best || cand > best) return cand;
+      return best;
+    }, null);
+    const lastTs =
+      [lastShiftTs, lastEventTs, lastExceptionTs]
+        .filter((value): value is string => Boolean(value))
+        .sort()
+        .at(-1) ?? null;
 
     const row: HorodateurRegistreEmployeeRow = {
       employeeId: eid,
@@ -330,7 +386,10 @@ export async function buildHorodateurRegistre(options: {
       overtimeMinutes: overtime,
       titanRefundableMinutes: titanPay,
       breakMinutes: breaks,
-      exceptionCount: empExceptions.length,
+      exceptionCount: countRegistreExceptionSignals({
+        events: empEvents,
+        exceptions: empExceptions,
+      }),
       pendingExceptionMinutes: empShifts.reduce(
         (a, s) => a + (s.pending_exception_minutes ?? 0),
         0
@@ -384,6 +443,12 @@ export async function buildHorodateurRegistre(options: {
           label: `Evenement ${e.event_type}`,
           occurredOrRequestedAt: getEventOccurredAt(e) ?? e.created_at ?? null,
         });
+        const alreadyListed = exceptionsOut.some(
+          (item) => item.sourceEventId === e.id || item.id === e.id
+        );
+        if (!alreadyListed && pendingOperationalEventVisibleInRegistre(e)) {
+          exceptionsOut.push(toRegistreExceptionFromPendingEvent(e));
+        }
       }
     }
     for (const x of empExceptions) {
@@ -500,6 +565,16 @@ export async function buildHorodateurRegistreEmployeeDetail(options: {
     "Les minutes payables refacturables intercompagnies correspondent aux quarts dont la compagnie du travail differe de la compagnie d appartenance sur la journee.",
   ];
 
+  const pendingEventExceptions = rawEvents
+    .filter(pendingOperationalEventVisibleInRegistre)
+    .filter(
+      (event) =>
+        !exAll.some(
+          (ex) => ex.source_event_id === event.id || ex.id === event.id
+        )
+    )
+    .map(toRegistreExceptionFromPendingEvent);
+
   return {
     employee,
     events: rawEvents.map((ev) =>
@@ -516,20 +591,23 @@ export async function buildHorodateurRegistreEmployeeDetail(options: {
       shiftStatus: s.status,
       hasIncompletePunch: !s.shift_end_at || s.status === "ouvert",
     })),
-    exceptions: exAll.map((x) => ({
-      id: x.id,
-      exceptionType: x.exception_type,
-      reasonLabel: x.reason_label,
-      details: x.details ?? null,
-      impactMinutes: x.impact_minutes ?? 0,
-      status: x.status,
-      requestedAt: x.requested_at,
-      reviewedAt: x.reviewed_at ?? null,
-      reviewNote: x.review_note ?? null,
-      approvedMinutes:
-        typeof x.approved_minutes === "number" ? x.approved_minutes : null,
-      sourceEventId: x.source_event_id,
-    })),
+    exceptions: [
+      ...exAll.map((x) => ({
+        id: x.id,
+        exceptionType: x.exception_type,
+        reasonLabel: x.reason_label,
+        details: x.details ?? null,
+        impactMinutes: x.impact_minutes ?? 0,
+        status: x.status,
+        requestedAt: x.requested_at,
+        reviewedAt: x.reviewed_at ?? null,
+        reviewNote: x.review_note ?? null,
+        approvedMinutes:
+          typeof x.approved_minutes === "number" ? x.approved_minutes : null,
+        sourceEventId: x.source_event_id,
+      })),
+      ...pendingEventExceptions,
+    ],
     calculationNotes: notes,
   };
 }

@@ -10,16 +10,18 @@ import {
   sanitizeWeeklyScheduleConfig,
   type WeeklyScheduleConfig,
 } from "@/app/lib/weekly-schedule";
-import type {
-  HorodateurCanonicalEventType,
-  HorodateurDirectionAlertConfigRecord,
-  HorodateurPhase1CurrentStateRecord,
-  HorodateurPhase1EmployeeProfile,
-  HorodateurPhase1EventRecord,
-  HorodateurPhase1ExceptionRecord,
-  HorodateurPhase1InsertEventInput,
-  HorodateurLatenessNotificationRecord,
-  HorodateurPhase1ShiftRecord,
+import { selectUniqueActiveEmployeeForPunch } from "@/app/lib/horodateur-v1/employee-punch-eligibility.shared";
+import {
+  HorodateurPhase1Error,
+  type HorodateurCanonicalEventType,
+  type HorodateurDirectionAlertConfigRecord,
+  type HorodateurPhase1CurrentStateRecord,
+  type HorodateurPhase1EmployeeProfile,
+  type HorodateurPhase1EventRecord,
+  type HorodateurPhase1ExceptionRecord,
+  type HorodateurPhase1InsertEventInput,
+  type HorodateurLatenessNotificationRecord,
+  type HorodateurPhase1ShiftRecord,
 } from "./types";
 import { HORODATEUR_CANONICAL_TO_LEGACY_EVENT_TYPE } from "./types";
 
@@ -331,20 +333,23 @@ async function getEmployeeAuthUserIdByEmployeeId(employeeId: number) {
   return data?.auth_user_id ?? null;
 }
 
-export async function getEmployeeByAuthUserId(authUserId: string) {
+export async function getEmployeeByAuthUserId(
+  authUserId: string,
+  options?: { organizationId?: string | null }
+) {
   const supabase = createAdminSupabaseClient();
   let { data, error } = await supabase
     .from("chauffeurs")
     .select(CHAUFFEUR_PHASE1_SELECT_CANONICAL)
     .eq("auth_user_id", authUserId)
-    .maybeSingle<ChauffeurProfileRow>();
+    .returns<ChauffeurProfileRow[]>();
 
   if (error && isMissingColumnError(error, "telephone")) {
     const fallback = await supabase
       .from("chauffeurs")
       .select(CHAUFFEUR_PHASE1_SELECT_LEGACY_PHONE)
       .eq("auth_user_id", authUserId)
-      .maybeSingle<ChauffeurProfileRow>();
+      .returns<ChauffeurProfileRow[]>();
     data = fallback.data ?? null;
     error = fallback.error ?? null;
   }
@@ -353,7 +358,30 @@ export async function getEmployeeByAuthUserId(authUserId: string) {
     throw error;
   }
 
-  return data ? mapProfile(data) : null;
+  const profiles = (data ?? []).map(mapProfile);
+  const selected = selectUniqueActiveEmployeeForPunch(profiles, {
+    organizationId: options?.organizationId,
+  });
+  if (selected.ok) {
+    return selected.employee;
+  }
+  if (selected.code === "employee_ambiguous_for_auth_user") {
+    throw new HorodateurPhase1Error(selected.message, {
+      code: selected.code,
+      status: selected.status,
+    });
+  }
+  if (selected.code === "employee_inactive") {
+    const callerOrganizationId = options?.organizationId?.trim() || null;
+    return (
+      profiles.find(
+        (row) =>
+          !row.active &&
+          (!callerOrganizationId || row.organizationId === callerOrganizationId)
+      ) ?? null
+    );
+  }
+  return null;
 }
 
 export async function getEmployeeById(employeeId: number) {
