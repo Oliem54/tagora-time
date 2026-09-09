@@ -280,6 +280,9 @@ describe("employee matrix — GPS", () => {
     expect(messageForPunchGeolocationFailure("permission_denied")).toContain(
       "Localisation refusée"
     );
+    expect(messageForPunchGeolocationFailure("permission_denied")).toContain(
+      "paramètres du navigateur"
+    );
     expect(messageForHorodateurPunchGpsServerCode("GPS_REQUIRED")).toContain("Position GPS requise");
   });
 

@@ -1,7 +1,23 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { supabase } from "@/app/lib/supabase/client";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { NEXUS_PUBLIC_LOGIN_URL } from "@/app/lib/canonical-domains";
+import { employeePunchRequestInit } from "@/app/lib/employee-punch-session.client";
+import {
+  EMPLOYEE_PUNCH_GEOLOCATION_MAX_DURATION_MS,
+  employeePunchEventRequiresGeolocation,
+  messageForHorodateurPunchGpsServerCode,
+  readEmployeePunchGeolocationWithDeadline,
+  type EmployeePunchGeolocationFailureCode,
+} from "@/app/lib/employee-punch-geolocation.client";
+
+export const EMPLOYEE_PUNCH_BUSINESS_PERMISSION_MESSAGE =
+  "La permission terrain est requise pour utiliser l'horodateur.";
+
+export type EmployeePunchGeolocationFailure = {
+  code: EmployeePunchGeolocationFailureCode;
+  message: string;
+};
 
 export type EmployeePunchSnapshot = {
   employee: {
@@ -56,6 +72,10 @@ type PunchResponse = EmployeePunchSnapshot & {
   exception: {
     id: string;
   } | null;
+  alreadySubmitted?: boolean;
+  alreadySubmittedMessage?: string | null;
+  code?: string;
+  error?: string;
 };
 
 function normalizeDashboardSnapshot(
@@ -115,12 +135,21 @@ function normalizeDashboardSnapshot(
   } satisfies EmployeePunchSnapshot;
 }
 
+function redirectToNexusLogin() {
+  window.location.assign(NEXUS_PUBLIC_LOGIN_URL);
+}
+
 export function useEmployeePunchSnapshot(enabled: boolean) {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [geolocationPending, setGeolocationPending] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [snapshot, setSnapshot] = useState<EmployeePunchSnapshot | null>(null);
+  const [geolocationFailure, setGeolocationFailure] =
+    useState<EmployeePunchGeolocationFailure | null>(null);
+  const submitLockRef = useRef(false);
+  const pendingEventTypeRef = useRef<string | null>(null);
 
   const loadSnapshot = useCallback(async () => {
     if (!enabled) {
@@ -129,31 +158,28 @@ export function useEmployeePunchSnapshot(enabled: boolean) {
       return;
     }
 
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
-
-    if (!session?.access_token) {
-      setLoading(false);
-      setError("Session introuvable pour charger l'horodateur.");
-      return;
-    }
-
     setLoading(true);
     setError("");
 
     try {
-      const response = await fetch("/api/horodateur/punch", {
-        headers: {
-          Authorization: `Bearer ${session.access_token}`,
-        },
-      });
+      const response = await fetch(
+        "/api/horodateur/punch",
+        employeePunchRequestInit()
+      );
+
+      if (response.status === 401) {
+        redirectToNexusLogin();
+        return;
+      }
 
       const payload = (await response.json()) as
-        | ({ error?: string } & Partial<EmployeePunchSnapshot>)
+        | ({ error?: string; code?: string } & Partial<EmployeePunchSnapshot>)
         | undefined;
 
       if (!response.ok) {
+        if (payload?.code === "permission_denied") {
+          throw new Error(EMPLOYEE_PUNCH_BUSINESS_PERMISSION_MESSAGE);
+        }
         throw new Error(payload?.error ?? "Impossible de charger l'horodateur.");
       }
 
@@ -200,68 +226,133 @@ export function useEmployeePunchSnapshot(enabled: boolean) {
     [currentState, pausePaid]
   );
 
-  async function submitPunch(eventType: string) {
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
-
-    if (!session?.access_token) {
-      setError("Session introuvable pour envoyer le pointage.");
-      return;
-    }
-
-    setSubmitting(true);
-    setError("");
-    setMessage("");
-
-    try {
-      const response = await fetch("/api/horodateur/punch", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${session.access_token}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          eventType,
-        }),
-      });
-
-      const payload = (await response.json()) as
-        | ({ error?: string } & Partial<PunchResponse>)
-        | undefined;
-
-      if (!response.ok) {
-        throw new Error(payload?.error ?? "Impossible d'enregistrer le pointage.");
+  const submitPunch = useCallback(
+    async (eventType: string, options?: { skipGeolocationCache?: boolean }) => {
+      if (submitLockRef.current) {
+        return;
       }
 
-      setSnapshot(normalizeDashboardSnapshot(payload ?? snapshot ?? undefined));
+      submitLockRef.current = true;
+      pendingEventTypeRef.current = eventType;
+      setSubmitting(true);
+      setError("");
+      setMessage("");
+      setGeolocationFailure(null);
 
-      setMessage(
-        payload?.exception
-          ? "Pointage enregistré avec exception en attente."
-          : "Pointage enregistré."
-      );
-    } catch (submitError) {
-      setError(
-        submitError instanceof Error ? submitError.message : "Erreur de pointage."
-      );
-    } finally {
-      setSubmitting(false);
-    }
-  }
+      try {
+        const body: {
+          eventType: string;
+          latitude?: number;
+          longitude?: number;
+        } = { eventType };
+
+        if (employeePunchEventRequiresGeolocation(eventType)) {
+          setGeolocationPending(true);
+          const gpsResult = await readEmployeePunchGeolocationWithDeadline(
+            EMPLOYEE_PUNCH_GEOLOCATION_MAX_DURATION_MS,
+            undefined,
+            { skipCache: options?.skipGeolocationCache === true }
+          );
+          setGeolocationPending(false);
+
+          if (!gpsResult.ok) {
+            setGeolocationFailure({
+              code: gpsResult.code,
+              message: gpsResult.message,
+            });
+            return;
+          }
+
+          body.latitude = gpsResult.latitude;
+          body.longitude = gpsResult.longitude;
+        }
+
+        const response = await fetch(
+          "/api/horodateur/punch",
+          employeePunchRequestInit({
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify(body),
+          })
+        );
+
+        if (response.status === 401) {
+          redirectToNexusLogin();
+          return;
+        }
+
+        const payload = (await response.json()) as
+          | ({ error?: string; code?: string } & Partial<PunchResponse>)
+          | undefined;
+
+        if (payload?.code === "permission_denied") {
+          throw new Error(EMPLOYEE_PUNCH_BUSINESS_PERMISSION_MESSAGE);
+        }
+
+        if (!response.ok) {
+          throw new Error(
+            messageForHorodateurPunchGpsServerCode(
+              payload?.code,
+              payload?.error
+            )
+          );
+        }
+
+        setSnapshot(normalizeDashboardSnapshot(payload ?? snapshot ?? undefined));
+
+        if (payload?.alreadySubmitted === true) {
+          setMessage(
+            payload.alreadySubmittedMessage?.trim() ||
+              "Ce pointage a déjà été enregistré."
+          );
+          return;
+        }
+
+        setMessage(
+          payload?.exception
+            ? "Pointage enregistré avec exception en attente."
+            : "Pointage enregistré."
+        );
+      } catch (submitError) {
+        setError(
+          submitError instanceof Error ? submitError.message : "Erreur de pointage."
+        );
+      } finally {
+        setGeolocationPending(false);
+        setSubmitting(false);
+        submitLockRef.current = false;
+      }
+    },
+    [snapshot]
+  );
+
+  const retryGeolocation = useCallback(async () => {
+    const eventType = pendingEventTypeRef.current ?? principalAction.eventType;
+    await submitPunch(eventType, { skipGeolocationCache: true });
+  }, [principalAction.eventType, submitPunch]);
+
+  const clearGeolocationFailure = useCallback(() => {
+    setGeolocationFailure(null);
+  }, []);
 
   return {
     enabled,
     loading,
     submitting,
+    geolocationPending,
     error,
     message,
     snapshot,
+    geolocationFailure,
     currentState,
     principalAction,
     actionDisabled,
     loadSnapshot,
     submitPunch,
+    retryGeolocation,
+    clearGeolocationFailure,
   };
 }
 

@@ -10,6 +10,7 @@ import {
 import { AppRole, getUserRole } from "@/app/lib/auth/roles";
 import {
   AppPermission,
+  composePermissionsForEffectiveRole,
   getUserPermissions,
   hasUserPermission,
 } from "@/app/lib/auth/permissions";
@@ -145,7 +146,7 @@ export function useCurrentAccess() {
                 created_at: new Date(0).toISOString(),
               } as User,
               role: brokered.appRole,
-              permissions: [],
+              permissions: composePermissionsForEffectiveRole(brokered.appRole, []),
               companyAccess: buildUserCompanyAccess(null),
               organizationId: brokered.organizationId,
               loading: false,
@@ -194,7 +195,10 @@ export function useCurrentAccess() {
           setState({
             user,
             role,
-            permissions: getUserPermissions(user),
+            permissions: composePermissionsForEffectiveRole(
+              role,
+              getUserPermissions(user)
+            ),
             companyAccess: buildUserCompanyAccess(user),
             organizationId,
             loading: false,

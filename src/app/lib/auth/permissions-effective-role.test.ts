@@ -52,11 +52,44 @@ describe("hasUserPermission effective H4 role", () => {
     expect(hasUserPermission(user, "terrain", "direction")).toBe(false);
   });
 
-  it("keeps employe limited to explicit JWT permissions", () => {
+  it("composes terrain punch for employe without JWT modules and without escalation", () => {
+    const user = makeUser({ jwtRole: "employe", permissions: [] });
+    expect(hasUserPermission(user, "terrain", "employe")).toBe(true);
+    expect(hasUserPermission(user, "livraisons", "employe")).toBe(false);
+    expect(hasUserPermission(user, "commissions", "employe")).toBe(false);
+    expect(hasUserPermission(user, "dossiers", "employe")).toBe(false);
+    expect(hasUserPermission(user, "documents", "employe")).toBe(false);
+    expect(hasUserPermission(user, "ressources", "employe")).toBe(false);
+    expect(hasUserPermission(user, "admin_finance", "employe")).toBe(false);
+    expect(hasUserPermission(user, "horodateur_payroll_read", "employe")).toBe(
+      false
+    );
+    expect(hasUserPermission(user, "horodateur_payroll_manage", "employe")).toBe(
+      false
+    );
+  });
+
+  it("keeps extra JWT employe modules without granting direction or admin", () => {
     const user = makeUser({ jwtRole: "employe", permissions: ["terrain"] });
     expect(hasUserPermission(user, "terrain", "employe")).toBe(true);
     expect(hasUserPermission(user, "livraisons", "employe")).toBe(false);
     expect(hasUserPermission(user, "commissions", "employe")).toBe(false);
+  });
+
+  it("grants punch to a Nexus-brokered employe stub with empty metadata", () => {
+    const stub = makeUser({ jwtRole: null, permissions: [] });
+    stub.app_metadata = {};
+    stub.user_metadata = {};
+    expect(hasUserPermission(stub, "terrain", "employe")).toBe(true);
+    expect(hasUserPermission(stub, "livraisons", "employe")).toBe(false);
+    expect(hasUserPermission(stub, "admin_finance", "employe")).toBe(false);
+  });
+
+  it("composes terrain for a bound employe without JWT permissions", () => {
+    const user = makeUser({ jwtRole: "none", permissions: [] });
+    bindEffectiveAppRole(user, "employe");
+    expect(hasUserPermission(user, "terrain")).toBe(true);
+    expect(hasUserPermission(user, "livraisons")).toBe(false);
   });
 
   it("refuses organizational elevation when effectiveRole is null (non-member)", () => {
@@ -100,6 +133,7 @@ describe("access admin effective-role wiring", () => {
     );
     expect(source).toContain("fetchSessionAuthorizationContext");
     expect(source).toContain("hasUserPermission(state.user, permission, state.role)");
+    expect(source).toContain("composePermissionsForEffectiveRole");
     expect(source).not.toContain("state.permissions.includes(permission)");
   });
 

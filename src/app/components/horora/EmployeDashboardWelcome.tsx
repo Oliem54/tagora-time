@@ -31,7 +31,7 @@ export default function EmployeDashboardWelcome({
     metadataFullName: readSessionFullName(user),
   });
   const status = mapEmployeePunchStatus(punch.currentState, {
-    available: punch.enabled && Boolean(punch.snapshot),
+    available: punch.enabled,
   });
   const statusLabel = punch.loading
     ? "Chargement du statut…"
@@ -39,7 +39,7 @@ export default function EmployeDashboardWelcome({
   const nextAction = punch.loading
     ? "Chargement…"
     : employeePunchNextActionLabel(status);
-  const canOpenPunch = punch.enabled && status !== "indisponible";
+  const canOpenPunch = punch.enabled;
 
   return (
     <section className="employe-dashboard-welcome" aria-labelledby="employe-welcome-heading">
@@ -67,9 +67,14 @@ export default function EmployeDashboardWelcome({
         <PrimaryButton
           className="employe-dashboard-welcome-action"
           onClick={onPrimaryAction}
-          disabled={!canOpenPunch}
+          disabled={
+            !canOpenPunch ||
+            punch.submitting ||
+            punch.geolocationPending ||
+            punch.loading
+          }
         >
-          Pointer
+          {punch.geolocationPending ? "Localisation en cours…" : "Pointer"}
         </PrimaryButton>
       </div>
     </section>

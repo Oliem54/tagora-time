@@ -27,6 +27,7 @@ import ModuleTile from "@/app/components/ui/ModuleTile";
 import PrimaryButton from "@/app/components/ui/PrimaryButton";
 import SecondaryButton from "@/app/components/ui/SecondaryButton";
 import HorodateurEmployeeCard from "@/app/components/horodateur/HorodateurEmployeeCard";
+import EmployeePunchGeolocationDialog from "@/app/components/horodateur/EmployeePunchGeolocationDialog";
 import TagoraLoadingScreen from "@/app/components/ui/TagoraLoadingScreen";
 
 type NoteRow = {
@@ -316,8 +317,19 @@ export default function EmployeDashboardPage() {
         <EmployeDashboardWelcome
           user={user}
           punch={punch}
-          onPrimaryAction={() => router.push("/employe/horodateur")}
+          onPrimaryAction={() => {
+            void punch.submitPunch(punch.principalAction.eventType);
+          }}
         />
+
+        {punch.geolocationFailure ? (
+          <EmployeePunchGeolocationDialog
+            code={punch.geolocationFailure.code}
+            message={punch.geolocationFailure.message}
+            busy={punch.submitting || punch.geolocationPending}
+            onRetry={() => void punch.retryGeolocation()}
+          />
+        ) : null}
 
         <SectionCard
           title="Horodateur"

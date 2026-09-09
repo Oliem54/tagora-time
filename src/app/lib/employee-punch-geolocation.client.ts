@@ -19,6 +19,11 @@ export type EmployeePunchGeolocationResult =
 
 export const PUNCH_GEOLOCATION_TEST_BUTTON_LABEL = "Tester ma localisation";
 
+export const PUNCH_GEOLOCATION_RETRY_LABEL = "Réessayer";
+
+export const PUNCH_GEOLOCATION_OPEN_SETTINGS_LABEL =
+  "Ouvrir les paramètres du navigateur";
+
 export const PUNCH_GEOLOCATION_HELP_TITLE = "Comment activer la localisation";
 
 export const PUNCH_GEOLOCATION_HELP_STEPS = [
@@ -128,23 +133,70 @@ export function getEmployeePunchGeolocationPreflightFailure():
   return null;
 }
 
+export function employeePunchEventRequiresGeolocation(eventType: string): boolean {
+  return eventType === "punch_in" || eventType === "punch_out";
+}
+
+export function titleForPunchGeolocationFailure(
+  code: EmployeePunchGeolocationFailureCode
+): string {
+  switch (code) {
+    case "insecure_context":
+      return "Connexion non sécurisée";
+    case "unsupported":
+      return "Localisation non disponible";
+    case "permission_denied":
+      return "Localisation refusée";
+    case "timeout":
+      return "Localisation expirée";
+    case "position_unavailable":
+      return "Position indisponible";
+    default:
+      return "Localisation impossible";
+  }
+}
+
+export function primaryRecoveryActionForPunchGeolocationFailure(
+  code: EmployeePunchGeolocationFailureCode
+): "retry" | "settings" {
+  return code === "permission_denied" || code === "insecure_context"
+    ? "settings"
+    : "retry";
+}
+
+export function openEmployeePunchGeolocationSettings(): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  const userAgent = window.navigator.userAgent;
+  const helpUrl = /Edg\//.test(userAgent)
+    ? "https://support.microsoft.com/microsoft-edge-location-permissions"
+    : /Firefox\//.test(userAgent)
+      ? "https://support.mozilla.org/kb/does-firefox-share-my-location-websites"
+      : "https://support.google.com/chrome/answer/142065";
+
+  window.open(helpUrl, "_blank", "noopener,noreferrer");
+}
+
 export function messageForPunchGeolocationFailure(
   code: EmployeePunchGeolocationFailureCode
 ): string {
-  const testLabel = PUNCH_GEOLOCATION_TEST_BUTTON_LABEL;
+  const retryLabel = PUNCH_GEOLOCATION_RETRY_LABEL;
+  const settingsLabel = PUNCH_GEOLOCATION_OPEN_SETTINGS_LABEL;
   switch (code) {
     case "insecure_context":
-      return `Connexion non sécurisée. Utilisez l'adresse officielle TAGORA (cadenas dans la barre d'adresse), puis cliquez sur « ${testLabel} ».`;
+      return `Connexion non sécurisée. Utilisez l'adresse officielle TAGORA (cadenas dans la barre d'adresse), puis cliquez sur « ${retryLabel} ».`;
     case "unsupported":
       return "La localisation n'est pas disponible dans ce navigateur. Utilisez Chrome ou Edge à jour.";
     case "permission_denied":
-      return `Localisation refusée pour ce site. Autorisez la localisation dans votre navigateur, puis cliquez sur « ${testLabel} ».`;
+      return `Localisation refusée pour ce site. Cliquez sur « ${settingsLabel} », autorisez la localisation, puis cliquez sur « ${retryLabel} ».`;
     case "timeout":
-      return `La localisation n'a pas répondu à temps. Vérifiez que la localisation Windows est activée, autorisez les applications de bureau, activez le Wi-Fi sur un ordinateur de bureau, puis cliquez sur « ${testLabel} ».`;
+      return `La localisation n'a pas répondu à temps. Vérifiez que la localisation Windows est activée, autorisez les applications de bureau, activez le Wi-Fi sur un ordinateur de bureau, puis cliquez sur « ${retryLabel} ».`;
     case "position_unavailable":
-      return `Impossible d'obtenir votre position pour le moment. Vérifiez que la localisation Windows est activée, puis cliquez sur « ${testLabel} ».`;
+      return `Impossible d'obtenir votre position pour le moment. Vérifiez que la localisation Windows est activée, puis cliquez sur « ${retryLabel} ».`;
     default:
-      return `Impossible d'obtenir votre position. Cliquez sur « ${testLabel} ».`;
+      return `Impossible d'obtenir votre position. Cliquez sur « ${retryLabel} ».`;
   }
 }
 

@@ -80,6 +80,14 @@ export const HORODATEUR_PAYROLL_READ_PERMISSION = "horodateur_payroll_read" as c
 export const HORODATEUR_PAYROLL_MANAGE_PERMISSION =
   "horodateur_payroll_manage" as const;
 
+/**
+ * Baseline HORORA capabilities for membership role `employe`.
+ * `terrain` is the existing punch/horodateur gate. This does not grant
+ * owner, admin, direction, finance, payroll, livraisons, commissions,
+ * dossiers, documents or ressources.
+ */
+export const EMPLOYEE_ROLE_BASELINE_PERMISSIONS = ["terrain"] as const;
+
 export type AppPermission = (typeof APP_PERMISSION_DEFINITIONS)[number]["value"];
 
 const permissionValues = new Set<string>(
@@ -125,6 +133,26 @@ export function getUserPermissions(user: User | null | undefined): AppPermission
   }
 
   return normalizePermissionList(user.user_metadata?.permissions);
+}
+
+/**
+ * Composes HORORA module permissions for an H4 membership role.
+ * Nexus-brokered employees do not carry JWT module lists; punch must still
+ * work without granting admin/direction or unrelated modules.
+ */
+export function composePermissionsForEffectiveRole(
+  role: AppRole | null | undefined,
+  jwtPermissions: AppPermission[]
+): AppPermission[] {
+  const explicit = normalizePermissionList(jwtPermissions);
+
+  if (role !== "employe") {
+    return explicit;
+  }
+
+  return Array.from(
+    new Set<AppPermission>([...EMPLOYEE_ROLE_BASELINE_PERMISSIONS, ...explicit])
+  );
 }
 
 function isHorodateurPayrollPermission(
@@ -198,7 +226,8 @@ function resolveEffectiveRoleForPermission(
  *
  * When `effectiveRole` is provided (H4 membership AppRole), it is authoritative:
  * - admin → grant non-finance module permissions for the active organization
- * - other roles → require the permission in JWT permission lists (Direction/Employé)
+ * - employe → baseline punch/horodateur (`terrain`) plus any JWT extras
+ * - direction → require the permission in JWT permission lists
  * - null → no admin bypass (non-member / unauthorized)
  *
  * When omitted, prefers a role bound via `bindEffectiveAppRole` (set by
@@ -233,13 +262,19 @@ export function hasUserPermission(
     if (resolved.role === "admin") {
       return true;
     }
-    return getUserPermissions(user).includes(permission);
+    return composePermissionsForEffectiveRole(
+      resolved.role,
+      getUserPermissions(user)
+    ).includes(permission);
   }
 
   if (getUserRole(user) === "admin") {
     return true;
   }
-  return getUserPermissions(user).includes(permission);
+  return composePermissionsForEffectiveRole(
+    getUserRole(user),
+    getUserPermissions(user)
+  ).includes(permission);
 }
 
 export function getRequiredPermissionForPath(pathname: string) {

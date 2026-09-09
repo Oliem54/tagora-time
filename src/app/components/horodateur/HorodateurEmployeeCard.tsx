@@ -39,6 +39,7 @@ export default function HorodateurEmployeeCard({
     enabled,
     loading,
     submitting,
+    geolocationPending,
     error,
     message,
     snapshot,
@@ -48,7 +49,7 @@ export default function HorodateurEmployeeCard({
     submitPunch,
   } = punch;
   const punchStatus = mapEmployeePunchStatus(currentState, {
-    available: enabled && Boolean(snapshot),
+    available: enabled,
   });
 
   if (!enabled) {
@@ -193,10 +194,12 @@ export default function HorodateurEmployeeCard({
         <div className="employe-dashboard-punch-actions">
           <PrimaryButton
             onClick={() => void submitPunch(principalAction.eventType)}
-            disabled={submitting}
+            disabled={submitting || geolocationPending}
             className="employe-dashboard-punch-actions-primary"
           >
-            <span>{principalAction.label}</span>
+            <span>
+              {geolocationPending ? "Localisation en cours…" : principalAction.label}
+            </span>
             <Clock3 size={16} aria-hidden />
           </PrimaryButton>
 

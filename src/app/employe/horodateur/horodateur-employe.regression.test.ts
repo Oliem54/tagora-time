@@ -64,6 +64,10 @@ describe("HORORA M3 Horodateur Employé — visual pilot", () => {
     expect(page).toContain("const loadData = useCallback");
     expect(page).toContain("const refreshDataIfStale = useCallback");
     expect(page).toContain("async function handleRetryPunchLocation");
+    expect(page).toContain("openEmployeePunchGeolocationSettings");
+    expect(page).toContain("PUNCH_GEOLOCATION_OPEN_SETTINGS_LABEL");
+    expect(page).toContain("employeePunchRequestInit");
+    expect(page).not.toContain("readAccessTokenWithTimeout");
     expect(page).toContain("async function handlePunch");
     expect(page).toContain("async function handleLatePunchNow");
     expect(page).toContain("async function handlePrimaryPunch");

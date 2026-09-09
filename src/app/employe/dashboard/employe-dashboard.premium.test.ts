@@ -27,6 +27,8 @@ describe("HORORA employee dashboard Premium 2027", () => {
     expect(page).toContain('title="Accès"');
     expect(page).not.toContain('title="Acces"');
     expect(page).toContain('label="Pointer"');
+    expect(page).toContain("punch.submitPunch");
+    expect(page).toContain("EmployeePunchGeolocationDialog");
     expect(page).toContain('label="Ouvrir"');
     expect(page).toContain('label="Gérer"');
     expect(page).toContain("employe-dashboard-module-grid");
@@ -35,6 +37,8 @@ describe("HORORA employee dashboard Premium 2027", () => {
     expect(page).toContain("signOutToSwitchAccount");
     expect(welcome).toContain("formatEmployeeWelcome");
     expect(welcome).toContain("Pointer");
+    expect(welcome).toContain("punch.enabled");
+    expect(welcome).not.toContain("status !== \"indisponible\"");
     expect(css).toContain("repeat(3, minmax(0, 1fr))");
     expect(css).toContain("repeat(2, minmax(0, 1fr))");
   });

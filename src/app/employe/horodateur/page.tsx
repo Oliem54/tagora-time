@@ -10,13 +10,17 @@ import CorrectionRequestModal, {
 } from "@/app/components/horodateur/CorrectionRequestModal";
 import { useCurrentAccess } from "@/app/hooks/useCurrentAccess";
 import { useEmployeeGpsReporting } from "@/app/hooks/useEmployeeGpsReporting";
-import { supabase } from "@/app/lib/supabase/client";
 import { getCompanyLabel } from "@/app/lib/account-requests.shared";
+import { NEXUS_PUBLIC_LOGIN_URL } from "@/app/lib/canonical-domains";
+import { employeePunchRequestInit } from "@/app/lib/employee-punch-session.client";
 import {
   EMPLOYEE_PUNCH_GEOLOCATION_MAX_DURATION_MS,
   messageForHorodateurPunchGpsServerCode,
+  openEmployeePunchGeolocationSettings,
   PUNCH_GEOLOCATION_HELP_STEPS,
   PUNCH_GEOLOCATION_HELP_TITLE,
+  PUNCH_GEOLOCATION_OPEN_SETTINGS_LABEL,
+  PUNCH_GEOLOCATION_RETRY_LABEL,
   PUNCH_GEOLOCATION_TEST_BUTTON_LABEL,
   readEmployeePunchGeolocationWithDeadline,
   type EmployeePunchGeolocationFailureCode,
@@ -344,7 +348,7 @@ type PunchGpsUi = {
 const PUNCH_GPS_UI_IDLE: PunchGpsUi = { phase: "idle", message: "" };
 
 const PUNCH_GPS_IDLE_MESSAGE =
-  `La géolocalisation est requise pour Entrée et Sortie. Cliquez sur « ${PUNCH_GEOLOCATION_TEST_BUTTON_LABEL} » pour vérifier votre environnement avant de pointer.`;
+  "La géolocalisation est demandée uniquement lorsque vous cliquez sur Entrée ou Sortie. Le bouton reste disponible avant cette demande.";
 
 function punchGpsPhaseFromFailureCode(
   code: EmployeePunchGeolocationFailureCode
@@ -419,7 +423,6 @@ const CORRECTION_FETCH_TIMEOUT_MS = 30_000;
 const CORRECTION_OPERATION_MAX_MS = 90_000;
 const CORRECTION_MIN_PHASE_TIMEOUT_MS = 5_000;
 const CORRECTION_FETCH_RESERVE_MS = 3_000;
-const SESSION_READ_TIMEOUT_MS = 15_000;
 const SESSION_LOAD_FAILED_MESSAGE =
   "Impossible de charger votre session. Rechargez la page ou reconnectez-vous.";
 const ACCESS_LOADING_STALL_MS = 22_000;
@@ -570,31 +573,6 @@ function HorodateurLoadingScreen({
   );
 }
 
-async function readAccessTokenWithTimeout(timeoutMs: number): Promise<string | null> {
-  let timeoutId: ReturnType<typeof setTimeout> | undefined;
-
-  const timeoutPromise = new Promise<never>((_, reject) => {
-    timeoutId = setTimeout(() => {
-      reject(
-        new Error(
-          "La session prend trop de temps à charger. Reconnectez-vous et réessayez."
-        )
-      );
-    }, timeoutMs);
-  });
-
-  try {
-    const {
-      data: { session },
-    } = await Promise.race([supabase.auth.getSession(), timeoutPromise]);
-    return session?.access_token ?? null;
-  } finally {
-    if (timeoutId !== undefined) {
-      clearTimeout(timeoutId);
-    }
-  }
-}
-
 async function fetchWithTimeout(
   input: RequestInfo | URL,
   init: RequestInit | undefined,
@@ -615,7 +593,10 @@ async function fetchWithTimeout(
   }
 
   try {
-    return await fetch(input, { ...init, signal: controller.signal });
+    return await fetch(input, {
+      ...employeePunchRequestInit(init),
+      signal: controller.signal,
+    });
   } catch (error) {
     if (error instanceof Error && error.name === "AbortError") {
       if (externalSignal?.aborted) {
@@ -944,32 +925,25 @@ export default function EmployeHorodateurPage() {
     }
 
     try {
-      let accessToken: string | null;
-      try {
-        accessToken = await readAccessTokenWithTimeout(SESSION_READ_TIMEOUT_MS);
-      } catch {
-        throw new Error(SESSION_LOAD_FAILED_MESSAGE);
-      }
-
-      if (!accessToken) {
-        throw new Error(SESSION_LOAD_FAILED_MESSAGE);
-      }
-
-      const authHeaders = { Authorization: `Bearer ${accessToken}` };
       const [snapshotResponse, historyResponse] = await Promise.all([
         fetchWithTimeout(
           "/api/horodateur/me",
-          { headers: authHeaders },
+          {},
           HORODATEUR_DATA_FETCH_TIMEOUT_MS,
           "Le chargement de l'horodateur a pris trop de temps. Réessayez."
         ),
         fetchWithTimeout(
           "/api/horodateur/me/history",
-          { headers: authHeaders },
+          {},
           HORODATEUR_DATA_FETCH_TIMEOUT_MS,
           "Le chargement de l'historique a pris trop de temps. Réessayez."
         ),
       ]);
+
+      if (snapshotResponse.status === 401 || historyResponse.status === 401) {
+        window.location.assign(NEXUS_PUBLIC_LOGIN_URL);
+        return false;
+      }
 
       const snapshotPayload = await snapshotResponse.json();
       const historyPayload = await historyResponse.json();
@@ -1098,7 +1072,6 @@ export default function EmployeHorodateurPage() {
     }
 
     if (!canUseTerrain) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       setLoading(false);
       return;
     }
@@ -1258,18 +1231,7 @@ export default function EmployeHorodateurPage() {
   ) {
     const correctionCtx = options?.correctionSubmit;
 
-    let accessToken: string | null;
     try {
-      const sessionTimeoutMs = correctionCtx
-        ? Math.max(
-            CORRECTION_MIN_PHASE_TIMEOUT_MS,
-            Math.min(
-              SESSION_READ_TIMEOUT_MS,
-              remainingCorrectionBudgetMs(correctionCtx)
-            )
-          )
-        : SESSION_READ_TIMEOUT_MS;
-      accessToken = await readAccessTokenWithTimeout(sessionTimeoutMs);
       assertActiveCorrectionSubmit(
         correctionCtx,
         activeCorrectionSubmitIdRef.current
@@ -1281,11 +1243,6 @@ export default function EmployeHorodateurPage() {
           ? error.message
           : "Session expirée. Reconnectez-vous et réessayez.";
       reportPunchFailure(msg, options);
-      return;
-    }
-
-    if (!accessToken) {
-      reportPunchFailure("Session expirée. Reconnectez-vous et réessayez.", options);
       return;
     }
 
@@ -1375,7 +1332,6 @@ export default function EmployeHorodateurPage() {
         {
           method: "POST",
           headers: {
-            Authorization: `Bearer ${accessToken}`,
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
@@ -1394,6 +1350,11 @@ export default function EmployeHorodateurPage() {
         correctionCtx?.abortSignal
       );
       assertActiveCorrectionSubmit(correctionCtx, activeCorrectionSubmitIdRef.current);
+
+      if (response.status === 401) {
+        window.location.assign(NEXUS_PUBLIC_LOGIN_URL);
+        return;
+      }
 
       let payload: Record<string, unknown> = {};
       try {
@@ -1424,6 +1385,11 @@ export default function EmployeHorodateurPage() {
       if (!response.ok) {
         const serverCode =
           typeof payload?.code === "string" ? (payload.code as string) : undefined;
+        if (serverCode === "permission_denied") {
+          throw new Error(
+            "La permission terrain est requise pour utiliser l horodateur."
+          );
+        }
         const serverMessage = messageForHorodateurPunchGpsServerCode(
           serverCode,
           typeof payload?.error === "string" ? payload.error : undefined
@@ -1948,8 +1914,21 @@ export default function EmployeHorodateurPage() {
               >
                 {punchGpsRetrying
                   ? "Localisation en cours..."
-                  : PUNCH_GEOLOCATION_TEST_BUTTON_LABEL}
+                  : punchGpsUiShowsHelp(punchGpsUi.phase)
+                    ? PUNCH_GEOLOCATION_RETRY_LABEL
+                    : PUNCH_GEOLOCATION_TEST_BUTTON_LABEL}
               </button>
+              {punchGpsUiShowsHelp(punchGpsUi.phase) ? (
+                <button
+                  type="button"
+                  className="tagora-dark-action"
+                  style={punchActionButtonStyle}
+                  disabled={saving || punchGpsRetrying}
+                  onClick={() => openEmployeePunchGeolocationSettings()}
+                >
+                  {PUNCH_GEOLOCATION_OPEN_SETTINGS_LABEL}
+                </button>
+              ) : null}
             </div>
           ) : null}
 
