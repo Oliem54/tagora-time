@@ -53,7 +53,9 @@ function jsonRequest(method: string, body: Record<string, unknown>) {
 
 describe("buildGpsBaseTenantWriteFields", () => {
   it("dual-writes serveur compagnie and company_context from the resolved company", async () => {
-    const { buildGpsBaseTenantWriteFields } = await import("./route");
+    const { buildGpsBaseTenantWriteFields } = await import(
+      "./gps-base-tenant-write-fields"
+    );
     const fields = buildGpsBaseTenantWriteFields({
       actorOrganizationId: ORG,
       company: { id: COMPANY_ID, company_code: "oliem_solutions" },

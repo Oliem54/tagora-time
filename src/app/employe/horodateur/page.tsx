@@ -14,6 +14,14 @@ import { getCompanyLabel } from "@/app/lib/account-requests.shared";
 import { NEXUS_PUBLIC_LOGIN_URL } from "@/app/lib/canonical-domains";
 import { employeePunchRequestInit } from "@/app/lib/employee-punch-session.client";
 import {
+  employeePunchStatusLabel,
+  mapEmployeePunchStatus,
+} from "@/app/lib/employee-punch-status.shared";
+import {
+  employeePunchSuccessMessage,
+  isPunchConfirmedByServerReread,
+} from "@/app/lib/horodateur-v1/punch-confirmation.shared";
+import {
   EMPLOYEE_PUNCH_GEOLOCATION_MAX_DURATION_MS,
   messageForHorodateurPunchGpsServerCode,
   openEmployeePunchGeolocationSettings,
@@ -39,6 +47,7 @@ type EmployeeSnapshot = {
   currentState: {
     current_state?: string | null;
     status?: string | null;
+    last_event_id?: string | null;
     last_event_at?: string | null;
     last_event_type?: string | null;
     currentEventType?: string | null;
@@ -414,9 +423,6 @@ const PUNCH_OUT_ALREADY_SUBMITTED_FALLBACK =
 const OPEN_SHIFT_SAFETY_CAP_MESSAGE =
   "Quart ouvert depuis plus de 14 h — veuillez poinçonner votre sortie. La fermeture nécessitera une approbation.";
 
-const PUNCH_OUT_SUCCESS_MESSAGE =
-  "Sortie enregistrée. Votre temps a été recalculé.";
-
 const PUNCH_FETCH_TIMEOUT_MS = 60_000;
 const PUNCH_GPS_DEADLINE_MS = EMPLOYEE_PUNCH_GEOLOCATION_MAX_DURATION_MS;
 const CORRECTION_FETCH_TIMEOUT_MS = 30_000;
@@ -679,6 +685,12 @@ function normalizeSnapshotPayload(payload: unknown): EmployeeSnapshot | null {
             : typeof currentState.currentState === "string"
               ? currentState.currentState
               : "hors_quart",
+      last_event_id:
+        typeof currentState.last_event_id === "string"
+          ? currentState.last_event_id
+          : typeof currentState.lastEventId === "string"
+            ? currentState.lastEventId
+            : null,
       last_event_at:
         typeof currentState.last_event_at === "string"
           ? currentState.last_event_at
@@ -880,6 +892,7 @@ export default function EmployeHorodateurPage() {
   const [accessStalled, setAccessStalled] = useState(false);
   const [loadingStalled, setLoadingStalled] = useState(false);
   const lastDataLoadAtRef = useRef(0);
+  const lastRereadEventIdRef = useRef<string | null>(null);
 
   const gpsReport = useEmployeeGpsReporting({
     enabled: Boolean(user && canUseTerrain && !accessLoading),
@@ -893,12 +906,7 @@ export default function EmployeHorodateurPage() {
       snapshot?.currentState.current_state ??
       snapshot?.currentState.status ??
       "hors_quart";
-
-    if (value === "en_quart") return "En quart";
-    if (value === "en_pause") return "En pause";
-    if (value === "en_diner") return "En diner";
-    if (value === "termine") return "Quart termine";
-    return "Hors quart";
+    return employeePunchStatusLabel(mapEmployeePunchStatus(value));
   }, [snapshot?.currentState.current_state, snapshot?.currentState.status]);
 
   const todayTimeDisplay = snapshot?.todayTimeDisplay ?? null;
@@ -1015,6 +1023,7 @@ export default function EmployeHorodateurPage() {
       }
       setLoadBlockingError(null);
       lastDataLoadAtRef.current = Date.now();
+      lastRereadEventIdRef.current = normalized?.currentState.last_event_id ?? null;
       return true;
     } catch (error) {
       const msg = error instanceof Error ? error.message : "Erreur de chargement.";
@@ -1257,6 +1266,7 @@ export default function EmployeHorodateurPage() {
     setMessage("");
 
     let punchSucceeded = false;
+    let payload: Record<string, unknown> = {};
 
     try {
       assertActiveCorrectionSubmit(correctionCtx, activeCorrectionSubmitIdRef.current);
@@ -1356,7 +1366,6 @@ export default function EmployeHorodateurPage() {
         return;
       }
 
-      let payload: Record<string, unknown> = {};
       try {
         payload = (await response.json()) as Record<string, unknown>;
       } catch {
@@ -1426,7 +1435,7 @@ export default function EmployeHorodateurPage() {
           phase: "in_zone",
           message: options.retroactive
             ? "Position obtenue et enregistrée avec votre demande de correction."
-            : "Position obtenue : vous êtes dans la zone autorisée. Pointage enregistré.",
+            : "Position obtenue : vous êtes dans la zone autorisée. Confirmation du pointage…",
         });
       }
 
@@ -1437,17 +1446,18 @@ export default function EmployeHorodateurPage() {
       setCorrectionModalError("");
       const isPunchOut =
         !options?.retroactive && eventType === "punch_out";
-      setMessage(
-        options?.retroactive
-          ? "Demande envoyée à la direction pour approbation."
-          : isPunchOut && payload.exception
-            ? PUNCH_OUT_PENDING_APPROVAL_MESSAGE
-            : isPunchOut
-              ? PUNCH_OUT_SUCCESS_MESSAGE
-              : payload.exception
-                ? "Pointage enregistre avec exception en attente d approbation."
-                : "Pointage enregistre."
-      );
+      const confirmedMessage = employeePunchSuccessMessage({
+        confirmed: payload.confirmed === true,
+        alreadySubmitted: payload.alreadySubmitted === true,
+        alreadySubmittedMessage:
+          typeof payload.alreadySubmittedMessage === "string"
+            ? payload.alreadySubmittedMessage
+            : null,
+        exception: payload.exception,
+        retroactive: options?.retroactive === true,
+        punchOut: isPunchOut,
+      });
+      setMessage(confirmedMessage ?? "Confirmation du pointage en cours…");
       if (options?.retroactive) {
         assertActiveCorrectionSubmit(correctionCtx, activeCorrectionSubmitIdRef.current);
         setRetroactiveModalOpen(false);
@@ -1478,6 +1488,24 @@ export default function EmployeHorodateurPage() {
         const refreshed = await loadData({ preserveMessage: true, background: true });
         if (!refreshed) {
           setMessage((current) => current || LOAD_DATA_AFTER_PUNCH_FAILED_MESSAGE);
+          return;
+        }
+        if (payload.confirmed === false) {
+          const insertedEvent = payload.insertedEvent as
+            | { id?: string }
+            | undefined;
+          const rereadConfirmed = isPunchConfirmedByServerReread({
+            insertedEventId: insertedEvent?.id ?? null,
+            lastEventId: lastRereadEventIdRef.current,
+          });
+          setMessage(
+            employeePunchSuccessMessage({
+              confirmed: rereadConfirmed,
+              exception: payload.exception,
+              retroactive: options?.retroactive === true,
+              punchOut: eventType === "punch_out",
+            }) ?? "Confirmation du pointage en cours…"
+          );
         }
       })();
     }

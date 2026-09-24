@@ -32,6 +32,12 @@ import {
   fetchHororaNexusSession,
 } from "@/app/lib/auth/horora-nexus-session.client";
 import { getCompanyLabel } from "@/app/lib/account-requests.shared";
+import {
+  directionPresenceStatusLabel,
+  directionPresenceStatusTone,
+  isCurrentlyWorkingState,
+  mapDirectionPresenceStatus,
+} from "@/app/lib/employee-punch-status.shared";
 import { normalizePhoneNumber } from "@/app/lib/timeclock-api.client";
 
 type LiveRow = {
@@ -114,7 +120,7 @@ type AlertConfig = {
   direction_sms_numbers: string[];
 };
 
-type LiveFilter = "tous" | "en_quart" | "en_attente" | "exceptions";
+type LiveFilter = "tous" | "en_service" | "en_pause" | "absent" | "attention";
 
 type WeeklyProjectionPayload = {
   workedMinutes: number;
@@ -246,33 +252,41 @@ function formatMinutes(totalMinutes: number) {
   return `${hours}h ${String(minutes).padStart(2, "0")}m`;
 }
 
-function getStateLabel(value: string | null | undefined) {
+function formatLiveEventLabel(value: string | null | undefined) {
   switch (value) {
-    case "en_quart":
-      return "En quart";
-    case "en_pause":
-      return "En pause";
-    case "en_diner":
-      return "En diner";
-    case "termine":
-      return "Termine";
+    case "punch_in":
+    case "quart_debut":
+      return "Entrée";
+    case "punch_out":
+    case "quart_fin":
+      return "Sortie";
+    case "break_start":
+    case "pause_debut":
+      return "Début de pause";
+    case "break_end":
+    case "pause_fin":
+      return "Fin de pause";
+    case "meal_start":
+    case "dinner_debut":
+      return "Début de dîner";
+    case "meal_end":
+    case "dinner_fin":
+      return "Fin de dîner";
     default:
-      return "Hors quart";
+      return value?.trim() || "—";
   }
 }
 
-function getStateTone(value: string | null | undefined) {
-  switch (value) {
-    case "en_quart":
-      return "success" as const;
-    case "en_pause":
-    case "en_diner":
-      return "warning" as const;
-    case "termine":
-      return "info" as const;
-    default:
-      return "default" as const;
-  }
+function getStateLabel(value: string | null | undefined, needsAttention?: boolean) {
+  return directionPresenceStatusLabel(
+    mapDirectionPresenceStatus(value, { needsAttention })
+  );
+}
+
+function getStateTone(value: string | null | undefined, needsAttention?: boolean) {
+  return directionPresenceStatusTone(
+    mapDirectionPresenceStatus(value, { needsAttention })
+  );
 }
 
 function clampPercentage(value: number) {
@@ -614,12 +628,15 @@ export default function DirectionHorodateurPage() {
     useState<(typeof DIRECTION_EVENT_TYPES)[number]>("punch_in");
   const [note, setNote] = useState("");
   const [liveFilter, setLiveFilter] = useState<LiveFilter>("tous");
+  const [liveSearch, setLiveSearch] = useState("");
+  const [liveCompany, setLiveCompany] = useState<"all" | "oliem_solutions" | "titan_produits_industriels">("all");
+  const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null);
   const [refusingExceptionId, setRefusingExceptionId] = useState<string | null>(null);
   const [refuseNoteById, setRefuseNoteById] = useState<Record<string, string>>({});
   const [timeCorrectionById, setTimeCorrectionById] = useState<
     Record<string, { main: string; related: string }>
   >({});
-  /** Date `work_date` utilisée pour la colonne « Quart du jour » (alignée sur l’API live, Toronto). */
+  /** Date `work_date` utilisée pour la colonne « Quart du jour » (America/Montreal). */
   const [liveTodayWorkDate, setLiveTodayWorkDate] = useState<string | null>(null);
   const [config, setConfig] = useState<AlertConfig>({
     email_enabled: true,
@@ -705,19 +722,39 @@ export default function DirectionHorodateurPage() {
     };
   }, [board]);
   const filteredBoard = useMemo(() => {
-    switch (liveFilter) {
-      case "en_quart":
-        return board.filter((row) => getRowState(row) === "en_quart");
-      case "en_attente":
-        return board.filter((row) => row.todayShift?.status === "en_attente");
-      case "exceptions":
-        return board.filter(
-          (row) => row.hasOpenException || (row.activeExceptionCount ?? 0) > 0
-        );
-      default:
-        return board;
-    }
-  }, [board, liveFilter]);
+    const query = liveSearch.trim().toLowerCase();
+    return board.filter((row) => {
+      if (liveCompany !== "all" && row.primaryCompany !== liveCompany) {
+        return false;
+      }
+      if (query) {
+        const hay = `${row.fullName ?? ""} ${row.email ?? ""} ${row.phone ?? ""}`.toLowerCase();
+        if (!hay.includes(query)) {
+          return false;
+        }
+      }
+      const state = getRowState(row);
+      const attention = liveRowNeedsAttention(row);
+      const presence = mapDirectionPresenceStatus(state, { needsAttention: attention });
+      switch (liveFilter) {
+        case "en_service":
+          return presence === "en_service";
+        case "en_pause":
+          return presence === "en_pause";
+        case "absent":
+          return presence === "absent";
+        case "attention":
+          return presence === "attention_requise" || attention;
+        default:
+          return true;
+      }
+    });
+  }, [board, liveCompany, liveFilter, liveSearch]);
+  const currentlyWorking = useMemo(
+    () =>
+      board.filter((row) => isCurrentlyWorkingState(getRowState(row))),
+    [board]
+  );
 
   const withBrokeredSession = useCallback(async <T,>(
     runner: () => Promise<T>
@@ -761,6 +798,7 @@ export default function DirectionHorodateurPage() {
                 hint?: string;
                 board?: LiveRow[];
                 todayWorkDate?: string;
+                lastSyncedAt?: string;
                 debug?: RouteDebugPayload;
               },
             },
@@ -789,6 +827,8 @@ export default function DirectionHorodateurPage() {
         if (result.live.ok) {
           const twd = result.live.payload.todayWorkDate;
           setLiveTodayWorkDate(typeof twd === "string" && /^\d{4}-\d{2}-\d{2}$/.test(twd) ? twd : null);
+          const synced = result.live.payload.lastSyncedAt;
+          setLastSyncedAt(typeof synced === "string" ? synced : new Date().toISOString());
           setBoard(
             Array.isArray(result.live.payload.board)
               ? result.live.payload.board.map(normalizeLiveRow)
@@ -1661,7 +1701,7 @@ export default function DirectionHorodateurPage() {
             <span className="ui-text-muted">Supervision active</span>
           </AppCard>
           <AppCard tone="muted" className="ui-stack-xs">
-            <span className="ui-eyebrow">En quart</span>
+            <span className="ui-eyebrow">En service</span>
             <strong style={{ fontSize: 28 }}>{counts.active}</strong>
             <span className="ui-text-muted">Punch principal actif</span>
           </AppCard>
@@ -1759,16 +1799,77 @@ export default function DirectionHorodateurPage() {
           title="Tableau live"
           subtitle={
             liveTodayWorkDate
-              ? `Supervision du jour (Toronto) · ${liveTodayWorkDate}`
-              : "Etat courant et progression."
+              ? `Supervision du jour (Montréal) · ${liveTodayWorkDate}${
+                  lastSyncedAt ? ` · sync ${formatShortDateTime(lastSyncedAt)}` : ""
+                }`
+              : "Qui travaille maintenant, avec le dernier pointage."
           }
         >
+          {currentlyWorking.length > 0 ? (
+            <div className="horodateur-live-now-block">
+              <h3 className="horodateur-live-now-title">Employés actuellement au travail</h3>
+              <div className="horodateur-live-now-grid">
+                {currentlyWorking.map((row) => (
+                  <button
+                    key={`now-${row.employeeId}`}
+                    type="button"
+                    className="horodateur-live-now-card"
+                    onClick={() => setLiveDetailEmployeeId(row.employeeId)}
+                  >
+                    <strong>{row.fullName || `#${row.employeeId}`}</strong>
+                    <span>
+                      {getStateLabel(getRowState(row), liveRowNeedsAttention(row))}
+                      {" · "}
+                      entrée {formatShortDateTime(row.startedAt ?? row.lastEventAt)}
+                    </span>
+                    <span>{getCompanyLabel(row.primaryCompany)}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <p className="ui-text-muted horodateur-live-now-empty">
+              Personne n’est actuellement en service.
+            </p>
+          )}
+          <div className="horodateur-live-toolbar">
+            <label className="ui-stack-xs horodateur-live-search">
+              <span className="ui-eyebrow">Recherche employé</span>
+              <input
+                type="search"
+                className="tagora-input"
+                value={liveSearch}
+                placeholder="Nom ou courriel"
+                onChange={(event) => setLiveSearch(event.target.value)}
+              />
+            </label>
+            <label className="ui-stack-xs">
+              <span className="ui-eyebrow">Compagnie</span>
+              <select
+                className="tagora-input"
+                value={liveCompany}
+                onChange={(event) =>
+                  setLiveCompany(
+                    event.target.value as
+                      | "all"
+                      | "oliem_solutions"
+                      | "titan_produits_industriels"
+                  )
+                }
+              >
+                <option value="all">Toutes</option>
+                <option value="oliem_solutions">Oliem Solutions</option>
+                <option value="titan_produits_industriels">Titan</option>
+              </select>
+            </label>
+          </div>
           <div className="horodateur-direction-filter-chips horodateur-live-filter-chips">
             {[
               ["tous", `Tous (${board.length})`],
-              ["en_quart", `En quart (${board.filter((row) => getRowState(row) === "en_quart").length})`],
-              ["en_attente", `En attente (${board.filter((row) => row.todayShift?.status === "en_attente").length})`],
-              ["exceptions", `Exceptions (${board.filter((row) => row.hasOpenException || (row.activeExceptionCount ?? 0) > 0).length})`],
+              ["en_service", `En service (${board.filter((row) => getRowState(row) === "en_quart").length})`],
+              ["en_pause", `En pause (${board.filter((row) => getRowState(row) === "en_pause" || getRowState(row) === "en_diner").length})`],
+              ["absent", `Absent (${board.filter((row) => !isCurrentlyWorkingState(getRowState(row)) && getRowState(row) !== "termine").length})`],
+              ["attention", `Attention requise (${board.filter((row) => liveRowNeedsAttention(row)).length})`],
             ].map(([value, label]) => {
               const active = liveFilter === value;
 
@@ -1841,12 +1942,14 @@ export default function DirectionHorodateurPage() {
                       <div className="horodateur-live-board-cell" data-label="État">
                         <div className="horodateur-live-state">
                           <StatusBadge
-                            label={getStateLabel(getRowState(row))}
-                            tone={getStateTone(getRowState(row))}
+                            label={getStateLabel(getRowState(row), needsAttention)}
+                            tone={getStateTone(getRowState(row), needsAttention)}
                           />
                           <span className="horodateur-live-meta">
                             {formatShortDateTime(row.lastEventAt)} ·{" "}
-                            {row.currentEventType ?? row.lastEventType ?? "—"}
+                            {formatLiveEventLabel(
+                              row.currentEventType ?? row.lastEventType
+                            )}
                           </span>
                         </div>
                       </div>
@@ -1978,7 +2081,9 @@ export default function DirectionHorodateurPage() {
                   </li>
                   <li className="horodateur-direction-detail-list-item">
                     <strong>Dernier événement</strong> — {formatDateTime(detailRow.lastEventAt)} ·{" "}
-                    {detailRow.currentEventType ?? detailRow.lastEventType ?? "—"}
+                    {formatLiveEventLabel(
+                      detailRow.currentEventType ?? detailRow.lastEventType
+                    )}
                   </li>
                   <li className="horodateur-direction-detail-list-item">
                     <strong>Quart du jour</strong> — {formatMinutes(resolveDisplayedPayableMinutes(detailRow))}

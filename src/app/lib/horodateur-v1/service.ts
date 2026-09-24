@@ -13,11 +13,11 @@ import {
 import { getCompanyLabel, type AccountRequestCompany } from "@/app/lib/account-requests.shared";
 import {
   notifyDirectionOfHorodateurException,
-  notifyDirectionHorodateurPunchSms,
   notifyEmployeeExpectedPunchSms,
   notifyEmployeeHorodateurExceptionDecision,
   notifyEmployeeHorodateurPunchSms,
   notifyHorodateurLateness,
+  notifyHorodateurLatenessDigest,
 } from "@/app/lib/notifications";
 import {
   composeStaffRetroCorrectionNote,
@@ -96,9 +96,16 @@ import {
   computeStateFromEventTimeline,
   findActivePendingPunchOutFromEvents,
   formatPendingPunchOutSubmittedMessage,
+  hasCalendarDayOpenPunch,
   resolveActiveOpenShiftWorkDate,
   resolveOperationalWorkDate,
 } from "./operational-state.shared";
+import {
+  isUrgentHorodateurIncident,
+  shouldGrandfatherHistoricalAlert,
+  shouldSendHorodateurChannel,
+} from "./horodateur-alert-dedup.shared";
+import { isDuplicatePunchWithinWindow } from "./punch-confirmation.shared";
 import {
   classifyEventPhase1,
   computeOpenShiftElapsedMinutes,
@@ -305,61 +312,16 @@ async function maybeNotifyDirectionOfHorodateurPunch(options: {
     return;
   }
 
-  console.info("[horodateur-punch-sms] dispatch", {
-    sms_target_type: "direction",
-    eventType,
-    eventId: options.event.id,
-    recipientCount: recipients.directionSmsNumbers.length,
+  console.info("[horodateur-punch-direction-debug] blocked", {
+    ...logBase,
+    blockedBy: "normal_punch_not_urgent",
+    directionAlertEnabled,
+    directionSmsRecipientsFound: recipients.directionSmsNumbers.length,
+    resendAttempted: false,
+    resendResult: "not_applicable_for_punch_event",
+    smsAttempted: false,
+    smsResult: "skipped",
   });
-
-  try {
-    console.info("[horodateur-punch-direction-debug] sms_attempt", {
-      ...logBase,
-      smsAttempted: true,
-      directionSmsRecipientsFound: recipients.directionSmsNumbers.length,
-    });
-    const smsResult = await notifyDirectionHorodateurPunchSms({
-      employeeName: options.employee.fullName,
-      eventLabelFr: label,
-      occurredAt: getEventOccurredAt(options.event),
-      company: options.employee.primaryCompany,
-      smsEnabled: true,
-      recipientSmsNumbers: recipients.directionSmsNumbers,
-    });
-
-    console.info("[horodateur-punch-direction-debug] sms_result", {
-      ...logBase,
-      smsAttempted: true,
-      smsSent: smsResult.sent,
-      smsSkipped: smsResult.skipped,
-      smsResult: smsResult.reason ?? (smsResult.sent ? "sent" : "failed"),
-    });
-
-    const sentAt = new Date().toISOString();
-    await insertHorodateurSmsAlertLog({
-      userId: options.actorUserId,
-      chauffeurId: options.employee.employeeId,
-      companyContext: options.employee.primaryCompany,
-      alertType: `horodateur_punch:${eventType}`,
-      message: label,
-      status: smsResult.sent ? "sent" : "failed",
-      relatedTable: "horodateur_events",
-      relatedId: options.event.id,
-      metadata: {
-        sms_target_type: "direction",
-        sms_skipped: smsResult.skipped,
-        sms_reason: smsResult.reason,
-        recipient_count: recipients.directionSmsNumbers.length,
-      },
-      sentAt: smsResult.sent ? sentAt : null,
-    });
-  } catch (error) {
-    console.error("[horodateur-punch-direction-debug] sms_failure", {
-      ...logBase,
-      smsAttempted: true,
-      errorMessage: error instanceof Error ? error.message : String(error),
-    });
-  }
 }
 
 /** SMS personnel : telephone de la fiche employe uniquement, independant de horodateur_direction_alert_config.sms_enabled. */
@@ -1102,6 +1064,31 @@ async function notifyDirectionOfPendingException(options: {
       }
     }
 
+    const exceptionWorkDate =
+      options.event.work_date?.trim() ||
+      getLocalWorkDate(
+        getEventOccurredAt(options.event) ?? options.exception.requested_at
+      );
+    if (
+      shouldGrandfatherHistoricalAlert({
+        incidentWorkDate: exceptionWorkDate,
+        todayWorkDate: getLocalWorkDate(new Date().toISOString()),
+      })
+    ) {
+      return updateExceptionNotificationStatus({
+        exceptionId: options.exception.id,
+        directionEmailNotifiedAt:
+          options.exception.direction_email_notified_at ??
+          new Date().toISOString(),
+        directionSmsNotifiedAt:
+          options.exception.direction_sms_notified_at ?? new Date().toISOString(),
+      });
+    }
+
+    const urgent = isUrgentHorodateurIncident({
+      incidentType: "exception_pending",
+      exceptionType: options.exception.exception_type,
+    });
     const notificationResult = await notifyDirectionOfHorodateurException({
       exceptionId: options.exception.id,
       employeeName: options.employee.fullName,
@@ -1114,8 +1101,18 @@ async function notifyDirectionOfPendingException(options: {
       occurredAt: getEventOccurredAt(options.event),
       requestedAt: options.exception.requested_at,
       managementUrl: "/direction/horodateur",
-      emailEnabled: config.email_enabled,
-      smsEnabled: config.sms_enabled,
+      emailEnabled: shouldSendHorodateurChannel({
+        channel: "email",
+        urgent,
+        alreadySent: Boolean(options.exception.direction_email_notified_at),
+        recipientCountToday: 0,
+      }),
+      smsEnabled: shouldSendHorodateurChannel({
+        channel: "sms",
+        urgent,
+        alreadySent: Boolean(options.exception.direction_sms_notified_at),
+        recipientCountToday: 0,
+      }),
       recipientEmails: recipients.directionEmails,
       recipientSmsNumbers: recipients.directionSmsNumbers,
     });
@@ -1210,14 +1207,55 @@ export async function processPendingExceptionReminders() {
     smsSent: boolean;
   }> = [];
 
-  for (const item of pendingExceptions) {
-    const emailAlreadyReminded = Boolean(item.direction_reminder_email_notified_at);
-    const smsAlreadyReminded = Boolean(item.direction_reminder_sms_notified_at);
+  const todayWorkDate = getLocalWorkDate(new Date().toISOString());
+  let reminderEmailSentToday = 0;
 
+  for (const item of pendingExceptions) {
+    const incidentWorkDate =
+      item.event?.work_date?.trim() ||
+      (item.event?.occurredAt
+        ? getLocalWorkDate(item.event.occurredAt)
+        : getLocalWorkDate(item.requested_at));
     if (
-      (!config.email_enabled || emailAlreadyReminded) &&
-      (!config.sms_enabled || smsAlreadyReminded)
+      shouldGrandfatherHistoricalAlert({
+        incidentWorkDate,
+        todayWorkDate,
+      })
     ) {
+      if (
+        !item.direction_reminder_email_notified_at ||
+        !item.direction_reminder_sms_notified_at
+      ) {
+        await updateExceptionNotificationStatus({
+          exceptionId: item.id,
+          directionReminderEmailNotifiedAt:
+            item.direction_reminder_email_notified_at ?? new Date().toISOString(),
+          directionReminderSmsNotifiedAt:
+            item.direction_reminder_sms_notified_at ?? new Date().toISOString(),
+        });
+      }
+      continue;
+    }
+
+    const emailAlreadyReminded = Boolean(
+      item.direction_reminder_email_notified_at ||
+        item.direction_email_notified_at
+    );
+    const smsAlreadyReminded = true;
+
+    if (!config.email_enabled || emailAlreadyReminded) {
+      if (
+        !item.direction_reminder_email_notified_at ||
+        !item.direction_reminder_sms_notified_at
+      ) {
+        await updateExceptionNotificationStatus({
+          exceptionId: item.id,
+          directionReminderEmailNotifiedAt:
+            item.direction_reminder_email_notified_at ?? new Date().toISOString(),
+          directionReminderSmsNotifiedAt:
+            item.direction_reminder_sms_notified_at ?? new Date().toISOString(),
+        });
+      }
       continue;
     }
 
@@ -1259,6 +1297,13 @@ export async function processPendingExceptionReminders() {
       }
     }
 
+    const sendReminderEmail = shouldSendHorodateurChannel({
+      channel: "email",
+      urgent: false,
+      alreadySent: emailAlreadyReminded,
+      recipientCountToday: reminderEmailSentToday,
+    });
+
     const notificationResult = await notifyDirectionOfHorodateurException({
       exceptionId: item.id,
       employeeName: item.employee.fullName,
@@ -1271,7 +1316,7 @@ export async function processPendingExceptionReminders() {
       occurredAt: item.event.occurredAt,
       requestedAt: item.requested_at,
       managementUrl: "/direction/horodateur",
-      emailEnabled: config.email_enabled && !emailAlreadyReminded,
+      emailEnabled: config.email_enabled && sendReminderEmail,
       smsEnabled: config.sms_enabled && !smsAlreadyReminded,
       recipientEmails: recipients.directionEmails,
       recipientSmsNumbers: recipients.directionSmsNumbers,
@@ -1333,6 +1378,9 @@ export async function processPendingExceptionReminders() {
         directionReminderEmailNotifiedAt: shouldPersistEmail ? nowIso : undefined,
         directionReminderSmsNotifiedAt: shouldPersistSms ? nowIso : undefined,
       });
+    }
+    if (shouldPersistEmail) {
+      reminderEmailSentToday += 1;
     }
 
     processed.push({
@@ -1608,6 +1656,9 @@ export async function processLateEmployeeNotifications() {
   const config = await getHorodateurDirectionAlertConfig();
   const recipients = await resolveDirectionRecipients(config);
   const employees = await listActiveEmployees();
+  const escalation = resolveMissingPunchEscalationMinutes(
+    config.reminder_delay_minutes
+  );
   const processed: Array<{
     employeeId: number;
     workDate: string;
@@ -1615,7 +1666,13 @@ export async function processLateEmployeeNotifications() {
     directionSmsSent: boolean;
     employeeSmsSent: boolean;
   }> = [];
+  const digestEmployees: Array<{
+    employeeId: number;
+    employeeName: string | null;
+    scheduledStartAt: string;
+  }> = [];
   let detectedCount = 0;
+  let directionSmsSentToday = 0;
 
   for (const employee of employees) {
     if (!employee.active) {
@@ -1682,6 +1739,10 @@ export async function processLateEmployeeNotifications() {
         lateDetectedAt,
       }));
 
+    if (notification.late_direction_sms_notified_at) {
+      directionSmsSentToday += 1;
+    }
+
     detectedCount += 1;
 
     const expectedScheduleItems = resolveExpectedPunchScheduleItems({
@@ -1692,21 +1753,35 @@ export async function processLateEmployeeNotifications() {
       (item) => item.eventType === "quart_debut"
     );
 
-    const shouldSendDirectionEmail =
+    const minutesLate = Math.max(0, currentMinutes - scheduledStartMinutes);
+    const urgent = isUrgentHorodateurIncident({
+      incidentType: "absence_or_late",
+      minutesLate,
+      urgentAfterMinutes: escalation.priorityMinutes,
+    });
+    const shouldQueueDirectionEmail =
       config.email_enabled && !notification.late_direction_email_notified_at;
-    const shouldSendDirectionSms =
-      config.sms_enabled && !notification.late_direction_sms_notified_at;
+    const shouldSendDirectionSms = shouldSendHorodateurChannel({
+      channel: "sms",
+      urgent,
+      alreadySent: Boolean(notification.late_direction_sms_notified_at),
+      recipientCountToday: directionSmsSentToday,
+    }) && config.sms_enabled;
     const shouldSendEmployeeSms =
       employee.alertSmsEnabled !== false &&
       employee.smsAlertQuartDebut !== false &&
       !notification.late_employee_sms_notified_at &&
       !expectedPunchCoversShiftStart;
 
-    if (
-      !shouldSendDirectionEmail &&
-      !shouldSendDirectionSms &&
-      !shouldSendEmployeeSms
-    ) {
+    if (shouldQueueDirectionEmail) {
+      digestEmployees.push({
+        employeeId: employee.employeeId,
+        employeeName: employee.fullName,
+        scheduledStartAt,
+      });
+    }
+
+    if (!shouldSendDirectionSms && !shouldSendEmployeeSms && !shouldQueueDirectionEmail) {
       continue;
     }
 
@@ -1716,7 +1791,7 @@ export async function processLateEmployeeNotifications() {
       scheduledStartAt,
       detectedAt: lateDetectedAt,
       managementUrl: "/direction/horodateur",
-      emailEnabled: shouldSendDirectionEmail,
+      emailEnabled: false,
       smsEnabled: shouldSendDirectionSms,
       employeeSmsEnabled: shouldSendEmployeeSms,
       recipientEmails: recipients.directionEmails,
@@ -1724,16 +1799,17 @@ export async function processLateEmployeeNotifications() {
     });
 
     const nowIso = new Date().toISOString();
-    const directionEmailSent = shouldSendDirectionEmail && result.email.ok;
     const directionSmsSent = shouldSendDirectionSms && result.directionSms.sent;
     const employeeSmsSent = shouldSendEmployeeSms && result.employeeSms.sent;
+    if (directionSmsSent) {
+      directionSmsSentToday += 1;
+    }
 
-    if (directionEmailSent || directionSmsSent || employeeSmsSent) {
+    if (directionSmsSent || employeeSmsSent) {
       await upsertLatenessNotification({
         employeeId: employee.employeeId,
         workDate,
         scheduledStartAt,
-        lateDirectionEmailNotifiedAt: directionEmailSent ? nowIso : undefined,
         lateDirectionSmsNotifiedAt: directionSmsSent ? nowIso : undefined,
         lateEmployeeSmsNotifiedAt: employeeSmsSent ? nowIso : undefined,
       });
@@ -1742,10 +1818,45 @@ export async function processLateEmployeeNotifications() {
     processed.push({
       employeeId: employee.employeeId,
       workDate,
-      directionEmailSent,
+      directionEmailSent: false,
       directionSmsSent,
       employeeSmsSent,
     });
+  }
+
+  if (digestEmployees.length > 0 && config.email_enabled) {
+    const digest = await notifyHorodateurLatenessDigest({
+      workDate,
+      employees: digestEmployees,
+      managementUrl: "/direction/horodateur",
+      emailEnabled: true,
+      recipientEmails: recipients.directionEmails,
+    });
+    if (digest.ok && !digest.skipped) {
+      const nowIso = new Date().toISOString();
+      for (const item of digestEmployees) {
+        await upsertLatenessNotification({
+          employeeId: item.employeeId,
+          workDate,
+          scheduledStartAt: item.scheduledStartAt,
+          lateDirectionEmailNotifiedAt: nowIso,
+        });
+        const existing = processed.find(
+          (row) => row.employeeId === item.employeeId
+        );
+        if (existing) {
+          existing.directionEmailSent = true;
+        } else {
+          processed.push({
+            employeeId: item.employeeId,
+            workDate,
+            directionEmailSent: true,
+            directionSmsSent: false,
+            employeeSmsSent: false,
+          });
+        }
+      }
+    }
   }
 
   return {
@@ -2380,9 +2491,12 @@ export async function recomputeCurrentState(
   const pendingPunchOutEvents = pendingOperationalEvents.filter(
     (event) => toCanonicalEventType(event.event_type) === "punch_out"
   );
+  const nowIso = new Date().toISOString();
+  const calendarWorkDate = getLocalWorkDate(nowIso);
   const operationalTimeline = buildOperationalStateEvents(
     approvedEvents,
-    pendingPunchOutEvents
+    pendingOperationalEvents,
+    calendarWorkDate
   );
   const operationalState = computeStateFromEventTimeline(operationalTimeline, {
     ignorePaidBreakPunches,
@@ -2398,11 +2512,15 @@ export async function recomputeCurrentState(
       : getLastApprovedEvent(approvedEvents);
   const pendingExceptionsCount = await countPendingExceptionsForEmployee(employeeId);
 
-  const nowIso = new Date().toISOString();
-  const calendarWorkDate = getLocalWorkDate(nowIso);
   const openWorkDate = resolveActiveOpenShiftWorkDate(approvedEvents);
+  const calendarDayOpenPunch = hasCalendarDayOpenPunch({
+    approvedEvents,
+    pendingEvents: pendingOperationalEvents,
+    calendarWorkDate,
+  });
   const staleOpenShift =
     isQuarterActiveState(operationalState.currentState) &&
+    !calendarDayOpenPunch &&
     !isContinuableOpenShift({
       openWorkDate,
       calendarWorkDate,
@@ -3100,6 +3218,30 @@ export async function createEmployeePunch(options: {
     occurredAt,
     approvedEvents: allApprovedEvents,
   });
+  const sameDayEvents = await listEventsForEmployee({
+    employeeId: employee.employeeId,
+    workDate,
+  });
+  const duplicatePunch = sameDayEvents.find(
+    (event) =>
+      toCanonicalEventType(event.event_type) === canonicalType &&
+      isDuplicatePunchWithinWindow({
+        existingOccurredAt: getEventOccurredAt(event),
+        candidateOccurredAt: occurredAt,
+      })
+  );
+  if (duplicatePunch) {
+    const shift = await recomputeShiftForDate(employee.employeeId, workDate);
+    const refreshedState = await recomputeCurrentState(employee.employeeId);
+    return {
+      event: duplicatePunch,
+      exception: null,
+      currentState: refreshedState,
+      shift,
+      alreadySubmitted: true,
+      alreadySubmittedMessage: "Ce pointage a déjà été enregistré.",
+    };
+  }
   const effectiveSchedule = await resolveEffectiveHorodateurScheduleForDate(
     employee,
     // Day-off gate is calendar-based for punch_in; continuation uses open shift date.
@@ -4169,6 +4311,7 @@ export async function listPendingExceptionsForDirection(options?: {
             employee_id: eventMap.get(item.source_event_id)!.employee_id,
             event_type: eventMap.get(item.source_event_id)!.event_type,
             occurredAt: getEventOccurredAt(eventMap.get(item.source_event_id)!),
+            work_date: eventMap.get(item.source_event_id)!.work_date ?? null,
             status: eventMap.get(item.source_event_id)!.status,
             notes:
               eventMap.get(item.source_event_id)!.notes ??
@@ -4201,7 +4344,6 @@ export async function getDirectionDashboardHorodateurAlerts(): Promise<{
   pendingCount: number;
   items: HorodateurPhase1DirectionPendingExceptionAlert[];
 }> {
-  await processPendingExceptionReminders();
   const exceptions = await listPendingExceptionsForDirection();
 
   const items = exceptions

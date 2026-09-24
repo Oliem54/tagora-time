@@ -10,6 +10,7 @@ import {
   readEmployeePunchGeolocationWithDeadline,
   type EmployeePunchGeolocationFailureCode,
 } from "@/app/lib/employee-punch-geolocation.client";
+import { employeePunchSuccessMessage } from "@/app/lib/horodateur-v1/punch-confirmation.shared";
 
 export const EMPLOYEE_PUNCH_BUSINESS_PERMISSION_MESSAGE =
   "La permission terrain est requise pour utiliser l'horodateur.";
@@ -31,6 +32,7 @@ export type EmployeePunchSnapshot = {
   currentState: {
     current_state?: string | null;
     status?: string | null;
+    last_event_id?: string | null;
     last_event_at?: string | null;
     last_event_type?: string | null;
     currentEventType?: string | null;
@@ -72,6 +74,7 @@ type PunchResponse = EmployeePunchSnapshot & {
   exception: {
     id: string;
   } | null;
+  confirmed?: boolean;
   alreadySubmitted?: boolean;
   alreadySubmittedMessage?: string | null;
   code?: string;
@@ -110,6 +113,7 @@ function normalizeDashboardSnapshot(
     currentState: {
       current_state: currentState.current_state ?? currentState.status ?? "hors_quart",
       status: currentState.status ?? currentState.current_state ?? "hors_quart",
+      last_event_id: currentState.last_event_id ?? null,
       last_event_at: currentState.last_event_at ?? null,
       last_event_type: currentState.last_event_type ?? currentState.currentEventType ?? null,
       currentEventType: currentState.currentEventType ?? currentState.last_event_type ?? null,
@@ -300,20 +304,23 @@ export function useEmployeePunchSnapshot(enabled: boolean) {
           );
         }
 
-        setSnapshot(normalizeDashboardSnapshot(payload ?? snapshot ?? undefined));
-
-        if (payload?.alreadySubmitted === true) {
-          setMessage(
-            payload.alreadySubmittedMessage?.trim() ||
-              "Ce pointage a déjà été enregistré."
-          );
+        const confirmed = payload?.confirmed === true;
+        if (!confirmed) {
+          await loadSnapshot();
+          setMessage("Confirmation du pointage en cours…");
           return;
         }
 
+        setSnapshot(normalizeDashboardSnapshot(payload ?? snapshot ?? undefined));
+
         setMessage(
-          payload?.exception
-            ? "Pointage enregistré avec exception en attente."
-            : "Pointage enregistré."
+          employeePunchSuccessMessage({
+            confirmed: true,
+            alreadySubmitted: payload?.alreadySubmitted === true,
+            alreadySubmittedMessage: payload?.alreadySubmittedMessage ?? null,
+            exception: payload?.exception,
+            punchOut: pendingEventTypeRef.current === "punch_out",
+          }) ?? "Confirmation du pointage en cours…"
         );
       } catch (submitError) {
         setError(
@@ -325,7 +332,7 @@ export function useEmployeePunchSnapshot(enabled: boolean) {
         submitLockRef.current = false;
       }
     },
-    [snapshot]
+    [loadSnapshot, snapshot]
   );
 
   const retryGeolocation = useCallback(async () => {

@@ -31,14 +31,20 @@ import {
   createEmployeePunch,
   getEmployeeDashboardSnapshotByAuthUserId,
 } from "@/app/lib/horodateur-v1/service";
+import { isPunchConfirmedByServerReread } from "@/app/lib/horodateur-v1/punch-confirmation.shared";
 import { createAdminSupabaseClient } from "@/app/lib/supabase/admin";
 
 function buildPunchApiResponse(
   result: Awaited<ReturnType<typeof createEmployeePunch>>,
   snapshot: Awaited<ReturnType<typeof getEmployeeDashboardSnapshotByAuthUserId>>
 ) {
+  const confirmed = isPunchConfirmedByServerReread({
+    insertedEventId: result.event.id,
+    lastEventId: snapshot.currentState.last_event_id ?? null,
+  });
   return {
-    success: true,
+    success: confirmed,
+    confirmed,
     alreadySubmitted: result.alreadySubmitted === true,
     alreadySubmittedMessage: result.alreadySubmittedMessage ?? null,
     code: result.alreadySubmitted ? "punch_out_already_pending" : undefined,

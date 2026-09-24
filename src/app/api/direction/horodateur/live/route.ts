@@ -129,7 +129,14 @@ export async function GET(req: NextRequest) {
       success: true,
       board: normalizedBoard,
       grouped: groupedCounts,
-      /** Même `work_date` que `getShiftByEmployeeAndWorkDate` dans le live board (America/Toronto). */
+      lastSyncedAt: new Date().toISOString(),
+      currentlyWorkingCount: normalizedBoard.filter(
+        (row) =>
+          row.currentState === "en_quart" ||
+          row.currentState === "en_pause" ||
+          row.currentState === "en_diner"
+      ).length,
+      /** Même `work_date` que `getShiftByEmployeeAndWorkDate` (America/Montreal). */
       todayWorkDate,
       ...(process.env.NODE_ENV !== "production"
         ? {

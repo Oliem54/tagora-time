@@ -1699,6 +1699,48 @@ export async function notifyHorodateurLateness(
   };
 }
 
+export async function notifyHorodateurLatenessDigest(payload: {
+  workDate: string;
+  employees: Array<{ employeeName: string | null; scheduledStartAt: string }>;
+  managementUrl?: string;
+  emailEnabled?: boolean;
+  recipientEmails?: string[];
+}) {
+  if (!payload.employees.length) {
+    return {
+      ok: true,
+      skipped: true,
+      reason: "empty_digest",
+      recipients: [] as string[],
+    };
+  }
+  const managementUrl = payload.managementUrl ?? "/direction/horodateur";
+  const names = payload.employees
+    .map((item) => item.employeeName?.trim() || "Employé")
+    .join(", ");
+  return sendDirectionAlert(
+    {
+      alertType: "horodateur_lateness_digest",
+      classification: "direction_action_required",
+      subject: `TAGORA Time — Résumé absences ou retards (${payload.workDate})`,
+      summary: `${payload.employees.length} employé(s) n'ont pas commencé le quart prévu : ${names}.`,
+      requestedAt: new Date().toISOString(),
+      requestId: `lateness-digest-${payload.workDate}`,
+      managementUrl,
+      managementLabel: "Ouvrir l’horodateur direction",
+      details: {
+        Date: payload.workDate,
+        Employés: names,
+        "Type d’alerte": "Résumé quotidien — absence ou retard",
+      },
+    },
+    {
+      enabled: payload.emailEnabled,
+      recipients: payload.recipientEmails,
+    }
+  );
+}
+
 export async function notifyDirectionOfAccountRequest(
   payload: AccountRequestNotificationPayload
 ) {

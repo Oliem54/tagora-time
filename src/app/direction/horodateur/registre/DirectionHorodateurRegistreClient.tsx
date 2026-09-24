@@ -257,6 +257,7 @@ export default function DirectionHorodateurRegistreClient() {
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [employeeId, setEmployeeId] = useState<string>("all");
+  const [employeeSearch, setEmployeeSearch] = useState("");
   const [company, setCompany] = useState<string>("all");
   const [status, setStatus] = useState<string>("all");
   const [data, setData] = useState<HorodateurRegistrePayload | null>(null);
@@ -517,6 +518,13 @@ export default function DirectionHorodateurRegistreClient() {
   const sortedExceptions = [...(data?.exceptions ?? [])].sort((a, b) =>
     lastExceptionTouch(b).localeCompare(lastExceptionTouch(a))
   );
+  const employeeQuery = employeeSearch.trim().toLowerCase();
+  const visibleEmployees = (data?.employees ?? []).filter((row) => {
+    if (!employeeQuery) {
+      return true;
+    }
+    return String(row.employeeName ?? "").toLowerCase().includes(employeeQuery);
+  });
 
   const inputClass = "tagora-input";
 
@@ -633,6 +641,16 @@ export default function DirectionHorodateurRegistreClient() {
             </div>
 
             <div className="horodateur-direction-filter-grid">
+              <label className="ui-stack-xs">
+                <span className="ui-eyebrow">Recherche employé</span>
+                <input
+                  type="search"
+                  className={inputClass}
+                  value={employeeSearch}
+                  placeholder="Nom"
+                  onChange={(e) => setEmployeeSearch(e.target.value)}
+                />
+              </label>
               <label className="ui-stack-xs">
                 <span className="ui-eyebrow">Employé (filtre tableau)</span>
                 <select
@@ -840,7 +858,7 @@ export default function DirectionHorodateurRegistreClient() {
                     </tr>
                   </thead>
                   <tbody>
-                    {(data?.employees ?? []).map((row) => (
+                    {visibleEmployees.map((row) => (
                       <tr key={row.employeeId}>
                         <td style={{ fontWeight: 700 }}>
                           {row.employeeName ?? `#${row.employeeId}`}
@@ -884,6 +902,11 @@ export default function DirectionHorodateurRegistreClient() {
               {!fetching && !error && (data?.employees?.length ?? 0) === 0 ? (
                 <p className="ui-text-muted" style={{ marginTop: "var(--ui-space-5)", textAlign: "center" }}>
                   Aucune heure trouvée pour cette période.
+                </p>
+              ) : null}
+              {!fetching && !error && (data?.employees?.length ?? 0) > 0 && visibleEmployees.length === 0 ? (
+                <p className="ui-text-muted" style={{ marginTop: "var(--ui-space-5)", textAlign: "center" }}>
+                  Aucun employé ne correspond à la recherche.
                 </p>
               ) : null}
             </SectionCard>

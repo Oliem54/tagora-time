@@ -95,8 +95,11 @@ describe("HORORA employee punch unblock", () => {
     const page = read("src/app/employe/horodateur/page.tsx");
     expect(hook).toContain("if (submitLockRef.current)");
     expect(hook).toContain("alreadySubmitted");
-    expect(hook).toContain("Pointage enregistré.");
+    expect(hook).toContain("employeePunchSuccessMessage");
     expect(page).toContain("payload.alreadySubmitted === true");
+    expect(
+      read("src/app/lib/horodateur-v1/punch-confirmation.shared.ts")
+    ).toContain("Pointage enregistré.");
   });
 
   it("reloads punch state from the snapshot API after refresh", () => {

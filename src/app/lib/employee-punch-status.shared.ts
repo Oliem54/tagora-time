@@ -63,6 +63,72 @@ export function employeePunchNextActionLabel(status: EmployeePunchStatusId): str
   return NEXT_ACTION_LABEL[status];
 }
 
+export const DIRECTION_PRESENCE_STATUS = {
+  enService: "en_service",
+  enPause: "en_pause",
+  absent: "absent",
+  quartTermine: "quart_termine",
+  attentionRequise: "attention_requise",
+} as const;
+
+export type DirectionPresenceStatusId =
+  (typeof DIRECTION_PRESENCE_STATUS)[keyof typeof DIRECTION_PRESENCE_STATUS];
+
+const DIRECTION_PRESENCE_LABEL: Record<DirectionPresenceStatusId, string> = {
+  en_service: "En service",
+  en_pause: "En pause",
+  absent: "Absent",
+  quart_termine: "Quart terminé",
+  attention_requise: "Attention requise",
+};
+
+export function isCurrentlyWorkingState(state: string | null | undefined): boolean {
+  return state === "en_quart" || state === "en_pause" || state === "en_diner";
+}
+
+export function mapDirectionPresenceStatus(
+  state: string | null | undefined,
+  options?: { needsAttention?: boolean }
+): DirectionPresenceStatusId {
+  const needsAttention = options?.needsAttention === true;
+  if (needsAttention && !isCurrentlyWorkingState(state) && state !== "termine") {
+    return DIRECTION_PRESENCE_STATUS.attentionRequise;
+  }
+  switch (state) {
+    case "en_quart":
+      return DIRECTION_PRESENCE_STATUS.enService;
+    case "en_pause":
+    case "en_diner":
+      return DIRECTION_PRESENCE_STATUS.enPause;
+    case "termine":
+      return DIRECTION_PRESENCE_STATUS.quartTermine;
+    default:
+      return DIRECTION_PRESENCE_STATUS.absent;
+  }
+}
+
+export function directionPresenceStatusLabel(
+  status: DirectionPresenceStatusId
+): string {
+  return DIRECTION_PRESENCE_LABEL[status];
+}
+
+export function directionPresenceStatusTone(
+  status: DirectionPresenceStatusId
+): "default" | "info" | "success" | "warning" {
+  switch (status) {
+    case DIRECTION_PRESENCE_STATUS.enService:
+      return "success";
+    case DIRECTION_PRESENCE_STATUS.enPause:
+    case DIRECTION_PRESENCE_STATUS.attentionRequise:
+      return "warning";
+    case DIRECTION_PRESENCE_STATUS.quartTermine:
+      return "info";
+    default:
+      return "default";
+  }
+}
+
 export function employeePunchStatusTone(
   status: EmployeePunchStatusId
 ): "default" | "info" | "success" | "warning" {

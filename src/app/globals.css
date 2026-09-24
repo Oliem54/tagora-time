@@ -5928,6 +5928,56 @@ select {
   margin-bottom: var(--ui-space-4);
 }
 
+.horodateur-live-now-block {
+  margin-bottom: var(--ui-space-4);
+}
+
+.horodateur-live-now-title {
+  margin: 0 0 var(--ui-space-3);
+  font-size: 1.05rem;
+}
+
+.horodateur-live-now-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: var(--ui-space-3);
+}
+
+.horodateur-live-now-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 12px 14px;
+  border: 1px solid var(--horora-color-neutral-border, #e3e6ec);
+  border-radius: 12px;
+  background: #fff;
+  text-align: left;
+  cursor: pointer;
+}
+
+.horodateur-live-now-card span {
+  color: var(--horora-color-neutral-muted, #5c6570);
+  font-size: 13px;
+}
+
+.horodateur-live-now-empty {
+  margin: 0 0 var(--ui-space-4);
+}
+
+.horodateur-live-toolbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(180px, 220px);
+  gap: var(--ui-space-3);
+  margin-bottom: var(--ui-space-4);
+}
+
+@media (max-width: 720px) {
+  .horodateur-live-toolbar {
+    grid-template-columns: 1fr;
+  }
+}
+
 .horodateur-live-board {
   display: flex;
   flex-direction: column;

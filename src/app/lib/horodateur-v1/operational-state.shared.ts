@@ -38,19 +38,75 @@ export function sortHorodateurEventsByOccurredAt(
   });
 }
 
+export function eventWorkDate(
+  event: HorodateurPhase1EventRecord
+): string | null {
+  if (event.work_date?.trim()) {
+    return event.work_date.trim();
+  }
+  const occurredAt = getEventOccurredAt(event);
+  return occurredAt ? getLocalWorkDate(occurredAt) : null;
+}
+
+export function isCalendarDayPunchIn(
+  event: HorodateurPhase1EventRecord,
+  calendarWorkDate: string
+): boolean {
+  return (
+    toCanonicalEventType(event.event_type) === "punch_in" &&
+    eventWorkDate(event) === calendarWorkDate
+  );
+}
+
+export function selectLivePendingOperationalEvents(
+  pendingEvents: HorodateurPhase1EventRecord[],
+  calendarWorkDate: string
+): HorodateurPhase1EventRecord[] {
+  return pendingEvents.filter((event) => {
+    if (event.status !== "en_attente") {
+      return false;
+    }
+    const canonical = toCanonicalEventType(event.event_type);
+    if (canonical === "punch_out") {
+      return true;
+    }
+    return canonical === "punch_in" && eventWorkDate(event) === calendarWorkDate;
+  });
+}
+
 export function buildOperationalStateEvents(
   approvedEvents: HorodateurPhase1EventRecord[],
-  pendingPunchOutEvents: HorodateurPhase1EventRecord[]
+  pendingOperationalEvents: HorodateurPhase1EventRecord[],
+  calendarWorkDate?: string
 ): HorodateurPhase1EventRecord[] {
-  const pendingPunchOuts = pendingPunchOutEvents.filter(
-    (event) =>
-      event.status === "en_attente" &&
-      toCanonicalEventType(event.event_type) === "punch_out"
-  );
+  const pending =
+    calendarWorkDate != null
+      ? selectLivePendingOperationalEvents(
+          pendingOperationalEvents,
+          calendarWorkDate
+        )
+      : pendingOperationalEvents.filter(
+          (event) =>
+            event.status === "en_attente" &&
+            toCanonicalEventType(event.event_type) === "punch_out"
+        );
   return sortHorodateurEventsByOccurredAt([
     ...approvedEvents,
-    ...pendingPunchOuts,
+    ...pending,
   ]);
+}
+
+export function hasCalendarDayOpenPunch(input: {
+  approvedEvents: HorodateurPhase1EventRecord[];
+  pendingEvents?: HorodateurPhase1EventRecord[];
+  calendarWorkDate: string;
+}): boolean {
+  if (input.approvedEvents.some((event) => isCalendarDayPunchIn(event, input.calendarWorkDate))) {
+    return true;
+  }
+  return (input.pendingEvents ?? []).some((event) =>
+    isCalendarDayPunchIn(event, input.calendarWorkDate)
+  );
 }
 
 export type HorodateurOperationalStateResult = {

@@ -1,8 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import {
-  listPendingExceptionsForDirection,
-  processPendingExceptionReminders,
-} from "@/app/lib/horodateur-v1/service";
+import { listPendingExceptionsForDirection } from "@/app/lib/horodateur-v1/service";
 import {
   buildHorodateurErrorResponse,
   normalizeEventForApi,
@@ -17,7 +14,6 @@ export async function GET(req: NextRequest) {
       return auth.response;
     }
 
-    await processPendingExceptionReminders();
     const exceptions = await listPendingExceptionsForDirection({
       organizationId: auth.organizationId,
     });
