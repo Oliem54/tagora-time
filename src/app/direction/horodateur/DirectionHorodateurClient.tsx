@@ -1526,277 +1526,9 @@ export default function DirectionHorodateurPage() {
           </AppCard>
         ) : null}
 
-        <HorodateurDirectionPrimaryActions
-          onRetroCorrection={() => openRetroCorrectionModal()}
-          retroDisabled={isBusy}
-          current="live"
-        />
-
-        <div ref={punchManualSectionRef} id="horodateur-punch-manuel-section">
-        <SectionCard
-          title="Punch manuel avancé"
-          subtitle="Punch manuel tracé — intervention direction avec note obligatoire."
-          actions={
-            <TagoraIconBadge tone="blue" size="lg">
-              <PenLine size={24} strokeWidth={2.1} />
-            </TagoraIconBadge>
-          }
-        >
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "minmax(220px, 1.2fr) minmax(180px, 0.9fr) auto",
-              gap: "var(--ui-space-3)",
-              alignItems: "end",
-            }}
-          >
-            <label className="ui-stack-xs">
-              <span className="ui-eyebrow">Employe</span>
-              <select
-                className="tagora-input"
-                value={selectedEmployeeId}
-                onChange={(event) => setSelectedEmployeeId(event.target.value)}
-              >
-                <option value="">Selectionner</option>
-                {board.map((row) => (
-                  <option key={row.employeeId} value={row.employeeId}>
-                    {row.fullName || row.email || `#${row.employeeId}`}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            <label className="ui-stack-xs">
-              <span className="ui-eyebrow">Action</span>
-              <select
-                className="tagora-input"
-                value={selectedEventType}
-                onChange={(event) =>
-                  setSelectedEventType(
-                    event.target.value as (typeof DIRECTION_EVENT_TYPES)[number]
-                  )
-                }
-              >
-                {DIRECTION_EVENT_TYPES.map((item) => (
-                  <option key={item} value={item}>
-                    {item}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <PrimaryButton
-              onClick={() => void handleManualPunch()}
-              disabled={isBusy || !hasEmployees}
-              style={{ whiteSpace: "nowrap" }}
-            >
-              <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
-                <ShieldCheck size={16} />
-                {activeActionKey === "manual-punch"
-                  ? "Enregistrement..."
-                  : "Enregistrer le punch"}
-              </span>
-            </PrimaryButton>
-          </div>
-
-          <label className="ui-stack-xs" style={{ marginTop: "var(--ui-space-3)" }}>
-            <span className="ui-eyebrow">Note obligatoire</span>
-            <textarea
-              className="tagora-textarea"
-              value={note}
-              onChange={(event) => setNote(event.target.value)}
-              placeholder="Expliquez la correction ou l intervention direction"
-              style={{ minHeight: 90 }}
-            />
-          </label>
-        </SectionCard>
-        </div>
-
-        <details className="horodateur-direction-secondary-panel">
-          <summary>Statistiques détaillées</summary>
-          <div className="horodateur-direction-secondary-panel-body ui-stack-md">
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "minmax(320px, 1.4fr) repeat(3, minmax(180px, 0.8fr))",
-            gap: "var(--ui-space-4)",
-            alignItems: "stretch",
-          }}
-        >
-          <AppCard
-            className="ui-stack-sm"
-            style={{
-              border: "1px solid rgba(15, 41, 72, 0.08)",
-              background:
-                "linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(247,250,255,0.98) 100%)",
-            }}
-          >
-            <span className="ui-eyebrow">Progression globale equipe</span>
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                gap: 12,
-                alignItems: "baseline",
-              }}
-            >
-              <strong style={{ fontSize: 28 }}>
-                {clampPercentage(globalMetrics.teamProgressPercent)}%
-              </strong>
-              <span className="ui-text-muted">
-                {formatMinutes(globalMetrics.totalWeekWorkedMinutes)} /{" "}
-                {formatMinutes(globalMetrics.totalWeekTargetMinutes)}
-              </span>
-            </div>
-            <div
-              style={{
-                height: 12,
-                borderRadius: 999,
-                background: "rgba(15, 41, 72, 0.08)",
-                overflow: "hidden",
-              }}
-            >
-              <div
-                style={{
-                  width: `${clampPercentage(globalMetrics.teamProgressPercent)}%`,
-                  height: "100%",
-                  background:
-                    globalMetrics.teamProgressPercent > 100 ? "#dc2626" : "#0f2948",
-                  borderRadius: 999,
-                }}
-              />
-            </div>
-          </AppCard>
-
-          <AppCard tone="muted" className="ui-stack-xs">
-            <span className="ui-eyebrow">% employes en quart</span>
-            <strong style={{ fontSize: 28 }}>{globalMetrics.inShiftPercent}%</strong>
-            <span className="ui-text-muted">
-              {globalMetrics.employeesInShift} / {board.length || 0} en quart
-            </span>
-          </AppCard>
-
-          <AppCard tone="muted" className="ui-stack-xs">
-            <span className="ui-eyebrow">Heures totales du jour</span>
-            <strong style={{ fontSize: 28 }}>{formatMinutes(globalMetrics.totalTodayMinutes)}</strong>
-            <span className="ui-text-muted">Temps payable cumule</span>
-          </AppCard>
-
-          <AppCard tone="muted" className="ui-stack-xs">
-            <span className="ui-eyebrow">Exceptions en attente</span>
-            <strong style={{ fontSize: 28 }}>{counts.pending}</strong>
-            <span className="ui-text-muted">Actions direction requises</span>
-          </AppCard>
-        </div>
-
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-            gap: "var(--ui-space-4)",
-          }}
-        >
-          <AppCard tone="muted" className="ui-stack-xs">
-            <span className="ui-eyebrow">Employes suivis</span>
-            <strong style={{ fontSize: 28 }}>{counts.employees}</strong>
-            <span className="ui-text-muted">Supervision active</span>
-          </AppCard>
-          <AppCard tone="muted" className="ui-stack-xs">
-            <span className="ui-eyebrow">En service</span>
-            <strong style={{ fontSize: 28 }}>{counts.active}</strong>
-            <span className="ui-text-muted">Punch principal actif</span>
-          </AppCard>
-          <AppCard tone="muted" className="ui-stack-xs">
-            <span className="ui-eyebrow">Pause / diner</span>
-            <strong style={{ fontSize: 28 }}>{counts.paused}</strong>
-            <span className="ui-text-muted">Etat temporaire</span>
-          </AppCard>
-          <AppCard tone="muted" className="ui-stack-xs">
-            <span className="ui-eyebrow">Exceptions</span>
-            <strong style={{ fontSize: 28 }}>{counts.pending}</strong>
-            <span className="ui-text-muted">En attente d approbation</span>
-          </AppCard>
-        </div>
-          </div>
-        </details>
-
-        <div ref={exceptionsSectionRef} id="horodateur-exceptions-section">
-        <SectionCard
-          title="Exceptions à approuver"
-          subtitle="Décisions horodateur — cas métier, employé et action attendue en un coup d'œil."
-          actions={
-            <TagoraIconBadge tone="blue" size="lg">
-              <ShieldCheck size={24} strokeWidth={2.1} />
-            </TagoraIconBadge>
-          }
-        >
-          {hasExceptions ? (
-            <div className="horo-pending-grid">
-              {exceptions.map((item) => {
-                const display = resolveHorodateurPendingExceptionDisplay(item);
-                if (!display) return null;
-
-                const isRefusing = refusingExceptionId === item.id;
-                const correction = timeCorrectionById[item.id] ?? { main: "", related: "" };
-                const isStaffRetro = isStaffRetroCorrectionException(item);
-                const isAutoMissingPriority =
-                  item.reason_label === MISSING_EXPECTED_PUNCH_PRIORITY_REASON_LABEL;
-                const canReviewException = !isStaffRetro || isAdmin;
-                const isHighlighted =
-                  highlightedExceptionEmployeeId !== null &&
-                  item.employee_id === highlightedExceptionEmployeeId;
-
-                return (
-                  <HorodateurPendingExceptionCard
-                    key={item.id}
-                    item={item}
-                    display={display}
-                    isHighlighted={isHighlighted}
-                    isPriority={isAutoMissingPriority}
-                    isBusy={isBusy}
-                    activeActionKey={activeActionKey}
-                    isRefusing={isRefusing}
-                    canReviewException={canReviewException}
-                    refuseNote={refuseNoteById[item.id] ?? ""}
-                    correction={correction}
-                    formatDateTime={formatDateTime}
-                    formatMinutes={formatMinutes}
-                    onApprove={() => void handleApprove(item.id)}
-                    onStartRefuse={() => handleStartRefuse(item.id)}
-                    onConfirmRefuse={() => void handleConfirmRefuse(item.id)}
-                    onCancelRefuse={handleCancelRefuse}
-                    onRefuseNoteChange={(value) =>
-                      setRefuseNoteById((current) => ({
-                        ...current,
-                        [item.id]: value,
-                      }))
-                    }
-                    onCorrectionChange={(value) =>
-                      setTimeCorrectionById((current) => ({
-                        ...current,
-                        [item.id]: value,
-                      }))
-                    }
-                    onFocusEmployee={focusEmployeeOnLiveBoard}
-                  />
-                );
-              })}
-            </div>
-          ) : (
-            <AppCard tone="muted" className="ui-stack-sm">
-              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                <AlertTriangle size={18} color="#64748b" />
-                <p className="ui-text-muted" style={{ margin: 0 }}>
-                  Aucune exception en attente.
-                </p>
-              </div>
-            </AppCard>
-          )}
-        </SectionCard>
-        </div>
-
         <SectionCard
           className="horodateur-live-section"
-          title="Tableau live"
+          title="Employés actuellement au travail"
           subtitle={
             liveTodayWorkDate
               ? `Supervision du jour (Montréal) · ${liveTodayWorkDate}${
@@ -1805,9 +1537,8 @@ export default function DirectionHorodateurPage() {
               : "Qui travaille maintenant, avec le dernier pointage."
           }
         >
-          {currentlyWorking.length > 0 ? (
-            <div className="horodateur-live-now-block">
-              <h3 className="horodateur-live-now-title">Employés actuellement au travail</h3>
+          <div className="horodateur-live-now-block">
+            {currentlyWorking.length > 0 ? (
               <div className="horodateur-live-now-grid">
                 {currentlyWorking.map((row) => (
                   <button
@@ -1826,12 +1557,12 @@ export default function DirectionHorodateurPage() {
                   </button>
                 ))}
               </div>
-            </div>
-          ) : (
-            <p className="ui-text-muted horodateur-live-now-empty">
-              Personne n’est actuellement en service.
-            </p>
-          )}
+            ) : (
+              <p className="ui-text-muted horodateur-live-now-empty">
+                Personne n’est actuellement en service.
+              </p>
+            )}
+          </div>
           <div className="horodateur-live-toolbar">
             <label className="ui-stack-xs horodateur-live-search">
               <span className="ui-eyebrow">Recherche employé</span>
@@ -2147,6 +1878,279 @@ export default function DirectionHorodateurPage() {
             </AppCard>
           ) : null}
         </SectionCard>
+
+        <div ref={exceptionsSectionRef} id="horodateur-exceptions-section">
+        <SectionCard
+          title="Exceptions à approuver"
+          subtitle="Décisions horodateur — cas métier, employé et action attendue en un coup d'œil."
+          actions={
+            <TagoraIconBadge tone="blue" size="lg">
+              <ShieldCheck size={24} strokeWidth={2.1} />
+            </TagoraIconBadge>
+          }
+        >
+          {hasExceptions ? (
+            <div className="horo-pending-grid">
+              {exceptions.map((item) => {
+                const display = resolveHorodateurPendingExceptionDisplay(item);
+                if (!display) return null;
+
+                const isRefusing = refusingExceptionId === item.id;
+                const correction = timeCorrectionById[item.id] ?? { main: "", related: "" };
+                const isStaffRetro = isStaffRetroCorrectionException(item);
+                const isAutoMissingPriority =
+                  item.reason_label === MISSING_EXPECTED_PUNCH_PRIORITY_REASON_LABEL;
+                const canReviewException = !isStaffRetro || isAdmin;
+                const isHighlighted =
+                  highlightedExceptionEmployeeId !== null &&
+                  item.employee_id === highlightedExceptionEmployeeId;
+
+                return (
+                  <HorodateurPendingExceptionCard
+                    key={item.id}
+                    item={item}
+                    display={display}
+                    isHighlighted={isHighlighted}
+                    isPriority={isAutoMissingPriority}
+                    isBusy={isBusy}
+                    activeActionKey={activeActionKey}
+                    isRefusing={isRefusing}
+                    canReviewException={canReviewException}
+                    refuseNote={refuseNoteById[item.id] ?? ""}
+                    correction={correction}
+                    formatDateTime={formatDateTime}
+                    formatMinutes={formatMinutes}
+                    onApprove={() => void handleApprove(item.id)}
+                    onStartRefuse={() => handleStartRefuse(item.id)}
+                    onConfirmRefuse={() => void handleConfirmRefuse(item.id)}
+                    onCancelRefuse={handleCancelRefuse}
+                    onRefuseNoteChange={(value) =>
+                      setRefuseNoteById((current) => ({
+                        ...current,
+                        [item.id]: value,
+                      }))
+                    }
+                    onCorrectionChange={(value) =>
+                      setTimeCorrectionById((current) => ({
+                        ...current,
+                        [item.id]: value,
+                      }))
+                    }
+                    onFocusEmployee={focusEmployeeOnLiveBoard}
+                  />
+                );
+              })}
+            </div>
+          ) : (
+            <AppCard tone="muted" className="ui-stack-sm">
+              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                <AlertTriangle size={18} color="#64748b" />
+                <p className="ui-text-muted" style={{ margin: 0 }}>
+                  Aucune exception en attente.
+                </p>
+              </div>
+            </AppCard>
+          )}
+        </SectionCard>
+        </div>
+
+        <div ref={punchManualSectionRef} id="horodateur-punch-manuel-section">
+        <details className="horodateur-direction-secondary-panel">
+          <summary>Punch manuel avancé</summary>
+          <div className="horodateur-direction-secondary-panel-body">
+        <SectionCard
+          title="Punch manuel avancé"
+          subtitle="Punch manuel tracé — intervention direction avec note obligatoire."
+          actions={
+            <TagoraIconBadge tone="blue" size="lg">
+              <PenLine size={24} strokeWidth={2.1} />
+            </TagoraIconBadge>
+          }
+        >
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "minmax(220px, 1.2fr) minmax(180px, 0.9fr) auto",
+              gap: "var(--ui-space-3)",
+              alignItems: "end",
+            }}
+          >
+            <label className="ui-stack-xs">
+              <span className="ui-eyebrow">Employe</span>
+              <select
+                className="tagora-input"
+                value={selectedEmployeeId}
+                onChange={(event) => setSelectedEmployeeId(event.target.value)}
+              >
+                <option value="">Selectionner</option>
+                {board.map((row) => (
+                  <option key={row.employeeId} value={row.employeeId}>
+                    {row.fullName || row.email || `#${row.employeeId}`}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="ui-stack-xs">
+              <span className="ui-eyebrow">Action</span>
+              <select
+                className="tagora-input"
+                value={selectedEventType}
+                onChange={(event) =>
+                  setSelectedEventType(
+                    event.target.value as (typeof DIRECTION_EVENT_TYPES)[number]
+                  )
+                }
+              >
+                {DIRECTION_EVENT_TYPES.map((item) => (
+                  <option key={item} value={item}>
+                    {item}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <PrimaryButton
+              onClick={() => void handleManualPunch()}
+              disabled={isBusy || !hasEmployees}
+              style={{ whiteSpace: "nowrap" }}
+            >
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+                <ShieldCheck size={16} />
+                {activeActionKey === "manual-punch"
+                  ? "Enregistrement..."
+                  : "Enregistrer le punch"}
+              </span>
+            </PrimaryButton>
+          </div>
+
+          <label className="ui-stack-xs" style={{ marginTop: "var(--ui-space-3)" }}>
+            <span className="ui-eyebrow">Note obligatoire</span>
+            <textarea
+              className="tagora-textarea"
+              value={note}
+              onChange={(event) => setNote(event.target.value)}
+              placeholder="Expliquez la correction ou l intervention direction"
+              style={{ minHeight: 90 }}
+            />
+          </label>
+        </SectionCard>
+          </div>
+        </details>
+        </div>
+
+        <details className="horodateur-direction-secondary-panel">
+          <summary>Statistiques détaillées</summary>
+          <div className="horodateur-direction-secondary-panel-body ui-stack-md">
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "minmax(320px, 1.4fr) repeat(3, minmax(180px, 0.8fr))",
+            gap: "var(--ui-space-4)",
+            alignItems: "stretch",
+          }}
+        >
+          <AppCard
+            className="ui-stack-sm"
+            style={{
+              border: "1px solid rgba(15, 41, 72, 0.08)",
+              background:
+                "linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(247,250,255,0.98) 100%)",
+            }}
+          >
+            <span className="ui-eyebrow">Progression globale equipe</span>
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                gap: 12,
+                alignItems: "baseline",
+              }}
+            >
+              <strong style={{ fontSize: 28 }}>
+                {clampPercentage(globalMetrics.teamProgressPercent)}%
+              </strong>
+              <span className="ui-text-muted">
+                {formatMinutes(globalMetrics.totalWeekWorkedMinutes)} /{" "}
+                {formatMinutes(globalMetrics.totalWeekTargetMinutes)}
+              </span>
+            </div>
+            <div
+              style={{
+                height: 12,
+                borderRadius: 999,
+                background: "rgba(15, 41, 72, 0.08)",
+                overflow: "hidden",
+              }}
+            >
+              <div
+                style={{
+                  width: `${clampPercentage(globalMetrics.teamProgressPercent)}%`,
+                  height: "100%",
+                  background:
+                    globalMetrics.teamProgressPercent > 100 ? "#dc2626" : "#0f2948",
+                  borderRadius: 999,
+                }}
+              />
+            </div>
+          </AppCard>
+
+          <AppCard tone="muted" className="ui-stack-xs">
+            <span className="ui-eyebrow">% employes en quart</span>
+            <strong style={{ fontSize: 28 }}>{globalMetrics.inShiftPercent}%</strong>
+            <span className="ui-text-muted">
+              {globalMetrics.employeesInShift} / {board.length || 0} en quart
+            </span>
+          </AppCard>
+
+          <AppCard tone="muted" className="ui-stack-xs">
+            <span className="ui-eyebrow">Heures totales du jour</span>
+            <strong style={{ fontSize: 28 }}>{formatMinutes(globalMetrics.totalTodayMinutes)}</strong>
+            <span className="ui-text-muted">Temps payable cumule</span>
+          </AppCard>
+
+          <AppCard tone="muted" className="ui-stack-xs">
+            <span className="ui-eyebrow">Exceptions en attente</span>
+            <strong style={{ fontSize: 28 }}>{counts.pending}</strong>
+            <span className="ui-text-muted">Actions direction requises</span>
+          </AppCard>
+        </div>
+
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+            gap: "var(--ui-space-4)",
+          }}
+        >
+          <AppCard tone="muted" className="ui-stack-xs">
+            <span className="ui-eyebrow">Employes suivis</span>
+            <strong style={{ fontSize: 28 }}>{counts.employees}</strong>
+            <span className="ui-text-muted">Supervision active</span>
+          </AppCard>
+          <AppCard tone="muted" className="ui-stack-xs">
+            <span className="ui-eyebrow">En service</span>
+            <strong style={{ fontSize: 28 }}>{counts.active}</strong>
+            <span className="ui-text-muted">Punch principal actif</span>
+          </AppCard>
+          <AppCard tone="muted" className="ui-stack-xs">
+            <span className="ui-eyebrow">Pause / diner</span>
+            <strong style={{ fontSize: 28 }}>{counts.paused}</strong>
+            <span className="ui-text-muted">Etat temporaire</span>
+          </AppCard>
+          <AppCard tone="muted" className="ui-stack-xs">
+            <span className="ui-eyebrow">Exceptions</span>
+            <strong style={{ fontSize: 28 }}>{counts.pending}</strong>
+            <span className="ui-text-muted">En attente d approbation</span>
+          </AppCard>
+        </div>
+          </div>
+        </details>
+
+        <HorodateurDirectionPrimaryActions
+          onRetroCorrection={() => openRetroCorrectionModal()}
+          retroDisabled={isBusy}
+          current="live"
+        />
 
         <details className="horodateur-direction-secondary-panel">
           <summary>Configuration des alertes</summary>

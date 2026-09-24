@@ -217,6 +217,12 @@ describe("HORORA punch visibility + alert dedup", () => {
     );
     expect(live).toContain("Employés actuellement au travail");
     expect(live).toContain("Recherche employé");
+    expect(live.indexOf("Employés actuellement au travail")).toBeLessThan(
+      live.indexOf("Punch manuel avancé")
+    );
+    expect(live.indexOf("Employés actuellement au travail")).toBeLessThan(
+      live.indexOf("Exceptions à approuver")
+    );
     expect(live).toContain("fetchHororaNexusSession");
     expect(live).not.toContain("supabase.auth.getSession");
     expect(liveRoute).toContain("lastSyncedAt");
@@ -227,6 +233,7 @@ describe("HORORA punch visibility + alert dedup", () => {
     expect(punchRoute).toContain("isPunchConfirmedByServerReread");
     expect(service).toContain("isDuplicatePunchWithinWindow");
     expect(service).toContain("hasCalendarDayOpenPunch");
+    expect(service).toContain("isCalendarDayPunchIn");
     expect(service).toContain("normal_punch_not_urgent");
     expect(service).toContain("notifyHorodateurLatenessDigest");
     expect(hook).toContain("if (submitLockRef.current)");

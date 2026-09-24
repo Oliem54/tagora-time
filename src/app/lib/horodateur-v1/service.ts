@@ -97,6 +97,7 @@ import {
   findActivePendingPunchOutFromEvents,
   formatPendingPunchOutSubmittedMessage,
   hasCalendarDayOpenPunch,
+  isCalendarDayPunchIn,
   resolveActiveOpenShiftWorkDate,
   resolveOperationalWorkDate,
 } from "./operational-state.shared";
@@ -4278,7 +4279,15 @@ export async function listDirectionLiveBoard(options?: {
         weeklyTargetMinutes: weeklyProjection.targetMinutes,
         projectedOverflowMinutes: weeklyProjection.projectedOverflowMinutes,
         hasOpenException: resolvedCurrentState.has_open_exception ?? false,
-        shiftStartAt: resolvedTodayShift.shift_start_at ?? null,
+        shiftStartAt:
+          resolvedTodayShift.shift_start_at ??
+          getEventOccurredAt(
+            sortHorodateurEventsByOccurredAt(
+              eventsToday.filter((event) => isCalendarDayPunchIn(event, today))
+            )[0]
+          ) ??
+          resolvedCurrentState.last_event_at ??
+          null,
       };
     })
   );
