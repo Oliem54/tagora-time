@@ -24,6 +24,19 @@ describe("Nexus callback logging and deny UX", () => {
     ).toBe(true);
   });
 
+  it("classifies Production host refusal without leaking the URL", () => {
+    expect(
+      sanitizeMappingStoreError(
+        new Error("Production HORORA refused unknown Supabase host")
+      )
+    ).toBe("supabase_host_not_production");
+    expect(
+      isMappingStoreUnavailableError(
+        new Error("Production HORORA refused unknown Supabase host")
+      )
+    ).toBe(true);
+  });
+
   it("maps mapping_unavailable to a distinct public deny reason", () => {
     expect(publicNexusCallbackDenyReason("mapping_unavailable")).toBe(
       "mapping_unavailable"
@@ -37,6 +50,9 @@ describe("Nexus callback logging and deny UX", () => {
       })
     ).toBe("https://tagora-nexus-staging.vercel.app/modules");
     expect(resolveNexusDeniedReturnUrl({})).toBe(NEXUS_STAGING_PORTAL_MODULES_URL);
+    expect(resolveNexusDeniedReturnUrl({ VERCEL_ENV: "production" })).toBe(
+      "https://app.tagora.ca/modules"
+    );
     expect(
       resolveNexusPortalReturnUrl({
         NEXUS_PORTAL_RETURN_URL: "https://tagora-nexus-staging.vercel.app/modules",

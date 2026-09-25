@@ -35,6 +35,12 @@ export function sanitizeMappingStoreError(error: unknown): string {
   if (message.includes("jwt") || message.includes("invalid api key")) {
     return "supabase_auth_config_error";
   }
+  if (
+    message.includes("refused unknown supabase host") ||
+    message.includes("refused staging supabase")
+  ) {
+    return "supabase_host_not_production";
+  }
   return "mapping_store_error";
 }
 
@@ -48,7 +54,8 @@ export function isMappingStoreUnavailableError(error: unknown): boolean {
     code === "mapping_permission_denied" ||
     code === "supabase_auth_config_error" ||
     code === "supabase_url_missing" ||
-    code === "supabase_service_role_missing"
+    code === "supabase_service_role_missing" ||
+    code === "supabase_host_not_production"
   );
 }
 

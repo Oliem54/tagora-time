@@ -275,5 +275,8 @@ export function resolveNexusDeniedReturnUrl(
 ): string {
   const portal = resolveNexusPortalReturnUrl(env);
   if (portal.ok) return portal.url;
+  if (env.VERCEL_ENV === "production") {
+    return NEXUS_PRODUCTION_PORTAL_MODULES_URL;
+  }
   return NEXUS_STAGING_PORTAL_MODULES_URL;
 }

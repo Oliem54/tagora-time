@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import { resolveHororaRuntimeSupabaseUrl } from "@/app/lib/supabase/supabase-host.shared";
 
 /** CRLF / espaces dans .env.local peuvent corrompre l’URL → Failed to fetch. */
 function trimEnv(value: string | undefined): string {
@@ -42,7 +43,9 @@ function installDevSupabaseRefreshTokenConsoleFilter() {
 
 installDevSupabaseRefreshTokenConsoleFilter();
 
-const supabaseUrl = trimEnv(process.env.NEXT_PUBLIC_SUPABASE_URL);
+const supabaseUrl = resolveHororaRuntimeSupabaseUrl(
+  trimEnv(process.env.NEXT_PUBLIC_SUPABASE_URL)
+);
 const anonKey = trimEnv(process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY);
 const publishableKey = trimEnv(process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY);
 /** Priorité : ANON, sinon publishable (fallback). */
