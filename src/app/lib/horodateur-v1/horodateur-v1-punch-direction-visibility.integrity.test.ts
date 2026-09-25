@@ -12,6 +12,7 @@ import {
   isUrgentHorodateurIncident,
   shouldGrandfatherHistoricalAlert,
   shouldSendHorodateurChannel,
+  shouldSkipPreCutoverMonitoring,
 } from "@/app/lib/horodateur-v1/horodateur-alert-dedup.shared";
 import {
   employeePunchSuccessMessage,
@@ -205,6 +206,25 @@ describe("HORORA punch visibility + alert dedup", () => {
     ).toBe(false);
   });
 
+  it("skips monitoring before the operational cutover timestamp", () => {
+    expect(
+      shouldSkipPreCutoverMonitoring({
+        incidentWorkDate: "2026-09-24",
+        incidentAtIso: "2026-09-24T08:00:00-04:00",
+        cutoverAtIso: "2026-09-24T19:45:00-04:00",
+        cutoverWorkDate: "2026-09-24",
+      })
+    ).toBe(true);
+    expect(
+      shouldSkipPreCutoverMonitoring({
+        incidentWorkDate: "2026-09-25",
+        incidentAtIso: "2026-09-25T08:00:00-04:00",
+        cutoverAtIso: "2026-09-24T19:45:00-04:00",
+        cutoverWorkDate: "2026-09-24",
+      })
+    ).toBe(false);
+  });
+
   it("keeps Direction live, registre, punch confirm and Nexus wiring", () => {
     const live = read("src/app/direction/horodateur/DirectionHorodateurClient.tsx");
     const liveRoute = read("src/app/api/direction/horodateur/live/route.ts");
@@ -235,7 +255,8 @@ describe("HORORA punch visibility + alert dedup", () => {
     expect(service).toContain("hasCalendarDayOpenPunch");
     expect(service).toContain("isCalendarDayPunchIn");
     expect(service).toContain("normal_punch_not_urgent");
-    expect(service).toContain("notifyHorodateurLatenessDigest");
+    expect(service).toContain("shouldSkipPreCutoverMonitoring");
+    expect(service).toContain("horodateur_operational_cutover_at");
     expect(hook).toContain("if (submitLockRef.current)");
     expect(hook).toContain("payload?.confirmed === true");
     expect(registre).toContain("employeeSearch");

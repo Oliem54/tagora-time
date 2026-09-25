@@ -105,6 +105,7 @@ import {
   isUrgentHorodateurIncident,
   shouldGrandfatherHistoricalAlert,
   shouldSendHorodateurChannel,
+  shouldSkipPreCutoverMonitoring,
 } from "./horodateur-alert-dedup.shared";
 import { isDuplicatePunchWithinWindow } from "./punch-confirmation.shared";
 import {
@@ -1023,6 +1024,42 @@ function tryCreateAdminClient(): SupabaseClient | null {
   }
 }
 
+const operationalCutoverCache = new Map<
+  string,
+  { cutoverAtIso: string | null; cutoverWorkDate: string | null }
+>();
+
+async function getOperationalCutover(organizationId: string | null | undefined) {
+  const org = organizationId?.trim() || "";
+  if (!org) {
+    return { cutoverAtIso: null, cutoverWorkDate: null };
+  }
+  const cached = operationalCutoverCache.get(org);
+  if (cached) {
+    return cached;
+  }
+  const admin = tryCreateAdminClient();
+  if (!admin) {
+    return { cutoverAtIso: null, cutoverWorkDate: null };
+  }
+  const { data } = await admin
+    .from("organization_settings")
+    .select("operational_policies")
+    .eq("organization_id", org)
+    .maybeSingle();
+  const policies = data?.operational_policies as
+    | { horodateur_operational_cutover_at?: unknown }
+    | null;
+  const raw = policies?.horodateur_operational_cutover_at;
+  const cutoverAtIso = typeof raw === "string" && raw.trim() ? raw.trim() : null;
+  const result = {
+    cutoverAtIso,
+    cutoverWorkDate: cutoverAtIso ? getLocalWorkDate(cutoverAtIso) : null,
+  };
+  operationalCutoverCache.set(org, result);
+  return result;
+}
+
 async function notifyDirectionOfPendingException(options: {
   employee: HorodateurPhase1EmployeeProfile;
   exception: HorodateurPhase1ExceptionRecord;
@@ -1070,10 +1107,17 @@ async function notifyDirectionOfPendingException(options: {
       getLocalWorkDate(
         getEventOccurredAt(options.event) ?? options.exception.requested_at
       );
+    const cutover = await getOperationalCutover(options.employee.organizationId);
     if (
       shouldGrandfatherHistoricalAlert({
         incidentWorkDate: exceptionWorkDate,
         todayWorkDate: getLocalWorkDate(new Date().toISOString()),
+      }) ||
+      shouldSkipPreCutoverMonitoring({
+        incidentWorkDate: exceptionWorkDate,
+        incidentAtIso: getEventOccurredAt(options.event) ?? options.exception.requested_at,
+        cutoverAtIso: cutover.cutoverAtIso,
+        cutoverWorkDate: cutover.cutoverWorkDate,
       })
     ) {
       return updateExceptionNotificationStatus({
@@ -1217,10 +1261,19 @@ export async function processPendingExceptionReminders() {
       (item.event?.occurredAt
         ? getLocalWorkDate(item.event.occurredAt)
         : getLocalWorkDate(item.requested_at));
+    const cutover = await getOperationalCutover(
+      item.organization_id ?? item.employee?.organizationId
+    );
     if (
       shouldGrandfatherHistoricalAlert({
         incidentWorkDate,
         todayWorkDate,
+      }) ||
+      shouldSkipPreCutoverMonitoring({
+        incidentWorkDate,
+        incidentAtIso: item.event?.occurredAt ?? item.requested_at,
+        cutoverAtIso: cutover.cutoverAtIso,
+        cutoverWorkDate: cutover.cutoverWorkDate,
       })
     ) {
       if (
@@ -1685,6 +1738,19 @@ export async function processLateEmployeeNotifications() {
       continue;
     }
 
+    const cutover = await getOperationalCutover(employee.organizationId);
+    const scheduledStartAt = buildTorontoTimestamp(workDate, scheduleContext.shiftStart, now);
+    if (
+      shouldSkipPreCutoverMonitoring({
+        incidentWorkDate: workDate,
+        incidentAtIso: scheduledStartAt,
+        cutoverAtIso: cutover.cutoverAtIso,
+        cutoverWorkDate: cutover.cutoverWorkDate,
+      })
+    ) {
+      continue;
+    }
+
     const scheduledStartMinutes = getScheduledStartMinutes(scheduleContext.shiftStart);
 
     if (scheduledStartMinutes == null) {
@@ -1729,7 +1795,6 @@ export async function processLateEmployeeNotifications() {
       continue;
     }
 
-    const scheduledStartAt = buildTorontoTimestamp(workDate, scheduleContext.shiftStart, now);
     const lateDetectedAt = now.toISOString();
     const notification =
       existingNotification ??
@@ -1920,6 +1985,18 @@ export async function processExpectedPunchSmsNotifications(options?: {
     ]);
 
     for (const expected of expectedItems) {
+      const cutover = await getOperationalCutover(employee.organizationId);
+      if (
+        shouldSkipPreCutoverMonitoring({
+          incidentWorkDate: workDate,
+          incidentAtIso: buildTorontoTimestamp(workDate, expected.scheduledLabel, now),
+          cutoverAtIso: cutover.cutoverAtIso,
+          cutoverWorkDate: cutover.cutoverWorkDate,
+        })
+      ) {
+        continue;
+      }
+
       const delayMinutes = resolveExpectedPunchDelayMinutes(expected.eventType, escalation);
 
       if (currentMinutes < expected.scheduledMinutes + delayMinutes) {
@@ -2212,6 +2289,25 @@ export async function processMissingExpectedPunchEscalation() {
     const latenessNotification = await getLatenessNotification(employee.employeeId, workDate);
 
     for (const expected of expectedItems) {
+      const cutover = await getOperationalCutover(employee.organizationId);
+      const expectedAt = buildTorontoTimestamp(workDate, expected.scheduledLabel, now);
+      if (
+        shouldSkipPreCutoverMonitoring({
+          incidentWorkDate: workDate,
+          incidentAtIso: expectedAt,
+          cutoverAtIso: cutover.cutoverAtIso,
+          cutoverWorkDate: cutover.cutoverWorkDate,
+        })
+      ) {
+        processed.push({
+          employeeId: employee.employeeId,
+          eventType: expected.eventType,
+          phase: "skipped",
+          reason: "before_operational_cutover",
+        });
+        continue;
+      }
+
       const minutesSinceScheduled = currentMinutes - expected.scheduledMinutes;
       const exceptionThresholdMinutes = resolveAutoMissingExceptionThresholdMinutes(
         expected.eventType,

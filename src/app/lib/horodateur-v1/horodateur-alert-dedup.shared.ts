@@ -61,6 +61,39 @@ export function shouldGrandfatherHistoricalAlert(input: {
   return incident < input.todayWorkDate;
 }
 
+export function shouldSkipPreCutoverMonitoring(input: {
+  incidentWorkDate: string | null;
+  incidentAtIso?: string | null;
+  cutoverAtIso: string | null;
+  cutoverWorkDate: string | null;
+}): boolean {
+  const cutoverAt = input.cutoverAtIso?.trim() || null;
+  const cutoverWorkDate = input.cutoverWorkDate?.trim() || null;
+  if (!cutoverAt || !cutoverWorkDate) {
+    return false;
+  }
+  const incidentDate = input.incidentWorkDate?.trim() || null;
+  if (!incidentDate) {
+    return true;
+  }
+  if (incidentDate < cutoverWorkDate) {
+    return true;
+  }
+  if (incidentDate > cutoverWorkDate) {
+    return false;
+  }
+  const incidentAt = input.incidentAtIso?.trim() || null;
+  if (!incidentAt) {
+    return true;
+  }
+  const incidentMs = Date.parse(incidentAt);
+  const cutoverMs = Date.parse(cutoverAt);
+  if (!Number.isFinite(incidentMs) || !Number.isFinite(cutoverMs)) {
+    return true;
+  }
+  return incidentMs < cutoverMs;
+}
+
 export function shouldSendHorodateurChannel(input: {
   channel: HorodateurAlertChannel;
   urgent: boolean;
