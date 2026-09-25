@@ -100,11 +100,13 @@ describe("hasUserPermission effective H4 role", () => {
     expect(hasUserPermission(bare, "terrain", null)).toBe(false);
   });
 
-  it("keeps admin_finance on JWT admin only even for H4 admin", () => {
+  it("grants admin_finance to Nexus/H4 admin without a JWT admin claim", () => {
     const h4Only = makeUser({ jwtRole: "none", permissions: [] });
     const jwtAdmin = makeUser({ jwtRole: "admin", permissions: [] });
-    expect(hasUserPermission(h4Only, "admin_finance", "admin")).toBe(false);
+    expect(hasUserPermission(h4Only, "admin_finance", "admin")).toBe(true);
     expect(hasUserPermission(jwtAdmin, "admin_finance", "admin")).toBe(true);
+    expect(hasUserPermission(h4Only, "admin_finance", "direction")).toBe(false);
+    expect(hasUserPermission(h4Only, "admin_finance", "employe")).toBe(false);
   });
 
   it("preserves legacy JWT admin bypass when effectiveRole is omitted", () => {

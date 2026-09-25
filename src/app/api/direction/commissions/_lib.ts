@@ -70,7 +70,7 @@ export async function requireCommissionsAccess(req: NextRequest) {
 export async function requireAdminFinanceCommissionsAccess(req: NextRequest) {
   const auth = await requireCommissionsAccess(req);
   if (!auth.ok) return auth;
-  if (!hasAdminFinanceAccess(auth.user)) {
+  if (!hasAdminFinanceAccess(auth.user, auth.role)) {
     return {
       ok: false as const,
       response: NextResponse.json(

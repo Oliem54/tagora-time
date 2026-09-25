@@ -182,7 +182,9 @@ function formatDateTime(value: string | null | undefined) {
     return "-";
   }
 
-  return new Date(value).toLocaleString("fr-CA");
+  return new Date(value).toLocaleString("fr-CA", {
+    timeZone: "America/Montreal",
+  });
 }
 
 function formatShortDateTime(value: string | null | undefined) {
@@ -196,6 +198,7 @@ function formatShortDateTime(value: string | null | undefined) {
   }
 
   return date.toLocaleString("fr-CA", {
+    timeZone: "America/Montreal",
     day: "numeric",
     month: "short",
     hour: "2-digit",
@@ -1532,7 +1535,9 @@ export default function DirectionHorodateurPage() {
           subtitle={
             liveTodayWorkDate
               ? `Supervision du jour (Montréal) · ${liveTodayWorkDate}${
-                  lastSyncedAt ? ` · sync ${formatShortDateTime(lastSyncedAt)}` : ""
+                  lastSyncedAt
+                    ? ` · dernière sync Montréal ${formatShortDateTime(lastSyncedAt)}`
+                    : ""
                 }`
               : "Qui travaille maintenant, avec le dernier pointage."
           }
@@ -1554,6 +1559,9 @@ export default function DirectionHorodateurPage() {
                       entrée {formatShortDateTime(row.startedAt ?? row.lastEventAt)}
                     </span>
                     <span>{getCompanyLabel(row.primaryCompany)}</span>
+                    {liveRowNeedsAttention(row) ? (
+                      <span>Anomalie à vérifier</span>
+                    ) : null}
                   </button>
                 ))}
               </div>

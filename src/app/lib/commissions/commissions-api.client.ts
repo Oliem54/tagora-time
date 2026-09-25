@@ -1,15 +1,10 @@
-import { supabase } from "@/app/lib/supabase/client";
+import { hororaNexusSessionRequestInit } from "@/app/lib/auth/horora-nexus-session.client";
 
 export async function commissionsFetch(input: string, init?: RequestInit) {
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
-  const headers = new Headers(init?.headers ?? {});
-  if (session?.access_token) {
-    headers.set("Authorization", `Bearer ${session.access_token}`);
-  }
+  const nexusInit = hororaNexusSessionRequestInit(init);
+  const headers = new Headers(nexusInit.headers);
   if (init?.body && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");
   }
-  return fetch(input, { ...init, headers, cache: "no-store" });
+  return fetch(input, { ...nexusInit, headers });
 }

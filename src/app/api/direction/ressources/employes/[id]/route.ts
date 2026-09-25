@@ -226,7 +226,7 @@ export async function GET(
       return jsonError(404, "Employé introuvable.");
     }
 
-    const canManageConfidentialFinance = hasAdminFinanceAccess(user);
+    const canManageConfidentialFinance = hasAdminFinanceAccess(user, role);
     const profile = buildEmployeeProfileApiResponse(
       data as Record<string, unknown>,
       canManageConfidentialFinance
@@ -323,7 +323,7 @@ export async function PATCH(
     }
 
     let updatePayload = stripReadOnlyKeys(body);
-    const canManageConfidentialFinance = hasAdminFinanceAccess(user);
+    const canManageConfidentialFinance = hasAdminFinanceAccess(user, role);
     if (!canManageConfidentialFinance) {
       updatePayload = stripConfidentialFinanceFields(updatePayload);
     }

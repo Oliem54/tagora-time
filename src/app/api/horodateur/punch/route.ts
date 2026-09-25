@@ -38,9 +38,13 @@ function buildPunchApiResponse(
   result: Awaited<ReturnType<typeof createEmployeePunch>>,
   snapshot: Awaited<ReturnType<typeof getEmployeeDashboardSnapshotByAuthUserId>>
 ) {
+  const snapshotState = snapshot.currentState.current_state ?? null;
+  const insertedCanonical = toCanonicalEventType(result.event.event_type);
   const confirmed = isPunchConfirmedByServerReread({
     insertedEventId: result.event.id,
     lastEventId: snapshot.currentState.last_event_id ?? null,
+    currentState: snapshotState,
+    requireCurrentlyWorking: insertedCanonical === "punch_in",
   });
   return {
     success: confirmed,

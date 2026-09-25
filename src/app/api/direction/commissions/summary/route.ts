@@ -20,11 +20,11 @@ export async function GET(req: NextRequest) {
   try {
     const auth = await requireCommissionsAccess(req);
     if (!auth.ok) return auth.response;
-    const { supabase, user } = auth;
+    const { supabase, user, role } = auth;
 
     const todayIso = todayIsoLocal();
 
-    if (hasAdminFinanceAccess(user)) {
+    if (hasAdminFinanceAccess(user, role)) {
       const [objectivesRes, entriesRes] = await Promise.all([
         supabase
           .from("sales_objectives")

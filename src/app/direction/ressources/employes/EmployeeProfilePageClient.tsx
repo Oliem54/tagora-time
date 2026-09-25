@@ -136,7 +136,7 @@ export default function EmployeeProfilePageClient({
   const router = useRouter();
   const { user, role: viewerRole, loading: accessLoading, hasPermission } =
     useCurrentAccess();
-  const canManageConfidentialFinance = hasAdminFinanceAccess(user);
+  const canManageConfidentialFinance = hasAdminFinanceAccess(user, viewerRole);
   const canEditEffectifs =
     viewerRole === "direction" || viewerRole === "admin";
   const canOpenRegistreFromProfile =

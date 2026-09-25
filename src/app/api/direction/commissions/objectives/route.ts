@@ -50,10 +50,10 @@ export async function GET(req: NextRequest) {
   try {
     const auth = await requireCommissionsAccess(req);
     if (!auth.ok) return auth.response;
-    const { supabase, user } = auth;
+    const { supabase, user, role } = auth;
     const todayIso = todayIsoLocal();
 
-    if (hasAdminFinanceAccess(user)) {
+    if (hasAdminFinanceAccess(user, role)) {
       const { data, error } = await supabase
         .from("sales_objectives")
         .select("*")

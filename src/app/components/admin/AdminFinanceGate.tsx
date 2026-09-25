@@ -28,7 +28,7 @@ export default function AdminFinanceGate({ children, moduleLabel }: AdminFinance
     );
   }
 
-  if (!user || !hasAdminFinanceAccess(user)) {
+  if (!user || !hasAdminFinanceAccess(user, role)) {
     const home = role ? getHomePathForRole(role) : "/direction/login";
     return (
       <div className="page-container">

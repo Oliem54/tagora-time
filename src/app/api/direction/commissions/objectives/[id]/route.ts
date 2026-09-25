@@ -73,10 +73,10 @@ export async function GET(
   try {
     const auth = await requireCommissionsAccess(req);
     if (!auth.ok) return auth.response;
-    const { supabase, user } = auth;
+    const { supabase, user, role } = auth;
     const { id } = await params;
 
-    if (hasAdminFinanceAccess(user)) {
+    if (hasAdminFinanceAccess(user, role)) {
       const todayIso = todayIsoLocal();
       const objectiveRes = await supabase
         .from("sales_objectives")

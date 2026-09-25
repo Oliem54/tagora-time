@@ -1,3 +1,5 @@
+import { isCurrentlyWorkingState } from "@/app/lib/employee-punch-status.shared";
+
 export const HORODATEUR_PUNCH_IDEMPOTENCY_WINDOW_MS = 90_000;
 
 export function isDuplicatePunchWithinWindow(input: {
@@ -20,10 +22,18 @@ export function isDuplicatePunchWithinWindow(input: {
 export function isPunchConfirmedByServerReread(input: {
   insertedEventId: string | null | undefined;
   lastEventId: string | null | undefined;
+  currentState?: string | null;
+  requireCurrentlyWorking?: boolean;
 }): boolean {
   const inserted = input.insertedEventId?.trim() || null;
   const last = input.lastEventId?.trim() || null;
-  return Boolean(inserted && last && inserted === last);
+  if (!inserted || !last || inserted !== last) {
+    return false;
+  }
+  if (input.requireCurrentlyWorking === true) {
+    return isCurrentlyWorkingState(input.currentState);
+  }
+  return true;
 }
 
 export function employeePunchSuccessMessage(input: {

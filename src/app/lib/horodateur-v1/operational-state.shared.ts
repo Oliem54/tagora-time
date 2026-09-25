@@ -109,6 +109,62 @@ export function hasCalendarDayOpenPunch(input: {
   );
 }
 
+export function isOperationalQuarterActive(
+  state: HorodateurPhase1StateKind | null | undefined
+): boolean {
+  return state === "en_quart" || state === "en_pause" || state === "en_diner";
+}
+
+export function selectCalendarDayStateEvents(
+  approvedEvents: HorodateurPhase1EventRecord[],
+  pendingOperationalEvents: HorodateurPhase1EventRecord[],
+  calendarWorkDate: string
+): HorodateurPhase1EventRecord[] {
+  const approvedToday = approvedEvents.filter(
+    (event) => eventWorkDate(event) === calendarWorkDate
+  );
+  return buildOperationalStateEvents(
+    approvedToday,
+    pendingOperationalEvents,
+    calendarWorkDate
+  );
+}
+
+/**
+ * Live / employee operational state prefers the calendar-day timeline so a
+ * historical open shift (ex. 4 juin) cannot hide or replace today's punch.
+ */
+export function resolveLivePreferredOperationalState(options: {
+  approvedEvents: HorodateurPhase1EventRecord[];
+  pendingOperationalEvents: HorodateurPhase1EventRecord[];
+  calendarWorkDate: string;
+  ignorePaidBreakPunches?: boolean;
+}): HorodateurOperationalStateResult {
+  const ignorePaidBreakPunches = options.ignorePaidBreakPunches ?? false;
+  const calendarState = computeStateFromEventTimeline(
+    selectCalendarDayStateEvents(
+      options.approvedEvents,
+      options.pendingOperationalEvents,
+      options.calendarWorkDate
+    ),
+    { ignorePaidBreakPunches }
+  );
+  if (
+    isOperationalQuarterActive(calendarState.currentState) ||
+    calendarState.currentState === "termine"
+  ) {
+    return calendarState;
+  }
+  return computeStateFromEventTimeline(
+    buildOperationalStateEvents(
+      options.approvedEvents,
+      options.pendingOperationalEvents,
+      options.calendarWorkDate
+    ),
+    { ignorePaidBreakPunches }
+  );
+}
+
 export type HorodateurOperationalStateResult = {
   currentState: HorodateurPhase1StateKind;
   activeShiftStartEventId: string | null;

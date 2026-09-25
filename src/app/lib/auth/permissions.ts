@@ -232,7 +232,7 @@ function resolveEffectiveRoleForPermission(
  *
  * When omitted, prefers a role bound via `bindEffectiveAppRole` (set by
  * getAuthenticatedRequestUser). Otherwise legacy JWT `role===admin` bypass.
- * Finance (`admin_finance`) stays JWT-admin only.
+ * Finance (`admin_finance`) follows Nexus / H4 admin or JWT admin.
  */
 export function hasUserPermission(
   user: User | null | undefined,
@@ -240,7 +240,15 @@ export function hasUserPermission(
   effectiveRole?: AppRole | null
 ) {
   if (permission === ADMIN_FINANCE_PERMISSION) {
-    return hasAdminFinanceAccess(user);
+    const financeResolved = resolveEffectiveRoleForPermission(
+      user,
+      effectiveRole,
+      arguments.length >= 3
+    );
+    return hasAdminFinanceAccess(
+      user,
+      financeResolved.mode === "legacy" ? undefined : financeResolved.role
+    );
   }
 
   if (isHorodateurPayrollPermission(permission)) {

@@ -47,6 +47,68 @@ function safeDateOrder(a: string, b: string) {
   return a.localeCompare(b);
 }
 
+function mergeRecordsById<T extends { id?: string | null }>(
+  primary: T[],
+  extra: T[]
+): T[] {
+  const byId = new Map<string, T>();
+  for (const item of [...primary, ...extra]) {
+    const id = item?.id?.trim();
+    if (!id || byId.has(id)) continue;
+    byId.set(id, item);
+  }
+  return [...byId.values()];
+}
+
+async function listRegistreEventsIncludingUnscopedTenantEvents(options: {
+  startDate: string;
+  endDate: string;
+  employeeIds?: number[];
+  organizationId: string;
+}) {
+  const orgScoped = await listHorodateurEventsInWorkDateRange({
+    startWorkDate: options.startDate,
+    endWorkDate: options.endDate,
+    employeeIds: options.employeeIds,
+    organizationId: options.organizationId,
+  });
+  if (!options.employeeIds?.length) {
+    return orgScoped;
+  }
+  const employeeScoped = await listHorodateurEventsInWorkDateRange({
+    startWorkDate: options.startDate,
+    endWorkDate: options.endDate,
+    employeeIds: options.employeeIds,
+  });
+  return mergeRecordsById(orgScoped, employeeScoped);
+}
+
+async function listRegistreShiftsIncludingUnscopedTenantShifts(options: {
+  startDate: string;
+  endDate: string;
+  employeeId?: number | null;
+  organizationId: string;
+  companyContext: AccountRequestCompany | null;
+}) {
+  const orgScoped = await listShiftsInWorkDateRange({
+    startWorkDate: options.startDate,
+    endWorkDate: options.endDate,
+    employeeId: options.employeeId ?? undefined,
+    organizationId: options.organizationId,
+    companyContext: options.companyContext,
+  });
+  if (typeof options.employeeId !== "number" || options.employeeId <= 0) {
+    return orgScoped;
+  }
+  const employeeScoped = await listShiftsInWorkDateRange({
+    startWorkDate: options.startDate,
+    endWorkDate: options.endDate,
+    employeeId: options.employeeId,
+    companyContext: options.companyContext,
+  });
+  return mergeRecordsById(orgScoped, employeeScoped);
+}
+
 function exceptionWorkDate(
   ex: HorodateurPhase1ExceptionRecord & {
     source_event?: { work_date?: string } | Array<{ work_date?: string }>;
@@ -196,21 +258,25 @@ export async function buildHorodateurRegistre(options: {
       ? null
       : options.company;
 
-  let shifts = await listShiftsInWorkDateRange({
-    startWorkDate: start,
-    endWorkDate: end,
-    employeeId: options.employeeId ?? undefined,
+  const scopedEmployeeIds =
+    typeof options.employeeId === "number" && options.employeeId > 0
+      ? [options.employeeId]
+      : (await listActiveEmployees({ organizationId: options.organizationId })).map(
+          (employee) => employee.employeeId
+        );
+
+  let shifts = await listRegistreShiftsIncludingUnscopedTenantShifts({
+    startDate: start,
+    endDate: end,
+    employeeId: options.employeeId ?? null,
     organizationId: options.organizationId,
     companyContext: companyContextForQuery,
   });
 
-  let eventsAll = await listHorodateurEventsInWorkDateRange({
-    startWorkDate: start,
-    endWorkDate: end,
-    employeeIds:
-      typeof options.employeeId === "number" && options.employeeId > 0
-        ? [options.employeeId]
-        : undefined,
+  let eventsAll = await listRegistreEventsIncludingUnscopedTenantEvents({
+    startDate: start,
+    endDate: end,
+    employeeIds: scopedEmployeeIds,
     organizationId: options.organizationId,
   });
   if (companyContextForQuery) {
@@ -537,17 +603,17 @@ export async function buildHorodateurRegistreEmployeeDetail(options: {
     };
   }
 
-  const shifts = await listShiftsInWorkDateRange({
-    startWorkDate: options.startDate,
-    endWorkDate: options.endDate,
+  const shifts = await listRegistreShiftsIncludingUnscopedTenantShifts({
+    startDate: options.startDate,
+    endDate: options.endDate,
     employeeId: options.employeeId,
     organizationId: options.organizationId,
     companyContext: null,
   });
 
-  const rawEvents = await listHorodateurEventsInWorkDateRange({
-    startWorkDate: options.startDate,
-    endWorkDate: options.endDate,
+  const rawEvents = await listRegistreEventsIncludingUnscopedTenantEvents({
+    startDate: options.startDate,
+    endDate: options.endDate,
     employeeIds: [options.employeeId],
     organizationId: options.organizationId,
   });

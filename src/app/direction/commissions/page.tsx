@@ -35,9 +35,9 @@ function bookDisplayName(book: DirectionSalesBook) {
 }
 
 export default function DirectionCommissionsPage() {
-  const { user, loading: accessLoading, hasPermission } = useCurrentAccess();
+  const { user, role, loading: accessLoading, hasPermission } = useCurrentAccess();
   const canUseCommissions = hasPermission("commissions");
-  const isAdminViewer = hasAdminFinanceAccess(user);
+  const isAdminViewer = hasAdminFinanceAccess(user, role);
 
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");

@@ -5,7 +5,7 @@ import { isOrganizationMembershipRole } from "@/app/lib/saas/tenant-foundation.s
 /**
  * Maps H4 organization_memberships.role → legacy AppRole used by AuthGate / APIs.
  * organization_owner and organization_admin both map to shell `admin`.
- * Finance remains gated separately via JWT admin (hasAdminFinanceAccess).
+ * Finance follows Nexus / H4 admin or JWT admin (hasAdminFinanceAccess).
  */
 export function mapOrganizationMembershipRoleToAppRole(
   role: string | null | undefined

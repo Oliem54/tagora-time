@@ -21,6 +21,7 @@ import {
 } from "@/app/lib/horodateur-v1/punch-confirmation.shared";
 import {
   hasCalendarDayOpenPunch,
+  resolveLivePreferredOperationalState,
   resolveOperationalWorkDate,
 } from "@/app/lib/horodateur-v1/operational-state.shared";
 import { getLocalWorkDate } from "@/app/lib/horodateur-v1/rules";
@@ -76,6 +77,22 @@ describe("HORORA punch visibility + alert dedup", () => {
         lastEventId: "evt-june",
       })
     ).toBe(false);
+    expect(
+      isPunchConfirmedByServerReread({
+        insertedEventId: "evt-24",
+        lastEventId: "evt-24",
+        currentState: "hors_quart",
+        requireCurrentlyWorking: true,
+      })
+    ).toBe(false);
+    expect(
+      isPunchConfirmedByServerReread({
+        insertedEventId: "evt-24",
+        lastEventId: "evt-24",
+        currentState: "en_quart",
+        requireCurrentlyWorking: true,
+      })
+    ).toBe(true);
     expect(
       employeePunchSuccessMessage({
         confirmed: false,
@@ -145,6 +162,20 @@ describe("HORORA punch visibility + alert dedup", () => {
         calendarWorkDate: "2026-09-24",
       })
     ).toBe(false);
+    expect(
+      resolveLivePreferredOperationalState({
+        approvedEvents: [june, todayIn],
+        pendingOperationalEvents: [],
+        calendarWorkDate: "2026-09-24",
+      }).currentState
+    ).toBe("en_quart");
+    expect(
+      resolveLivePreferredOperationalState({
+        approvedEvents: [june],
+        pendingOperationalEvents: [],
+        calendarWorkDate: "2026-09-24",
+      }).currentState
+    ).toBe("en_quart");
   });
 
   it("dedupes alerts by organization, employee, shift date, incident and channel", () => {
@@ -253,7 +284,15 @@ describe("HORORA punch visibility + alert dedup", () => {
     expect(punchRoute).toContain("isPunchConfirmedByServerReread");
     expect(service).toContain("isDuplicatePunchWithinWindow");
     expect(service).toContain("hasCalendarDayOpenPunch");
+    expect(service).toContain("resolveLivePreferredOperationalState");
     expect(service).toContain("isCalendarDayPunchIn");
+    const commissionsFetch = read("src/app/lib/commissions/commissions-api.client.ts");
+    const compensationVentes = read("src/app/admin/compensation/ventes/page.tsx");
+    const financeGate = read("src/app/components/admin/AdminFinanceGate.tsx");
+    expect(commissionsFetch).toContain("hororaNexusSessionRequestInit");
+    expect(compensationVentes).toContain("AdminCommissionsPageClient");
+    expect(compensationVentes).toContain("AdminFinanceGate");
+    expect(financeGate).toContain("hasAdminFinanceAccess(user, role)");
     expect(service).toContain("normal_punch_not_urgent");
     expect(service).toContain("shouldSkipPreCutoverMonitoring");
     expect(service).toContain("horodateur_operational_cutover_at");

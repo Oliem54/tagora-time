@@ -29,7 +29,7 @@ export async function requireAdminFinanceUser(req: NextRequest) {
     };
   }
 
-  if (!hasAdminFinanceAccess(user)) {
+  if (!hasAdminFinanceAccess(user, role)) {
     return {
       ok: false as const,
       response: {

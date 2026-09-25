@@ -91,7 +91,6 @@ import {
 import { resolveHorodateurAlertScheduleContext } from "./horodateur-alert-schedule.server";
 import { hasAnyActiveHorodateurWeeklyScheduleDay } from "./horodateur-alert-schedule.shared";
 import {
-  buildOperationalStateEvents,
   compareHorodateurExceptionReviewPriority,
   computeStateFromEventTimeline,
   findActivePendingPunchOutFromEvents,
@@ -99,6 +98,7 @@ import {
   hasCalendarDayOpenPunch,
   isCalendarDayPunchIn,
   resolveActiveOpenShiftWorkDate,
+  resolveLivePreferredOperationalState,
   resolveOperationalWorkDate,
 } from "./operational-state.shared";
 import {
@@ -2590,12 +2590,10 @@ export async function recomputeCurrentState(
   );
   const nowIso = new Date().toISOString();
   const calendarWorkDate = getLocalWorkDate(nowIso);
-  const operationalTimeline = buildOperationalStateEvents(
+  const operationalState = resolveLivePreferredOperationalState({
     approvedEvents,
     pendingOperationalEvents,
-    calendarWorkDate
-  );
-  const operationalState = computeStateFromEventTimeline(operationalTimeline, {
+    calendarWorkDate,
     ignorePaidBreakPunches,
   });
   const payrollState = computeStateFromEventTimeline(
