@@ -24,6 +24,14 @@ describe("Nexus callback logging and deny UX", () => {
     ).toBe(true);
   });
 
+  it("classifies permission denied without leaking the query", () => {
+    expect(
+      sanitizeMappingStoreError(
+        new Error("permission denied for table horora_nexus_identity_map")
+      )
+    ).toBe("mapping_permission_denied");
+  });
+
   it("classifies Production host refusal without leaking the URL", () => {
     expect(
       sanitizeMappingStoreError(
