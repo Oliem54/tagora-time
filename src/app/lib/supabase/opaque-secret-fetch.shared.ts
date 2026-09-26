@@ -1,8 +1,8 @@
 /**
  * New Supabase secret keys (sb_secret_) are not JWTs.
- * supabase-js still sends them as Authorization: Bearer, which leaves
- * PostgREST on anon. Mapping tables revoke anon, so SELECT fails as
- * permission denied. Official guidance: send sb_secret on apikey only.
+ * supabase-js fetchWithAuth still sets Authorization: Bearer before this
+ * wrapper runs. That JWT parse fails and PostgREST stays on anon.
+ * Mapping SELECT must not use this path. See service-role-postgrest.shared.ts.
  */
 
 export function isHororaOpaqueSupabaseSecret(key: string): boolean {

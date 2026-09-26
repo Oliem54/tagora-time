@@ -147,65 +147,10 @@ export function resolveAuthorizedMappingTarget(
 }
 
 export async function defaultNexusMappingLookups(): Promise<NexusMappingLookups> {
-  const { createAdminSupabaseClient } = await import("@/app/lib/supabase/admin");
-  const supabase = createAdminSupabaseClient();
-  return {
-    async findIdentityMaps(nexusActorId) {
-      const { data, error } = await supabase
-        .from("horora_nexus_identity_map")
-        .select("nexus_actor_id, auth_user_id, disabled_at")
-        .eq("nexus_actor_id", nexusActorId)
-        .is("disabled_at", null);
-      if (error) throw new Error(error.message);
-      return (data ?? []) as NexusIdentityMapRow[];
-    },
-    async authUserExists(authUserId) {
-      const { data, error } = await supabase.auth.admin.getUserById(authUserId);
-      if (error || !data.user?.id) return false;
-      return data.user.id === authUserId;
-    },
-    async findMembershipsForUser(authUserId) {
-      const { data, error } = await supabase
-        .from("organization_memberships")
-        .select("id, organization_id, role, status, is_default")
-        .eq("user_id", authUserId);
-      if (error) throw new Error(error.message);
-      return (data ?? []) as MembershipRow[];
-    },
-    async findOrganizationMaps(nexusOrganizationId) {
-      const { data, error } = await supabase
-        .from("horora_nexus_organization_map")
-        .select("nexus_organization_id, organization_id, status")
-        .eq("nexus_organization_id", nexusOrganizationId)
-        .eq("status", "active");
-      if (error) throw new Error(error.message);
-      return (data ?? []) as NexusOrganizationMapRow[];
-    },
-    async findOrganization(organizationId) {
-      const { data, error } = await supabase
-        .from("organizations")
-        .select("id, status, deleted_at")
-        .eq("id", organizationId)
-        .maybeSingle();
-      if (error) throw new Error(error.message);
-      return (data as HororaOrganizationRow | null) ?? null;
-    },
-    async insertIdentityMap(row) {
-      const { error } = await supabase.from("horora_nexus_identity_map").insert(row);
-      if (!error) return { duplicate: false };
-      if (error.code === "23505") return { duplicate: true };
-      throw new Error(error.message);
-    },
-    async insertOrganizationMap(row) {
-      const { error } = await supabase.from("horora_nexus_organization_map").insert({
-        ...row,
-        status: "active",
-      });
-      if (!error) return { duplicate: false };
-      if (error.code === "23505") return { duplicate: true };
-      throw new Error(error.message);
-    },
-  };
+  const { createNexusMappingLookups } = await import(
+    "@/app/lib/auth/nexus-mapping-postgrest.server"
+  );
+  return createNexusMappingLookups();
 }
 
 function selectableMembershipInOrg(
