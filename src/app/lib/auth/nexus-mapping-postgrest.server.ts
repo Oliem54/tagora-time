@@ -5,14 +5,24 @@ import type {
   NexusOrganizationMapRow,
 } from "@/app/lib/auth/nexus-identity-mapping.server";
 import type { MembershipRow } from "@/app/lib/saas/organization-membership.shared";
+import {
+  dispatchMappingWithUndici,
+  lockMappingOutboundHeaders,
+  mappingHttpStatusError,
+  type MappingDispatch,
+} from "@/app/lib/supabase/mapping-undici.server";
 import { buildHororaServiceRoleHeaders } from "@/app/lib/supabase/service-role-postgrest.shared";
 import { resolveHororaRuntimeSupabaseUrl } from "@/app/lib/supabase/supabase-host.shared";
 
-type FetchLike = typeof fetch;
+export type MappingHttpStatusLog = {
+  stage: "identity_mapping";
+  http_status: string;
+};
 
 export function createNexusMappingLookups(
   env: NodeJS.ProcessEnv = process.env,
-  baseFetch: FetchLike = fetch
+  dispatch: MappingDispatch = dispatchMappingWithUndici,
+  logHttpStatus?: (fields: MappingHttpStatusLog) => void
 ): NexusMappingLookups {
   const supabaseUrl = resolveHororaRuntimeSupabaseUrl(
     env.NEXT_PUBLIC_SUPABASE_URL,
@@ -24,21 +34,31 @@ export function createNexusMappingLookups(
   }
   const headers = buildHororaServiceRoleHeaders(serviceRoleKey);
 
+  async function send(
+    url: URL,
+    method: "GET" | "POST",
+    requestHeaders: Headers,
+    body?: string
+  ): Promise<{ status: number; bodyText: string }> {
+    return dispatch({
+      url: url.toString(),
+      method,
+      headers: lockMappingOutboundHeaders(requestHeaders),
+      body,
+    });
+  }
+
   async function selectRows<T>(table: string, query: Record<string, string>): Promise<T[]> {
     const url = new URL(`/rest/v1/${table}`, supabaseUrl);
     for (const [name, value] of Object.entries(query)) {
       url.searchParams.set(name, value);
     }
-    const response = await baseFetch(url, {
-      method: "GET",
-      headers,
-      cache: "no-store",
-    });
-    if (!response.ok) {
-      throw new Error(await readPostgrestMessage(response));
+    const response = await send(url, "GET", headers);
+    if (!isHttpOk(response.status)) {
+      reportMappingHttpStatus(response.status, logHttpStatus);
+      throw mappingHttpStatusError(response.status);
     }
-    const data = (await response.json()) as T[] | null;
-    return data ?? [];
+    return parseJsonArray<T>(response.bodyText, response.status);
   }
 
   async function insertRow(
@@ -49,18 +69,13 @@ export function createNexusMappingLookups(
     const requestHeaders = new Headers(headers);
     requestHeaders.set("Content-Type", "application/json");
     requestHeaders.set("Prefer", "return=minimal");
-    const response = await baseFetch(url, {
-      method: "POST",
-      headers: requestHeaders,
-      body: JSON.stringify(body),
-      cache: "no-store",
-    });
-    if (response.ok) return { duplicate: false };
-    const message = await readPostgrestMessage(response);
-    if (message.includes("23505") || response.status === 409) {
+    const response = await send(url, "POST", requestHeaders, JSON.stringify(body));
+    if (isHttpOk(response.status)) return { duplicate: false };
+    if (response.status === 409 || response.bodyText.includes("23505")) {
       return { duplicate: true };
     }
-    throw new Error(message);
+    reportMappingHttpStatus(response.status, logHttpStatus);
+    throw mappingHttpStatusError(response.status);
   }
 
   return {
@@ -73,13 +88,16 @@ export function createNexusMappingLookups(
     },
     async authUserExists(authUserId) {
       const url = new URL(`/auth/v1/admin/users/${encodeURIComponent(authUserId)}`, supabaseUrl);
-      const response = await baseFetch(url, {
-        method: "GET",
-        headers,
-        cache: "no-store",
-      });
-      if (!response.ok) return false;
-      const data = (await response.json()) as { id?: string; user?: { id?: string } };
+      const response = await send(url, "GET", headers);
+      if (response.status === 401 || response.status === 403) {
+        reportMappingHttpStatus(response.status, logHttpStatus);
+        throw mappingHttpStatusError(response.status);
+      }
+      if (!isHttpOk(response.status)) return false;
+      const data = parseJsonObject(response.bodyText, response.status) as {
+        id?: string;
+        user?: { id?: string };
+      };
       const id = data.user?.id ?? data.id ?? "";
       return id === authUserId;
     },
@@ -115,15 +133,36 @@ export function createNexusMappingLookups(
   };
 }
 
-async function readPostgrestMessage(response: Response): Promise<string> {
-  const text = await response.text();
+function reportMappingHttpStatus(
+  status: number,
+  logHttpStatus?: (fields: MappingHttpStatusLog) => void
+): void {
+  const httpStatus =
+    Number.isInteger(status) && status >= 100 && status <= 599 ? String(status) : "000";
+  const fields: MappingHttpStatusLog = {
+    stage: "identity_mapping",
+    http_status: httpStatus,
+  };
+  if (logHttpStatus) {
+    logHttpStatus(fields);
+    return;
+  }
+  console.info("[horora.nexus.mapping]", fields);
+}
+
+function isHttpOk(status: number): boolean {
+  return status >= 200 && status < 300;
+}
+
+function parseJsonArray<T>(bodyText: string, status: number): T[] {
+  const data = parseJsonObject(bodyText, status);
+  return Array.isArray(data) ? (data as T[]) : [];
+}
+
+function parseJsonObject(bodyText: string, status: number): unknown {
   try {
-    const body = JSON.parse(text) as { message?: string; code?: string };
-    const message = body.message?.trim() || "";
-    const code = body.code?.trim() || "";
-    if (message && code) return `${code} ${message}`;
-    return message || code || `postgrest_${response.status}`;
+    return JSON.parse(bodyText) as unknown;
   } catch {
-    return text.trim() || `postgrest_${response.status}`;
+    throw mappingHttpStatusError(status);
   }
 }

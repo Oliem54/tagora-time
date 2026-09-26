@@ -32,6 +32,9 @@ export function sanitizeMappingStoreError(error: unknown): string {
   if (message.includes("permission denied") || message.includes("rls")) {
     return "mapping_permission_denied";
   }
+  const httpStatus = message.match(/^mapping_http_(\d{3})$/);
+  if (httpStatus) return `http_${httpStatus[1]}`;
+  if (message.includes("forbidden use of secret api key")) return "http_401";
   if (message.includes("jwt") || message.includes("invalid api key")) {
     return "supabase_auth_config_error";
   }
@@ -55,7 +58,8 @@ export function isMappingStoreUnavailableError(error: unknown): boolean {
     code === "supabase_auth_config_error" ||
     code === "supabase_url_missing" ||
     code === "supabase_service_role_missing" ||
-    code === "supabase_host_not_production"
+    code === "supabase_host_not_production" ||
+    /^http_\d{3}$/.test(code)
   );
 }
 
