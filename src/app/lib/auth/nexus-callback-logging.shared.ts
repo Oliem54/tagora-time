@@ -10,7 +10,19 @@ export type NexusCallbackStage =
 
 export function sanitizeMappingStoreError(error: unknown): string {
   if (!(error instanceof Error)) return "unknown_error";
-  const message = error.message.toLowerCase();
+  const message = error.message.toLowerCase().trim();
+  if (
+    message === "mapping_transport_error" ||
+    message === "mapping_runtime_error" ||
+    message === "mapping_url_error" ||
+    message === "mapping_header_error" ||
+    message === "mapping_config_error" ||
+    message === "mapping_http_401" ||
+    message === "mapping_http_error"
+  ) {
+    return message;
+  }
+  if (message.includes("cannot assume service_role")) return "mapping_config_error";
   if (message.includes("missing next_public_supabase_url")) {
     return "supabase_url_missing";
   }
@@ -33,8 +45,8 @@ export function sanitizeMappingStoreError(error: unknown): string {
     return "mapping_permission_denied";
   }
   const httpStatus = message.match(/^mapping_http_(\d{3})$/);
-  if (httpStatus) return `http_${httpStatus[1]}`;
-  if (message.includes("forbidden use of secret api key")) return "http_401";
+  if (httpStatus) return httpStatus[1] === "401" ? "mapping_http_401" : "mapping_http_error";
+  if (message.includes("forbidden use of secret api key")) return "mapping_http_401";
   if (message.includes("jwt") || message.includes("invalid api key")) {
     return "supabase_auth_config_error";
   }
@@ -59,6 +71,13 @@ export function isMappingStoreUnavailableError(error: unknown): boolean {
     code === "supabase_url_missing" ||
     code === "supabase_service_role_missing" ||
     code === "supabase_host_not_production" ||
+    code === "mapping_transport_error" ||
+    code === "mapping_runtime_error" ||
+    code === "mapping_url_error" ||
+    code === "mapping_header_error" ||
+    code === "mapping_config_error" ||
+    code === "mapping_http_401" ||
+    code === "mapping_http_error" ||
     /^http_\d{3}$/.test(code)
   );
 }

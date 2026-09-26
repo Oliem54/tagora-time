@@ -25,15 +25,24 @@ describe("Nexus callback logging and deny UX", () => {
   });
 
   it("classifies a mapping HTTP status without the response body", () => {
-    expect(sanitizeMappingStoreError(new Error("mapping_http_401"))).toBe("http_401");
+    expect(sanitizeMappingStoreError(new Error("mapping_http_401"))).toBe("mapping_http_401");
     expect(
       sanitizeMappingStoreError(
         new Error(
           "Forbidden use of secret API key in browser sb_secret_should_not_leak"
         )
       )
-    ).toBe("http_401");
+    ).toBe("mapping_http_401");
     expect(isMappingStoreUnavailableError(new Error("mapping_http_401"))).toBe(true);
+    expect(sanitizeMappingStoreError(new Error("mapping_runtime_error"))).toBe(
+      "mapping_runtime_error"
+    );
+    expect(sanitizeMappingStoreError(new Error("unexpected mapper failure"))).toBe(
+      "mapping_store_error"
+    );
+    expect(sanitizeMappingStoreError(new Error("unexpected mapper failure"))).not.toBe(
+      "mapping_transport_error"
+    );
   });
 
   it("classifies permission denied without leaking the query", () => {

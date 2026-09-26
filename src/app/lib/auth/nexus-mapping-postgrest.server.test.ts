@@ -84,10 +84,13 @@ describe("Nexus mapping PostgREST client", () => {
     expect(JSON.stringify(headers)).not.toMatch(/mozilla|chrome|safari/i);
     expect(calls[0]?.url).toContain("/rest/v1/horora_nexus_identity_map");
     expect(calls[0]?.url).toContain("qcgvzdlfsxybrmloijpt.supabase.co");
+    expect(httpLogs).toEqual([]);
 
     deny = true;
     await expect(lookups.findIdentityMaps(ACTOR)).rejects.toThrow(/^mapping_http_401$/);
-    expect(httpLogs).toEqual([{ stage: "identity_mapping", http_status: "401" }]);
+    expect(httpLogs).toEqual([
+      { stage: "identity_mapping", error_kind: "mapping_http_401", http_status: "401" },
+    ]);
     expect(JSON.stringify(httpLogs)).not.toMatch(
       /sb_secret_should_not_leak|Forbidden|eyJshould-not-leak/
     );
@@ -95,7 +98,7 @@ describe("Nexus mapping PostgREST client", () => {
       await lookups.findIdentityMaps(ACTOR);
     } catch (error) {
       expect(isMappingStoreUnavailableError(error)).toBe(true);
-      expect(sanitizeMappingStoreError(error)).toBe("http_401");
+      expect(sanitizeMappingStoreError(error)).toBe("mapping_http_401");
       expect(error instanceof Error ? error.message : "").not.toMatch(
         /sb_secret_should_not_leak|Forbidden|eyJshould-not-leak/
       );
@@ -113,10 +116,104 @@ describe("Nexus mapping PostgREST client", () => {
         decision: "closed",
         stage: "identity_mapping",
         reason_code: "mapping_unavailable",
-        detail: "http_401",
+        detail: "mapping_http_401",
       });
       expect(serialized).not.toMatch(/sb_secret_should_not_leak|Forbidden|eyJshould-not-leak/);
     }
+  });
+
+  it("classifies an unknown exception as runtime and not as transport", async () => {
+    const logs: MappingHttpStatusLog[] = [];
+    const dispatch: MappingDispatch = async () => {
+      throw new Error("unexpected mapper failure sb_secret_should_not_leak");
+    };
+    const lookups = createNexusMappingLookups(ENV, dispatch, (fields) => {
+      logs.push(fields);
+    });
+    await expect(lookups.findIdentityMaps(ACTOR)).rejects.toThrow(/^mapping_runtime_error$/);
+    expect(logs).toEqual([{ stage: "identity_mapping", error_kind: "mapping_runtime_error" }]);
+    expect(Object.keys(logs[0] ?? {}).sort()).toEqual(["error_kind", "stage"]);
+    expect(JSON.stringify(logs)).not.toMatch(/sb_secret|unexpected mapper|stack|https?:\/\//);
+    expect(sanitizeMappingStoreError(new Error("mapping_runtime_error"))).toBe(
+      "mapping_runtime_error"
+    );
+  });
+
+  it("classifies an undici throw before any HTTP response without logging the secret", async () => {
+    const logs: MappingHttpStatusLog[] = [];
+    const dispatch: MappingDispatch = async () => {
+      const error = new Error(
+        "connect ENOTFOUND example.supabase.co apikey=sb_secret_should_not_leak"
+      ) as Error & { code: string };
+      error.code = "ENOTFOUND";
+      throw error;
+    };
+    const lookups = createNexusMappingLookups(ENV, dispatch, (fields) => {
+      logs.push(fields);
+    });
+    await expect(lookups.findIdentityMaps(ACTOR)).rejects.toThrow(/^mapping_transport_error$/);
+    expect(logs).toEqual([
+      { stage: "identity_mapping", error_kind: "mapping_transport_error" },
+    ]);
+    expect(JSON.stringify(logs)).not.toMatch(/sb_secret|ENOTFOUND|supabase\.co/);
+    expect(sanitizeMappingStoreError(new Error("mapping_transport_error"))).toBe(
+      "mapping_transport_error"
+    );
+  });
+
+  it("classifies a header failure without logging the secret", async () => {
+    const logs: MappingHttpStatusLog[] = [];
+    const dispatch: MappingDispatch = async () => {
+      throw new TypeError("Invalid header value sb_secret_should_not_leak");
+    };
+    const lookups = createNexusMappingLookups(ENV, dispatch, (fields) => {
+      logs.push(fields);
+    });
+    await expect(lookups.findIdentityMaps(ACTOR)).rejects.toThrow(/^mapping_header_error$/);
+    expect(logs).toEqual([{ stage: "identity_mapping", error_kind: "mapping_header_error" }]);
+    expect(JSON.stringify(logs)).not.toContain("sb_secret");
+  });
+
+  it("classifies a URL or config failure without logging the secret", async () => {
+    const logs: MappingHttpStatusLog[] = [];
+    const dispatch: MappingDispatch = async () => {
+      const error = new TypeError(
+        "Invalid URL https://example.supabase.co/rest/v1?apikey=sb_secret_should_not_leak"
+      ) as TypeError & { code: string };
+      error.code = "ERR_INVALID_URL";
+      throw error;
+    };
+    const lookups = createNexusMappingLookups(ENV, dispatch, (fields) => {
+      logs.push(fields);
+    });
+    await expect(lookups.findIdentityMaps(ACTOR)).rejects.toThrow(/^mapping_url_error$/);
+    expect(logs).toEqual([{ stage: "identity_mapping", error_kind: "mapping_url_error" }]);
+    expect(JSON.stringify(logs)).not.toMatch(/sb_secret|https:\/\//);
+
+    expect(
+      sanitizeMappingStoreError(
+        new Error("SUPABASE_SERVICE_ROLE_KEY cannot assume service_role sb_secret_should_not_leak")
+      )
+    ).toBe("mapping_config_error");
+  });
+
+  it("logs a non-401 mapping response as mapping_http_error with only the status", async () => {
+    const logs: MappingHttpStatusLog[] = [];
+    const dispatch: MappingDispatch = async () => ({
+      status: 500,
+      bodyText: JSON.stringify({
+        message: "database unavailable sb_secret_should_not_leak",
+        token: "eyJshould-not-leak",
+      }),
+    });
+    const lookups = createNexusMappingLookups(ENV, dispatch, (fields) => {
+      logs.push(fields);
+    });
+    await expect(lookups.findIdentityMaps(ACTOR)).rejects.toThrow(/^mapping_http_error$/);
+    expect(logs).toEqual([
+      { stage: "identity_mapping", error_kind: "mapping_http_error", http_status: "500" },
+    ]);
+    expect(JSON.stringify(logs)).not.toMatch(/sb_secret|eyJshould-not-leak|database unavailable/);
   });
 
   it("drops an inbound browser User-Agent and keeps sb_secret on apikey only", () => {

@@ -9,14 +9,17 @@ import {
   dispatchMappingWithUndici,
   lockMappingOutboundHeaders,
   mappingHttpStatusError,
+  toMappingClientError,
   type MappingDispatch,
+  type MappingErrorKind,
 } from "@/app/lib/supabase/mapping-undici.server";
 import { buildHororaServiceRoleHeaders } from "@/app/lib/supabase/service-role-postgrest.shared";
 import { resolveHororaRuntimeSupabaseUrl } from "@/app/lib/supabase/supabase-host.shared";
 
 export type MappingHttpStatusLog = {
   stage: "identity_mapping";
-  http_status: string;
+  error_kind: MappingErrorKind;
+  http_status?: string;
 };
 
 export function createNexusMappingLookups(
@@ -40,12 +43,18 @@ export function createNexusMappingLookups(
     requestHeaders: Headers,
     body?: string
   ): Promise<{ status: number; bodyText: string }> {
-    return dispatch({
-      url: url.toString(),
-      method,
-      headers: lockMappingOutboundHeaders(requestHeaders),
-      body,
-    });
+    try {
+      return await dispatch({
+        url: url.toString(),
+        method,
+        headers: lockMappingOutboundHeaders(requestHeaders),
+        body,
+      });
+    } catch (error) {
+      const classified = toMappingClientError(error);
+      reportMappingFailure(classified.errorKind, classified.httpStatus, logHttpStatus);
+      throw classified;
+    }
   }
 
   async function selectRows<T>(table: string, query: Record<string, string>): Promise<T[]> {
@@ -55,8 +64,7 @@ export function createNexusMappingLookups(
     }
     const response = await send(url, "GET", headers);
     if (!isHttpOk(response.status)) {
-      reportMappingHttpStatus(response.status, logHttpStatus);
-      throw mappingHttpStatusError(response.status);
+      throw reportHttpFailure(response.status, logHttpStatus);
     }
     return parseJsonArray<T>(response.bodyText, response.status);
   }
@@ -74,8 +82,7 @@ export function createNexusMappingLookups(
     if (response.status === 409 || response.bodyText.includes("23505")) {
       return { duplicate: true };
     }
-    reportMappingHttpStatus(response.status, logHttpStatus);
-    throw mappingHttpStatusError(response.status);
+    throw reportHttpFailure(response.status, logHttpStatus);
   }
 
   return {
@@ -90,8 +97,7 @@ export function createNexusMappingLookups(
       const url = new URL(`/auth/v1/admin/users/${encodeURIComponent(authUserId)}`, supabaseUrl);
       const response = await send(url, "GET", headers);
       if (response.status === 401 || response.status === 403) {
-        reportMappingHttpStatus(response.status, logHttpStatus);
-        throw mappingHttpStatusError(response.status);
+        throw reportHttpFailure(response.status, logHttpStatus);
       }
       if (!isHttpOk(response.status)) return false;
       const data = parseJsonObject(response.bodyText, response.status) as {
@@ -133,16 +139,27 @@ export function createNexusMappingLookups(
   };
 }
 
-function reportMappingHttpStatus(
+function reportHttpFailure(
   status: number,
   logHttpStatus?: (fields: MappingHttpStatusLog) => void
+): Error {
+  const failure = mappingHttpStatusError(status);
+  reportMappingFailure(failure.errorKind, failure.httpStatus, logHttpStatus);
+  return failure;
+}
+
+function reportMappingFailure(
+  errorKind: MappingErrorKind,
+  httpStatus: string | undefined,
+  logHttpStatus?: (fields: MappingHttpStatusLog) => void
 ): void {
-  const httpStatus =
-    Number.isInteger(status) && status >= 100 && status <= 599 ? String(status) : "000";
   const fields: MappingHttpStatusLog = {
     stage: "identity_mapping",
-    http_status: httpStatus,
+    error_kind: errorKind,
   };
+  if (httpStatus && /^\d{3}$/.test(httpStatus)) {
+    fields.http_status = httpStatus;
+  }
   if (logHttpStatus) {
     logHttpStatus(fields);
     return;

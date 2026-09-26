@@ -6,10 +6,60 @@ vi.mock("undici", () => ({
 }));
 
 import { request } from "undici";
-import { dispatchMappingWithUndici } from "@/app/lib/supabase/mapping-undici.server";
+import {
+  classifyMappingClientError,
+  dispatchMappingWithUndici,
+  mappingHttpStatusError,
+} from "@/app/lib/supabase/mapping-undici.server";
 import { HORORA_MAPPING_USER_AGENT } from "@/app/lib/supabase/service-role-postgrest.shared";
 
 describe("undici mapping dispatch", () => {
+  it("classifies a pre-response undici failure without keeping the message", () => {
+    const transport = new Error("getaddrinfo ENOTFOUND host sb_secret_should_not_leak") as Error & {
+      code: string;
+    };
+    transport.code = "ENOTFOUND";
+    expect(classifyMappingClientError(transport)).toEqual({
+      error_kind: "mapping_transport_error",
+    });
+    const header = new TypeError("Invalid header value sb_secret_should_not_leak");
+    expect(classifyMappingClientError(header).error_kind).toBe("mapping_header_error");
+    const url = new TypeError("Invalid URL sb_secret_should_not_leak") as TypeError & {
+      code: string;
+    };
+    url.code = "ERR_INVALID_URL";
+    expect(classifyMappingClientError(url).error_kind).toBe("mapping_url_error");
+    expect(
+      classifyMappingClientError(
+        new Error("SUPABASE_SERVICE_ROLE_KEY cannot assume service_role")
+      ).error_kind
+    ).toBe("mapping_config_error");
+    const runtime = new Error("unexpected mapper failure sb_secret_should_not_leak");
+    expect(classifyMappingClientError(runtime)).toEqual({
+      error_kind: "mapping_runtime_error",
+    });
+    expect(classifyMappingClientError({ code: "ENOTFOUND", message: runtime.message })).toEqual({
+      error_kind: "mapping_runtime_error",
+    });
+  });
+
+  it("reserves mapping_http_error for failed HTTP responses other than 401", () => {
+    expect(mappingHttpStatusError(401)).toMatchObject({
+      errorKind: "mapping_http_401",
+      httpStatus: "401",
+      message: "mapping_http_401",
+    });
+    expect(mappingHttpStatusError(500)).toMatchObject({
+      errorKind: "mapping_http_error",
+      httpStatus: "500",
+      message: "mapping_http_error",
+    });
+    expect(mappingHttpStatusError(403).errorKind).toBe("mapping_http_error");
+    expect(mappingHttpStatusError(200).errorKind).toBe("mapping_runtime_error");
+    expect(mappingHttpStatusError(204).errorKind).toBe("mapping_runtime_error");
+    expect(mappingHttpStatusError(200).message).not.toBe("mapping_http_error");
+  });
+
   it("sends sb_secret on apikey only and drops the inbound browser User-Agent", async () => {
     vi.mocked(request).mockResolvedValue({
       statusCode: 401,
