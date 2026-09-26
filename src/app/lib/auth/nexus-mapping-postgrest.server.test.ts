@@ -127,6 +127,10 @@ describe("Nexus mapping PostgREST client", () => {
         Authorization: "Bearer sb_secret_test",
         "User-Agent":
           "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "sec-fetch-mode": "cors",
+        "sec-fetch-site": "same-origin",
+        "sec-fetch-dest": "empty",
+        Origin: "https://time.tagora.ca",
         "X-Client-Info": "supabase-js/browser",
         Cookie: "session=sb_secret_test",
       })
@@ -135,7 +139,9 @@ describe("Nexus mapping PostgREST client", () => {
     expect(locked.authorization).toBeUndefined();
     expect(locked["user-agent"]).toBe(HORORA_MAPPING_USER_AGENT);
     expect(locked["x-client-info"]).toBe(HORORA_MAPPING_USER_AGENT);
-    expect(JSON.stringify(locked)).not.toMatch(/mozilla|chrome|safari|supabase-js|cookie/i);
+    expect(JSON.stringify(locked)).not.toMatch(
+      /mozilla|chrome|safari|supabase-js|cookie|sec-fetch|time\.tagora/i
+    );
   });
 
   it("opens an admin session when a valid handoff matches the mapping rows", async () => {

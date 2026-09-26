@@ -32,6 +32,10 @@ describe("undici mapping dispatch", () => {
         authorization: "Bearer sb_secret_test",
         "user-agent":
           "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0",
+        "sec-fetch-mode": "cors",
+        "sec-fetch-site": "same-origin",
+        "sec-fetch-dest": "empty",
+        origin: "https://time.tagora.ca",
         cookie: "session=sb_secret_test",
       },
     });
@@ -47,6 +51,8 @@ describe("undici mapping dispatch", () => {
     expect(init.headers["x-client-info"]).toBe(HORORA_MAPPING_USER_AGENT);
     expect(init.dispatcher).toBeTruthy();
     const wire = JSON.stringify(init.headers);
-    expect(wire).not.toMatch(/mozilla|chrome|safari|cookie|Forbidden|eyJshould-not-leak/i);
+    expect(wire).not.toMatch(
+      /mozilla|chrome|safari|cookie|sec-fetch|time\.tagora|Forbidden|eyJshould-not-leak/i
+    );
   });
 });

@@ -10,6 +10,10 @@
  * Secret keys must travel on apikey only, with a non-browser User-Agent.
  * A browser User-Agent makes the gateway refuse to elevate the secret key.
  * Legacy service_role JWTs stay on Authorization: Bearer.
+ *
+ * Building these headers is not enough. The mapping client has to send them
+ * through undici with a private dispatcher. The Next.js patched fetch can
+ * still attach the inbound browser User-Agent after this function returns.
  */
 
 export const HORORA_MAPPING_USER_AGENT = "horora-nexus-mapping" as const;

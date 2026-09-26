@@ -2,6 +2,7 @@ import { withSentryConfig } from "@sentry/nextjs";
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  serverExternalPackages: ["undici"],
   allowedDevOrigins: [
     "192.168.1.190",
     "https://acquisition-carroll-innovative-continually.trycloudflare.com",
