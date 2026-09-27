@@ -96,7 +96,7 @@ export async function POST(req: NextRequest) {
 
   return NextResponse.json(
     { error: LOCAL_IMPROVEMENT_INTAKE_CLOSED_MESSAGE },
-    { status: 403 }
+    { status: 410 }
   );
 }
 
