@@ -24,6 +24,7 @@ import {
   rejectSpoofedAccountRequestScope,
   requireScopedDirectionAccountAccess,
   scopeAccountRequestQuery,
+  userHasMembershipInOrganization,
   type AccountRequestTenantScope,
 } from "@/app/lib/account-requests.server";
 import { resolveAccessDisabledFromAuditLog } from "@/app/lib/account-access";
@@ -1426,21 +1427,28 @@ async function applyUpdateRequestDetails(
   const priorEmail = normalizeEmail(row.email);
   if (emailRaw !== priorEmail) {
     const otherAuth = await findAuthUserByEmail(emailRaw);
-    if (otherAuth && otherAuth.id !== row.invited_user_id) {
+    if (
+      otherAuth &&
+      otherAuth.id !== row.invited_user_id &&
+      (await userHasMembershipInOrganization(otherAuth.id, scope.organizationId))
+    ) {
       throw createManagedRouteError({
         status: 409,
-        error: "Impossible de modifier le courriel : ce courriel est déjà utilisé.",
+        error: "Impossible de modifier le courriel : ce courriel est déjà utilisé dans cette organisation.",
         code: "email_already_used",
       });
     }
 
     const admin = createAdminSupabaseClient();
-    const { data: pendingRows, error: pendingErr } = await scopeAccountRequestQuery(
+    const pendingLookup = scopeAccountRequestQuery(
       admin.from("account_requests").select("id, email, status"),
       scope
     )
       .eq("status", "pending")
       .neq("id", id);
+    const { data: pendingRows, error: pendingErr } = row.organization_company_id
+      ? await pendingLookup.eq("organization_company_id", row.organization_company_id)
+      : { data: [], error: null };
 
     if (pendingErr) {
       throw pendingErr;

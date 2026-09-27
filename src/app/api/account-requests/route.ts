@@ -23,11 +23,15 @@ import {
   resolveAccountRequestCompanyScope,
   resolvePublicAccountRequestScope,
   scopeAccountRequestQuery,
+  userHasMembershipInOrganization,
 } from "@/app/lib/account-requests.server";
 import { createPublicServerSupabaseClient } from "@/app/lib/supabase/server";
 import { createAdminSupabaseClient } from "@/app/lib/supabase/admin";
 import { notifyDirectionOfAccountRequest } from "@/app/lib/notifications";
-
+import {
+  interpretAccountRequestInsertFailure,
+  sameCompanyOpenRequestMessage,
+} from "@/app/lib/account-request-uniqueness.shared";
 async function listAllAuthUsers() {
   const supabase = createAdminSupabaseClient();
   const users = [];
@@ -190,57 +194,6 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: "Acces refuse." }, { status: 403 });
       }
 
-      const manualScope = await requireScopedDirectionAccountAccess(req);
-      if (!manualScope.ok) return manualScope.response;
-
-      try {
-        const authUsers = await listAllAuthUsers();
-        const existingAuthUser = authUsers.find(
-          (item) => normalizeEmail(item.email ?? "") === email
-        );
-
-        if (existingAuthUser) {
-          return NextResponse.json(
-            {
-              error:
-                "Ce compte portail existe déjà. Utilisez « Gérer » sur la demande existante ou ouvrez la fiche employé pour modifier l'accès.",
-              code: "portal_account_exists",
-            },
-            { status: 409 }
-          );
-        }
-
-        const adminSupabase = createAdminSupabaseClient();
-        const { data: existingRequests } = await scopeAccountRequestQuery(
-          adminSupabase.from("account_requests").select("id, status"),
-          manualScope.scope
-        )
-          .eq("email", email)
-          .in("status", ["pending", "invited", "active"]);
-
-        if (existingRequests && existingRequests.length > 0) {
-          const activeLike = existingRequests.find(
-            (item) => item.status === "active" || item.status === "invited"
-          );
-          return NextResponse.json(
-            {
-              error: activeLike
-                ? "Une demande active ou invitée existe déjà pour ce courriel. Utilisez « Gérer » pour consulter ou modifier l'accès existant."
-                : "Une demande en attente existe déjà pour ce courriel. Ouvrez-la avec « Gérer » au lieu d'en créer une nouvelle.",
-              code: "account_request_exists",
-            },
-            { status: 409 }
-          );
-        }
-      } catch (validationError) {
-        console.error("[account-requests][create] direction_manual_precheck_failed", {
-          email,
-          message:
-            validationError instanceof Error
-              ? validationError.message
-              : "unknown_error",
-        });
-      }
     }
 
     try {
@@ -309,6 +262,58 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    if (creationSource === "direction_manual") {
+      try {
+        const authUsers = await listAllAuthUsers();
+        const existingAuthUser = authUsers.find(
+          (item) => normalizeEmail(item.email ?? "") === email
+        );
+        if (
+          existingAuthUser &&
+          (await userHasMembershipInOrganization(
+            existingAuthUser.id,
+            writeScope.organizationId
+          ))
+        ) {
+          return NextResponse.json(
+            {
+              error:
+                "Un compte portail existe déjà dans cette organisation. Utilisez « Gérer » sur la demande existante ou ouvrez la fiche employé.",
+              code: "portal_account_exists",
+            },
+            { status: 409 }
+          );
+        }
+
+        const adminSupabase = createAdminSupabaseClient();
+        const { data: existingRequests } = await adminSupabase
+          .from("account_requests")
+          .select("id, status, organization_id, organization_company_id")
+          .eq("organization_id", writeScope.organizationId)
+          .eq("organization_company_id", writeScope.organizationCompanyId)
+          .eq("email", email)
+          .in("status", ["pending", "invited", "active"]);
+
+        const openRequest = existingRequests?.[0];
+        if (openRequest) {
+          return NextResponse.json(
+            {
+              error: sameCompanyOpenRequestMessage(String(openRequest.status)),
+              code: "account_request_exists_in_scope",
+            },
+            { status: 409 }
+          );
+        }
+      } catch (validationError) {
+        console.error("[account-requests][create] direction_manual_precheck_failed", {
+          message:
+            validationError instanceof Error
+              ? validationError.message
+              : "unknown_error",
+        });
+      }
+    }
+
     const accountRequestId = crypto.randomUUID();
     const createdAt = new Date().toISOString();
     const payload = {
@@ -350,16 +355,14 @@ export async function POST(req: NextRequest) {
     const { error } = await supabase.from("account_requests").insert([payload]);
 
     if (error) {
-      const normalizedMessage = error.message.toLowerCase();
-
-      if (
-        error.code === "23505" ||
-        normalizedMessage.includes("duplicate key") ||
-        normalizedMessage.includes("uq_account_requests_pending_email")
-      ) {
+      const interpreted = interpretAccountRequestInsertFailure({
+        code: error.code,
+        message: error.message,
+      });
+      if (interpreted) {
         return NextResponse.json(
-          { error: "Une demande en attente existe deja pour ce courriel." },
-          { status: 409 }
+          { error: interpreted.error, code: interpreted.code },
+          { status: interpreted.status }
         );
       }
 

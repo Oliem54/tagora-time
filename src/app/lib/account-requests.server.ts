@@ -393,6 +393,18 @@ export async function resolvePublicAccountRequestScope(
   return { ok: true as const, organizationId, organizationCompanyId };
 }
 
+export async function userHasMembershipInOrganization(userId: string, organizationId: string) {
+  const supabase = createAdminSupabaseClient();
+  const { data, error } = await supabase
+    .from("organization_memberships")
+    .select("id")
+    .eq("user_id", userId)
+    .eq("organization_id", organizationId)
+    .limit(1);
+  if (error) throw error;
+  return (data ?? []).length > 0;
+}
+
 export async function resolveAccountRequestCompanyScope(input: {
   organizationId: string;
   companyCode: string | null;
