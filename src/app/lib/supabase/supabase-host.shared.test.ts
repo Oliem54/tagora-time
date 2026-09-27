@@ -5,16 +5,20 @@ import {
   resolveHororaRuntimeSupabaseUrl,
 } from "@/app/lib/supabase/supabase-host.shared";
 
+function runtimeEnv(vercelEnv: string): NodeJS.ProcessEnv {
+  return { NODE_ENV: "test", VERCEL_ENV: vercelEnv };
+}
+
 describe("resolveHororaRuntimeSupabaseUrl", () => {
   it("never lets Production call the staging Supabase host", () => {
     expect(
       resolveHororaRuntimeSupabaseUrl(
         `https://${HORORA_STAGING_SUPABASE_HOST}`,
-        { VERCEL_ENV: "production" }
+        runtimeEnv("production")
       )
     ).toBe(HORORA_PRODUCTION_SUPABASE_URL);
     expect(
-      resolveHororaRuntimeSupabaseUrl(undefined, { VERCEL_ENV: "production" })
+      resolveHororaRuntimeSupabaseUrl(undefined, runtimeEnv("production"))
     ).toBe(HORORA_PRODUCTION_SUPABASE_URL);
   });
 
@@ -22,16 +26,17 @@ describe("resolveHororaRuntimeSupabaseUrl", () => {
     expect(
       resolveHororaRuntimeSupabaseUrl(
         `https://${HORORA_STAGING_SUPABASE_HOST}`,
-        { VERCEL_ENV: "preview" }
+        runtimeEnv("preview")
       )
     ).toBe(`https://${HORORA_STAGING_SUPABASE_HOST}`);
   });
 
   it("refuses an unknown Production Supabase host", () => {
     expect(() =>
-      resolveHororaRuntimeSupabaseUrl("https://example.supabase.co", {
-        VERCEL_ENV: "production",
-      })
+      resolveHororaRuntimeSupabaseUrl(
+        "https://example.supabase.co",
+        runtimeEnv("production")
+      )
     ).toThrow("Production HORORA refused unknown Supabase host");
   });
 });

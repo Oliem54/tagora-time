@@ -14,11 +14,8 @@ describe("opaque Supabase secret fetch", () => {
   });
 
   it("sends sb_secret on apikey and strips Authorization", async () => {
-    const baseFetch = vi.fn(async () => new Response(null, { status: 200 }));
-    const wrapped = wrapFetchForOpaqueSupabaseSecret(
-      "sb_secret_test",
-      baseFetch as unknown as typeof fetch
-    );
+    const baseFetch = vi.fn<typeof fetch>(async () => new Response(null, { status: 200 }));
+    const wrapped = wrapFetchForOpaqueSupabaseSecret("sb_secret_test", baseFetch);
     await wrapped("https://qcgvzdlfsxybrmloijpt.supabase.co/rest/v1/horora_nexus_identity_map", {
       headers: {
         apikey: "sb_secret_test",
@@ -26,8 +23,9 @@ describe("opaque Supabase secret fetch", () => {
       },
     });
     expect(baseFetch).toHaveBeenCalledTimes(1);
-    const init = baseFetch.mock.calls[0][1] as RequestInit;
-    const headers = new Headers(init.headers);
+    const init = baseFetch.mock.calls[0]?.[1];
+    expect(init).toBeDefined();
+    const headers = new Headers(init?.headers);
     expect(headers.get("apikey")).toBe("sb_secret_test");
     expect(headers.has("Authorization")).toBe(false);
   });
