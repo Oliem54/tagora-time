@@ -894,14 +894,61 @@ export async function listPendingExceptions(options?: {
   if (options?.organizationId) {
     query = query.eq("organization_id", options.organizationId);
   }
+  query = query.is("deleted_at", null);
 
-  const { data, error } = await query.returns<HorodateurPhase1ExceptionRecord[]>();
-
-  if (error) {
-    throw error;
+  const first = await query.returns<HorodateurPhase1ExceptionRecord[]>();
+  if (first.error && isMissingColumnError(first.error, "deleted_at")) {
+    let fallback = supabase
+      .from("horodateur_exceptions")
+      .select("*")
+      .eq("status", "en_attente")
+      .order("requested_at", { ascending: true });
+    if (options?.employeeId) {
+      fallback = fallback.eq("employee_id", options.employeeId);
+    }
+    if (options?.organizationId) {
+      fallback = fallback.eq("organization_id", options.organizationId);
+    }
+    const second = await fallback.returns<HorodateurPhase1ExceptionRecord[]>();
+    if (second.error) throw second.error;
+    return second.data ?? [];
+  }
+  if (first.error) {
+    throw first.error;
   }
 
-  return data ?? [];
+  return first.data ?? [];
+}
+
+export async function listPendingExceptionOrganizationIds() {
+  const supabase = createAdminSupabaseClient();
+  const { data, error } = await supabase
+    .from("horodateur_exceptions")
+    .select("organization_id")
+    .eq("status", "en_attente")
+    .is("deleted_at", null);
+  if (error && isMissingColumnError(error, "deleted_at")) {
+    const fallback = await supabase
+      .from("horodateur_exceptions")
+      .select("organization_id")
+      .eq("status", "en_attente");
+    if (fallback.error) throw fallback.error;
+    return [
+      ...new Set(
+        (fallback.data ?? [])
+          .map((row) => row.organization_id)
+          .filter((id): id is string => typeof id === "string" && id.trim().length > 0)
+      ),
+    ];
+  }
+  if (error) throw error;
+  return [
+    ...new Set(
+      (data ?? [])
+        .map((row) => row.organization_id)
+        .filter((id): id is string => typeof id === "string" && id.trim().length > 0)
+    ),
+  ];
 }
 
 export async function listApprovedScheduleRequestsForEmployee(

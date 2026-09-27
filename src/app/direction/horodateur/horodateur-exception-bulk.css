@@ -1,0 +1,33 @@
+.horodateur-exception-bulk {
+  display: grid;
+  gap: 12px;
+}
+
+.horodateur-exception-bulk__filters {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+}
+
+.horodateur-exception-bulk__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.horodateur-exception-bulk__progress,
+.horodateur-exception-bulk__report {
+  margin: 0;
+}
+
+@media (max-width: 767px) {
+  .horodateur-exception-bulk__actions button {
+    flex: 1 1 100%;
+  }
+}
+
+@media (min-width: 768px) {
+  .horodateur-exception-bulk__filters {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}

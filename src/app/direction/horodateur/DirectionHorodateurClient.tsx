@@ -14,6 +14,7 @@ import HorodateurDirectionPageShell from "@/app/direction/horodateur/HorodateurD
 import HorodateurDirectionPrimaryActions from "@/app/direction/horodateur/HorodateurDirectionPrimaryActions";
 import HorodateurDirectionAlertConfigPanel from "@/app/direction/horodateur/HorodateurDirectionAlertConfigPanel";
 import HorodateurPendingExceptionCard from "@/app/direction/horodateur/HorodateurPendingExceptionCard";
+import HorodateurExceptionBulkConsole from "@/app/direction/horodateur/HorodateurExceptionBulkConsole";
 import AppCard from "@/app/components/ui/AppCard";
 import TagoraIconBadge from "@/app/components/TagoraIconBadge";
 import PrimaryButton from "@/app/components/ui/PrimaryButton";
@@ -1897,6 +1898,7 @@ export default function DirectionHorodateurPage() {
             </TagoraIconBadge>
           }
         >
+          <HorodateurExceptionBulkConsole />
           {hasExceptions ? (
             <div className="horo-pending-grid">
               {exceptions.map((item) => {

@@ -70,6 +70,7 @@ import {
   listExceptionsForEmployeeWorkDate,
   listExceptionsForShift,
   listPendingExceptions,
+  listPendingExceptionOrganizationIds,
   listShiftsForEmployeeWeek,
   hasExpectedPunchSmsNotificationLog,
   updateEventOccurredAt,
@@ -105,8 +106,11 @@ import {
   isUrgentHorodateurIncident,
   shouldGrandfatherHistoricalAlert,
   shouldSendHorodateurChannel,
-  shouldSkipPreCutoverMonitoring,
 } from "./horodateur-alert-dedup.shared";
+import {
+  evaluateHorodateurOperationalWrite,
+  readHorodateurMaintenanceLock,
+} from "./horodateur-exception-guard.shared";
 import { isDuplicatePunchWithinWindow } from "./punch-confirmation.shared";
 import {
   classifyEventPhase1,
@@ -370,6 +374,17 @@ async function maybeNotifyEmployeeOfHorodateurPunch(options: {
   const phonePresent = Boolean(
     normalizePhoneToTwilioE164(options.employee.phoneNumber)
   );
+  const punchOccurredAt = getEventOccurredAt(options.event);
+  const punchWriteGuard = await blockHorodateurOperationalWrite({
+    organizationId: options.employee.organizationId,
+    incidentWorkDate:
+      options.event.work_date?.trim() ||
+      (punchOccurredAt ? getLocalWorkDate(punchOccurredAt) : null),
+    incidentAtIso: punchOccurredAt,
+  });
+  if (!punchWriteGuard.allowed) {
+    return;
+  }
 
   try {
     const smsResult = await notifyEmployeeHorodateurPunchSms({
@@ -928,6 +943,20 @@ export async function createPendingExceptionForEvent(options: {
     );
   }
 
+  const employee = await getEmployeeById(options.employeeId);
+  const occurredAt = getEventOccurredAt(options.event);
+  const incidentWorkDate =
+    options.event.work_date?.trim() ||
+    (occurredAt ? getLocalWorkDate(occurredAt) : null);
+  const writeGuard = await blockHorodateurOperationalWrite({
+    organizationId: employee?.organizationId,
+    incidentWorkDate,
+    incidentAtIso: occurredAt,
+  });
+  if (!writeGuard.allowed) {
+    return null;
+  }
+
   const existingShift = await getShiftByEmployeeAndWorkDate(
     options.employeeId,
     options.event.work_date ??
@@ -1026,13 +1055,17 @@ function tryCreateAdminClient(): SupabaseClient | null {
 
 const operationalCutoverCache = new Map<
   string,
-  { cutoverAtIso: string | null; cutoverWorkDate: string | null }
+  { cutoverAtIso: string | null; cutoverWorkDate: string | null; maintenanceLocked: boolean }
 >();
+
+function emptyOperationalGuard() {
+  return { cutoverAtIso: null, cutoverWorkDate: null, maintenanceLocked: false };
+}
 
 async function getOperationalCutover(organizationId: string | null | undefined) {
   const org = organizationId?.trim() || "";
   if (!org) {
-    return { cutoverAtIso: null, cutoverWorkDate: null };
+    return emptyOperationalGuard();
   }
   const cached = operationalCutoverCache.get(org);
   if (cached) {
@@ -1040,7 +1073,7 @@ async function getOperationalCutover(organizationId: string | null | undefined) 
   }
   const admin = tryCreateAdminClient();
   if (!admin) {
-    return { cutoverAtIso: null, cutoverWorkDate: null };
+    return emptyOperationalGuard();
   }
   const { data } = await admin
     .from("organization_settings")
@@ -1048,16 +1081,38 @@ async function getOperationalCutover(organizationId: string | null | undefined) 
     .eq("organization_id", org)
     .maybeSingle();
   const policies = data?.operational_policies as
-    | { horodateur_operational_cutover_at?: unknown }
+    | {
+        horodateur_operational_cutover_at?: unknown;
+        horodateur_exception_maintenance_lock?: unknown;
+      }
     | null;
   const raw = policies?.horodateur_operational_cutover_at;
   const cutoverAtIso = typeof raw === "string" && raw.trim() ? raw.trim() : null;
   const result = {
     cutoverAtIso,
     cutoverWorkDate: cutoverAtIso ? getLocalWorkDate(cutoverAtIso) : null,
+    maintenanceLocked: readHorodateurMaintenanceLock(
+      policies?.horodateur_exception_maintenance_lock
+    ),
   };
   operationalCutoverCache.set(org, result);
   return result;
+}
+
+async function blockHorodateurOperationalWrite(input: {
+  organizationId?: string | null;
+  incidentWorkDate: string | null;
+  incidentAtIso?: string | null;
+}) {
+  const guard = await getOperationalCutover(input.organizationId);
+  return evaluateHorodateurOperationalWrite({
+    organizationId: input.organizationId,
+    incidentWorkDate: input.incidentWorkDate,
+    incidentAtIso: input.incidentAtIso,
+    cutoverAtIso: guard.cutoverAtIso,
+    cutoverWorkDate: guard.cutoverWorkDate,
+    maintenanceLocked: guard.maintenanceLocked,
+  });
 }
 
 async function notifyDirectionOfPendingException(options: {
@@ -1074,6 +1129,34 @@ async function notifyDirectionOfPendingException(options: {
       (!config.sms_enabled || options.exception.direction_sms_notified_at))
   ) {
     return options.exception;
+  }
+
+  const exceptionWorkDate =
+    options.event.work_date?.trim() ||
+    getLocalWorkDate(
+      getEventOccurredAt(options.event) ?? options.exception.requested_at
+    );
+  const notificationGuard = await blockHorodateurOperationalWrite({
+    organizationId: options.employee.organizationId,
+    incidentWorkDate: exceptionWorkDate,
+    incidentAtIso: getEventOccurredAt(options.event) ?? options.exception.requested_at,
+  });
+  if (!notificationGuard.allowed) {
+    return options.exception;
+  }
+  if (
+    shouldGrandfatherHistoricalAlert({
+      incidentWorkDate: exceptionWorkDate,
+      todayWorkDate: getLocalWorkDate(new Date().toISOString()),
+    })
+  ) {
+    return updateExceptionNotificationStatus({
+      exceptionId: options.exception.id,
+      directionEmailNotifiedAt:
+        options.exception.direction_email_notified_at ?? new Date().toISOString(),
+      directionSmsNotifiedAt:
+        options.exception.direction_sms_notified_at ?? new Date().toISOString(),
+    });
   }
 
   const admin = tryCreateAdminClient();
@@ -1100,34 +1183,6 @@ async function notifyDirectionOfPendingException(options: {
           `horodateur_exception:${options.exception.id}`
         );
       }
-    }
-
-    const exceptionWorkDate =
-      options.event.work_date?.trim() ||
-      getLocalWorkDate(
-        getEventOccurredAt(options.event) ?? options.exception.requested_at
-      );
-    const cutover = await getOperationalCutover(options.employee.organizationId);
-    if (
-      shouldGrandfatherHistoricalAlert({
-        incidentWorkDate: exceptionWorkDate,
-        todayWorkDate: getLocalWorkDate(new Date().toISOString()),
-      }) ||
-      shouldSkipPreCutoverMonitoring({
-        incidentWorkDate: exceptionWorkDate,
-        incidentAtIso: getEventOccurredAt(options.event) ?? options.exception.requested_at,
-        cutoverAtIso: cutover.cutoverAtIso,
-        cutoverWorkDate: cutover.cutoverWorkDate,
-      })
-    ) {
-      return updateExceptionNotificationStatus({
-        exceptionId: options.exception.id,
-        directionEmailNotifiedAt:
-          options.exception.direction_email_notified_at ??
-          new Date().toISOString(),
-        directionSmsNotifiedAt:
-          options.exception.direction_sms_notified_at ?? new Date().toISOString(),
-      });
     }
 
     const urgent = isUrgentHorodateurIncident({
@@ -1243,7 +1298,14 @@ function getReminderReferenceTime(exception: HorodateurPhase1ExceptionRecord) {
 export async function processPendingExceptionReminders() {
   const config = await getHorodateurDirectionAlertConfig();
   const recipients = await resolveDirectionRecipients(config);
-  const pendingExceptions = await listPendingExceptionsForDirection();
+  const organizationIds = await listPendingExceptionOrganizationIds();
+  const pendingExceptions = (
+    await Promise.all(
+      organizationIds.map((organizationId) =>
+        listPendingExceptionsForDirection({ organizationId })
+      )
+    )
+  ).flat();
   const now = Date.now();
   const admin = tryCreateAdminClient();
   const processed: Array<{
@@ -1261,19 +1323,18 @@ export async function processPendingExceptionReminders() {
       (item.event?.occurredAt
         ? getLocalWorkDate(item.event.occurredAt)
         : getLocalWorkDate(item.requested_at));
-    const cutover = await getOperationalCutover(
-      item.organization_id ?? item.employee?.organizationId
-    );
+    const reminderGuard = await blockHorodateurOperationalWrite({
+      organizationId: item.organization_id ?? item.employee?.organizationId,
+      incidentWorkDate,
+      incidentAtIso: item.event?.occurredAt ?? item.requested_at,
+    });
+    if (!reminderGuard.allowed) {
+      continue;
+    }
     if (
       shouldGrandfatherHistoricalAlert({
         incidentWorkDate,
         todayWorkDate,
-      }) ||
-      shouldSkipPreCutoverMonitoring({
-        incidentWorkDate,
-        incidentAtIso: item.event?.occurredAt ?? item.requested_at,
-        cutoverAtIso: cutover.cutoverAtIso,
-        cutoverWorkDate: cutover.cutoverWorkDate,
       })
     ) {
       if (
@@ -1738,16 +1799,13 @@ export async function processLateEmployeeNotifications() {
       continue;
     }
 
-    const cutover = await getOperationalCutover(employee.organizationId);
     const scheduledStartAt = buildTorontoTimestamp(workDate, scheduleContext.shiftStart, now);
-    if (
-      shouldSkipPreCutoverMonitoring({
-        incidentWorkDate: workDate,
-        incidentAtIso: scheduledStartAt,
-        cutoverAtIso: cutover.cutoverAtIso,
-        cutoverWorkDate: cutover.cutoverWorkDate,
-      })
-    ) {
+    const latenessGuard = await blockHorodateurOperationalWrite({
+      organizationId: employee.organizationId,
+      incidentWorkDate: workDate,
+      incidentAtIso: scheduledStartAt,
+    });
+    if (!latenessGuard.allowed) {
       continue;
     }
 
@@ -1985,15 +2043,12 @@ export async function processExpectedPunchSmsNotifications(options?: {
     ]);
 
     for (const expected of expectedItems) {
-      const cutover = await getOperationalCutover(employee.organizationId);
-      if (
-        shouldSkipPreCutoverMonitoring({
-          incidentWorkDate: workDate,
-          incidentAtIso: buildTorontoTimestamp(workDate, expected.scheduledLabel, now),
-          cutoverAtIso: cutover.cutoverAtIso,
-          cutoverWorkDate: cutover.cutoverWorkDate,
-        })
-      ) {
+      const expectedSmsGuard = await blockHorodateurOperationalWrite({
+        organizationId: employee.organizationId,
+        incidentWorkDate: workDate,
+        incidentAtIso: buildTorontoTimestamp(workDate, expected.scheduledLabel, now),
+      });
+      if (!expectedSmsGuard.allowed) {
         continue;
       }
 
@@ -2289,16 +2344,13 @@ export async function processMissingExpectedPunchEscalation() {
     const latenessNotification = await getLatenessNotification(employee.employeeId, workDate);
 
     for (const expected of expectedItems) {
-      const cutover = await getOperationalCutover(employee.organizationId);
       const expectedAt = buildTorontoTimestamp(workDate, expected.scheduledLabel, now);
-      if (
-        shouldSkipPreCutoverMonitoring({
-          incidentWorkDate: workDate,
-          incidentAtIso: expectedAt,
-          cutoverAtIso: cutover.cutoverAtIso,
-          cutoverWorkDate: cutover.cutoverWorkDate,
-        })
-      ) {
+      const missingPunchGuard = await blockHorodateurOperationalWrite({
+        organizationId: employee.organizationId,
+        incidentWorkDate: workDate,
+        incidentAtIso: expectedAt,
+      });
+      if (!missingPunchGuard.allowed) {
         processed.push({
           employeeId: employee.employeeId,
           eventType: expected.eventType,
@@ -3736,6 +3788,17 @@ export async function createStaffRetroCorrectionRequest(options: {
     options.employeeId,
     options.organizationId
   );
+  const retroGuard = await blockHorodateurOperationalWrite({
+    organizationId: options.organizationId,
+    incidentWorkDate: getLocalWorkDate(options.occurredAt),
+    incidentAtIso: options.occurredAt,
+  });
+  if (!retroGuard.allowed) {
+    throw new HorodateurPhase1Error(
+      "Cette date est anterieure au cutover ou le verrou de maintenance est actif.",
+      { code: retroGuard.reason ?? "before_operational_cutover", status: 409 }
+    );
+  }
   assertNoPaidBreakOperationalPunch(employee, options.eventType);
   const companyContext = requireCompanyContext(options.companyContext, employee);
   const workDate = getLocalWorkDate(options.occurredAt);
@@ -4389,11 +4452,18 @@ export async function listDirectionLiveBoard(options?: {
   return rows;
 }
 
-export async function listPendingExceptionsForDirection(options?: {
-  organizationId?: string;
+export async function listPendingExceptionsForDirection(options: {
+  organizationId: string;
 }) {
+  const organizationId = options.organizationId?.trim() ?? "";
+  if (!organizationId) {
+    throw new HorodateurPhase1Error("Organisation obligatoire.", {
+      code: "organization_required",
+      status: 400,
+    });
+  }
   const exceptions = await listPendingExceptions({
-    organizationId: options?.organizationId,
+    organizationId,
   });
   const events = await Promise.all(
     exceptions.map((item) => getEventById(item.source_event_id))
@@ -4443,11 +4513,11 @@ export async function listPendingExceptionsForDirection(options?: {
   });
 }
 
-export async function getDirectionDashboardHorodateurAlerts(): Promise<{
+export async function getDirectionDashboardHorodateurAlerts(organizationId: string): Promise<{
   pendingCount: number;
   items: HorodateurPhase1DirectionPendingExceptionAlert[];
 }> {
-  const exceptions = await listPendingExceptionsForDirection();
+  const exceptions = await listPendingExceptionsForDirection({ organizationId });
 
   const items = exceptions
     .slice()

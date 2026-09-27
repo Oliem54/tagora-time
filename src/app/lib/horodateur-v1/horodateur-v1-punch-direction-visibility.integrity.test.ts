@@ -294,8 +294,9 @@ describe("HORORA punch visibility + alert dedup", () => {
     expect(compensationVentes).toContain("AdminFinanceGate");
     expect(financeGate).toContain("hasAdminFinanceAccess(user, role)");
     expect(service).toContain("normal_punch_not_urgent");
-    expect(service).toContain("shouldSkipPreCutoverMonitoring");
+    expect(service).toContain("evaluateHorodateurOperationalWrite");
     expect(service).toContain("horodateur_operational_cutover_at");
+    expect(service).toContain("horodateur_exception_maintenance_lock");
     expect(hook).toContain("if (submitLockRef.current)");
     expect(hook).toContain("payload?.confirmed === true");
     expect(registre).toContain("employeeSearch");
