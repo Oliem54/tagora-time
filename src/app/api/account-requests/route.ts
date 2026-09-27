@@ -18,6 +18,11 @@ import {
   getAccountRequestsRequestDebug,
   getRequestIp,
   getStrictDirectionRequestUser,
+  rejectSpoofedAccountRequestScope,
+  requireScopedDirectionAccountAccess,
+  resolveAccountRequestCompanyScope,
+  resolvePublicAccountRequestScope,
+  scopeAccountRequestQuery,
 } from "@/app/lib/account-requests.server";
 import { createPublicServerSupabaseClient } from "@/app/lib/supabase/server";
 import { createAdminSupabaseClient } from "@/app/lib/supabase/admin";
@@ -185,6 +190,9 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: "Acces refuse." }, { status: 403 });
       }
 
+      const manualScope = await requireScopedDirectionAccountAccess(req);
+      if (!manualScope.ok) return manualScope.response;
+
       try {
         const authUsers = await listAllAuthUsers();
         const existingAuthUser = authUsers.find(
@@ -203,9 +211,10 @@ export async function POST(req: NextRequest) {
         }
 
         const adminSupabase = createAdminSupabaseClient();
-        const { data: existingRequests } = await adminSupabase
-          .from("account_requests")
-          .select("id, status")
+        const { data: existingRequests } = await scopeAccountRequestQuery(
+          adminSupabase.from("account_requests").select("id, status"),
+          manualScope.scope
+        )
           .eq("email", email)
           .in("status", ["pending", "invited", "active"]);
 
@@ -255,6 +264,51 @@ export async function POST(req: NextRequest) {
       // Ignore temporary rate-limit backend failures and continue normal validation.
     }
 
+    const writeScope =
+      creationSource === "direction_manual"
+        ? await (async () => {
+            const scoped = await requireScopedDirectionAccountAccess(req);
+            if (!scoped.ok) return scoped;
+            const spoof = rejectSpoofedAccountRequestScope({
+              scope: scoped.scope,
+              body: body as Record<string, unknown>,
+            });
+            if (!spoof.ok) {
+              return {
+                ok: false as const,
+                response: NextResponse.json({ error: "Portee client refusee." }, { status: 403 }),
+              };
+            }
+            const companyScope = await resolveAccountRequestCompanyScope({
+              organizationId: scoped.scope.organizationId,
+              companyCode: company,
+              directory: scoped.directory,
+            });
+            if (!companyScope.ok) {
+              return {
+                ok: false as const,
+                response: NextResponse.json(
+                  { error: "Compagnie hors du tenant de la session." },
+                  { status: 403 }
+                ),
+              };
+            }
+            return {
+              ok: true as const,
+              organizationId: companyScope.organizationId,
+              organizationCompanyId: companyScope.organizationCompanyId,
+            };
+          })()
+        : await resolvePublicAccountRequestScope(company, body as Record<string, unknown>);
+
+    if (!writeScope.ok) {
+      if ("response" in writeScope) return writeScope.response;
+      return NextResponse.json(
+        { error: "La demande ne peut pas etre rattachee a un tenant." },
+        { status: 409 }
+      );
+    }
+
     const accountRequestId = crypto.randomUUID();
     const createdAt = new Date().toISOString();
     const payload = {
@@ -263,6 +317,8 @@ export async function POST(req: NextRequest) {
       email,
       phone,
       company,
+      organization_id: writeScope.organizationId,
+      organization_company_id: writeScope.organizationCompanyId,
       portal_source: portalSource,
       requested_role: requestedRole,
       requested_permissions: requestedPermissions,
@@ -372,18 +428,24 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    const { user, role, mfaError } = await getStrictDirectionRequestUser(req);
-    if (mfaError) return mfaError;
-
-    if (!user || (role !== "direction" && role !== "admin")) {
-      return NextResponse.json({ error: "Acces refuse." }, { status: 403 });
+    const scoped = await requireScopedDirectionAccountAccess(req);
+    if (!scoped.ok) return scoped.response;
+    const spoof = rejectSpoofedAccountRequestScope({
+      scope: scoped.scope,
+      body: {
+        organization_id: req.nextUrl.searchParams.get("organization_id"),
+        company_id: req.nextUrl.searchParams.get("company_id"),
+      },
+    });
+    if (!spoof.ok) {
+      return NextResponse.json({ error: "Portee client refusee." }, { status: 403 });
     }
 
     const supabase = createAdminSupabaseClient();
-    const { data, error } = await supabase
-      .from("account_requests")
-      .select("*")
-      .order("created_at", { ascending: false });
+    const { data, error } = await scopeAccountRequestQuery(
+      supabase.from("account_requests").select("*"),
+      scoped.scope
+    ).order("created_at", { ascending: false });
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });

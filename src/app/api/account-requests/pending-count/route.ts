@@ -1,23 +1,22 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getStrictDirectionRequestUser } from "@/app/lib/account-requests.server";
+import {
+  requireScopedDirectionAccountAccess,
+  scopeAccountRequestQuery,
+} from "@/app/lib/account-requests.server";
 import { createAdminSupabaseClient } from "@/app/lib/supabase/admin";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
   try {
-    const { user, role, mfaError } = await getStrictDirectionRequestUser(req);
-    if (mfaError) return mfaError;
-
-    if (!user || (role !== "direction" && role !== "admin")) {
-      return NextResponse.json({ error: "Acces refuse." }, { status: 403 });
-    }
+    const scoped = await requireScopedDirectionAccountAccess(req);
+    if (!scoped.ok) return scoped.response;
 
     const supabase = createAdminSupabaseClient();
-    const { count, error } = await supabase
-      .from("account_requests")
-      .select("*", { count: "exact", head: true })
-      .eq("status", "pending");
+    const { count, error } = await scopeAccountRequestQuery(
+      supabase.from("account_requests").select("*", { count: "exact", head: true }),
+      scoped.scope
+    ).eq("status", "pending");
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });

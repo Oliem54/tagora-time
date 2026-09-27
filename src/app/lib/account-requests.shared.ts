@@ -95,6 +95,8 @@ export type AccountRequestRow = {
   last_error: string | null;
   audit_log: AccountRequestAuditEntry[] | null;
   existing_account?: ExistingAccountSnapshot | null;
+  organization_id?: string | null;
+  organization_company_id?: string | null;
   created_at: string;
 };
 

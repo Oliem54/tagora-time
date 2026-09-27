@@ -22,7 +22,7 @@ import {
 export const dynamic = "force-dynamic";
 
 export async function requireCommissionsAccess(req: NextRequest) {
-  const { user, role } = await getAuthenticatedRequestUser(req);
+  const { user, role, organizationId } = await getAuthenticatedRequestUser(req);
   if (!user) {
     return {
       ok: false as const,
@@ -33,6 +33,12 @@ export async function requireCommissionsAccess(req: NextRequest) {
     return {
       ok: false as const,
       response: NextResponse.json({ error: "Acces reserve a la direction/admin." }, { status: 403 }),
+    };
+  }
+  if (!organizationId) {
+    return {
+      ok: false as const,
+      response: NextResponse.json({ error: "Organisation de session absente." }, { status: 403 }),
     };
   }
   if (!hasUserPermission(user, "commissions", role)) {
@@ -64,7 +70,13 @@ export async function requireCommissionsAccess(req: NextRequest) {
       ),
     };
   }
-  return { ok: true as const, user, role, supabase: createAdminSupabaseClient() };
+  return {
+    ok: true as const,
+    user,
+    role,
+    organizationId,
+    supabase: createAdminSupabaseClient(),
+  };
 }
 
 export async function requireAdminFinanceCommissionsAccess(req: NextRequest) {

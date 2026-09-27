@@ -29,14 +29,24 @@ function isSecureRequest(req: NextRequest) {
   return forwardedProto === "https" || req.nextUrl.protocol === "https:";
 }
 
-async function loadMatchingRequest(userId: string, email: string) {
+async function loadMatchingRequest(
+  userId: string,
+  email: string,
+  organizationId: string | null
+) {
   const supabase = createAdminSupabaseClient();
 
-  const byUserId = await supabase
+  let byUserQuery = supabase
     .from("account_requests")
     .select("*")
     .eq("invited_user_id", userId)
-    .in("status", ["invited", "active"])
+    .not("organization_id", "is", null)
+    .not("organization_company_id", "is", null)
+    .in("status", ["invited", "active"]);
+  if (organizationId) {
+    byUserQuery = byUserQuery.eq("organization_id", organizationId);
+  }
+  const byUserId = await byUserQuery
     .order("reviewed_at", { ascending: false, nullsFirst: false })
     .order("created_at", { ascending: false })
     .limit(1)
@@ -50,11 +60,17 @@ async function loadMatchingRequest(userId: string, email: string) {
     return byUserId.data;
   }
 
-  const byEmail = await supabase
+  let byEmailQuery = supabase
     .from("account_requests")
     .select("*")
     .eq("email", normalizeEmail(email))
-    .in("status", ["invited", "active"])
+    .not("organization_id", "is", null)
+    .not("organization_company_id", "is", null)
+    .in("status", ["invited", "active"]);
+  if (organizationId) {
+    byEmailQuery = byEmailQuery.eq("organization_id", organizationId);
+  }
+  const byEmail = await byEmailQuery
     .order("reviewed_at", { ascending: false, nullsFirst: false })
     .order("created_at", { ascending: false })
     .limit(1)
@@ -101,7 +117,7 @@ export async function POST(req: NextRequest) {
   try {
     const bearerToken = getBearerToken(req);
     const secure = isSecureRequest(req);
-    const { user } = await getAuthenticatedRequestUser(req);
+    const { user, organizationId } = await getAuthenticatedRequestUser(req);
 
     if (!user?.id || !user.email) {
       const response = NextResponse.json(
@@ -136,7 +152,11 @@ export async function POST(req: NextRequest) {
     }
 
     const adminUser = adminUserData.user;
-    const requestRow = await loadMatchingRequest(adminUser.id, adminUser.email ?? user.email);
+    const requestRow = await loadMatchingRequest(
+      adminUser.id,
+      adminUser.email ?? user.email,
+      organizationId
+    );
 
     if (!requestRow) {
       const response = NextResponse.json({
@@ -219,7 +239,9 @@ export async function POST(req: NextRequest) {
             })
           ),
         })
-        .eq("id", requestRow.id);
+        .eq("id", requestRow.id)
+        .eq("organization_id", requestRow.organization_id ?? "")
+        .not("organization_id", "is", null);
 
       if (requestUpdateError) {
         throw requestUpdateError;

@@ -21,7 +21,10 @@ import {
 } from "@/app/lib/account-requests.shared";
 import {
   getAccountRequestsRequestDebug,
-  getStrictDirectionRequestUser,
+  rejectSpoofedAccountRequestScope,
+  requireScopedDirectionAccountAccess,
+  scopeAccountRequestQuery,
+  type AccountRequestTenantScope,
 } from "@/app/lib/account-requests.server";
 import { resolveAccessDisabledFromAuditLog } from "@/app/lib/account-access";
 import {
@@ -209,11 +212,12 @@ async function findAuthUserByEmail(email: string) {
   }
 }
 
-async function loadRequestRow(id: string) {
+async function loadRequestRow(id: string, scope: AccountRequestTenantScope) {
   const supabase = createAdminSupabaseClient();
-  const { data, error } = await supabase
-    .from("account_requests")
-    .select("*")
+  const { data, error } = await scopeAccountRequestQuery(
+    supabase.from("account_requests").select("*"),
+    scope
+  )
     .eq("id", id)
     .maybeSingle<AccountRequestRow>();
 
@@ -224,11 +228,16 @@ async function loadRequestRow(id: string) {
   return data;
 }
 
-async function updateRequestRow(id: string, values: Record<string, unknown>) {
+async function updateRequestRow(
+  id: string,
+  values: Record<string, unknown>,
+  scope: AccountRequestTenantScope
+) {
   const supabase = createAdminSupabaseClient();
-  const { data, error } = await supabase
-    .from("account_requests")
-    .update(values)
+  const { data, error } = await scopeAccountRequestQuery(
+    supabase.from("account_requests").update(values),
+    scope
+  )
     .eq("id", id)
     .select("*")
     .single<AccountRequestRow>();
@@ -975,6 +984,7 @@ async function finalizeApprovedRequest(options: {
   existingUser: boolean;
   employeeProfileId: number | null;
   employeeProfileDisposition: "created" | "existing";
+  scope: AccountRequestTenantScope;
 }) {
   const supabase = createAdminSupabaseClient();
   const basePayload = {
@@ -1023,9 +1033,10 @@ async function finalizeApprovedRequest(options: {
     approved_by: options.actorUser.id,
   };
 
-  let result = await supabase
-    .from("account_requests")
-    .update(payloadWithApprovedFields)
+  let result = await scopeAccountRequestQuery(
+    supabase.from("account_requests").update(payloadWithApprovedFields),
+    options.scope
+  )
     .eq("id", options.requestRow.id)
     .eq("review_lock_token", options.reviewLockToken)
     .select("*")
@@ -1037,9 +1048,10 @@ async function finalizeApprovedRequest(options: {
       error: getErrorMessage(result.error),
     });
 
-    result = await supabase
-      .from("account_requests")
-      .update(basePayload)
+    result = await scopeAccountRequestQuery(
+      supabase.from("account_requests").update(basePayload),
+      options.scope
+    )
       .eq("id", options.requestRow.id)
       .eq("review_lock_token", options.reviewLockToken)
       .select("*")
@@ -1056,17 +1068,19 @@ async function finalizeApprovedRequest(options: {
 async function releaseApprovalLock(options: {
   requestId: string;
   reviewLockToken: string;
+  scope: AccountRequestTenantScope;
   errorMessage?: string | null;
   step?: string | null;
 }) {
   const supabase = createAdminSupabaseClient();
-  const { error } = await supabase
-    .from("account_requests")
-    .update({
+  const { error } = await scopeAccountRequestQuery(
+    supabase.from("account_requests").update({
       review_lock_token: null,
       review_started_at: null,
       ...(options.errorMessage ? { last_error: options.errorMessage } : {}),
-    })
+    }),
+    options.scope
+  )
     .eq("id", options.requestId)
     .eq("review_lock_token", options.reviewLockToken);
 
@@ -1101,6 +1115,7 @@ async function markApprovalFailure(options: {
   reviewNote: string | null;
   step: string;
   error: unknown;
+  scope: AccountRequestTenantScope;
 }) {
   const supabase = createAdminSupabaseClient();
   const approvalError = getApprovalErrorResponse(options.error);
@@ -1118,9 +1133,8 @@ async function markApprovalFailure(options: {
     rawError: serializeError(options.error),
   });
 
-  const { error: updateError } = await supabase
-    .from("account_requests")
-    .update({
+  const { error: updateError } = await scopeAccountRequestQuery(
+    supabase.from("account_requests").update({
       status: "error",
       assigned_role: options.assignedRole,
       assigned_permissions: options.assignedPermissions,
@@ -1149,7 +1163,9 @@ async function markApprovalFailure(options: {
           ),
         }
       ),
-    })
+    }),
+    options.scope
+  )
     .eq("id", options.requestRow.id)
     .eq("review_lock_token", options.reviewLockToken);
 
@@ -1164,6 +1180,7 @@ async function markApprovalFailure(options: {
       reviewLockToken: options.reviewLockToken,
       errorMessage: lastError,
       step: options.step,
+      scope: options.scope,
     });
   } else {
     logPatchStep("lock_released_on_error", {
@@ -1276,7 +1293,7 @@ async function upsertAccountAccess(options: {
   };
 }
 
-async function acquirePendingReviewLock(id: string) {
+async function acquirePendingReviewLock(id: string, scope: AccountRequestTenantScope) {
   const supabase = createAdminSupabaseClient();
   const reviewLockToken = crypto.randomUUID();
   const reviewedAt = new Date().toISOString();
@@ -1284,12 +1301,13 @@ async function acquirePendingReviewLock(id: string) {
     Date.now() - ACCOUNT_REVIEW_LOCK_WINDOW_MS
   ).toISOString();
 
-  const { data, error } = await supabase
-    .from("account_requests")
-    .update({
+  const { data, error } = await scopeAccountRequestQuery(
+    supabase.from("account_requests").update({
       review_lock_token: reviewLockToken,
       review_started_at: reviewedAt,
-    })
+    }),
+    scope
+  )
     .eq("id", id)
     .eq("status", "pending")
     .or(`review_lock_token.is.null,review_started_at.lt.${lockExpiryCutoff}`)
@@ -1297,9 +1315,10 @@ async function acquirePendingReviewLock(id: string) {
     .single<AccountRequestRow>();
 
   if (error || !data) {
-    const { data: lockedRow } = await supabase
-      .from("account_requests")
-      .select("status, review_started_at")
+    const { data: lockedRow } = await scopeAccountRequestQuery(
+      supabase.from("account_requests").select("status, review_started_at"),
+      scope
+    )
       .eq("id", id)
       .maybeSingle();
 
@@ -1353,9 +1372,10 @@ function createDirectionAudit(
 async function applyUpdateRequestDetails(
   id: string,
   body: Record<string, unknown>,
-  actorUser: User
+  actorUser: User,
+  scope: AccountRequestTenantScope
 ) {
-  const row = await loadRequestRow(id);
+  const row = await loadRequestRow(id, scope);
   if (!row) {
     throw createManagedRouteError({ status: 404, error: "Demande introuvable." });
   }
@@ -1415,9 +1435,10 @@ async function applyUpdateRequestDetails(
     }
 
     const admin = createAdminSupabaseClient();
-    const { data: pendingRows, error: pendingErr } = await admin
-      .from("account_requests")
-      .select("id, email, status")
+    const { data: pendingRows, error: pendingErr } = await scopeAccountRequestQuery(
+      admin.from("account_requests").select("id, email, status"),
+      scope
+    )
       .eq("status", "pending")
       .neq("id", id);
 
@@ -1471,7 +1492,7 @@ async function applyUpdateRequestDetails(
       requested_permissions: requestedPermissions,
       message,
       audit_log: nextAudit,
-    });
+    }, scope);
   } catch (error) {
     if (isDuplicateEmailError(error)) {
       throw createManagedRouteError({
@@ -1491,7 +1512,7 @@ async function applyUpdateRequestDetails(
     invited_user_id: row.invited_user_id ?? null,
   });
 
-  return loadRequestRow(id);
+  return loadRequestRow(id, scope);
 }
 
 async function syncRequestDetailsToLinkedRecords(
@@ -1580,11 +1601,16 @@ export async function PATCH(
       );
     }
 
-    const { user, role, mfaError } = await getStrictDirectionRequestUser(req);
-    if (mfaError) return mfaError;
+    const scopedAccess = await requireScopedDirectionAccountAccess(req);
+    if (!scopedAccess.ok) return scopedAccess.response;
+    const { user, role, scope } = scopedAccess;
 
     const { id } = await params;
     const body = (await req.json()) as Record<string, unknown>;
+    const spoof = rejectSpoofedAccountRequestScope({ scope, body });
+    if (!spoof.ok) {
+      return NextResponse.json({ error: "Portee client refusee." }, { status: 403 });
+    }
     const action = parseAction(body.action);
 
     logPatchStep("request_received", {
@@ -1603,7 +1629,7 @@ export async function PATCH(
       }
 
       try {
-        const updated = await applyUpdateRequestDetails(id, body, user);
+        const updated = await applyUpdateRequestDetails(id, body, user, scope);
         return NextResponse.json({ success: true, request: updated });
       } catch (error) {
         const normalizedError = getApprovalErrorResponse(error);
@@ -1625,10 +1651,10 @@ export async function PATCH(
     }
 
     if (action === "approve" || action === "refuse") {
-      const locked = await acquirePendingReviewLock(id);
+      const locked = await acquirePendingReviewLock(id, scope);
 
       if (!locked.requestRow || !locked.reviewLockToken || !locked.reviewedAt) {
-        const currentRequestRow = await loadRequestRow(id);
+        const currentRequestRow = await loadRequestRow(id, scope);
 
         if (
           action === "approve" &&
@@ -1684,9 +1710,8 @@ export async function PATCH(
 
         if (action === "refuse") {
           processingStep = "request_refused";
-          const { error } = await createAdminSupabaseClient()
-            .from("account_requests")
-            .update({
+          const { error } = await scopeAccountRequestQuery(
+            createAdminSupabaseClient().from("account_requests").update({
               status: "refused",
               assigned_role: assignedRole,
               assigned_permissions: assignedPermissions,
@@ -1711,7 +1736,9 @@ export async function PATCH(
                   },
                 })
               ),
-            })
+            }),
+            scope
+          )
             .eq("id", id)
             .eq("review_lock_token", locked.reviewLockToken);
 
@@ -1841,6 +1868,7 @@ export async function PATCH(
           employeeProfileDisposition: employeeResolution.profile
             ? "existing"
             : "created",
+          scope,
         });
 
         logPatchStep("lock_released", {
@@ -1887,6 +1915,7 @@ export async function PATCH(
             reviewNote,
             step: processingStep,
             error: approvalError,
+            scope,
           });
 
           return NextResponse.json(
@@ -1907,6 +1936,7 @@ export async function PATCH(
           reviewLockToken: locked.reviewLockToken,
           errorMessage: lastError,
           step: processingStep,
+          scope,
         });
 
         return NextResponse.json(
@@ -1923,7 +1953,7 @@ export async function PATCH(
       }
     }
 
-    const requestRow = await loadRequestRow(id);
+    const requestRow = await loadRequestRow(id, scope);
 
     if (!requestRow) {
       return NextResponse.json(
@@ -1956,7 +1986,7 @@ export async function PATCH(
           assignedPermissions,
           reason: reviewNote,
         }),
-      });
+      }, scope);
 
       return NextResponse.json({ success: true, status: updated.status });
     }
@@ -2021,7 +2051,7 @@ export async function PATCH(
           company: requestRow.company,
           companyDirectoryContext: getCompanyDirectoryContext(requestRow.company),
         }),
-      });
+      }, scope);
 
       return NextResponse.json({ success: true, status: updated.status });
     }
@@ -2078,7 +2108,7 @@ export async function PATCH(
           company: requestRow.company,
           companyDirectoryContext: getCompanyDirectoryContext(requestRow.company),
         }),
-      });
+      }, scope);
 
       return NextResponse.json({ success: true, status: updated.status });
     }
@@ -2135,7 +2165,7 @@ export async function PATCH(
           company: requestRow.company,
           companyDirectoryContext: getCompanyDirectoryContext(requestRow.company),
         }),
-      });
+      }, scope);
 
       return NextResponse.json({ success: true, status: updated.status });
     }
@@ -2218,7 +2248,7 @@ export async function PATCH(
           company: requestRow.company,
           companyDirectoryContext: getCompanyDirectoryContext(requestRow.company),
         }),
-      });
+      }, scope);
 
       return NextResponse.json({ success: true, status: updated.status });
     }
@@ -2291,7 +2321,7 @@ export async function PATCH(
             companyDirectoryContext: getCompanyDirectoryContext(requestRow.company),
           }
         ),
-      });
+      }, scope);
 
       return NextResponse.json({ success: true, status: updated.status });
     }
@@ -2337,15 +2367,16 @@ export async function DELETE(
       );
     }
 
-    const { user, role, mfaError } = await getStrictDirectionRequestUser(req);
-    if (mfaError) return mfaError;
+    const scopedAccess = await requireScopedDirectionAccountAccess(req);
+    if (!scopedAccess.ok) return scopedAccess.response;
+    const { user, role, scope } = scopedAccess;
 
     if (!user || role !== "admin") {
       return NextResponse.json({ error: "Acces refuse." }, { status: 403 });
     }
 
     const { id } = await params;
-    const requestRow = await loadRequestRow(id);
+    const requestRow = await loadRequestRow(id, scope);
 
     if (!requestRow) {
       return NextResponse.json(
@@ -2354,10 +2385,10 @@ export async function DELETE(
       );
     }
 
-    const { error } = await createAdminSupabaseClient()
-      .from("account_requests")
-      .delete()
-      .eq("id", id);
+    const { error } = await scopeAccountRequestQuery(
+      createAdminSupabaseClient().from("account_requests").delete(),
+      scope
+    ).eq("id", id);
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });

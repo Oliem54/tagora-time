@@ -56,13 +56,22 @@ async function findAuthUserByEmail(email: string) {
   }
 }
 
-async function loadRequestRow(id: string) {
+async function loadRequestRow(
+  id: string,
+  scope: { organizationId: string; organizationCompanyIds: readonly string[] }
+) {
   const supabase = createAdminSupabaseClient();
-  const { data, error } = await supabase
+  const companyIds = scope.organizationCompanyIds.filter((value) => value.trim().length > 0);
+  let query = supabase
     .from("account_requests")
     .select("*")
     .eq("id", id)
-    .maybeSingle<AccountRequestRow>();
+    .eq("organization_id", scope.organizationId);
+  query =
+    companyIds.length === 0
+      ? query.eq("organization_company_id", "00000000-0000-0000-0000-000000000000")
+      : query.in("organization_company_id", [...companyIds]);
+  const { data, error } = await query.maybeSingle<AccountRequestRow>();
 
   if (error) {
     throw error;
@@ -128,8 +137,9 @@ export async function reconcileExistingAccountRequest(options: {
   actorEmail?: string | null;
   reviewNote?: string | null;
   employeeId?: number | null;
+  scope: { organizationId: string; organizationCompanyIds: readonly string[] };
 }) {
-  const requestRow = await loadRequestRow(options.requestId);
+  const requestRow = await loadRequestRow(options.requestId, options.scope);
 
   if (!requestRow) {
     throw new AccountReconcileError("Demande introuvable.", 404, "request_not_found");
@@ -237,6 +247,7 @@ export async function reconcileExistingAccountRequest(options: {
       audit_log: appendAuditEntry(requestRow.audit_log, auditEntry),
     })
     .eq("id", requestRow.id)
+    .eq("organization_id", options.scope.organizationId)
     .select("*")
     .single<AccountRequestRow>();
 

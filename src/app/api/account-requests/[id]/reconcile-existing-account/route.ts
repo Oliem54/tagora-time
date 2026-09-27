@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
   getAccountRequestsRequestDebug,
-  getStrictDirectionRequestUser,
+  rejectSpoofedAccountRequestScope,
+  requireScopedDirectionAccountAccess,
 } from "@/app/lib/account-requests.server";
 import {
   AccountReconcileError,
@@ -38,10 +39,9 @@ export async function POST(
       );
     }
 
-    const { user, role, mfaError } = await getStrictDirectionRequestUser(req);
-    if (mfaError) {
-      return mfaError;
-    }
+    const scopedAccess = await requireScopedDirectionAccountAccess(req);
+    if (!scopedAccess.ok) return scopedAccess.response;
+    const { user, role, scope } = scopedAccess;
 
     if (!user || role !== "admin") {
       return NextResponse.json({ error: "Accès réservé aux administrateurs." }, { status: 403 });
@@ -49,6 +49,10 @@ export async function POST(
 
     const { id } = await params;
     const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
+    const spoof = rejectSpoofedAccountRequestScope({ scope, body });
+    if (!spoof.ok) {
+      return NextResponse.json({ error: "Portee client refusee." }, { status: 403 });
+    }
     const employeeId = parseEmployeeId(body.employeeId ?? body.employee_id);
 
     const result = await reconcileExistingAccountRequest({
@@ -57,6 +61,7 @@ export async function POST(
       actorEmail: user.email ?? null,
       reviewNote: typeof body.reviewNote === "string" ? body.reviewNote : null,
       employeeId,
+      scope,
     });
 
     return NextResponse.json({

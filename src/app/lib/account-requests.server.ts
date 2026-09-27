@@ -10,6 +10,11 @@ import { getJwtAal } from "@/app/lib/auth/jwt-access-token";
 import { bindEffectiveAppRole } from "@/app/lib/auth/permissions";
 import { NEXUS_BROKERED_SESSION_COOKIE_NAME } from "@/app/lib/auth/nexus-handoff-config";
 import { resolveBrokeredHororaSessionFromCookies } from "@/app/lib/auth/nexus-brokered-session";
+import {
+  assessClientScope,
+  resolveCompanyInOrganization,
+  type CompanyDirectoryRow,
+} from "@/app/lib/tenant-scope.shared";
 
 export { getJwtAal };
 
@@ -271,6 +276,134 @@ export async function getAuthenticatedRequestUser(req: NextRequest) {
     authorizationSource: "membership" as const,
     sessionSource: "nexus_handoff" as AuthenticatedSessionSource,
   };
+}
+
+export type AccountRequestTenantScope = {
+  organizationId: string;
+  organizationCompanyIds: string[];
+};
+
+type ScopedQuery = {
+  eq: (column: string, value: string) => ScopedQuery;
+  in: (column: string, values: readonly string[]) => ScopedQuery;
+};
+
+export function scopeAccountRequestQuery<T>(
+  query: T,
+  scope: AccountRequestTenantScope
+): T {
+  const builder = query as unknown as ScopedQuery;
+  const companyIds = scope.organizationCompanyIds.filter((id) => id.trim().length > 0);
+  const byOrganization = builder.eq("organization_id", scope.organizationId);
+  if (companyIds.length === 0) {
+    return byOrganization.eq(
+      "organization_company_id",
+      "00000000-0000-0000-0000-000000000000"
+    ) as T;
+  }
+  return byOrganization.in("organization_company_id", companyIds) as T;
+}
+
+async function loadActiveCompanies(organizationId: string): Promise<CompanyDirectoryRow[]> {
+  const supabase = createAdminSupabaseClient();
+  const { data, error } = await supabase
+    .from("organization_companies")
+    .select("id, organization_id, company_code")
+    .eq("organization_id", organizationId)
+    .eq("status", "active");
+  if (error) {
+    throw error;
+  }
+  return (data ?? []).map((row) => ({
+    organizationId: String(row.organization_id),
+    organizationCompanyId: String(row.id),
+    companyCode: String(row.company_code),
+  }));
+}
+
+export async function requireScopedDirectionAccountAccess(req: NextRequest) {
+  const authenticated = await getAuthenticatedRequestUser(req);
+  const role = authenticated.role;
+  if (
+    !authenticated.user ||
+    authenticated.sessionSource !== "nexus_handoff" ||
+    (role !== "direction" && role !== "admin") ||
+    !authenticated.organizationId
+  ) {
+    return {
+      ok: false as const,
+      response: NextResponse.json({ error: "Acces refuse." }, { status: 403 }),
+    };
+  }
+
+  const directory = await loadActiveCompanies(authenticated.organizationId);
+  const scope: AccountRequestTenantScope = {
+    organizationId: authenticated.organizationId,
+    organizationCompanyIds: directory.map((row) => row.organizationCompanyId),
+  };
+  return {
+    ok: true as const,
+    user: authenticated.user,
+    role,
+    scope,
+    directory,
+  };
+}
+
+export function rejectSpoofedAccountRequestScope(input: {
+  scope: AccountRequestTenantScope;
+  body: Record<string, unknown>;
+}) {
+  return assessClientScope({
+    sessionOrganizationId: input.scope.organizationId,
+    allowedCompanyIds: input.scope.organizationCompanyIds,
+    clientOrganizationId: input.body.organization_id ?? input.body.organizationId,
+    clientCompanyId:
+      input.body.organization_company_id ?? input.body.company_id ?? input.body.companyId,
+  });
+}
+
+export async function resolvePublicAccountRequestScope(
+  companyCode: string | null,
+  body: Record<string, unknown>
+) {
+  const code = String(companyCode ?? "").trim().toLowerCase();
+  if (!code) return { ok: false as const, code: "company_unscoped" as const };
+  const supabase = createAdminSupabaseClient();
+  const { data, error } = await supabase
+    .from("organization_companies")
+    .select("id, organization_id, company_code")
+    .eq("company_code", code)
+    .eq("status", "active");
+  if (error) throw error;
+  const rows = data ?? [];
+  if (rows.length !== 1) {
+    return { ok: false as const, code: "company_unscoped" as const };
+  }
+  const organizationId = String(rows[0].organization_id);
+  const organizationCompanyId = String(rows[0].id);
+  const spoof = assessClientScope({
+    sessionOrganizationId: organizationId,
+    allowedCompanyIds: [organizationCompanyId],
+    clientOrganizationId: body.organization_id ?? body.organizationId,
+    clientCompanyId:
+      body.organization_company_id ?? body.company_id ?? body.companyId,
+  });
+  if (!spoof.ok) return { ok: false as const, code: spoof.code };
+  return { ok: true as const, organizationId, organizationCompanyId };
+}
+
+export async function resolveAccountRequestCompanyScope(input: {
+  organizationId: string;
+  companyCode: string | null;
+  directory?: CompanyDirectoryRow[];
+}) {
+  const directory = input.directory ?? (await loadActiveCompanies(input.organizationId));
+  return resolveCompanyInOrganization({
+    organizationId: input.organizationId,
+    companyCode: input.companyCode,
+    directory,
+  });
 }
 
 export async function getStrictDirectionRequestUser(req: NextRequest) {

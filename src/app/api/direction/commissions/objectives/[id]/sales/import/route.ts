@@ -6,6 +6,8 @@ import {
 import { todayIsoLocal } from "@/app/lib/commissions/commissions.shared";
 import { insertSaleLines } from "@/app/lib/commissions/sales-ledger.server";
 import { parseCommissionSalesCsv } from "@/app/lib/commissions/sales-ledger.shared";
+import { assessClientScope } from "@/app/lib/tenant-scope.shared";
+import { loadSaleLedgerContext } from "@/app/lib/commissions/sales-ledger.server";
 
 export async function POST(
   req: NextRequest,
@@ -16,6 +18,24 @@ export async function POST(
     if (!auth.ok) return auth.response;
     const { id } = await params;
     const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
+    const context = await loadSaleLedgerContext(
+      auth.supabase,
+      auth.user,
+      id,
+      auth.organizationId
+    );
+    if (!context.ok) {
+      return NextResponse.json({ error: context.error }, { status: context.status });
+    }
+    const scopeCheck = assessClientScope({
+      sessionOrganizationId: auth.organizationId,
+      allowedCompanyIds: [context.organizationCompanyId],
+      clientOrganizationId: body.organization_id ?? body.organizationId,
+      clientCompanyId: body.company_id ?? body.companyId ?? body.organization_company_id,
+    });
+    if (!scopeCheck.ok) {
+      return NextResponse.json({ error: "Portee client refusee." }, { status: 403 });
+    }
     const csv = typeof body.csv === "string" ? body.csv : "";
     const parsed = parseCommissionSalesCsv(csv);
     if (!parsed.ok) {
@@ -26,6 +46,7 @@ export async function POST(
       supabase: auth.supabase,
       user: auth.user,
       objectiveId: id,
+      organizationId: auth.organizationId,
       actorName: getUserDisplayName(auth.user),
       todayIso: todayIsoLocal(),
       drafts: parsed.rows.map((row) => ({

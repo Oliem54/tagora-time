@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
   getAccountRequestsRequestDebug,
-  getStrictDirectionRequestUser,
+  rejectSpoofedAccountRequestScope,
+  requireScopedDirectionAccountAccess,
+  scopeAccountRequestQuery,
+  type AccountRequestTenantScope,
 } from "@/app/lib/account-requests.server";
 import {
   buildRequiredPasswordMetadata,
@@ -47,11 +50,12 @@ async function findAuthUserByEmail(email: string) {
   }
 }
 
-async function loadRequestRow(id: string) {
+async function loadRequestRow(id: string, scope: AccountRequestTenantScope) {
   const supabase = createAdminSupabaseClient();
-  const { data, error } = await supabase
-    .from("account_requests")
-    .select("*")
+  const { data, error } = await scopeAccountRequestQuery(
+    supabase.from("account_requests").select("*"),
+    scope
+  )
     .eq("id", id)
     .maybeSingle<AccountRequestRow>();
 
@@ -95,22 +99,38 @@ export async function POST(
       );
     }
 
-    const { user, role, mfaError } = await getStrictDirectionRequestUser(req);
-    if (mfaError) return mfaError;
+    const scopedAccess = await requireScopedDirectionAccountAccess(req);
+    if (!scopedAccess.ok) return scopedAccess.response;
+    const { user, role, scope } = scopedAccess;
 
     if (!user || role !== "admin") {
       return NextResponse.json({ error: "Acces refuse." }, { status: 403 });
     }
 
     const { id } = await params;
-    const body = (await req.json()) as { action?: unknown; password?: unknown };
+    const body = (await req.json()) as {
+      action?: unknown;
+      password?: unknown;
+      organization_id?: unknown;
+      organizationId?: unknown;
+      company_id?: unknown;
+      companyId?: unknown;
+      organization_company_id?: unknown;
+    };
+    const spoof = rejectSpoofedAccountRequestScope({
+      scope,
+      body: body as Record<string, unknown>,
+    });
+    if (!spoof.ok) {
+      return NextResponse.json({ error: "Portee client refusee." }, { status: 403 });
+    }
     const action = parseAction(body.action);
 
     if (!action) {
       return NextResponse.json({ error: "Action invalide." }, { status: 400 });
     }
 
-    const requestRow = await loadRequestRow(id);
+    const requestRow = await loadRequestRow(id, scope);
     if (!requestRow) {
       return NextResponse.json({ error: "Demande introuvable." }, { status: 404 });
     }

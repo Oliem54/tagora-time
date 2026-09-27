@@ -25,12 +25,18 @@ export function isMissingSaleLedgerError(error: { code?: string; message?: strin
 export async function loadSaleLedgerContext(
   supabase: AdminClient,
   user: User,
-  objectiveId: string
+  objectiveId: string,
+  organizationId: string
 ) {
+  if (!organizationId) {
+    return { ok: false as const, error: "Organisation de session absente.", status: 403 as const };
+  }
+
   const objectiveRes = await supabase
     .from("sales_objectives")
-    .select("id, target_type, company_context, chauffeur_id, status")
+    .select("id, target_type, company_context, chauffeur_id, status, organization_id")
     .eq("id", objectiveId)
+    .eq("organization_id", organizationId)
     .maybeSingle();
 
   if (objectiveRes.error || !objectiveRes.data) {
@@ -40,11 +46,14 @@ export async function loadSaleLedgerContext(
   const objective = objectiveRes.data as Record<string, unknown>;
   const chauffeurId = Number(objective.chauffeur_id);
   let chauffeurCompany: string | null = null;
+  let chauffeurOrganizationId: string | null = null;
+  let organizationCompanyId: string | null = null;
   if (Number.isFinite(chauffeurId) && chauffeurId > 0) {
     const chauffeurRes = await supabase
       .from("chauffeurs")
-      .select("id, primary_company")
+      .select("id, primary_company, organization_id, organization_company_id")
       .eq("id", chauffeurId)
+      .eq("organization_id", organizationId)
       .maybeSingle();
     if (chauffeurRes.error) {
       return { ok: false as const, error: chauffeurRes.error.message, status: 400 as const };
@@ -52,6 +61,14 @@ export async function loadSaleLedgerContext(
     chauffeurCompany =
       typeof chauffeurRes.data?.primary_company === "string"
         ? chauffeurRes.data.primary_company
+        : null;
+    chauffeurOrganizationId =
+      typeof chauffeurRes.data?.organization_id === "string"
+        ? chauffeurRes.data.organization_id
+        : null;
+    organizationCompanyId =
+      typeof chauffeurRes.data?.organization_company_id === "string"
+        ? chauffeurRes.data.organization_company_id
         : null;
   }
 
@@ -69,21 +86,77 @@ export async function loadSaleLedgerContext(
     return { ok: false as const, error: "Acces refuse pour cette compagnie.", status: 403 as const };
   }
 
+  const objectiveOrganizationId =
+    typeof objective.organization_id === "string" ? objective.organization_id : null;
+  if (!objectiveOrganizationId || objectiveOrganizationId !== organizationId) {
+    return { ok: false as const, error: "Objectif hors du tenant de la session.", status: 404 as const };
+  }
+
+  if (
+    Number.isFinite(chauffeurId) &&
+    chauffeurId > 0 &&
+    (chauffeurOrganizationId !== organizationId || !organizationCompanyId)
+  ) {
+    return {
+      ok: false as const,
+      error: "La compagnie de l'employe n'appartient pas au tenant de la session.",
+      status: 403 as const,
+    };
+  }
+
+  if (!organizationCompanyId) {
+    const companyCode = company.company;
+    if (!companyCode) {
+      return { ok: false as const, error: "Compagnie de vente non resolue.", status: 409 as const };
+    }
+    const companyRes = await supabase
+      .from("organization_companies")
+      .select("id")
+      .eq("organization_id", organizationId)
+      .eq("company_code", companyCode)
+      .maybeSingle();
+    if (companyRes.error || !companyRes.data?.id) {
+      return {
+        ok: false as const,
+        error: "Compagnie introuvable dans le tenant de la session.",
+        status: 403 as const,
+      };
+    }
+    return {
+      ok: true as const,
+      targetType: objective.target_type === "sales_count" ? ("sales_count" as const) : ("amount" as const),
+      company: company.company,
+      organizationId,
+      organizationCompanyId: String(companyRes.data.id),
+      chauffeurId: Number.isFinite(chauffeurId) ? chauffeurId : null,
+      objectiveStatus: typeof objective.status === "string" ? objective.status : "active",
+    };
+  }
+
   return {
     ok: true as const,
     targetType: objective.target_type === "sales_count" ? ("sales_count" as const) : ("amount" as const),
     company: company.company,
+    organizationId,
+    organizationCompanyId,
+    chauffeurId: Number.isFinite(chauffeurId) ? chauffeurId : null,
     objectiveStatus: typeof objective.status === "string" ? objective.status : "active",
   };
 }
 
-export async function listSaleLines(supabase: AdminClient, objectiveId: string) {
+export async function listSaleLines(
+  supabase: AdminClient,
+  objectiveId: string,
+  scope: { organizationId: string; organizationCompanyId: string }
+) {
   const result = await supabase
     .from("commission_sale_lines")
     .select(
-      "id, objective_id, company_context, kind, sale_date, reference_code, label, amount, sales_count, notes, source, corrects_line_id, created_at"
+      "id, objective_id, organization_id, organization_company_id, company_context, kind, sale_date, reference_code, label, amount, sales_count, notes, source, corrects_line_id, created_at"
     )
     .eq("objective_id", objectiveId)
+    .eq("organization_id", scope.organizationId)
+    .eq("organization_company_id", scope.organizationCompanyId)
     .order("sale_date", { ascending: true })
     .order("created_at", { ascending: true });
 
@@ -118,8 +191,12 @@ export async function listSaleLines(supabase: AdminClient, objectiveId: string) 
   };
 }
 
-export async function objectiveHasSaleLines(supabase: AdminClient, objectiveId: string) {
-  const listed = await listSaleLines(supabase, objectiveId);
+export async function objectiveHasSaleLines(
+  supabase: AdminClient,
+  objectiveId: string,
+  scope: { organizationId: string; organizationCompanyId: string }
+) {
+  const listed = await listSaleLines(supabase, objectiveId, scope);
   if (!listed.ok) return listed;
   return {
     ok: true as const,
@@ -132,11 +209,17 @@ export async function insertSaleLines(input: {
   supabase: AdminClient;
   user: User;
   objectiveId: string;
+  organizationId: string;
   drafts: SaleLineDraft[];
   actorName: string;
   todayIso: string;
 }) {
-  const context = await loadSaleLedgerContext(input.supabase, input.user, input.objectiveId);
+  const context = await loadSaleLedgerContext(
+    input.supabase,
+    input.user,
+    input.objectiveId,
+    input.organizationId
+  );
   if (!context.ok) return context;
   if (context.objectiveStatus === "cancelled") {
     return {
@@ -146,7 +229,10 @@ export async function insertSaleLines(input: {
     };
   }
 
-  const existing = await listSaleLines(input.supabase, input.objectiveId);
+  const existing = await listSaleLines(input.supabase, input.objectiveId, {
+    organizationId: context.organizationId,
+    organizationCompanyId: context.organizationCompanyId,
+  });
   if (!existing.ok) return existing;
   if (!existing.ledgerAvailable) {
     return {
@@ -198,6 +284,8 @@ export async function insertSaleLines(input: {
   const insertRes = await input.supabase.from("commission_sale_lines").insert(
     input.drafts.map((draft) => ({
       objective_id: input.objectiveId,
+      organization_id: context.organizationId,
+      organization_company_id: context.organizationCompanyId,
       company_context: context.company,
       kind: draft.kind,
       sale_date: draft.saleDate,
@@ -233,7 +321,8 @@ export async function insertSaleLines(input: {
       updated_by: input.user.id,
       updated_by_name: input.actorName,
     })
-    .eq("id", input.objectiveId);
+    .eq("id", input.objectiveId)
+    .eq("organization_id", context.organizationId);
 
   if (updateRes.error) {
     return { ok: false as const, error: updateRes.error.message, status: 400 as const };
@@ -248,7 +337,10 @@ export async function insertSaleLines(input: {
     return { ok: false as const, error: recalculated.error, status: recalculated.status };
   }
 
-  const lines = await listSaleLines(input.supabase, input.objectiveId);
+  const lines = await listSaleLines(input.supabase, input.objectiveId, {
+    organizationId: context.organizationId,
+    organizationCompanyId: context.organizationCompanyId,
+  });
   if (!lines.ok) return lines;
 
   return {

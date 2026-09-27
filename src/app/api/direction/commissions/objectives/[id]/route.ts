@@ -17,7 +17,7 @@ import {
 } from "@/app/api/direction/commissions/_lib";
 import { hasAdminFinanceAccess } from "@/app/lib/auth/admin-finance";
 import { loadDirectionGrantedOperationalObjectives } from "@/app/lib/commissions/sales-book-grants.server";
-import { objectiveHasSaleLines } from "@/app/lib/commissions/sales-ledger.server";
+import { loadSaleLedgerContext, objectiveHasSaleLines } from "@/app/lib/commissions/sales-ledger.server";
 
 function asText(value: unknown) {
   if (typeof value !== "string") return null;
@@ -166,7 +166,19 @@ export async function PATCH(
     const replacesAchieved =
       body.achieved_amount !== undefined || body.achieved_sales_count !== undefined;
     if (replacesAchieved) {
-      const ledger = await objectiveHasSaleLines(supabase, id);
+      const ledgerContext = await loadSaleLedgerContext(
+        supabase,
+        user,
+        id,
+        auth.organizationId
+      );
+      if (!ledgerContext.ok) {
+        return NextResponse.json({ error: ledgerContext.error }, { status: ledgerContext.status });
+      }
+      const ledger = await objectiveHasSaleLines(supabase, id, {
+        organizationId: ledgerContext.organizationId,
+        organizationCompanyId: ledgerContext.organizationCompanyId,
+      });
       if (!ledger.ok) {
         return NextResponse.json({ error: ledger.error }, { status: ledger.status });
       }
