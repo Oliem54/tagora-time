@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { KeyRound } from "lucide-react";
 import FeedbackMessage from "@/app/components/FeedbackMessage";
+import AdminCommissionSalesLedger from "@/app/admin/commissions/AdminCommissionSalesLedger";
 import AdminCommissionsNavigation from "@/app/components/admin/AdminCommissionsNavigation";
 import AdminCommissionsMetricCard from "@/app/components/admin/AdminCommissionsMetricCard";
 import HororaAppShell from "@/app/components/horora/HororaAppShell";
@@ -97,6 +98,7 @@ export default function AdminCommissionsPageClient() {
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [createForm, setCreateForm] = useState<CreateFormState>(() => emptyForm());
   const [actionKey, setActionKey] = useState<string | null>(null);
+  const [ledgerObjectiveId, setLedgerObjectiveId] = useState<string | null>(null);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -362,6 +364,33 @@ export default function AdminCommissionsPageClient() {
     }
   }
 
+  async function exportPayroll() {
+    setActionKey("export");
+    setMessage("");
+    setMessageType(null);
+    try {
+      const res = await commissionsFetch("/api/direction/commissions/export");
+      if (!res.ok) {
+        const payload = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(payload.error || "Export impossible.");
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "commissions-paie.csv";
+      link.click();
+      URL.revokeObjectURL(url);
+      setMessage("Export paie telecharge.");
+      setMessageType("success");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Erreur export.");
+      setMessageType("error");
+    } finally {
+      setActionKey(null);
+    }
+  }
+
   async function patchEntry(entryId: string, action: "validate" | "pay" | "cancel") {
     setActionKey(`${action}:${entryId}`);
     try {
@@ -429,6 +458,14 @@ export default function AdminCommissionsPageClient() {
       </section>
 
       <div className="commissions-toolbar">
+        <button
+          type="button"
+          className="tagora-dark-outline-action"
+          disabled={actionKey != null}
+          onClick={() => void exportPayroll()}
+        >
+          {actionKey === "export" ? "Export..." : "Exporter paie"}
+        </button>
         <button
           type="button"
           className="tagora-dark-action"
@@ -669,6 +706,18 @@ export default function AdminCommissionsPageClient() {
                         type="button"
                         className="tagora-dark-outline-action"
                         disabled={actionKey != null}
+                        onClick={() =>
+                          setLedgerObjectiveId((current) =>
+                            current === objective.id ? null : objective.id
+                          )
+                        }
+                      >
+                        {ledgerObjectiveId === objective.id ? "Fermer le registre" : "Registre des ventes"}
+                      </button>
+                      <button
+                        type="button"
+                        className="tagora-dark-outline-action"
+                        disabled={actionKey != null}
                         onClick={() => void updateAchieved(objective)}
                       >
                         Saisir realise
@@ -692,6 +741,13 @@ export default function AdminCommissionsPageClient() {
                         </button>
                       ) : null}
                     </div>
+                    {ledgerObjectiveId === objective.id ? (
+                      <AdminCommissionSalesLedger
+                        objectiveId={objective.id}
+                        targetType={objective.target_type}
+                        onSaved={loadData}
+                      />
+                    ) : null}
                   </AppCard>
                 );
               })}
@@ -801,6 +857,7 @@ export default function AdminCommissionsPageClient() {
         .commissions-toolbar {
           display: flex;
           justify-content: flex-end;
+          gap: 10px;
           margin-bottom: 16px;
         }
         .commissions-form-grid {

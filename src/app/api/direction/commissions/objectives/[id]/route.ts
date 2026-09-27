@@ -17,6 +17,7 @@ import {
 } from "@/app/api/direction/commissions/_lib";
 import { hasAdminFinanceAccess } from "@/app/lib/auth/admin-finance";
 import { loadDirectionGrantedOperationalObjectives } from "@/app/lib/commissions/sales-book-grants.server";
+import { objectiveHasSaleLines } from "@/app/lib/commissions/sales-ledger.server";
 
 function asText(value: unknown) {
   if (typeof value !== "string") return null;
@@ -161,6 +162,23 @@ export async function PATCH(
     }
     if (body.target_sales_count !== undefined) {
       patch.target_sales_count = Math.trunc(asNumber(body.target_sales_count) ?? 0);
+    }
+    const replacesAchieved =
+      body.achieved_amount !== undefined || body.achieved_sales_count !== undefined;
+    if (replacesAchieved) {
+      const ledger = await objectiveHasSaleLines(supabase, id);
+      if (!ledger.ok) {
+        return NextResponse.json({ error: ledger.error }, { status: ledger.status });
+      }
+      if (ledger.hasLines) {
+        return NextResponse.json(
+          {
+            error:
+              "Le realise provient du registre de ventes. Ajoutez une vente, un ajustement ou une correction.",
+          },
+          { status: 409 }
+        );
+      }
     }
     if (body.achieved_amount !== undefined) {
       patch.achieved_amount = asNumber(body.achieved_amount) ?? 0;
