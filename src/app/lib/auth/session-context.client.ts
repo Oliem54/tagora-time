@@ -16,19 +16,47 @@ export type SessionContextResponse = {
   source: "membership" | "nexus_handoff" | null;
 };
 
+export const SESSION_CONTEXT_TIMEOUT_MS = 12_000;
+
+export class SessionContextTimeoutError extends Error {
+  constructor() {
+    super("session_context_timeout");
+    this.name = "SessionContextTimeoutError";
+  }
+}
+
+export function isSessionContextTimeoutError(error: unknown): boolean {
+  return error instanceof Error && error.name === "SessionContextTimeoutError";
+}
+
 export async function fetchSessionAuthorizationContext(
-  accessToken?: string
+  accessToken?: string,
+  options?: { timeoutMs?: number }
 ): Promise<SessionContextResponse> {
   const headers: HeadersInit = {};
   if (accessToken) {
     headers.Authorization = `Bearer ${accessToken}`;
   }
-  const res = await fetch("/api/auth/session-context", {
-    method: "GET",
-    headers,
-    credentials: "same-origin",
-    cache: "no-store",
-  });
+  const timeoutMs = options?.timeoutMs ?? SESSION_CONTEXT_TIMEOUT_MS;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  let res: Response;
+  try {
+    res = await fetch("/api/auth/session-context", {
+      method: "GET",
+      headers,
+      credentials: "same-origin",
+      cache: "no-store",
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if (controller.signal.aborted) {
+      throw new SessionContextTimeoutError();
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
 
   const body = (await res.json().catch(() => null)) as SessionContextResponse | null;
 

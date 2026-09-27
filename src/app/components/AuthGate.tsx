@@ -12,9 +12,18 @@ import {
   getLoginPathForRole,
 } from "@/app/lib/auth/roles";
 import { appRoleMatchesArea } from "@/app/lib/auth/organization-role-mapping.shared";
-import { fetchSessionAuthorizationContext } from "@/app/lib/auth/session-context.client";
+import {
+  fetchSessionAuthorizationContext,
+  isSessionContextTimeoutError,
+  SESSION_CONTEXT_TIMEOUT_MS,
+} from "@/app/lib/auth/session-context.client";
 import { clearServerSessionCookie } from "@/app/lib/auth/session-cookie";
 import TagoraLoadingScreen from "@/app/components/ui/TagoraLoadingScreen";
+import {
+  AUTH_GATE_INIT_FAILURE_MESSAGE,
+  AUTH_GATE_INIT_TIMEOUT_MS,
+  resolveAuthGateInitView,
+} from "@/app/components/auth-gate-init.shared";
 
 type CrossAreaReadRule = {
   pathPrefix: string;
@@ -31,6 +40,8 @@ type AuthGateProps = {
   wrongRoleRenderPaths?: string[];
 };
 
+const LEFTOVER_SESSION_CLEAR_TIMEOUT_MS = 4_000;
+
 export default function AuthGate({
   areaRole,
   children,
@@ -42,6 +53,8 @@ export default function AuthGate({
   const router = useRouter();
   const [status, setStatus] = useState<"checking" | "allowed">("checking");
   const [missingPermission, setMissingPermission] = useState<string | null>(null);
+  const [initFailed, setInitFailed] = useState(false);
+  const [initAttempt, setInitAttempt] = useState(0);
 
   const isPublicPath = useMemo(
     () => publicPaths.includes(pathname),
@@ -66,6 +79,13 @@ export default function AuthGate({
   );
   useEffect(() => {
     let cancelled = false;
+    const timeout = window.setTimeout(() => {
+      if (!cancelled) setInitFailed(true);
+    }, AUTH_GATE_INIT_TIMEOUT_MS);
+
+    function releaseInitWatchdog() {
+      window.clearTimeout(timeout);
+    }
 
     async function authorizeNexusHandoff(role: AppRole) {
       const roleMatchesArea = appRoleMatchesArea(areaRole, role);
@@ -90,17 +110,39 @@ export default function AuthGate({
         return;
       }
 
+      releaseInitWatchdog();
+      setInitFailed(false);
       setStatus("allowed");
+    }
+
+    async function clearLeftoverBrowserSession() {
+      await Promise.race([
+        (async () => {
+          await supabase.auth.signOut({ scope: "local" });
+          await clearServerSessionCookie();
+        })(),
+        new Promise<void>((resolve) => {
+          window.setTimeout(resolve, LEFTOVER_SESSION_CLEAR_TIMEOUT_MS);
+        }),
+      ]);
     }
 
     async function evaluateAccess() {
       try {
         setMissingPermission(null);
+        setInitFailed(false);
         let brokeredCtx: Awaited<ReturnType<typeof fetchSessionAuthorizationContext>> | null =
           null;
         try {
-          brokeredCtx = await fetchSessionAuthorizationContext();
-        } catch {
+          brokeredCtx = await fetchSessionAuthorizationContext(undefined, {
+            timeoutMs: SESSION_CONTEXT_TIMEOUT_MS,
+          });
+        } catch (error) {
+          if (cancelled) return;
+          if (isSessionContextTimeoutError(error)) {
+            setInitFailed(true);
+            return;
+          }
           brokeredCtx = null;
         }
         if (cancelled) return;
@@ -114,14 +156,15 @@ export default function AuthGate({
         }
 
         try {
-          await supabase.auth.signOut({ scope: "local" });
-          await clearServerSessionCookie();
+          await clearLeftoverBrowserSession();
         } catch {
           // Best-effort leftover Supabase/JWT clear.
         }
 
         if (cancelled) return;
         if (isPublicPath) {
+          releaseInitWatchdog();
+          setInitFailed(false);
           setStatus("allowed");
           return;
         }
@@ -129,6 +172,8 @@ export default function AuthGate({
       } catch {
         if (cancelled) return;
         if (isPublicPath) {
+          releaseInitWatchdog();
+          setInitFailed(false);
           setStatus("allowed");
         } else {
           router.replace(getLoginPathForRole(areaRole));
@@ -139,11 +184,35 @@ export default function AuthGate({
     void evaluateAccess();
     return () => {
       cancelled = true;
+      releaseInitWatchdog();
     };
-  }, [areaRole, crossAreaReadMatch, isPublicPath, pathname, router, wrongRoleRenderOk]);
+  }, [areaRole, crossAreaReadMatch, initAttempt, isPublicPath, pathname, router, wrongRoleRenderOk]);
 
-  if (status === "allowed") {
+  const initView = resolveAuthGateInitView({ status, initFailed });
+
+  if (initView === "allowed") {
     return <>{children}</>;
+  }
+
+  if (initView === "retry") {
+    return (
+      <main className="tagora-app-shell">
+        <div className="tagora-app-content">
+          <p className="tagora-note">{AUTH_GATE_INIT_FAILURE_MESSAGE}</p>
+          <button
+            type="button"
+            className="account-requests-toolbar-button"
+            onClick={() => {
+              setInitFailed(false);
+              setStatus("checking");
+              setInitAttempt((current) => current + 1);
+            }}
+          >
+            Réessayer
+          </button>
+        </div>
+      </main>
+    );
   }
 
   return (

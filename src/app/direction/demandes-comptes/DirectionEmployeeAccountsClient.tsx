@@ -31,7 +31,11 @@ import {
   getCompanyLabel,
   type AccountRequestCompany,
 } from "@/app/lib/account-requests.shared";
-import { supabase } from "@/app/lib/supabase/client";
+import {
+  accountRequestsBrowserInit,
+  loadAccountRequestsPage,
+} from "./account-requests-page-load.shared";
+import { redirectToNexusLoginIfUnauthenticated } from "@/app/lib/auth/horora-nexus-session.client";
 import AccountRequestCreateModal, {
   type CreateAccountPayload,
 } from "./AccountRequestCreateModal";
@@ -180,8 +184,7 @@ export default function DirectionEmployeeAccountsClient() {
   const viewerRoleLabel = getViewerRoleLabel(role);
   const [requests, setRequests] = useState<AccountAccessRequestRecord[]>([]);
   const [loading, setLoading] = useState(true);
-  const [accessToken, setAccessToken] = useState<string | null>(null);
-  const [isReady, setIsReady] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [managingRequestId, setManagingRequestId] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -248,63 +251,27 @@ export default function DirectionEmployeeAccountsClient() {
   );
 
   const fetchRequests = useCallback(async () => {
-    if (!accessToken) {
-      return;
-    }
-
     setLoading(true);
+    setLoadError(null);
 
     try {
-      const response = await fetch("/api/account-requests", {
-        method: "GET",
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          "x-account-requests-client": "browser-authenticated",
-          "Cache-Control": "no-store",
-        },
-      });
-
-      const payload = await response.json();
-
-      if (!response.ok) {
-        setMessage("Impossible de charger les demandes pour le moment.");
-        setMessageType("error");
-        setRequests([]);
-        return;
+      const result = await loadAccountRequestsPage();
+      if (result.unauthenticated) {
+        redirectToNexusLoginIfUnauthenticated(401);
       }
-
-      const nextRequests = Array.isArray(payload.requests) ? payload.requests : [];
-
-      setRequests(nextRequests);
-      setMessage("");
-      setMessageType(null);
+      setRequests(result.requests as AccountAccessRequestRecord[]);
+      setLoadError(result.errorMessage);
     } catch {
-      setMessage("Impossible de charger les demandes pour le moment.");
-      setMessageType("error");
       setRequests([]);
+      setLoadError("Impossible de charger les demandes pour le moment.");
     } finally {
       setLoading(false);
     }
-  }, [accessToken]);
-
-  useEffect(() => {
-    const init = async () => {
-      const { data } = await supabase.auth.getSession();
-      setAccessToken(data.session?.access_token ?? null);
-      setIsReady(true);
-    };
-
-    void init();
   }, []);
 
   useEffect(() => {
-    if (!isReady || !accessToken) {
-      return;
-    }
-
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     void fetchRequests();
-  }, [accessToken, fetchRequests, isReady]);
+  }, [fetchRequests]);
 
   useEffect(() => {
     setMessage("");
@@ -350,7 +317,6 @@ export default function DirectionEmployeeAccountsClient() {
       return;
     }
 
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     setAssignedRole(
       (managingRequest.assigned_role ??
         managingRequest.requested_role ??
@@ -372,7 +338,7 @@ export default function DirectionEmployeeAccountsClient() {
   }
 
   async function saveRequestDetails(payload: ManageIdentityPayload) {
-    if (!accessToken || !managingRequest) {
+    if (!managingRequest) {
       return;
     }
     if (!canEditRequestDetails) {
@@ -386,14 +352,10 @@ export default function DirectionEmployeeAccountsClient() {
     setMessageType(null);
 
     try {
-      const response = await window.fetch(`/api/account-requests/${managingRequest.id}`, {
+      const response = await fetch(`/api/account-requests/${managingRequest.id}`, accountRequestsBrowserInit({
         method: "PATCH",
-        cache: "no-store",
         headers: {
-          Authorization: `Bearer ${accessToken}`,
           "Content-Type": "application/json",
-          "x-account-requests-client": "browser-authenticated",
-          "x-account-requests-page": "direction-demandes-comptes",
         },
         body: JSON.stringify({
           action: "update_request_details",
@@ -405,7 +367,7 @@ export default function DirectionEmployeeAccountsClient() {
           requestedPermissions: payload.requestedPermissions,
           message: payload.message,
         }),
-      });
+      }));
 
       const responsePayload = await response.json();
 
@@ -432,9 +394,6 @@ export default function DirectionEmployeeAccountsClient() {
   }
 
   async function runAction(action: AccountAccessAction, request: AccountAccessRequestRecord) {
-    if (!accessToken) {
-      return;
-    }
     if (!canManageRoles) {
       setMessage("Action reservee aux administrateurs.");
       setMessageType("error");
@@ -450,14 +409,10 @@ export default function DirectionEmployeeAccountsClient() {
     }
 
     try {
-      const response = await window.fetch(`/api/account-requests/${request.id}`, {
+      const response = await fetch(`/api/account-requests/${request.id}`, accountRequestsBrowserInit({
         method: "PATCH",
-        cache: "no-store",
         headers: {
-          Authorization: `Bearer ${accessToken}`,
           "Content-Type": "application/json",
-          "x-account-requests-client": "browser-authenticated",
-          "x-account-requests-page": "direction-demandes-comptes",
         },
         body: JSON.stringify({
           action,
@@ -466,7 +421,7 @@ export default function DirectionEmployeeAccountsClient() {
           reviewNote,
           confirmOverwriteExistingAccount,
         }),
-      });
+      }));
 
       const payload = await response.json();
 
@@ -495,9 +450,6 @@ export default function DirectionEmployeeAccountsClient() {
     request: AccountAccessRequestRecord,
     temporaryPassword?: string
   ) {
-    if (!accessToken) {
-      return;
-    }
     if (!canManageRoles) {
       setMessage("Action reservee aux administrateurs.");
       setMessageType("error");
@@ -513,12 +465,10 @@ export default function DirectionEmployeeAccountsClient() {
     setMessageType(null);
 
     try {
-      const response = await fetch(securityUrl, {
+      const response = await fetch(securityUrl, accountRequestsBrowserInit({
         method: "POST",
         headers: {
-          Authorization: `Bearer ${accessToken}`,
           "Content-Type": "application/json",
-          "x-account-requests-client": "browser-authenticated",
         },
         body: JSON.stringify({
           action,
@@ -526,7 +476,7 @@ export default function DirectionEmployeeAccountsClient() {
             ? { password: temporaryPassword }
             : {}),
         }),
-      });
+      }));
       const payload = await response.json();
 
       if (!response.ok) {
@@ -562,7 +512,7 @@ export default function DirectionEmployeeAccountsClient() {
     setMessageType(null);
 
     try {
-      const response = await fetch("/api/account-requests", {
+      const response = await fetch("/api/account-requests", accountRequestsBrowserInit({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -576,7 +526,7 @@ export default function DirectionEmployeeAccountsClient() {
           message: payload.message || null,
           creationSource: "direction_manual",
         }),
-      });
+      }));
 
       const responsePayload = await response.json();
 
@@ -605,7 +555,7 @@ export default function DirectionEmployeeAccountsClient() {
   }
 
   async function reconcileExistingAccount(request: AccountAccessRequestRecord) {
-    if (!accessToken || !canManageRoles) {
+    if (!canManageRoles) {
       setMessage("Action réservée aux administrateurs.");
       setMessageType("error");
       return;
@@ -621,22 +571,18 @@ export default function DirectionEmployeeAccountsClient() {
     setMessageType(null);
 
     try {
-      const response = await window.fetch(
+      const response = await fetch(
         `/api/account-requests/${request.id}/reconcile-existing-account`,
-        {
+        accountRequestsBrowserInit({
           method: "POST",
-          cache: "no-store",
           headers: {
-            Authorization: `Bearer ${accessToken}`,
             "Content-Type": "application/json",
-            "x-account-requests-client": "browser-authenticated",
-            "x-account-requests-page": "direction-demandes-comptes",
           },
           body: JSON.stringify({
             employeeId: request.employee_link?.id ?? null,
             reviewNote: reviewNote.trim() || null,
           }),
-        }
+        })
       );
 
       const payload = await response.json();
@@ -661,7 +607,7 @@ export default function DirectionEmployeeAccountsClient() {
   }
 
   async function disableRequestAccess(request: AccountAccessRequestRecord) {
-    if (!accessToken || !canManageRoles) {
+    if (!canManageRoles) {
       setMessage("Action réservée aux administrateurs.");
       setMessageType("error");
       return;
@@ -677,14 +623,10 @@ export default function DirectionEmployeeAccountsClient() {
     setMessageType(null);
 
     try {
-      const response = await window.fetch(`/api/account-requests/${request.id}`, {
+      const response = await fetch(`/api/account-requests/${request.id}`, accountRequestsBrowserInit({
         method: "PATCH",
-        cache: "no-store",
         headers: {
-          Authorization: `Bearer ${accessToken}`,
           "Content-Type": "application/json",
-          "x-account-requests-client": "browser-authenticated",
-          "x-account-requests-page": "direction-demandes-comptes",
         },
         body: JSON.stringify({
           action: "disable_access",
@@ -696,7 +638,7 @@ export default function DirectionEmployeeAccountsClient() {
             assignedPermissions,
           reviewNote: request.review_note ?? reviewNote,
         }),
-      });
+      }));
 
       const payload = await response.json();
 
@@ -718,7 +660,7 @@ export default function DirectionEmployeeAccountsClient() {
   }
 
   async function reactivateRequestAccess(request: AccountAccessRequestRecord) {
-    if (!accessToken || !canManageRoles) {
+    if (!canManageRoles) {
       setMessage("Action réservée aux administrateurs.");
       setMessageType("error");
       return;
@@ -729,14 +671,10 @@ export default function DirectionEmployeeAccountsClient() {
     setMessageType(null);
 
     try {
-      const response = await window.fetch(`/api/account-requests/${request.id}`, {
+      const response = await fetch(`/api/account-requests/${request.id}`, accountRequestsBrowserInit({
         method: "PATCH",
-        cache: "no-store",
         headers: {
-          Authorization: `Bearer ${accessToken}`,
           "Content-Type": "application/json",
-          "x-account-requests-client": "browser-authenticated",
-          "x-account-requests-page": "direction-demandes-comptes",
         },
         body: JSON.stringify({
           action: "reactivate_access",
@@ -748,7 +686,7 @@ export default function DirectionEmployeeAccountsClient() {
             assignedPermissions,
           reviewNote: request.review_note ?? reviewNote,
         }),
-      });
+      }));
       const payload = await response.json();
 
       if (!response.ok) {
@@ -769,10 +707,6 @@ export default function DirectionEmployeeAccountsClient() {
   }
 
   async function deleteRequest(request: AccountAccessRequestRecord) {
-    if (!accessToken) {
-      return;
-    }
-
     if (
       !window.confirm(
         "Supprimer définitivement cette demande de compte ? Cette action est irréversible et ne désactive pas l'accès portail existant."
@@ -786,15 +720,9 @@ export default function DirectionEmployeeAccountsClient() {
     setMessageType(null);
 
     try {
-      const response = await fetch(`/api/account-requests/${request.id}`, {
+      const response = await fetch(`/api/account-requests/${request.id}`, accountRequestsBrowserInit({
         method: "DELETE",
-        cache: "no-store",
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          "x-account-requests-client": "browser-authenticated",
-          "x-account-requests-page": "direction-demandes-comptes",
-        },
-      });
+      }));
 
       const payload = await response.json().catch(() => ({}));
 
@@ -919,6 +847,19 @@ export default function DirectionEmployeeAccountsClient() {
               <p className="tagora-note" style={{ margin: 0 }}>
                 Chargement...
               </p>
+            </div>
+          ) : loadError ? (
+            <div className="tagora-panel-muted">
+              <p className="tagora-note" style={{ margin: 0 }}>
+                {loadError}
+              </p>
+              <button
+                type="button"
+                className="account-requests-toolbar-button"
+                onClick={() => void fetchRequests()}
+              >
+                Réessayer
+              </button>
             </div>
           ) : filteredRequests.length === 0 ? (
             <div className="tagora-panel-muted">
