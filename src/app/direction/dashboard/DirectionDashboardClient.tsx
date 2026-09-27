@@ -10,7 +10,6 @@ import {
   FileStack,
   Files,
   Route,
-  Sparkles,
   TimerReset,
   Truck,
   Package,
@@ -202,15 +201,6 @@ const MODULES: ModuleDefinition[] = [
     icon: Target,
     tone: "green",
   },
-  {
-    href: "/ameliorations",
-    label: "Améliorations",
-    description: "Suggestions, demandes d'amélioration et suivis internes.",
-    permission: "ressources",
-    group: "gestion",
-    icon: Sparkles,
-    tone: "yellow",
-  },
 ];
 
 function dedupeModulesByHref(items: ModuleDefinition[]): ModuleDefinition[] {
@@ -232,7 +222,6 @@ export default function DirectionDashboardClient() {
   const [forceShowLoader, setForceShowLoader] = useState(false);
   const [accessToken, setAccessToken] = useState<string | null>(null);
   const [pendingAccountRequestsCount, setPendingAccountRequestsCount] = useState(0);
-  const [pendingImprovementsCount, setPendingImprovementsCount] = useState(0);
   const [pendingEffectifsScheduleCount, setPendingEffectifsScheduleCount] = useState(0);
   const [alertCenterMeta, setAlertCenterMeta] = useState({
     badgeTotal: 0,
@@ -282,7 +271,6 @@ export default function DirectionDashboardClient() {
     const loadPendingBadges = async () => {
       const resetZeros = () => {
         setPendingAccountRequestsCount(0);
-        setPendingImprovementsCount(0);
         setPendingEffectifsScheduleCount(0);
         setAlertCenterMeta({ badgeTotal: 0, failed: 0, critical: 0 });
       };
@@ -305,7 +293,6 @@ export default function DirectionDashboardClient() {
           const s = (await summaryResponse.json()) as {
             open?: {
               accountRequests?: unknown;
-              improvements?: unknown;
               effectifsScheduleRequests?: unknown;
             };
             failed?: { total?: unknown; smsOrEmail?: unknown };
@@ -313,10 +300,8 @@ export default function DirectionDashboardClient() {
             badgeTotal?: unknown;
           };
           const ar = Number(s.open?.accountRequests);
-          const imp = Number(s.open?.improvements);
           const ef = Number(s.open?.effectifsScheduleRequests);
           setPendingAccountRequestsCount(Number.isFinite(ar) ? Math.max(0, ar) : 0);
-          setPendingImprovementsCount(Number.isFinite(imp) ? Math.max(0, imp) : 0);
           setPendingEffectifsScheduleCount(Number.isFinite(ef) ? Math.max(0, ef) : 0);
           const bt = Number(s.badgeTotal);
           const fl = Number(s.failed?.smsOrEmail ?? s.failed?.total);
@@ -411,19 +396,17 @@ export default function DirectionDashboardClient() {
       new Map<string, number>([
         [ALERT_CENTER_HREF, alertCenterMeta.badgeTotal],
         ["/direction/demandes-comptes", pendingAccountRequestsCount],
-        ["/ameliorations", pendingImprovementsCount],
         [EFFECTIFS_MODULE_HREF, pendingEffectifsScheduleCount],
       ]),
     [
       alertCenterMeta.badgeTotal,
       pendingAccountRequestsCount,
-      pendingImprovementsCount,
       pendingEffectifsScheduleCount,
     ]
   );
 
   const alertesATraiterSum =
-    pendingAccountRequestsCount + pendingImprovementsCount + pendingEffectifsScheduleCount;
+    pendingAccountRequestsCount + pendingEffectifsScheduleCount;
 
   async function handleLogout() {
     const loginPath = await signOutToSwitchAccount();

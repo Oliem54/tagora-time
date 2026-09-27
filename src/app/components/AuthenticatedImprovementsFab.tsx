@@ -1,53 +1,6 @@
 "use client";
 
-import Link from "next/link";
-import { useEffect } from "react";
-import { usePathname } from "next/navigation";
-import { useCurrentAccess } from "@/app/hooks/useCurrentAccess";
-import {
-  CRITICAL_FIELD_ROUTE_ATTR,
-  isCriticalFieldRoute,
-} from "@/app/lib/mobile-field-chrome.shared";
-
+/** Entrée locale retirée. L’historique reste sur /ameliorations. */
 export default function AuthenticatedImprovementsFab() {
-  const pathname = usePathname();
-  const { user, loading } = useCurrentAccess();
-  const hiddenPublicPaths = ["/", "/logiciel", "/etiquettes", "/contact", "/connexion", "/login"];
-
-  useEffect(() => {
-    const root = document.documentElement;
-    if (isCriticalFieldRoute(pathname)) {
-      root.setAttribute(CRITICAL_FIELD_ROUTE_ATTR, "true");
-    } else {
-      root.removeAttribute(CRITICAL_FIELD_ROUTE_ATTR);
-    }
-    return () => {
-      root.removeAttribute(CRITICAL_FIELD_ROUTE_ATTR);
-    };
-  }, [pathname]);
-
-  if (loading || !user) {
-    return null;
-  }
-
-  if (
-    hiddenPublicPaths.includes(pathname) ||
-    pathname === "/ameliorations" ||
-    pathname === "/feedback" ||
-    pathname === "/direction/dashboard" ||
-    pathname === "/employe/dashboard"
-  ) {
-    return null;
-  }
-
-  return (
-    <Link
-      href="/ameliorations"
-      className="tagora-improvements-fab"
-      aria-label="Accéder au module Améliorations"
-    >
-      <span className="tagora-improvements-fab-eyebrow">Améliorations</span>
-      <span className="tagora-improvements-fab-label">Accéder</span>
-    </Link>
-  );
+  return null;
 }

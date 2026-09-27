@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   CheckCircle2,
@@ -18,10 +18,9 @@ import HeaderTagora from "@/app/components/HeaderTagora";
 import { useCurrentAccess } from "@/app/hooks/useCurrentAccess";
 import {
   IMPROVEMENT_MODULE_OPTIONS,
-  IMPROVEMENT_PRIORITY_OPTIONS,
   IMPROVEMENT_STATUS_OPTIONS,
+  LOCAL_IMPROVEMENT_INTAKE_CLOSED_MESSAGE,
   ImprovementModule,
-  ImprovementPriority,
   ImprovementStatus,
 } from "@/app/lib/improvements";
 import { getHomePathForRole } from "@/app/lib/auth/roles";
@@ -179,13 +178,8 @@ export default function ImprovementsModulePage() {
   const itemsLoadAbortRef = useRef<AbortController | null>(null);
   const kpiLoadAbortRef = useRef<AbortController | null>(null);
 
-  const [module, setModule] = useState("");
-  const [title, setTitle] = useState("");
-  const [description, setDescription] = useState("");
-  const [priority, setPriority] = useState<ImprovementPriority>("Moyenne");
   const [message, setMessage] = useState("");
   const [messageType, setMessageType] = useState<"success" | "error" | null>(null);
-  const [saving, setSaving] = useState(false);
   const [items, setItems] = useState<ImprovementItem[]>([]);
   const [fullSnapshot, setFullSnapshot] = useState<ImprovementItem[]>([]);
   const [statusFilter, setStatusFilter] = useState<ImprovementStatus | "tous">("tous");
@@ -346,84 +340,6 @@ export default function ImprovementsModulePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loading, user, role]);
 
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-
-    if (!user) {
-      setMessage("Votre session a expire. Reconnectez-vous pour envoyer une amelioration.");
-      setMessageType("error");
-      return;
-    }
-
-    setMessage("");
-    setMessageType(null);
-    setSaving(true);
-
-    try {
-      const response = await ameliorationsApiFetch("/api/ameliorations", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          module,
-          priority,
-          title,
-          description,
-        }),
-      });
-
-      const payload = (await response.json()) as {
-        error?: string;
-        code?: string | null;
-        details?: string | null;
-        hint?: string | null;
-        dbMessage?: string | null;
-      };
-
-      if (!response.ok) {
-        const diagnosticParts = [
-          payload.error,
-          payload.code ? `code=${payload.code}` : null,
-          payload.dbMessage ? `db=${payload.dbMessage}` : null,
-          payload.details ? `details=${payload.details}` : null,
-          payload.hint ? `hint=${payload.hint}` : null,
-        ].filter((value): value is string => Boolean(value));
-
-        const diagnostic = diagnosticParts.join(" | ");
-        console.error("[ameliorations][submit] API error", {
-          status: response.status,
-          payload,
-        });
-        throw new Error(
-          diagnostic
-            ? `Erreur soumission: ${diagnostic}`
-            : "Erreur soumission: erreur inconnue lors de l envoi de l amelioration."
-        );
-      }
-
-      setMessage("Amelioration envoyee avec succes.");
-      setMessageType("success");
-      setModule("");
-      setTitle("");
-      setDescription("");
-      setPriority("Moyenne");
-      setVisibilityScope("actives");
-      setStatusFilter("tous");
-      await loadItems("tous", "actives");
-      await refreshKpiSnapshot();
-    } catch (error) {
-      setMessage(
-        error instanceof Error
-          ? error.message
-          : "Erreur lors de l envoi de l amelioration."
-      );
-      setMessageType("error");
-    } finally {
-      setSaving(false);
-    }
-  }
-
   async function handleUpdateStatus(id: number, status: ImprovementStatus) {
     setUpdatingId(id);
     setMessage("");
@@ -565,88 +481,22 @@ export default function ImprovementsModulePage() {
       >
         <HeaderTagora
           title="Ameliorations"
-          subtitle="Nouveau point"
+          subtitle="Historique"
         />
 
-        <div className="tagora-panel" style={{ maxWidth: 560, margin: "0 auto" }}>
+        <div className="tagora-panel" style={{ maxWidth: 720, margin: "0 auto" }}>
           <FeedbackMessage message={message} type={messageType} />
-
-          <form className="tagora-form-grid" onSubmit={handleSubmit}>
-            <div className="tagora-form-grid-2" style={{ gap: 16 }}>
-              <label>
-                <span className="tagora-field-label">Module</span>
-                <select
-                  className="tagora-select"
-                  value={module}
-                  onChange={(event) => setModule(event.target.value)}
-                  required
-                >
-                  <option value="">Choisir</option>
-                  {IMPROVEMENT_MODULE_OPTIONS.map((option) => (
-                    <option key={option} value={option}>
-                      {option}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              <label>
-                <span className="tagora-field-label">Priorite</span>
-                <select
-                  className="tagora-select"
-                  value={priority}
-                  onChange={(event) =>
-                    setPriority(event.target.value as ImprovementPriority)
-                  }
-                >
-                  {IMPROVEMENT_PRIORITY_OPTIONS.map((option) => (
-                    <option key={option} value={option}>
-                      {option}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </div>
-
-            <label>
-              <span className="tagora-field-label">Titre</span>
-              <input
-                className="tagora-input"
-                value={title}
-                onChange={(event) => setTitle(event.target.value)}
-                placeholder="Titre"
-                required
-              />
-            </label>
-
-            <label>
-              <span className="tagora-field-label">Description</span>
-              <textarea
-                className="tagora-textarea"
-                value={description}
-                onChange={(event) => setDescription(event.target.value)}
-                placeholder="Description"
-                required
-              />
-            </label>
-
-            <div className="tagora-actions" style={{ marginTop: 8 }}>
-              <button
-                type="submit"
-                className="tagora-btn tagora-btn-primary"
-                disabled={saving}
-              >
-                {saving ? "Envoi..." : "Envoyer"}
-              </button>
-
-              <Link
-                href={role ? getHomePathForRole(role) : "/"}
-                className="tagora-dark-outline-action rounded-xl border px-5 py-3 text-sm font-medium transition"
-              >
-                Retour
-              </Link>
-            </div>
-          </form>
+          <p style={{ margin: 0, color: "#0f172a", fontSize: 16, lineHeight: 1.55 }}>
+            {LOCAL_IMPROVEMENT_INTAKE_CLOSED_MESSAGE}
+          </p>
+          <div className="tagora-actions" style={{ marginTop: 16 }}>
+            <Link
+              href={role ? getHomePathForRole(role) : "/"}
+              className="tagora-dark-outline-action rounded-xl border px-5 py-3 text-sm font-medium transition"
+            >
+              Retour
+            </Link>
+          </div>
         </div>
 
         {canManageImprovements ? (

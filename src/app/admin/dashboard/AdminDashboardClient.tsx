@@ -11,7 +11,6 @@ import {
   FileStack,
   Files,
   ReceiptText,
-  Sparkles,
   Target,
   TimerReset,
   Wallet,
@@ -46,7 +45,7 @@ type ModuleDefinition = {
   icon: LucideIcon;
   tone: TagoraStatTone;
   /** compteur badges (admin uniquement) */
-  pendingKey?: "ameliorations" | "effectifs_schedule" | "alert_center";
+  pendingKey?: "effectifs_schedule" | "alert_center";
 };
 
 const ALERT_CENTER_HREF = "/direction/alertes";
@@ -120,16 +119,6 @@ const MODULES: ModuleDefinition[] = [
     group: "operations",
     icon: Files,
     tone: "blue",
-  },
-  {
-    id: "ameliorations",
-    href: "/ameliorations",
-    label: "Ameliorations",
-    description: "Suggestions et ameliorations a traiter.",
-    group: "administration",
-    icon: Sparkles,
-    tone: "yellow",
-    pendingKey: "ameliorations",
   },
   {
     id: "comptes",
@@ -245,7 +234,6 @@ const MODULES: ModuleDefinition[] = [
 export default function AdminDashboardClient() {
   const router = useRouter();
   const { user, loading } = useCurrentAccess();
-  const [ameliorationsPending, setAmeliorationsPending] = useState<number | null>(null);
   const [effectifsSchedulePending, setEffectifsSchedulePending] = useState<number | null>(null);
   const [alertCenterMeta, setAlertCenterMeta] = useState({
     badgeTotal: 0,
@@ -277,7 +265,6 @@ export default function AdminDashboardClient() {
         if (cancelled) return;
 
         if (!summaryRes.ok) {
-          setAmeliorationsPending(null);
           setEffectifsSchedulePending(null);
           setAlertCenterMeta({ badgeTotal: 0, failed: 0, critical: 0 });
           setAlertOpenSum(0);
@@ -286,7 +273,6 @@ export default function AdminDashboardClient() {
 
         const s = (await summaryRes.json()) as {
           open?: {
-            improvements?: unknown;
             effectifsScheduleRequests?: unknown;
             sum?: unknown;
           };
@@ -295,9 +281,7 @@ export default function AdminDashboardClient() {
           badgeTotal?: unknown;
         };
 
-        const imp = Number(s.open?.improvements);
         const ef = Number(s.open?.effectifsScheduleRequests);
-        setAmeliorationsPending(Number.isFinite(imp) ? Math.max(0, imp) : null);
         setEffectifsSchedulePending(Number.isFinite(ef) ? Math.max(0, ef) : null);
         const bt = Number(s.badgeTotal);
         const fl = Number(s.failed?.smsOrEmail ?? s.failed?.total);
@@ -314,7 +298,6 @@ export default function AdminDashboardClient() {
           return;
         }
         if (!cancelled) {
-          setAmeliorationsPending(null);
           setEffectifsSchedulePending(null);
           setAlertCenterMeta({ badgeTotal: 0, failed: 0, critical: 0 });
           setAlertOpenSum(0);
@@ -357,13 +340,6 @@ export default function AdminDashboardClient() {
       return (
         <TagoraCountBadge aria-label={`${n} alerte(s) au centre d'alertes`}>
           {n > 99 ? "99+" : n}
-        </TagoraCountBadge>
-      );
-    }
-    if (m.pendingKey === "ameliorations" && ameliorationsPending != null && ameliorationsPending > 0) {
-      return (
-        <TagoraCountBadge aria-label={`${ameliorationsPending} amélioration(s) en attente`}>
-          {ameliorationsPending > 99 ? "99+" : ameliorationsPending}
         </TagoraCountBadge>
       );
     }

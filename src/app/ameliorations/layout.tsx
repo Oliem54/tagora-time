@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 
 export const metadata: Metadata = {
   title: "Ameliorations",
-  description: "Suggestions et ameliorations Tagora.",
+  description: "Les suggestions d’amélioration seront bientôt centralisées dans Nexus.",
 };
 
 export default function AmeliorationsLayout({

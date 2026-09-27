@@ -2,7 +2,6 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import "./lib/brand/horora-system.css";
-import AuthenticatedImprovementsFab from "@/app/components/AuthenticatedImprovementsFab";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -34,7 +33,6 @@ export default function RootLayout({
     >
       <body suppressHydrationWarning className="min-h-full flex flex-col">
         {children}
-        <AuthenticatedImprovementsFab />
       </body>
     </html>
   );

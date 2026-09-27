@@ -49,7 +49,7 @@ export async function GET(req: NextRequest) {
       ? Math.max(0, effectifsResult.count)
       : 0;
 
-  const openSum = accountRequests + improvements + effectifsScheduleRequests;
+  const openSum = accountRequests + effectifsScheduleRequests;
 
   const failedTotal =
     phase2.failedJournalDeliveries +

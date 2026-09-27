@@ -118,7 +118,6 @@ const CATEGORY_ORDER = [
   "Livraisons / Ramassages",
   "Dépenses",
   "Refacturation intercompagnies",
-  "Améliorations",
   "Système",
 ] as const;
 
@@ -945,16 +944,6 @@ export default function AlertCenterDirectionClient() {
         category: "Comptes",
         source: "phase1",
       },
-      {
-        id: "improvements",
-        label: "Améliorations à traiter",
-        description: "Suggestions et suivis internes.",
-        href: "/ameliorations",
-        count: o?.improvements ?? 0,
-        priority: "medium",
-        category: "Améliorations",
-        source: "phase1",
-      },
     ];
     return [...rows].sort((a, b) => {
       const pr = priorityRank(a.priority) - priorityRank(b.priority);
@@ -1422,7 +1411,7 @@ export default function AlertCenterDirectionClient() {
         </SectionCard>
         </div>
 
-        <SectionCard title="Files métier" subtitle="Comptes, effectifs, améliorations.">
+        <SectionCard title="Files métier" subtitle="Comptes et effectifs.">
           <div className="ui-stack-md">
             {queuesPhase1.length === 0 ? (
               <p style={{ margin: 0, color: "#64748b" }}>Aucune file ouverte.</p>

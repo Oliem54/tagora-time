@@ -25,6 +25,9 @@ export const IMPROVEMENT_STATUS_OPTIONS = [
 
 export const IMPROVEMENT_DEFAULT_STATUS = "en_attente" as const;
 
+export const LOCAL_IMPROVEMENT_INTAKE_CLOSED_MESSAGE =
+  "Les suggestions d’amélioration seront bientôt centralisées dans Nexus.";
+
 export type ImprovementModule = (typeof IMPROVEMENT_MODULE_OPTIONS)[number];
 export type ImprovementPriority = (typeof IMPROVEMENT_PRIORITY_OPTIONS)[number];
 export type ImprovementStatus = (typeof IMPROVEMENT_STATUS_OPTIONS)[number];

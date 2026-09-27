@@ -60,10 +60,14 @@ describe("HORORA employee dashboard Premium 2027", () => {
     expect(welcome).not.toContain("user.email");
   });
 
-  it("hides the Améliorations widget on the employee dashboard", () => {
+  it("does not mount the local Améliorations entry", () => {
+    const layout = read("src/app/layout.tsx");
     const fab = read("src/app/components/AuthenticatedImprovementsFab.tsx");
-    expect(fab).toContain('pathname === "/employe/dashboard"');
-    expect(fab).toContain("Améliorations");
-    expect(fab).toContain("Accéder");
+    const direction = read("src/app/direction/dashboard/DirectionDashboardClient.tsx");
+    const admin = read("src/app/admin/dashboard/AdminDashboardClient.tsx");
+    expect(layout).not.toContain("AuthenticatedImprovementsFab");
+    expect(fab).not.toContain('href="/ameliorations"');
+    expect(direction).not.toContain('href: "/ameliorations"');
+    expect(admin).not.toContain('href: "/ameliorations"');
   });
 });
