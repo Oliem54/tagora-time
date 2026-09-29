@@ -1,8 +1,10 @@
 import Link from "next/link";
 import TimePublicShell from "./TimePublicShell";
-import { NEXUS_PUBLIC_LOGIN_URL } from "@/app/lib/canonical-domains";
+import { readHororaNexusLoginUrl } from "@/app/lib/auth/horora-nexus-login.server";
 
-export default function TimeEntryHub() {
+export default async function TimeEntryHub() {
+  const loginUrl = await readHororaNexusLoginUrl();
+
   return (
     <TimePublicShell brandSize="hub" showWordmark={false}>
       <section className="time-public-hub" aria-labelledby="time-public-hub-title">
@@ -17,10 +19,10 @@ export default function TimeEntryHub() {
         </p>
 
         <div className="time-public-hub-actions">
-          <Link href={NEXUS_PUBLIC_LOGIN_URL} className="time-public-cta time-public-cta--primary">
+          <Link href={loginUrl} className="time-public-cta time-public-cta--primary">
             Employé
           </Link>
-          <Link href={NEXUS_PUBLIC_LOGIN_URL} className="time-public-cta time-public-cta--secondary">
+          <Link href={loginUrl} className="time-public-cta time-public-cta--secondary">
             Direction
           </Link>
         </div>

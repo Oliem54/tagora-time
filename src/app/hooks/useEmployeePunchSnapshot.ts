@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { NEXUS_PUBLIC_LOGIN_URL } from "@/app/lib/canonical-domains";
+import { resolveHororaNexusLoginUrl } from "@/app/lib/auth/nexus-handoff-config";
 import { employeePunchRequestInit } from "@/app/lib/employee-punch-session.client";
 import {
   EMPLOYEE_PUNCH_GEOLOCATION_MAX_DURATION_MS,
@@ -182,7 +182,7 @@ function normalizeTodayTimeDisplay(raw: unknown): EmployeePunchSnapshot["todayTi
 }
 
 function redirectToNexusLogin() {
-  window.location.assign(NEXUS_PUBLIC_LOGIN_URL);
+  window.location.assign(resolveHororaNexusLoginUrl());
 }
 
 export function useEmployeePunchSnapshot(enabled: boolean) {

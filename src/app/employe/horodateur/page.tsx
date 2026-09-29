@@ -13,7 +13,7 @@ import ForgottenArrivalDialog from "@/app/components/horodateur/ForgottenArrival
 import { useCurrentAccess } from "@/app/hooks/useCurrentAccess";
 import { useEmployeeGpsReporting } from "@/app/hooks/useEmployeeGpsReporting";
 import { getCompanyLabel } from "@/app/lib/account-requests.shared";
-import { NEXUS_PUBLIC_LOGIN_URL } from "@/app/lib/canonical-domains";
+import { resolveHororaNexusLoginUrl } from "@/app/lib/auth/nexus-handoff-config";
 import { employeePunchRequestInit } from "@/app/lib/employee-punch-session.client";
 import { postForgottenArrivalRequest } from "@/app/lib/employee-forgotten-arrival.client";
 import {
@@ -999,7 +999,7 @@ export default function EmployeHorodateurPage() {
       ]);
 
       if (snapshotResponse.status === 401 || historyResponse.status === 401) {
-        window.location.assign(NEXUS_PUBLIC_LOGIN_URL);
+        window.location.assign(resolveHororaNexusLoginUrl());
         return false;
       }
 
@@ -1412,7 +1412,7 @@ export default function EmployeHorodateurPage() {
       assertActiveCorrectionSubmit(correctionCtx, activeCorrectionSubmitIdRef.current);
 
       if (response.status === 401) {
-        window.location.assign(NEXUS_PUBLIC_LOGIN_URL);
+        window.location.assign(resolveHororaNexusLoginUrl());
         return;
       }
 

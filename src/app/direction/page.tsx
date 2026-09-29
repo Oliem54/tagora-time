@@ -1,12 +1,12 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
-import { NEXUS_PUBLIC_LOGIN_URL } from "@/app/lib/canonical-domains";
+import { readHororaNexusLoginUrl } from "@/app/lib/auth/horora-nexus-login.server";
 
 export const metadata: Metadata = {
   title: "Direction",
   description: "Acces direction Tagora.",
 };
 
-export default function DirectionPage() {
-  redirect(NEXUS_PUBLIC_LOGIN_URL);
+export default async function DirectionPage() {
+  redirect(await readHororaNexusLoginUrl());
 }

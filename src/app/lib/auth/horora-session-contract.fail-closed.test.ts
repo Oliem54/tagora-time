@@ -16,6 +16,7 @@ import {
   NEXUS_BROKERED_SESSION_COOKIE_NAME,
   NEXUS_HANDOFF_AUDIENCE,
   NEXUS_HANDOFF_VERSION,
+  NEXUS_STAGING_LOGIN_URL,
   NEXUS_TECHNICAL_MODULE_KEY,
 } from "@/app/lib/auth/nexus-handoff-config";
 import {
@@ -302,6 +303,20 @@ describe("HORORA Nexus session contract fail-closed", () => {
         hasBrokeredSessionCookie: true,
       })
     ).toEqual({ action: "next" });
+    expect(
+      resolveHororaRequestAccess({
+        pathname: "/employe/dashboard",
+        hasBrokeredSessionCookie: false,
+        hostname: "tagora-time-staging.vercel.app",
+      })
+    ).toEqual({ action: "redirect", location: NEXUS_STAGING_LOGIN_URL });
+    expect(
+      resolveHororaRequestAccess({
+        pathname: "/employe/dashboard",
+        hasBrokeredSessionCookie: false,
+        hostname: "time.tagora.ca",
+      })
+    ).toEqual({ action: "redirect", location: NEXUS_PUBLIC_LOGIN_URL });
   });
 
   it("local employee login is redirected to Nexus", () => {
@@ -314,7 +329,7 @@ describe("HORORA Nexus session contract fail-closed", () => {
     ).toEqual({ action: "redirect", location: NEXUS_PUBLIC_LOGIN_URL });
     expect(getLoginPathForRole("employe")).toBe(NEXUS_PUBLIC_LOGIN_URL);
     const page = readFileSync(join(process.cwd(), "src/app/employe/login/page.tsx"), "utf8");
-    expect(page).toContain("NEXUS_PUBLIC_LOGIN_URL");
+    expect(page).toContain("readHororaNexusLoginUrl");
     expect(page).toContain("redirect");
     expect(page).not.toContain("signInWithPassword");
   });
@@ -332,7 +347,7 @@ describe("HORORA Nexus session contract fail-closed", () => {
     expect(getLoginPathForRole("direction")).toBe(NEXUS_PUBLIC_LOGIN_URL);
     expect(loginPathForMissingMfaSession("/direction/dashboard")).toBe(NEXUS_PUBLIC_LOGIN_URL);
     const page = readFileSync(join(process.cwd(), "src/app/direction/login/page.tsx"), "utf8");
-    expect(page).toContain("NEXUS_PUBLIC_LOGIN_URL");
+    expect(page).toContain("readHororaNexusLoginUrl");
     expect(page).not.toContain("signInWithPassword");
   });
 

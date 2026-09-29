@@ -44,7 +44,8 @@ describe("HORORA employee punch unblock", () => {
 
   it("does not disable Pointer before a geolocation request", () => {
     const welcome = read("src/app/components/horora/EmployeDashboardWelcome.tsx");
-    expect(welcome).toContain("const canOpenPunch = punch.enabled");
+    expect(welcome).toContain("punch.geolocationPending");
+    expect(welcome).not.toContain("const canOpenPunch = punch.enabled");
     expect(welcome).not.toContain("status !== \"indisponible\"");
     expect(welcome).not.toContain("Boolean(punch.snapshot)");
   });
@@ -123,9 +124,9 @@ describe("HORORA employee punch unblock", () => {
     expect(getLoginPathForRole("employe")).toBe(NEXUS_PUBLIC_LOGIN_URL);
     const hook = read("src/app/hooks/useEmployeePunchSnapshot.ts");
     const login = read("src/app/employe/login/page.tsx");
-    expect(hook).toContain("NEXUS_PUBLIC_LOGIN_URL");
+    expect(hook).toContain("resolveHororaNexusLoginUrl");
     expect(hook).toContain("response.status === 401");
-    expect(login).toContain("NEXUS_PUBLIC_LOGIN_URL");
+    expect(login).toContain("readHororaNexusLoginUrl");
   });
 
   it("keeps Martin and Yves punch snapshots isolated by auth user id", () => {

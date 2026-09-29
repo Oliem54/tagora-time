@@ -16,6 +16,7 @@ export function middleware(request: NextRequest) {
     const gate = resolveHororaRequestAccess({
       pathname: path,
       hasBrokeredSessionCookie: Boolean(brokeredCookie),
+      hostname: request.headers.get("x-forwarded-host") ?? request.nextUrl.hostname,
     });
     if (gate.action === "redirect") {
       return NextResponse.redirect(new URL(gate.location), 303);

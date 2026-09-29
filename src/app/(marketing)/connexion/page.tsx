@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
-import { NEXUS_PUBLIC_LOGIN_URL } from "@/app/lib/canonical-domains";
+import { readHororaNexusLoginUrl } from "@/app/lib/auth/horora-nexus-login.server";
 
-export default function ConnexionPage() {
-  redirect(NEXUS_PUBLIC_LOGIN_URL);
+export default async function ConnexionPage() {
+  redirect(await readHororaNexusLoginUrl());
 }

@@ -1,8 +1,12 @@
 "use client";
 
 import { listMfaFactorsForUi } from "@/app/lib/auth/mfa.client";
+import {
+  markNexusHandoffLogout,
+  resolveNexusHandoffLogoutUrl,
+} from "@/app/lib/auth/password-mfa.shared";
+import { resolveHororaNexusLoginUrl } from "@/app/lib/auth/nexus-handoff-config";
 import { getLoginPathForRole, getUserRole } from "@/app/lib/auth/roles";
-import { NEXUS_PUBLIC_LOGIN_URL } from "@/app/lib/canonical-domains";
 import {
   clearServerSessionCookie,
   writeBrowserSessionCookie,
@@ -55,11 +59,35 @@ export function clearTagoraAuthBrowserSession(): void {
   sessionStorage.removeItem("tagora_mfa_repeated_alert_sent");
 }
 
+async function readBrokeredSessionSource(): Promise<string | null> {
+  if (typeof window === "undefined") return null;
+  try {
+    const response = await fetch("/api/auth/session-context", {
+      credentials: "same-origin",
+      cache: "no-store",
+    });
+    if (!response.ok) return null;
+    const body = (await response.json()) as { source?: unknown };
+    return typeof body.source === "string" ? body.source : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Déconnexion complète puis route login adaptée au rôle courant (employé vs direction/admin). */
 export async function signOutToSwitchAccount(): Promise<string> {
+  const source = await readBrokeredSessionSource();
+  const nexusHandoff = source === "nexus_handoff";
+  if (nexusHandoff) {
+    markNexusHandoffLogout();
+  }
   const { data } = await supabase.auth.getUser();
   const role = getUserRole(data.user);
-  const loginPath = role ? getLoginPathForRole(role) : NEXUS_PUBLIC_LOGIN_URL;
+  const loginPath = nexusHandoff
+    ? resolveNexusHandoffLogoutUrl(window.location.hostname)
+    : role
+      ? getLoginPathForRole(role)
+      : resolveHororaNexusLoginUrl();
   await supabase.auth.signOut();
   await clearServerSessionCookie();
   try {
@@ -71,6 +99,9 @@ export async function signOutToSwitchAccount(): Promise<string> {
     // Best-effort brokered cookie clear.
   }
   clearTagoraAuthBrowserSession();
+  if (nexusHandoff) {
+    window.location.assign(loginPath);
+  }
   return loginPath;
 }
 

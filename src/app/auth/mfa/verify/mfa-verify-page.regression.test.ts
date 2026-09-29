@@ -38,7 +38,7 @@ describe("MFA verify session persistence regression", () => {
   });
 
   it("does not write a local password session from direction login", () => {
-    expect(loginPage).toContain("NEXUS_PUBLIC_LOGIN_URL");
+    expect(loginPage).toContain("readHororaNexusLoginUrl");
     expect(loginPage).toContain("redirect");
     expect(loginPage).not.toContain("writeBrowserSessionCookie");
     expect(loginPage).not.toContain("signInWithPassword");

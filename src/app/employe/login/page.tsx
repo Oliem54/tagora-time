@@ -1,12 +1,12 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
-import { NEXUS_PUBLIC_LOGIN_URL } from "@/app/lib/canonical-domains";
+import { readHororaNexusLoginUrl } from "@/app/lib/auth/horora-nexus-login.server";
 
 export const metadata: Metadata = {
   title: "Connexion employé",
   description: "La connexion employé HORORA passe par TAGORA Nexus.",
 };
 
-export default function EmployeeLoginPage() {
-  redirect(NEXUS_PUBLIC_LOGIN_URL);
+export default async function EmployeeLoginPage() {
+  redirect(await readHororaNexusLoginUrl());
 }

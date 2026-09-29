@@ -1,5 +1,5 @@
 import type { User } from "@supabase/supabase-js";
-import { NEXUS_PUBLIC_LOGIN_URL } from "@/app/lib/canonical-domains";
+import { resolveHororaNexusLoginUrl } from "@/app/lib/auth/nexus-handoff-config";
 
 export type AppRole = "employe" | "direction" | "admin";
 
@@ -62,7 +62,7 @@ export function getDashboardLabelForRole(role: AppRole): string {
 }
 
 export function getLoginPathForRole(_role: AppRole): string {
-  return NEXUS_PUBLIC_LOGIN_URL;
+  return resolveHororaNexusLoginUrl();
 }
 
 export function getPasswordChangePathForRole(role: AppRole): string {

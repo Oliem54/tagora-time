@@ -19,6 +19,11 @@ describe("HORORA session logout and MFA loop non-regression", () => {
     expect(helper).toContain("await clearServerSessionCookie()");
     expect(helper).toContain("/api/auth/nexus-session");
     expect(helper).toContain("clearTagoraAuthBrowserSession()");
+    expect(helper).toContain('source === "nexus_handoff"');
+    expect(helper).toContain("window.location.assign(loginPath)");
+    expect(helper).not.toContain('"/direction/login"');
+    expect(admin).toContain("isNexusHandoffLogoutInProgress");
+    expect(direction).toContain("isNexusHandoffLogoutInProgress");
     expect(badge).toContain("signOutToSwitchAccount");
     expect(badge).toContain("Se déconnecter");
     expect(direction).toContain("signOutToSwitchAccount");

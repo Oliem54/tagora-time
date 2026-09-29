@@ -3,7 +3,12 @@
  * Audience and module key are frozen; issuer and JWKS come from env only.
  */
 
-import { NEXUS_PUBLIC_MODULES_URL } from "@/app/lib/canonical-domains";
+import {
+  NEXUS_PUBLIC_LOGIN_PATH,
+  NEXUS_PUBLIC_LOGIN_URL,
+  NEXUS_PUBLIC_MODULES_URL,
+  normalizeHostname,
+} from "@/app/lib/canonical-domains";
 
 export const NEXUS_HANDOFF_VERSION = "TAGORA_HANDOFF_V1" as const;
 export const NEXUS_HANDOFF_ALGORITHM = "ES256" as const;
@@ -34,6 +39,10 @@ export const NEXUS_RETURN_PATH = "/modules" as const;
 export const NEXUS_PRODUCTION_PORTAL_MODULES_URL = NEXUS_PUBLIC_MODULES_URL;
 export const NEXUS_STAGING_PORTAL_MODULES_URL =
   "https://tagora-nexus-staging.vercel.app/modules" as const;
+/** Connexion Staging : même origine que le portail configuré, chemin /login, retour /modules. */
+export const NEXUS_STAGING_LOGIN_URL = nexusLoginUrlForPortalModules(
+  NEXUS_STAGING_PORTAL_MODULES_URL
+);
 export const NEXUS_CALLBACK_FAIL_CLOSED_PATH = "/auth/nexus/denied" as const;
 export const NEXUS_PASSWORD_LOGIN_PATHS = [
   "/employe/login",
@@ -41,6 +50,42 @@ export const NEXUS_PASSWORD_LOGIN_PATHS = [
   "/login",
   "/connexion",
 ] as const;
+
+const HORORA_STAGING_NEXUS_HOSTS = new Set([
+  "tagora-time-staging.vercel.app",
+  "time.staging.tagora.ca",
+  "localhost",
+  "127.0.0.1",
+]);
+
+export function isHororaStagingNexusHost(hostname: string | null | undefined): boolean {
+  const host = normalizeHostname(String(hostname ?? "").split(",")[0]);
+  if (!host) return false;
+  if (HORORA_STAGING_NEXUS_HOSTS.has(host)) return true;
+  if (host.endsWith(".tagora-time-staging.vercel.app")) return true;
+  return host.startsWith("tagora-time-staging-") && host.endsWith(".vercel.app");
+}
+
+/**
+ * Production Time reste sur https://app.tagora.ca/login.
+ * Staging Time utilise l’origine Nexus déjà configurée pour le portail Staging.
+ */
+export function resolveHororaNexusLoginUrl(hostname?: string | null): string {
+  const explicit = hostname !== undefined;
+  const raw = explicit
+    ? hostname
+    : typeof window !== "undefined"
+      ? window.location.hostname
+      : null;
+  if (isHororaStagingNexusHost(raw)) return NEXUS_STAGING_LOGIN_URL;
+  return NEXUS_PUBLIC_LOGIN_URL;
+}
+
+function nexusLoginUrlForPortalModules(modulesUrl: string): string {
+  const modules = new URL(modulesUrl);
+  const next = `${modules.pathname}${modules.search}`;
+  return `${modules.origin}${NEXUS_PUBLIC_LOGIN_PATH}?next=${encodeURIComponent(next)}`;
+}
 
 export function isNexusPasswordLoginPath(pathname: string | null | undefined): boolean {
   const path = (pathname ?? "").split("?")[0]?.trim() ?? "";

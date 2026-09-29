@@ -4,7 +4,7 @@
  * assertion is accepted. Legacy Supabase cookies are refused.
  */
 
-import { NEXUS_PUBLIC_LOGIN_URL } from "@/app/lib/canonical-domains";
+import { resolveHororaNexusLoginUrl } from "@/app/lib/auth/nexus-handoff-config";
 
 export const HORORA_SESSION_CONTRACT_VERSION = "HORORA_NEXUS_SESSION_V1" as const;
 export const HORORA_SESSION_CONTRACT_PREFIX =
@@ -39,7 +39,7 @@ export type HororaBrokeredCookieParse =
 
 export type HororaRequestAccessDecision =
   | { readonly action: "next" }
-  | { readonly action: "redirect"; readonly location: typeof NEXUS_PUBLIC_LOGIN_URL };
+  | { readonly action: "redirect"; readonly location: string };
 
 export type SanitizedHororaSessionProvenance = {
   readonly source:
@@ -96,16 +96,18 @@ export function isHororaAppSessionRequiredPath(
 export function resolveHororaRequestAccess(input: {
   pathname: string;
   hasBrokeredSessionCookie: boolean;
+  hostname?: string | null;
 }): HororaRequestAccessDecision {
   const pathname = normalizePathname(input.pathname);
+  const loginUrl = resolveHororaNexusLoginUrl(input.hostname ?? null);
   if (isNexusHandoffPath(pathname) || pathname.startsWith("/api/")) {
     return { action: "next" };
   }
   if (isLegacyHororaLoginPath(pathname)) {
-    return { action: "redirect", location: NEXUS_PUBLIC_LOGIN_URL };
+    return { action: "redirect", location: loginUrl };
   }
   if (isHororaAppSessionRequiredPath(pathname) && !input.hasBrokeredSessionCookie) {
-    return { action: "redirect", location: NEXUS_PUBLIC_LOGIN_URL };
+    return { action: "redirect", location: loginUrl };
   }
   return { action: "next" };
 }
