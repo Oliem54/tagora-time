@@ -45,7 +45,7 @@ const COPY: Record<NexusCallbackPublicDenyReason, { title: string; body: string 
   },
   mapping_unavailable: {
     title: "Liaison Nexus → HORORA indisponible",
-    body: "HORORA n’a pas pu résoudre la liaison Nexus avec la base Production. Relancez depuis Nexus ou contactez l’administrateur.",
+    body: "HORORA n’a pas pu résoudre la liaison Nexus dans l’environnement courant. Relancez depuis Nexus ou contactez l’administrateur.",
   },
 };
 

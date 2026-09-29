@@ -330,7 +330,8 @@ describe("HORORA account-type routing after Nexus handoff", () => {
     expect(page).toContain("role_mapping_denied");
     expect(page).toContain("mapping_unavailable");
     expect(page).not.toContain("base staging");
-    expect(page).toContain("base Production");
+    expect(page).not.toContain("base Production");
+    expect(page).toContain("environnement courant");
     expect(page).toContain("resolveNexusDeniedReturnUrl");
     expect(page).not.toMatch(/type=["']password["']/);
     expect(page).not.toContain("user_metadata");
