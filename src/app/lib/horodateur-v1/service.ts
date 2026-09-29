@@ -986,13 +986,26 @@ export async function createPendingExceptionForEvent(options: {
   });
 }
 
-async function findActivePendingPunchOutForEmployee(employeeId: number) {
+async function findActivePendingPunchOutForEmployee(
+  employeeId: number,
+  options?: { operationalWorkDate?: string | null; occurredAt?: string }
+) {
   const [pendingEvents, approvedEvents] = await Promise.all([
     listEventsForEmployee({ employeeId, statuses: ["en_attente"] }),
     listEventsForEmployee({ employeeId, statuses: ["normal", "approuve"] }),
   ]);
+  const operationalWorkDate =
+    options?.operationalWorkDate?.trim() ||
+    resolveOperationalWorkDate({
+      eventType: "punch_out",
+      occurredAt: options?.occurredAt ?? new Date().toISOString(),
+      approvedEvents,
+    });
 
-  return findActivePendingPunchOutFromEvents(pendingEvents, approvedEvents);
+  return findActivePendingPunchOutFromEvents(pendingEvents, approvedEvents, {
+    operationalWorkDate,
+    employeeId,
+  });
 }
 
 async function buildPendingPunchOutSnapshot(
@@ -3578,7 +3591,8 @@ export async function createEmployeePunch(options: {
 
   if (canonicalType === "punch_out") {
     const existingPendingPunchOut = await findActivePendingPunchOutForEmployee(
-      employee.employeeId
+      employee.employeeId,
+      { operationalWorkDate: workDate, occurredAt }
     );
     if (existingPendingPunchOut) {
       return resolveAlreadySubmittedPunchOutResult({

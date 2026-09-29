@@ -277,14 +277,24 @@ export function computeStateFromEventTimeline(
   };
 }
 
+/**
+ * Une sortie en attente ne compte comme deja soumise que pour la date
+ * operationnelle du punch : meme jour, ou quart continuable (y compris
+ * le lendemain dans la fenetre de securite). Une sortie ancienne reste
+ * en base et ne bloque pas un punch_out d une autre date.
+ */
 export function findActivePendingPunchOutFromEvents(
   pendingPunchOutEvents: HorodateurPhase1EventRecord[],
-  approvedEvents: HorodateurPhase1EventRecord[]
+  approvedEvents: HorodateurPhase1EventRecord[],
+  options?: { operationalWorkDate?: string | null; employeeId?: number | null }
 ): HorodateurPhase1EventRecord | null {
+  const boundWorkDate = options?.operationalWorkDate?.trim() || null;
+  const boundEmployeeId = options?.employeeId ?? null;
   const pendingPunchOuts = pendingPunchOutEvents.filter(
     (event) =>
       event.status === "en_attente" &&
-      toCanonicalEventType(event.event_type) === "punch_out"
+      toCanonicalEventType(event.event_type) === "punch_out" &&
+      (boundEmployeeId == null || event.employee_id === boundEmployeeId)
   );
 
   if (pendingPunchOuts.length === 0) {
@@ -301,6 +311,9 @@ export function findActivePendingPunchOutFromEvents(
 
     const pendingWorkDate =
       pending.work_date?.trim() || getLocalWorkDate(pendingAt);
+    if (boundWorkDate && pendingWorkDate !== boundWorkDate) {
+      continue;
+    }
     const pendingMs = new Date(pendingAt).getTime();
 
     const hasApprovedCloseOnSameDay = approvedEvents.some((event) => {
