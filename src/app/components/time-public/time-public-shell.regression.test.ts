@@ -51,6 +51,21 @@ describe("HORORA M2 public shell — active routes", () => {
     expect(layout).toContain("%s | TAGORA HORORA");
   });
 
+  it("resout la connexion Nexus a la requete pour ne pas figer Production", () => {
+    const pages = [
+      "src/app/page.tsx",
+      "src/app/login/page.tsx",
+      "src/app/(marketing)/connexion/page.tsx",
+      "src/app/employe/page.tsx",
+      "src/app/employe/login/page.tsx",
+      "src/app/direction/page.tsx",
+      "src/app/direction/login/page.tsx",
+    ];
+    for (const file of pages) {
+      expect(readSrc(file), file).toContain('export const dynamic = "force-dynamic"');
+    }
+  });
+
   it("hub expose HORORA, Employé et Direction", () => {
     const hub = readSrc("src/app/components/time-public/TimeEntryHub.tsx");
     expect(hub).toContain("readHororaNexusLoginUrl");
