@@ -25,6 +25,7 @@ import { useRouter } from "next/navigation";
 import { supabase } from "@/app/lib/supabase/client";
 import { useCurrentAccess } from "@/app/hooks/useCurrentAccess";
 import { signOutToSwitchAccount } from "@/app/lib/auth/password-mfa.client";
+import { isNexusHandoffLogoutInProgress } from "@/app/lib/auth/password-mfa.shared";
 import HororaAppShell from "@/app/components/horora/HororaAppShell";
 import SectionCard from "@/app/components/ui/SectionCard";
 import AppCard from "@/app/components/ui/AppCard";
@@ -311,7 +312,7 @@ export default function AdminDashboardClient() {
   }, [loading, user]);
 
   useEffect(() => {
-    if (loading || user) {
+    if (loading || user || isNexusHandoffLogoutInProgress()) {
       return;
     }
     router.replace("/direction/login");

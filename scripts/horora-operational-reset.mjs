@@ -45,7 +45,7 @@ function loadEnvFile(fileName, { overwrite = false } = {}) {
 }
 
 loadEnvFile(".env.local");
-loadEnvFile(".env.production.local", { overwrite: true });
+const loadedProductionEnvFile = loadEnvFile(".env.production.local", { overwrite: true });
 
 function supabaseHost(url) {
   try {
@@ -80,6 +80,8 @@ function isUsableSecretValue(value) {
   if (value.startsWith("eyJ2Ijoi")) return false;
   return true;
 }
+
+async function loadProductionEnvFromVercelApi() {
   const token = readVercelAuthToken();
   if (!token) return { loaded: false, reason: "vercel_auth_missing" };
   const url = new URL("https://api.vercel.com/v10/projects/prj_VyucPe8kxHo8VMSfwiM75V4IX8du/env");
@@ -136,29 +138,24 @@ function isUsableSecretValue(value) {
 
 async function requireEnv() {
   const currentHost = supabaseHost(process.env.NEXT_PUBLIC_SUPABASE_URL || "");
+  if (currentHost.includes("qokyobcvplzufshydhih")) {
+    throw new Error("STOP: staging supabase host qokyobcvplzufshydhih");
+  }
+  if (!loadedProductionEnvFile) {
+    throw new Error("STOP: .env.production.local missing");
+  }
   const hasKey =
     Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY) &&
     process.env.SUPABASE_SERVICE_ROLE_KEY !== "[SENSITIVE]";
   if (currentHost !== PRODUCTION_SUPABASE_HOST || !hasKey) {
-    const pulled = await loadProductionEnvFromVercelApi();
-    if (!pulled.loaded) {
-      throw new Error(
-        `Missing Production Supabase credentials (${JSON.stringify({
-          reason: pulled.reason || "empty",
-          appliedNames: pulled.appliedNames ?? [],
-          rowCount: pulled.rowCount ?? 0,
-          hasUrlName: pulled.hasUrlName ?? false,
-          hasKeyName: pulled.hasKeyName ?? false,
-          supabaseUrlChars: pulled.supabaseUrlChars ?? 0,
-          supabaseKeyChars: pulled.supabaseKeyChars ?? 0,
-        })})`
-      );
-    }
+    throw new Error(
+      `STOP: Production credentials not loaded from .env.production.local (host=${currentHost || "missing"})`
+    );
   }
   const resolvedUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const resolvedKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!resolvedUrl || !resolvedKey || resolvedUrl === "[SENSITIVE]" || resolvedKey === "[SENSITIVE]") {
-    throw new Error("Missing NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY after Vercel decrypt");
+    throw new Error("STOP: Production Supabase credentials missing after .env.production.local load");
   }
   const host = supabaseHost(resolvedUrl);
   if (host !== PRODUCTION_SUPABASE_HOST) {
@@ -407,6 +404,25 @@ async function fetchAll(supabase, table, filter) {
   return rows;
 }
 
+function isMissingRelationError(error) {
+  const message = error?.message || "";
+  return (
+    error?.code === "PGRST205" ||
+    error?.code === "42P01" ||
+    message.includes("schema cache") ||
+    message.includes("does not exist")
+  );
+}
+
+async function fetchAllOptional(supabase, table, filter) {
+  try {
+    return await fetchAll(supabase, table, filter);
+  } catch (error) {
+    if (isMissingRelationError(error)) return [];
+    throw error;
+  }
+}
+
 function backupDir() {
   const dir = join(process.cwd(), "tmp-backups", "horora-operational-reset");
   mkdirSync(dir, { recursive: true });
@@ -466,16 +482,16 @@ async function buildBackupPayload(supabase, organizationId, employeeIds) {
     fetchAll(supabase, "horodateur_exceptions", filterOrg),
     fetchAll(supabase, "horodateur_current_state", filterOrg),
     fetchAll(supabase, "horodateur_lateness_notifications", filterEmp),
-    fetchAll(supabase, "horodateur_payroll_reports", (q) =>
+    fetchAllOptional(supabase, "horodateur_payroll_reports", (q) =>
       q.eq("organization_id", organizationId).eq("status", "draft")
     ),
-    fetchAll(supabase, "horodateur_payroll_deliveries", filterOrg),
-    fetchAll(supabase, "horodateur_payroll_cycles", filterOrg),
+    fetchAllOptional(supabase, "horodateur_payroll_deliveries", filterOrg),
+    fetchAllOptional(supabase, "horodateur_payroll_cycles", filterOrg),
   ]);
 
   const exceptionIds = exceptions.map((row) => row.id);
   const tokens = exceptionIds.length
-    ? await fetchAll(supabase, "horodateur_exception_action_tokens", (q) =>
+    ? await fetchAllOptional(supabase, "horodateur_exception_action_tokens", (q) =>
         q.in("exception_id", exceptionIds)
       )
     : [];

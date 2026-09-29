@@ -24,6 +24,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "../../lib/supabase/client";
 import { useCurrentAccess } from "../../hooks/useCurrentAccess";
 import { signOutToSwitchAccount } from "@/app/lib/auth/password-mfa.client";
+import { isNexusHandoffLogoutInProgress } from "@/app/lib/auth/password-mfa.shared";
 import HororaAppShell from "@/app/components/horora/HororaAppShell";
 import SectionCard from "@/app/components/ui/SectionCard";
 import AppCard from "@/app/components/ui/AppCard";
@@ -246,7 +247,7 @@ export default function DirectionDashboardClient() {
   }, [debugShowLoader]);
 
   useEffect(() => {
-    if (loading || user) {
+    if (loading || user || isNexusHandoffLogoutInProgress()) {
       return;
     }
     router.replace("/direction/login");
