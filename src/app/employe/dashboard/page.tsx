@@ -317,8 +317,12 @@ export default function EmployeDashboardPage() {
         <EmployeDashboardWelcome
           user={user}
           punch={punch}
-          onPrimaryAction={() => {
-            void punch.submitPunch(punch.principalAction.eventType);
+          onPrimaryAction={(eventType) => {
+            if (!eventType) {
+              router.push("/employe/horodateur");
+              return;
+            }
+            void punch.submitPunch(eventType);
           }}
         />
 
@@ -349,8 +353,12 @@ export default function EmployeDashboardPage() {
               className="employe-dashboard-module-card--primary"
               action={
                 <ModuleAction
-                  label="Pointer"
-                  primary
+                  label={
+                    punch.guidance.phase === "avant_quart"
+                      ? "Pointer mon arrivée"
+                      : "Ouvrir"
+                  }
+                  primary={punch.guidance.phase === "avant_quart"}
                   onClick={() => router.push("/employe/horodateur")}
                 />
               }

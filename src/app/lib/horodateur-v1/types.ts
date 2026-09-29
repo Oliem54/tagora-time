@@ -357,6 +357,10 @@ export type HorodateurPhase1TodayTimeDisplay = {
   openShiftSafetyCapAt: string | null;
   openShiftElapsedMinutes: number;
   computedAt: string;
+  /** Elapsed display while validation is pending. Never written to payroll. */
+  provisionalElapsedMinutes: number;
+  arrivalRecordedAt: string | null;
+  timeDisplayKind: "approved" | "live" | "provisional";
 };
 
 export type HorodateurPendingPunchOutSnapshot = {

@@ -1,14 +1,22 @@
 "use client";
 
-import { Clock3, PauseCircle, PlayCircle, UtensilsCrossed } from "lucide-react";
+import { useState } from "react";
+import { Clock3 } from "lucide-react";
 import { getCompanyLabel } from "@/app/lib/account-requests.shared";
 import AppCard from "@/app/components/ui/AppCard";
+import EmployeeExceptionExplanation from "@/app/components/horodateur/EmployeeExceptionExplanation";
+import ForgottenArrivalDialog from "@/app/components/horodateur/ForgottenArrivalDialog";
 import PrimaryButton from "@/app/components/ui/PrimaryButton";
 import SecondaryButton from "@/app/components/ui/SecondaryButton";
 import StatusBadge from "@/app/components/ui/StatusBadge";
+import { useLiveClock } from "@/app/hooks/useLiveClock";
 import type { EmployeePunchController } from "@/app/hooks/useEmployeePunchSnapshot";
 import {
-  employeePunchStatusLabel,
+  formatElapsedHours,
+  isOpenShiftState,
+  resolveShiftTimePresentation,
+} from "@/app/lib/employee-punch-guidance.shared";
+import {
   employeePunchStatusTone,
   mapEmployeePunchStatus,
 } from "@/app/lib/employee-punch-status.shared";
@@ -18,18 +26,7 @@ type HorodateurEmployeeCardProps = {
 };
 
 function formatMinutes(totalMinutes: number) {
-  const safeMinutes = Math.max(0, totalMinutes || 0);
-  const hours = Math.floor(safeMinutes / 60);
-  const minutes = safeMinutes % 60;
-  return `${hours}h ${String(minutes).padStart(2, "0")}m`;
-}
-
-function formatDateTime(value: string | null | undefined) {
-  if (!value) {
-    return "-";
-  }
-
-  return new Date(value).toLocaleString("fr-CA");
+  return formatElapsedHours(totalMinutes);
 }
 
 export default function HorodateurEmployeeCard({
@@ -44,10 +41,37 @@ export default function HorodateurEmployeeCard({
     message,
     snapshot,
     currentState,
-    principalAction,
-    actionDisabled,
+    guidance,
     submitPunch,
+    submitForgottenArrival,
   } = punch;
+  const [forgottenOpen, setForgottenOpen] = useState(false);
+  const [forgottenError, setForgottenError] = useState<string | null>(null);
+  const onDuty = isOpenShiftState(currentState);
+  const now = useLiveClock(onDuty);
+  const timeDisplay = snapshot?.todayTimeDisplay;
+  const lastEventType = snapshot?.currentState.last_event_type;
+  const arrivalAt =
+    timeDisplay?.arrivalRecordedAt ??
+    snapshot?.currentState.startedAt ??
+    (lastEventType === "punch_in" || lastEventType === "quart_debut"
+      ? snapshot?.currentState.last_event_at ?? null
+      : null);
+  const presentation = resolveShiftTimePresentation({
+    currentState,
+    officialPayableMinutes:
+      timeDisplay?.officialPayableMinutes ?? snapshot?.shift?.payable_minutes ?? 0,
+    livePayableMinutes: timeDisplay?.livePayableMinutes ?? snapshot?.shift?.worked_minutes ?? 0,
+    hasOpenShiftAccrual: Boolean(timeDisplay?.hasOpenShiftAccrual),
+    pendingValidation:
+      guidance.phase === "quart_en_attente" ||
+      Boolean(timeDisplay?.pendingPunchBlocksAccrual) ||
+      (snapshot?.pendingExceptions.length ?? 0) > 0 ||
+      snapshot?.shift?.status === "en_attente",
+    arrivalAt,
+    nowIso: now.toISOString(),
+    computedAt: timeDisplay?.computedAt ?? null,
+  });
   const punchStatus = mapEmployeePunchStatus(currentState, {
     available: enabled,
   });
@@ -102,20 +126,24 @@ export default function HorodateurEmployeeCard({
         <AppCard tone="muted" className="ui-stack-xs">
           <span className="ui-eyebrow">État actuel</span>
           <div className="employe-dashboard-punch-stat-row">
-            <strong>{employeePunchStatusLabel(punchStatus)}</strong>
+            <strong>{guidance.statusLabel}</strong>
             <StatusBadge
-              label={employeePunchStatusLabel(punchStatus)}
+              label={guidance.statusLabel}
               tone={employeePunchStatusTone(punchStatus)}
             />
           </div>
         </AppCard>
 
         <AppCard tone="muted" className="ui-stack-xs">
-          <span className="ui-eyebrow">Quart du jour</span>
-          <strong>{formatMinutes(snapshot?.shift?.payable_minutes ?? 0)}</strong>
-          <span className="ui-text-muted">
-            Travaillé: {formatMinutes(snapshot?.shift?.worked_minutes ?? 0)}
-          </span>
+          <span className="ui-eyebrow">{presentation.headlineLabel}</span>
+          <strong>{formatMinutes(presentation.displayedMinutes)}</strong>
+          {presentation.showPayrollApart ? (
+            <span className="ui-text-muted">
+              {presentation.payrollLabel}: {formatMinutes(presentation.payrollMinutes)}
+            </span>
+          ) : (
+            <span className="ui-text-muted">Temps compté pour la paie</span>
+          )}
         </AppCard>
 
         <AppCard tone="muted" className="ui-stack-xs">
@@ -129,10 +157,10 @@ export default function HorodateurEmployeeCard({
         </AppCard>
 
         <AppCard tone="muted" className="ui-stack-xs">
-          <span className="ui-eyebrow">Exceptions</span>
+          <span className="ui-eyebrow">Exceptions du quart en cours</span>
           <strong>{snapshot?.pendingExceptions.length ?? 0}</strong>
           <span className="ui-text-muted">
-            Dernier événement: {formatDateTime(snapshot?.currentState.last_event_at)}
+            Ce nombre ne comprend pas l&apos;historique déjà traité.
           </span>
         </AppCard>
       </div>
@@ -191,74 +219,94 @@ export default function HorodateurEmployeeCard({
           </AppCard>
         </div>
 
+        <p className="ui-text-muted" style={{ margin: 0 }}>
+          {guidance.guidance}
+        </p>
+        {guidance.serviceSinceLabel ? (
+          <p style={{ margin: 0, fontWeight: 700 }}>{guidance.serviceSinceLabel}</p>
+        ) : null}
+        {guidance.arrivalBlocked ? (
+          <p className="ui-text-muted" style={{ margin: 0 }}>
+            {guidance.arrivalBlockedMessage}
+          </p>
+        ) : null}
+
         <div className="employe-dashboard-punch-actions">
-          <PrimaryButton
-            onClick={() => void submitPunch(principalAction.eventType)}
-            disabled={submitting || geolocationPending}
-            className="employe-dashboard-punch-actions-primary"
-          >
-            <span>
-              {geolocationPending ? "Localisation en cours…" : principalAction.label}
-            </span>
-            <Clock3 size={16} aria-hidden />
-          </PrimaryButton>
+          {guidance.primary?.eventType ? (
+            <PrimaryButton
+              onClick={() => void submitPunch(guidance.primary?.eventType ?? "")}
+              disabled={submitting || geolocationPending}
+              className="employe-dashboard-punch-actions-primary"
+            >
+              <span>
+                {geolocationPending ? "Localisation en cours…" : guidance.primary.label}
+              </span>
+              <Clock3 size={16} aria-hidden />
+            </PrimaryButton>
+          ) : null}
+
+          {guidance.secondary.map((action) => (
+            <SecondaryButton
+              key={action.eventType}
+              onClick={() => {
+                if (action.eventType) void submitPunch(action.eventType);
+              }}
+              disabled={submitting || geolocationPending}
+            >
+              <span>{action.label}</span>
+            </SecondaryButton>
+          ))}
 
           <SecondaryButton
-            onClick={() => void submitPunch("break_start")}
-            disabled={submitting || actionDisabled.pauseStart}
+            onClick={() => {
+              setForgottenError(null);
+              setForgottenOpen(true);
+            }}
+            disabled={submitting}
           >
-            <span>Début pause</span>
-            <PauseCircle size={16} aria-hidden />
-          </SecondaryButton>
-
-          <SecondaryButton
-            onClick={() => void submitPunch("break_end")}
-            disabled={submitting || actionDisabled.pauseEnd}
-          >
-            <span>Fin pause</span>
-            <PlayCircle size={16} aria-hidden />
-          </SecondaryButton>
-
-          <SecondaryButton
-            onClick={() => void submitPunch("meal_start")}
-            disabled={submitting || actionDisabled.dinnerStart}
-          >
-            <span>Début dîner</span>
-            <UtensilsCrossed size={16} aria-hidden />
-          </SecondaryButton>
-
-          <SecondaryButton
-            onClick={() => void submitPunch("meal_end")}
-            disabled={submitting || actionDisabled.dinnerEnd}
-          >
-            <span>Fin dîner</span>
-            <PlayCircle size={16} aria-hidden />
+            <span>Ajouter une heure d&apos;arrivée oubliée</span>
           </SecondaryButton>
         </div>
 
         {snapshot?.pendingExceptions.length ? (
           <div className="ui-stack-sm">
-            <span className="ui-eyebrow">Exceptions en attente</span>
+            <span className="ui-eyebrow">Exceptions du quart en cours</span>
             <div className="employe-dashboard-punch-exceptions">
               {snapshot.pendingExceptions.slice(0, 3).map((item) => (
                 <AppCard key={item.id} tone="muted" className="ui-stack-xs">
-                  <div className="employe-dashboard-punch-stat-row">
-                    <strong style={{ fontSize: 14 }}>{item.reason_label}</strong>
-                    <StatusBadge label={item.status} tone="warning" />
-                  </div>
-                  <span className="ui-text-muted">{item.exception_type}</span>
-                  <span className="ui-text-muted">
-                    Impact: {formatMinutes(item.impact_minutes)}
-                  </span>
-                  {item.details ? (
-                    <span className="ui-text-muted">{item.details}</span>
-                  ) : null}
+                  <EmployeeExceptionExplanation
+                    exceptionType={item.exception_type}
+                    reasonLabel={item.reason_label}
+                    status={item.status}
+                    details={item.details}
+                    scope="current_shift"
+                  />
                 </AppCard>
               ))}
             </div>
           </div>
-        ) : null}
+        ) : (
+          <p className="ui-text-muted" style={{ margin: 0 }}>
+            Aucune exception en attente sur ce quart.
+          </p>
+        )}
       </AppCard>
+      <ForgottenArrivalDialog
+        open={forgottenOpen}
+        shiftOpen={onDuty}
+        submitting={submitting}
+        submitError={forgottenError}
+        onClose={() => setForgottenOpen(false)}
+        onSubmit={(input) => {
+          void submitForgottenArrival(input).then((result) => {
+            if (!result.ok) {
+              setForgottenError(result.message);
+              return;
+            }
+            setForgottenOpen(false);
+          });
+        }}
+      />
     </div>
   );
 }

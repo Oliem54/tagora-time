@@ -20,6 +20,16 @@ import {
   notifyHorodateurLatenessDigest,
 } from "@/app/lib/notifications";
 import {
+  buildForgottenArrivalAudit,
+  buildForgottenArrivalRequest,
+  FORGOTTEN_ARRIVAL_NOTE_PREFIX,
+  FORGOTTEN_ARRIVAL_REASON_LABEL,
+  isOpenShiftState,
+  resolveRecordedArrivalAt,
+  resolveShiftTimePresentation,
+  shouldRejectSecondArrivalPunch,
+} from "@/app/lib/employee-punch-guidance.shared";
+import {
   composeStaffRetroCorrectionNote,
   formatStaffRetroCorrectionDetails,
   isStaffRetroCorrectionException,
@@ -133,6 +143,7 @@ import {
   resolveInitialCurrentState,
   resolveLiveAccrualEndIso,
   resolveOpenShiftStartAt,
+  resolveOpenShiftStartEvent,
   resolvePayableWorkSegmentStartAt,
   resolveShiftStatus,
   shouldTreatApprovedEventAsShiftStart,
@@ -3303,6 +3314,131 @@ async function closeOpenPauseOrMealBeforePunchOut(
   return created;
 }
 
+export async function createForgottenArrivalAdjustment(options: {
+  actorUserId: string;
+  workDate: string;
+  timeLabel: string;
+  reason: string;
+}) {
+  const employee = await resolveEmployeeByAuthUserId(options.actorUserId);
+  const currentState = await getCurrentStateByEmployeeId(employee.employeeId);
+  const stateBefore = resolveInitialCurrentState(currentState);
+  const shiftOpen = isOpenShiftState(stateBefore);
+  const events = await listEventsForEmployee({
+    employeeId: employee.employeeId,
+    workDate: options.workDate,
+  });
+  const initial =
+    events.find((event) => {
+      const note = String(event.notes ?? event.note ?? "");
+      if (note.includes(FORGOTTEN_ARRIVAL_NOTE_PREFIX)) return false;
+      return toCanonicalEventType(event.event_type) === "punch_in";
+    }) ?? null;
+  const request = buildForgottenArrivalRequest({
+    date: options.workDate,
+    time: options.timeLabel,
+    reason: options.reason,
+    shiftOpen,
+    initialEventId: initial?.id ?? null,
+  });
+  if (!request.ok) {
+    throw new HorodateurPhase1Error(request.error, {
+      code: request.code,
+      status: 400,
+    });
+  }
+
+  const existing = events.find((event) => {
+    const note = String(event.notes ?? event.note ?? "");
+    return note.includes(FORGOTTEN_ARRIVAL_NOTE_PREFIX) && event.status === "en_attente";
+  });
+  if (existing) {
+    const pending = await listPendingExceptions({ employeeId: employee.employeeId });
+    const exception =
+      pending.find((item) => item.source_event_id === existing.id) ?? null;
+    const audit = buildForgottenArrivalAudit({
+      shiftRemainsOpen: shiftOpen,
+      initialEventId: initial?.id ?? null,
+      adjustmentEventId: existing.id,
+      exceptionId: exception?.id ?? null,
+    });
+    console.info("[horodateur-forgotten-arrival]", audit);
+    return {
+      alreadySubmitted: true,
+      audit,
+      exception,
+      event: existing,
+      currentState,
+      summary: request.summary,
+    };
+  }
+
+  const writeGuard = await blockHorodateurOperationalWrite({
+    organizationId: employee.organizationId,
+    incidentWorkDate: options.workDate,
+    incidentAtIso: request.occurredAt,
+  });
+  if (!writeGuard.allowed) {
+    throw new HorodateurPhase1Error(
+      "Cette demande ne peut pas être enregistrée pour cette date.",
+      { code: writeGuard.reason ?? "before_operational_cutover", status: 409 }
+    );
+  }
+
+  const companyContext = requireCompanyContext(null, employee);
+  const event = await insertHorodateurEvent({
+    userId: requireEmployeeAuthUserId(employee),
+    employeeId: employee.employeeId,
+    occurredAt: request.occurredAt,
+    workDate: options.workDate,
+    weekStartDate: getWeekStartDate(`${options.workDate}T12:00:00Z`),
+    eventType: "retroactive_entry",
+    actorUserId: options.actorUserId,
+    actorRole: "employe",
+    sourceKind: "employe",
+    companyContext,
+    note: request.note,
+    relatedEventId: initial?.id ?? null,
+    isManualCorrection: true,
+    status: "en_attente",
+    requiresApproval: true,
+    exceptionCode: "missing_punch_adjustment",
+    approvalNote: request.summary,
+  });
+  const exception = await createPendingExceptionForEvent({
+    employeeId: employee.employeeId,
+    event,
+    requestedByUserId: options.actorUserId,
+    reasonLabel: FORGOTTEN_ARRIVAL_REASON_LABEL,
+    employeeNote: request.note,
+  });
+  if (!exception) {
+    throw new HorodateurPhase1Error(
+      "La demande n'a pas pu être enregistrée. Réessayez ou contactez la direction.",
+      { code: "forgotten_arrival_not_recorded", status: 409 }
+    );
+  }
+  await notifyDirectionOfPendingException({ employee, exception, event });
+  const refreshed = await recomputeCurrentState(employee.employeeId);
+  const stateAfter = resolveInitialCurrentState(refreshed);
+  const shiftRemainsOpen = shiftOpen && isOpenShiftState(stateAfter);
+  const audit = buildForgottenArrivalAudit({
+    shiftRemainsOpen,
+    initialEventId: initial?.id ?? null,
+    adjustmentEventId: event.id,
+    exceptionId: exception.id,
+  });
+  console.info("[horodateur-forgotten-arrival]", audit);
+  return {
+    alreadySubmitted: false,
+    audit,
+    exception,
+    event,
+    currentState: refreshed,
+    summary: request.summary,
+  };
+}
+
 export async function createEmployeePunch(options: {
   actorUserId: string;
   organizationId?: string | null;
@@ -3369,6 +3505,39 @@ export async function createEmployeePunch(options: {
     employeeId: employee.employeeId,
     workDate,
   });
+  if (canonicalType === "punch_in") {
+    const resolved = resolveInitialCurrentState(currentState);
+    const openStart = resolveOpenShiftStartEvent(allApprovedEvents);
+    const openWorkDate = openStart
+      ? openStart.work_date?.trim() ||
+        getLocalWorkDate(getEventOccurredAt(openStart) ?? occurredAt)
+      : null;
+    const openShiftContinuable = openStart
+      ? isContinuableOpenShift({
+          openWorkDate,
+          calendarWorkDate,
+          openShiftStartAt: getEventOccurredAt(openStart),
+          occurredAt,
+        })
+      : false;
+    const pendingArrivalToday = sameDayEvents.some(
+      (event) =>
+        event.status === "en_attente" &&
+        toCanonicalEventType(event.event_type) === "punch_in"
+    );
+    if (
+      shouldRejectSecondArrivalPunch({
+        currentState: resolved,
+        openShiftContinuable,
+        pendingArrivalToday,
+      })
+    ) {
+      throw new HorodateurPhase1Error(
+        "Un quart est déjà ouvert. Pointez votre sortie, ou ajoutez une heure d'arrivée oubliée.",
+        { code: "arrival_already_open", status: 409 }
+      );
+    }
+  }
   const duplicatePunch = sameDayEvents.find(
     (event) =>
       toCanonicalEventType(event.event_type) === canonicalType &&
@@ -4161,6 +4330,33 @@ export function computeTodayLiveShiftDisplayMinutes(options: {
     unpaidLunchMinutes,
     approvedExceptionMinutes,
   });
+  const pendingArrivalAt =
+    pendingOperationalToday
+      .filter((event) => toCanonicalEventType(event.event_type) === "punch_in")
+      .map((event) => getEventOccurredAt(event))
+      .filter((value): value is string => Boolean(value))
+      .sort()[0] ?? null;
+  const arrivalRecordedAt = resolveRecordedArrivalAt({
+    currentState: resolvedState,
+    approvedArrivalAt: shiftStartAt,
+    pendingArrivalAt,
+    lastEventAt: options.currentState.last_event_at ?? null,
+    lastEventType: options.currentState.last_event_type ?? null,
+  });
+  const pendingValidation =
+    hasPendingOperationalPunchToday ||
+    options.todayShift.status === "en_attente" ||
+    Boolean(options.currentState.has_open_exception);
+  const presentation = resolveShiftTimePresentation({
+    currentState: resolvedState,
+    officialPayableMinutes,
+    livePayableMinutes,
+    hasOpenShiftAccrual: Boolean(canAccrueOpenSegment),
+    pendingValidation,
+    arrivalAt: arrivalRecordedAt,
+    nowIso,
+    computedAt: nowIso,
+  });
 
   return {
     officialPayableMinutes,
@@ -4175,6 +4371,9 @@ export function computeTodayLiveShiftDisplayMinutes(options: {
     openShiftSafetyCapAt,
     openShiftElapsedMinutes,
     computedAt: nowIso,
+    provisionalElapsedMinutes: presentation.provisionalElapsedMinutes,
+    arrivalRecordedAt,
+    timeDisplayKind: presentation.timeDisplayKind,
   };
 }
 

@@ -3,8 +3,6 @@
 import StatusBadge from "@/app/components/ui/StatusBadge";
 import PrimaryButton from "@/app/components/ui/PrimaryButton";
 import {
-  employeePunchNextActionLabel,
-  employeePunchStatusLabel,
   employeePunchStatusTone,
   formatEmployeeDashboardDate,
   formatEmployeeWelcome,
@@ -12,13 +10,19 @@ import {
   readSessionFullName,
   resolveEmployeeGivenName,
 } from "@/app/lib/employee-punch-status.shared";
+import {
+  formatElapsedHours,
+  isOpenShiftState,
+  resolveShiftTimePresentation,
+} from "@/app/lib/employee-punch-guidance.shared";
+import { useLiveClock } from "@/app/hooks/useLiveClock";
 import type { EmployeePunchController } from "@/app/hooks/useEmployeePunchSnapshot";
 import type { User } from "@supabase/supabase-js";
 
 type EmployeDashboardWelcomeProps = {
   user: User | null;
   punch: EmployeePunchController;
-  onPrimaryAction: () => void;
+  onPrimaryAction: (eventType: string | null) => void;
 };
 
 export default function EmployeDashboardWelcome({
@@ -33,13 +37,42 @@ export default function EmployeDashboardWelcome({
   const status = mapEmployeePunchStatus(punch.currentState, {
     available: punch.enabled,
   });
+  const guidance = punch.guidance;
+  const onDuty = isOpenShiftState(punch.currentState);
+  const now = useLiveClock(onDuty);
+  const timeDisplay = punch.snapshot?.todayTimeDisplay;
+  const lastEventType = punch.snapshot?.currentState.last_event_type;
+  const arrivalAt =
+    timeDisplay?.arrivalRecordedAt ??
+    punch.snapshot?.currentState.startedAt ??
+    (lastEventType === "punch_in" || lastEventType === "quart_debut"
+      ? punch.snapshot?.currentState.last_event_at ?? null
+      : null);
+  const presentation = resolveShiftTimePresentation({
+    currentState: punch.currentState,
+    officialPayableMinutes:
+      timeDisplay?.officialPayableMinutes ?? punch.snapshot?.shift?.payable_minutes ?? 0,
+    livePayableMinutes: timeDisplay?.livePayableMinutes ?? 0,
+    hasOpenShiftAccrual: Boolean(timeDisplay?.hasOpenShiftAccrual),
+    pendingValidation:
+      guidance.phase === "quart_en_attente" ||
+      Boolean(timeDisplay?.pendingPunchBlocksAccrual) ||
+      (punch.snapshot?.pendingExceptions.length ?? 0) > 0 ||
+      punch.snapshot?.shift?.status === "en_attente",
+    arrivalAt,
+    nowIso: now.toISOString(),
+    computedAt: timeDisplay?.computedAt ?? null,
+  });
   const statusLabel = punch.loading
     ? "Chargement du statut…"
-    : employeePunchStatusLabel(status);
-  const nextAction = punch.loading
-    ? "Chargement…"
-    : employeePunchNextActionLabel(status);
-  const canOpenPunch = punch.enabled;
+    : guidance.statusLabel || "Chargement…";
+  const canAct = punch.enabled && !punch.loading && guidance.primary;
+  const primaryDisabled =
+    !punch.enabled ||
+    punch.submitting ||
+    punch.geolocationPending ||
+    punch.loading ||
+    (guidance.primary?.eventType === "punch_in" && guidance.arrivalBlocked);
 
   return (
     <section className="employe-dashboard-welcome" aria-labelledby="employe-welcome-heading">
@@ -61,21 +94,32 @@ export default function EmployeDashboardWelcome({
             tone={punch.loading ? "default" : employeePunchStatusTone(status)}
           />
         </div>
-        <p className="employe-dashboard-welcome-next">
-          Prochaine action : <strong>{nextAction}</strong>
-        </p>
-        <PrimaryButton
-          className="employe-dashboard-welcome-action"
-          onClick={onPrimaryAction}
-          disabled={
-            !canOpenPunch ||
-            punch.submitting ||
-            punch.geolocationPending ||
-            punch.loading
-          }
-        >
-          {punch.geolocationPending ? "Localisation en cours…" : "Pointer"}
-        </PrimaryButton>
+        {guidance.serviceSinceLabel ? (
+          <p className="employe-dashboard-welcome-since">{guidance.serviceSinceLabel}</p>
+        ) : null}
+        {onDuty ? (
+          <div>
+            <p className="employe-dashboard-welcome-elapsed">
+              {formatElapsedHours(presentation.displayedMinutes)}
+            </p>
+            <p className="employe-dashboard-welcome-payroll">{presentation.headlineLabel}</p>
+            {presentation.showPayrollApart ? (
+              <p className="employe-dashboard-welcome-payroll">
+                {presentation.payrollLabel} : {formatElapsedHours(presentation.payrollMinutes)}
+              </p>
+            ) : null}
+          </div>
+        ) : null}
+        <p className="employe-dashboard-welcome-next">{guidance.guidance}</p>
+        {canAct && guidance.primary ? (
+          <PrimaryButton
+            className="employe-dashboard-welcome-action"
+            onClick={() => onPrimaryAction(guidance.primary?.eventType ?? null)}
+            disabled={primaryDisabled}
+          >
+            {punch.geolocationPending ? "Localisation en cours…" : guidance.primary.label}
+          </PrimaryButton>
+        ) : null}
       </div>
     </section>
   );

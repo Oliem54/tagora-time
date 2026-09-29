@@ -10,6 +10,12 @@ import {
   readEmployeePunchGeolocationWithDeadline,
   type EmployeePunchGeolocationFailureCode,
 } from "@/app/lib/employee-punch-geolocation.client";
+import { postForgottenArrivalRequest } from "@/app/lib/employee-forgotten-arrival.client";
+import {
+  isOpenShiftState,
+  resolveEmployeePunchGuidance,
+  type ShiftTimeKind,
+} from "@/app/lib/employee-punch-guidance.shared";
 import { employeePunchSuccessMessage } from "@/app/lib/horodateur-v1/punch-confirmation.shared";
 
 export const EMPLOYEE_PUNCH_BUSINESS_PERMISSION_MESSAGE =
@@ -63,6 +69,16 @@ export type EmployeePunchSnapshot = {
     impact_minutes: number;
     status: string;
   }>;
+  todayTimeDisplay: {
+    officialPayableMinutes: number;
+    livePayableMinutes: number;
+    hasOpenShiftAccrual: boolean;
+    pendingPunchBlocksAccrual: boolean;
+    provisionalElapsedMinutes: number;
+    arrivalRecordedAt: string | null;
+    timeDisplayKind: ShiftTimeKind;
+    computedAt: string | null;
+  } | null;
 };
 
 type PunchResponse = EmployeePunchSnapshot & {
@@ -136,7 +152,33 @@ function normalizeDashboardSnapshot(
     pendingExceptions: Array.isArray(payload?.pendingExceptions)
       ? payload.pendingExceptions
       : [],
+    todayTimeDisplay: normalizeTodayTimeDisplay(
+      (payload as { todayTimeDisplay?: unknown } | undefined)?.todayTimeDisplay
+    ),
   } satisfies EmployeePunchSnapshot;
+}
+
+function normalizeTodayTimeDisplay(raw: unknown): EmployeePunchSnapshot["todayTimeDisplay"] {
+  const source = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : null;
+  if (!source) return null;
+  const kind = source.timeDisplayKind;
+  return {
+    officialPayableMinutes:
+      typeof source.officialPayableMinutes === "number" ? source.officialPayableMinutes : 0,
+    livePayableMinutes:
+      typeof source.livePayableMinutes === "number" ? source.livePayableMinutes : 0,
+    hasOpenShiftAccrual: Boolean(source.hasOpenShiftAccrual),
+    pendingPunchBlocksAccrual: Boolean(source.pendingPunchBlocksAccrual),
+    provisionalElapsedMinutes:
+      typeof source.provisionalElapsedMinutes === "number"
+        ? source.provisionalElapsedMinutes
+        : 0,
+    arrivalRecordedAt:
+      typeof source.arrivalRecordedAt === "string" ? source.arrivalRecordedAt : null,
+    timeDisplayKind:
+      kind === "provisional" || kind === "live" || kind === "approved" ? kind : "approved",
+    computedAt: typeof source.computedAt === "string" ? source.computedAt : null,
+  };
 }
 
 function redirectToNexusLogin() {
@@ -205,18 +247,33 @@ export function useEmployeePunchSnapshot(enabled: boolean) {
     snapshot?.currentState.current_state ??
     snapshot?.currentState.status ??
     "hors_quart";
-  const principalAction =
-    currentState === "en_quart" ||
-    currentState === "en_pause" ||
-    currentState === "en_diner"
-      ? {
-          eventType: "punch_out",
-          label: "Pointer la sortie",
-        }
-      : {
-          eventType: "punch_in",
-          label: "Pointer l'entrée",
-        };
+  const guidance = resolveEmployeePunchGuidance({
+    currentState,
+    available: enabled,
+    shiftStatus: snapshot?.shift?.status ?? null,
+    pendingValidation:
+      Boolean(snapshot?.currentState.has_open_exception) ||
+      snapshot?.shift?.status === "en_attente" ||
+      snapshot?.todayTimeDisplay?.timeDisplayKind === "provisional" ||
+      Boolean(snapshot?.todayTimeDisplay?.pendingPunchBlocksAccrual),
+    pausePaid: snapshot?.employee.pausePaid !== false,
+    arrivalAt:
+      snapshot?.todayTimeDisplay?.arrivalRecordedAt ??
+      snapshot?.currentState.startedAt ??
+      (snapshot?.currentState.last_event_type === "punch_in" ||
+      snapshot?.currentState.last_event_type === "quart_debut"
+        ? snapshot?.currentState.last_event_at ?? null
+        : null),
+  });
+  const principalAction = guidance.primary?.eventType
+    ? {
+        eventType: guidance.primary.eventType,
+        label: guidance.primary.label,
+      }
+    : {
+        eventType: "punch_in",
+        label: "Pointer mon arrivée",
+      };
 
   const pausePaid = snapshot?.employee.pausePaid !== false;
 
@@ -233,6 +290,13 @@ export function useEmployeePunchSnapshot(enabled: boolean) {
   const submitPunch = useCallback(
     async (eventType: string, options?: { skipGeolocationCache?: boolean }) => {
       if (submitLockRef.current) {
+        return;
+      }
+
+      if (eventType === "punch_in" && isOpenShiftState(currentState)) {
+        setError(
+          "Un quart est déjà ouvert. Pointez votre sortie, ou ajoutez une heure d'arrivée oubliée."
+        );
         return;
       }
 
@@ -332,7 +396,35 @@ export function useEmployeePunchSnapshot(enabled: boolean) {
         submitLockRef.current = false;
       }
     },
-    [loadSnapshot, snapshot]
+    [currentState, loadSnapshot, snapshot]
+  );
+
+  const submitForgottenArrival = useCallback(
+    async (input: { date: string; time: string; reason: string }) => {
+      setSubmitting(true);
+      setError("");
+      setMessage("");
+      try {
+        const result = await postForgottenArrivalRequest(input);
+        if (!result.ok) {
+          setError(result.message);
+          return result;
+        }
+        setMessage(result.message);
+        await loadSnapshot();
+        return result;
+      } catch (submitError) {
+        const message =
+          submitError instanceof Error
+            ? submitError.message
+            : "La demande d'arrivée oubliée n'a pas pu être envoyée.";
+        setError(message);
+        return { ok: false, message, audit: null, alreadySubmitted: false };
+      } finally {
+        setSubmitting(false);
+      }
+    },
+    [loadSnapshot]
   );
 
   const retryGeolocation = useCallback(async () => {
@@ -354,8 +446,10 @@ export function useEmployeePunchSnapshot(enabled: boolean) {
     snapshot,
     geolocationFailure,
     currentState,
+    guidance,
     principalAction,
     actionDisabled,
+    submitForgottenArrival,
     loadSnapshot,
     submitPunch,
     retryGeolocation,

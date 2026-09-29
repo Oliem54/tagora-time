@@ -22,6 +22,12 @@ import SecondaryButton from "@/app/components/ui/SecondaryButton";
 import SectionCard from "@/app/components/ui/SectionCard";
 import StatusBadge from "@/app/components/ui/StatusBadge";
 import { useCurrentAccess } from "@/app/hooks/useCurrentAccess";
+import { useLiveClock } from "@/app/hooks/useLiveClock";
+import {
+  isOpenShiftState,
+  resolveRecordedArrivalAt,
+  resolveShiftTimePresentation,
+} from "@/app/lib/employee-punch-guidance.shared";
 import {
   isStaffRetroCorrectionException,
   type StaffRetroForgottenEventType,
@@ -83,6 +89,10 @@ type LiveRow = {
     openShiftWorkDateMismatch: boolean;
     openShiftWorkDate: string | null;
     openShiftSafetyCapReached?: boolean;
+    provisionalElapsedMinutes?: number;
+    arrivalRecordedAt?: string | null;
+    timeDisplayKind?: "approved" | "live" | "provisional";
+    computedAt?: string | null;
   } | null;
 };
 
@@ -374,14 +384,35 @@ function getRowState(row: LiveRow) {
   return row.currentState || row.status || "hors_quart";
 }
 
-function resolveDisplayedPayableMinutes(row: LiveRow) {
-  if (row.todayTimeDisplay?.hasOpenShiftAccrual) {
-    return Math.max(0, row.todayTimeDisplay.livePayableMinutes);
-  }
-  return Math.max(
-    0,
-    row.todayTimeDisplay?.officialPayableMinutes ?? row.todayShift?.payable_minutes ?? 0
-  );
+function presentLiveRowTime(row: LiveRow, nowIso: string) {
+  const display = row.todayTimeDisplay;
+  const arrivalAt = resolveRecordedArrivalAt({
+    currentState: getRowState(row),
+    approvedArrivalAt: display?.arrivalRecordedAt ?? row.startedAt ?? row.todayShift?.shift_start_at ?? null,
+    pendingArrivalAt: display?.arrivalRecordedAt ?? null,
+    lastEventAt: row.lastEventAt,
+    lastEventType: row.currentEventType ?? row.lastEventType,
+  });
+  return resolveShiftTimePresentation({
+    currentState: getRowState(row),
+    officialPayableMinutes:
+      display?.officialPayableMinutes ?? row.todayShift?.payable_minutes ?? 0,
+    livePayableMinutes: display?.livePayableMinutes ?? 0,
+    hasOpenShiftAccrual: Boolean(display?.hasOpenShiftAccrual),
+    pendingValidation:
+      display?.timeDisplayKind === "provisional" ||
+      Boolean(display?.pendingPunchBlocksAccrual) ||
+      row.todayShift?.status === "en_attente" ||
+      row.hasOpenException ||
+      (isOpenShiftState(getRowState(row)) && !display?.hasOpenShiftAccrual),
+    arrivalAt,
+    nowIso,
+    computedAt: display?.computedAt ?? null,
+  });
+}
+
+function resolveDisplayedPayableMinutes(row: LiveRow, nowIso = new Date().toISOString()) {
+  return presentLiveRowTime(row, nowIso).displayedMinutes;
 }
 
 function liveRowNeedsAttention(row: LiveRow) {
@@ -450,6 +481,15 @@ function normalizeLiveRow(raw: unknown): LiveRow {
     row.todayTimeDisplay && typeof row.todayTimeDisplay === "object"
       ? (row.todayTimeDisplay as Record<string, unknown>)
       : null;
+  const rawTimeKind = timeDisplayRaw?.timeDisplayKind;
+  const timeDisplayKind: "approved" | "live" | "provisional" | undefined =
+    rawTimeKind === "live"
+      ? "live"
+      : rawTimeKind === "provisional"
+        ? "provisional"
+        : rawTimeKind === "approved"
+          ? "approved"
+          : undefined;
   const todayTimeDisplay = timeDisplayRaw
     ? {
         officialPayableMinutes:
@@ -468,6 +508,17 @@ function normalizeLiveRow(raw: unknown): LiveRow {
             ? timeDisplayRaw.openShiftWorkDate
             : null,
         openShiftSafetyCapReached: Boolean(timeDisplayRaw.openShiftSafetyCapReached),
+        provisionalElapsedMinutes:
+          typeof timeDisplayRaw.provisionalElapsedMinutes === "number"
+            ? timeDisplayRaw.provisionalElapsedMinutes
+            : 0,
+        arrivalRecordedAt:
+          typeof timeDisplayRaw.arrivalRecordedAt === "string"
+            ? timeDisplayRaw.arrivalRecordedAt
+            : null,
+        timeDisplayKind,
+        computedAt:
+          typeof timeDisplayRaw.computedAt === "string" ? timeDisplayRaw.computedAt : null,
       }
     : null;
 
@@ -620,6 +671,8 @@ export default function DirectionHorodateurPage() {
   const canUseTerrain = hasPermission("terrain");
   const isAdmin = role === "admin";
 
+  const liveClock = useLiveClock(true);
+  const liveClockIso = liveClock.toISOString();
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [activeActionKey, setActiveActionKey] = useState<string | null>(null);
@@ -700,7 +753,7 @@ export default function DirectionHorodateurPage() {
   const globalMetrics = useMemo(() => {
     const employeesInShift = board.filter((row) => getRowState(row) === "en_quart").length;
     const totalTodayMinutes = board.reduce(
-      (sum, row) => sum + resolveDisplayedPayableMinutes(row),
+      (sum, row) => sum + resolveDisplayedPayableMinutes(row, liveClockIso),
       0
     );
     const totalWeekWorkedMinutes = board.reduce(
@@ -724,7 +777,7 @@ export default function DirectionHorodateurPage() {
           ? Math.round((totalWeekWorkedMinutes / totalWeekTargetMinutes) * 100)
           : 0,
     };
-  }, [board]);
+  }, [board, liveClockIso]);
   const filteredBoard = useMemo(() => {
     const query = liveSearch.trim().toLowerCase();
     return board.filter((row) => {
@@ -1656,6 +1709,7 @@ export default function DirectionHorodateurPage() {
                     anomaliesCount: row.todayShift?.anomalies_count ?? 0,
                   });
                   const progressPercent = clampPercentage(Math.round(ratio * 100));
+                  const rowTime = presentLiveRowTime(row, liveClockIso);
 
                   return (
                     <article
@@ -1697,14 +1751,14 @@ export default function DirectionHorodateurPage() {
                       <div className="horodateur-live-board-cell" data-label="Quart du jour">
                         <div className="horodateur-live-shift">
                           <strong className="horodateur-live-shift-time">
-                            {formatMinutes(resolveDisplayedPayableMinutes(row))}
+                            {formatMinutes(rowTime.displayedMinutes)}
                           </strong>
-                          {row.todayTimeDisplay?.hasOpenShiftAccrual ? (
-                            <span className="horodateur-live-meta">
-                              En cours · officiel{" "}
-                              {formatMinutes(row.todayTimeDisplay.officialPayableMinutes)}
-                            </span>
-                          ) : null}
+                          <span className="horodateur-live-meta">
+                            {rowTime.headlineLabel}
+                            {rowTime.showPayrollApart
+                              ? ` · ${rowTime.payrollLabel} ${formatMinutes(rowTime.payrollMinutes)}`
+                              : ""}
+                          </span>
                           <span className="horodateur-live-meta">
                             Début {formatShortDateTime(row.startedAt ?? row.todayShift?.shift_start_at ?? null)}
                           </span>
@@ -1826,7 +1880,9 @@ export default function DirectionHorodateurPage() {
                     )}
                   </li>
                   <li className="horodateur-direction-detail-list-item">
-                    <strong>Quart du jour</strong> — {formatMinutes(resolveDisplayedPayableMinutes(detailRow))}
+                    <strong>Quart du jour</strong> — {formatMinutes(presentLiveRowTime(detailRow, liveClockIso).displayedMinutes)}
+                    {" · "}
+                    {presentLiveRowTime(detailRow, liveClockIso).headlineLabel}
                     {detailRow.todayShift?.status ? ` · ${detailRow.todayShift.status}` : ""}
                   </li>
                   <li

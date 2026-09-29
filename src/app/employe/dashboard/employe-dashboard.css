@@ -54,6 +54,29 @@
   color: var(--horora-color-text-muted);
 }
 
+.employe-dashboard-welcome-since,
+.employe-dashboard-welcome-elapsed,
+.employe-dashboard-welcome-payroll {
+  margin: 0;
+}
+
+.employe-dashboard-welcome-since,
+.employe-dashboard-welcome-elapsed {
+  font-weight: 700;
+  color: var(--horora-color-text);
+}
+
+.employe-dashboard-welcome-elapsed {
+  font-size: 1.35rem;
+  letter-spacing: -0.03em;
+}
+
+.employe-dashboard-welcome-payroll {
+  font-size: 0.875rem;
+  line-height: 1.4;
+  color: var(--horora-color-text-muted);
+}
+
 .employe-dashboard-welcome-status {
   display: grid;
   align-content: start;
