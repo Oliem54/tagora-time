@@ -1,9 +1,11 @@
--- Teach public.recompute_horodateur_shift the stored quart event types.
+-- Teach public.recompute_horodateur_shift the stored quart and dinner types.
 -- quart_debut / punch_in and quart_fin / punch_out count as shift bounds
--- only when status is normal or approuve. Pending and refused events stay
--- out of those bounds. clock_in, shift_start, clock_out, and shift_end keep
--- the previous rule. Does not change the trigger, RLS, or grants, and does
--- not rewrite existing punch rows.
+-- only when status is normal or approuve. dinner_debut and dinner_fin count
+-- as dinner bounds on the same rule, at coalesce(occurred_at, event_time).
+-- Pending and refused events stay out of those bounds. clock_in, shift_start,
+-- clock_out, shift_end, dinner_start, and dinner_end keep the previous rule.
+-- Does not change the trigger, RLS, or grants, and does not rewrite punch
+-- rows or exception statuses.
 
 begin;
 
@@ -138,18 +140,58 @@ begin
   lunch_starts as (
     select
       id,
-      event_time,
-      row_number() over (order by event_time, id) as rn
-    from base_events
-    where event_type in ('lunch_start', 'diner_start', 'dinner_start')
+      bound_at as event_time,
+      row_number() over (order by bound_at, id) as rn
+    from (
+      select
+        id,
+        case
+          when event_type in ('lunch_start', 'diner_start', 'dinner_start') then event_time
+          when event_type = 'dinner_debut'
+            and status in (
+              'normal'::public.horodateur_event_status,
+              'approuve'::public.horodateur_event_status
+            )
+            then coalesce(occurred_at, event_time)
+          else null
+        end as bound_at
+      from base_events
+      where event_type in (
+        'lunch_start',
+        'diner_start',
+        'dinner_start',
+        'dinner_debut'
+      )
+    ) lunch_start_bounds
+    where bound_at is not null
   ),
   lunch_ends as (
     select
       id,
-      event_time,
-      row_number() over (order by event_time, id) as rn
-    from base_events
-    where event_type in ('lunch_end', 'diner_end', 'dinner_end')
+      bound_at as event_time,
+      row_number() over (order by bound_at, id) as rn
+    from (
+      select
+        id,
+        case
+          when event_type in ('lunch_end', 'diner_end', 'dinner_end') then event_time
+          when event_type = 'dinner_fin'
+            and status in (
+              'normal'::public.horodateur_event_status,
+              'approuve'::public.horodateur_event_status
+            )
+            then coalesce(occurred_at, event_time)
+          else null
+        end as bound_at
+      from base_events
+      where event_type in (
+        'lunch_end',
+        'diner_end',
+        'dinner_end',
+        'dinner_fin'
+      )
+    ) lunch_end_bounds
+    where bound_at is not null
   ),
   lunch_pairs as (
     select
