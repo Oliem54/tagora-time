@@ -1,8 +1,8 @@
 /**
- * Bornes de quart du recalcul SQL `recompute_horodateur_shift`.
- * Les types anglais gardent `event_time`. `quart_debut` / `punch_in` et
- * `quart_fin` / `punch_out` ne comptent que s'ils sont normal ou approuve,
- * à l'horodatage `occurred_at`, sinon `event_time`.
+ * Bornes du recalcul SQL `recompute_horodateur_shift`.
+ * Les types anglais gardent `event_time`. `quart_debut` / `punch_in`,
+ * `quart_fin` / `punch_out`, `dinner_debut` et `dinner_fin` ne comptent
+ * que s'ils sont normal ou approuve, à `occurred_at`, sinon `event_time`.
  * Un événement en attente, y compris une fin automatique, ne devient pas
  * une borne approuvée.
  */
@@ -24,6 +24,7 @@ export type RecomputeShiftBoundSummary = {
   shiftStartAt: string | null;
   shiftEndAt: string | null;
   workedMinutes: number;
+  unpaidLunchMinutes: number;
   status: "ouvert" | "ferme";
 };
 
@@ -32,6 +33,14 @@ const LEGACY_START_TYPES = new Set(["clock_in", "shift_start"]);
 const LEGACY_END_TYPES = new Set(["clock_out", "shift_end"]);
 const QUART_START_TYPES = new Set(["quart_debut", "punch_in"]);
 const QUART_END_TYPES = new Set(["quart_fin", "punch_out"]);
+const LEGACY_DINNER_START_TYPES = new Set([
+  "lunch_start",
+  "diner_start",
+  "dinner_start",
+]);
+const LEGACY_DINNER_END_TYPES = new Set(["lunch_end", "diner_end", "dinner_end"]);
+const DINNER_START_TYPES = new Set(["dinner_debut"]);
+const DINNER_END_TYPES = new Set(["dinner_fin"]);
 
 function timestampMs(value: string | null | undefined) {
   if (!value) return null;
@@ -75,16 +84,60 @@ function endCandidate(event: RecomputeShiftBoundEvent) {
   return null;
 }
 
+function dinnerStartCandidate(event: RecomputeShiftBoundEvent) {
+  if (LEGACY_DINNER_START_TYPES.has(event.eventType)) {
+    return event.eventTime ?? null;
+  }
+  if (DINNER_START_TYPES.has(event.eventType) && APPROVED_STATUSES.has(event.status)) {
+    return event.occurredAt ?? event.eventTime ?? null;
+  }
+  return null;
+}
+
+function dinnerEndCandidate(event: RecomputeShiftBoundEvent) {
+  if (LEGACY_DINNER_END_TYPES.has(event.eventType)) {
+    return event.eventTime ?? null;
+  }
+  if (DINNER_END_TYPES.has(event.eventType) && APPROVED_STATUSES.has(event.status)) {
+    return event.occurredAt ?? event.eventTime ?? null;
+  }
+  return null;
+}
+
+function pairedMinutes(starts: string[], ends: string[]) {
+  const orderedStarts = [...starts].sort(
+    (left, right) => (timestampMs(left) ?? 0) - (timestampMs(right) ?? 0)
+  );
+  const orderedEnds = [...ends].sort(
+    (left, right) => (timestampMs(left) ?? 0) - (timestampMs(right) ?? 0)
+  );
+  let total = 0;
+  const count = Math.min(orderedStarts.length, orderedEnds.length);
+  for (let index = 0; index < count; index += 1) {
+    const startMs = timestampMs(orderedStarts[index]);
+    const endMs = timestampMs(orderedEnds[index]);
+    if (startMs == null || endMs == null || endMs <= startMs) continue;
+    total += Math.floor((endMs - startMs) / 60000);
+  }
+  return total;
+}
+
 export function summarizeRecomputeShiftBounds(
   events: RecomputeShiftBoundEvent[]
 ): RecomputeShiftBoundSummary {
   let shiftStartAt: string | null = null;
   let shiftEndAt: string | null = null;
+  const dinnerStarts: string[] = [];
+  const dinnerEnds: string[] = [];
 
   for (const event of events) {
     if (event.status === "refuse") continue;
     shiftStartAt = earlier(shiftStartAt, startCandidate(event));
     shiftEndAt = later(shiftEndAt, endCandidate(event));
+    const dinnerStartAt = dinnerStartCandidate(event);
+    const dinnerEndAt = dinnerEndCandidate(event);
+    if (dinnerStartAt) dinnerStarts.push(dinnerStartAt);
+    if (dinnerEndAt) dinnerEnds.push(dinnerEndAt);
   }
 
   const startMs = timestampMs(shiftStartAt);
@@ -98,6 +151,7 @@ export function summarizeRecomputeShiftBounds(
     shiftStartAt,
     shiftEndAt,
     workedMinutes,
+    unpaidLunchMinutes: pairedMinutes(dinnerStarts, dinnerEnds),
     status: shiftStartAt && !shiftEndAt ? "ouvert" : "ferme",
   };
 }
