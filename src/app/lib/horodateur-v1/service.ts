@@ -3560,6 +3560,7 @@ export async function createEmployeePunch(options: {
   }
   const duplicatePunch = sameDayEvents.find(
     (event) =>
+      !isAutomaticMissingPendingPunchOut(event) &&
       toCanonicalEventType(event.event_type) === canonicalType &&
       isDuplicatePunchWithinWindow({
         existingOccurredAt: getEventOccurredAt(event),
@@ -3619,7 +3620,11 @@ export async function createEmployeePunch(options: {
       employeeId: employee.employeeId,
       statuses: ["en_attente"],
     })
-  ).filter((event) => toCanonicalEventType(event.event_type) === "punch_out");
+  ).filter(
+    (event) =>
+      toCanonicalEventType(event.event_type) === "punch_out" &&
+      !isAutomaticMissingPendingPunchOut(event)
+  );
 
   if (canonicalType === "punch_out") {
     const autoClosed = await closeOpenPauseOrMealBeforePunchOut({
@@ -4129,6 +4134,9 @@ function getLatestPendingLiveAccrualCapAt(
   let latestMs = -1;
 
   for (const event of pendingOperationalEvents) {
+    if (isAutomaticMissingPendingPunchOut(event)) {
+      continue;
+    }
     const canonical = toCanonicalEventType(event.event_type);
     if (!canonical || !PENDING_LIVE_ACCRUAL_CAP_EVENT_TYPES.has(canonical)) {
       continue;

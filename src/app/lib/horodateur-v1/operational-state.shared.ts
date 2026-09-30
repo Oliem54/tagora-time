@@ -283,7 +283,8 @@ export function computeStateFromEventTimeline(
  * Une sortie en attente ne compte comme deja soumise que pour la date
  * operationnelle du punch : meme jour, ou quart continuable (y compris
  * le lendemain dans la fenetre de securite). Une sortie ancienne reste
- * en base et ne bloque pas un punch_out d une autre date.
+ * en base et ne bloque pas un punch_out d une autre date. Une fin
+ * automatique en attente n'est pas une sortie employe deja soumise.
  */
 export function findActivePendingPunchOutFromEvents(
   pendingPunchOutEvents: HorodateurPhase1EventRecord[],
@@ -296,6 +297,7 @@ export function findActivePendingPunchOutFromEvents(
     (event) =>
       event.status === "en_attente" &&
       toCanonicalEventType(event.event_type) === "punch_out" &&
+      !isAutomaticMissingPendingPunchOut(event) &&
       (boundEmployeeId == null || event.employee_id === boundEmployeeId)
   );
 

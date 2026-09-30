@@ -126,6 +126,49 @@ describe("operational-state.shared — Vincent", () => {
     expect(operational.currentState).toBe("en_quart");
   });
 
+  it("une fin automatique en attente ne bloque pas la vraie sortie, une sortie employe oui", () => {
+    const punchIn = event({
+      id: "in-1",
+      event_type: "quart_debut",
+      status: "approuve",
+      occurred_at: "2026-09-29T10:30:12.000Z",
+      work_date: "2026-09-29",
+    });
+    const automaticPunchOut = event({
+      id: "out-automatic",
+      event_type: "quart_fin",
+      status: "en_attente",
+      occurred_at: "2026-09-29T19:00:00.000Z",
+      work_date: "2026-09-29",
+      actor_role: "systeme",
+      source_kind: "automatique",
+      exception_code: "missing_punch_adjustment",
+    });
+    const employeePunchOut = event({
+      id: "out-employee",
+      event_type: "quart_fin",
+      status: "en_attente",
+      occurred_at: "2026-09-29T21:00:00.000Z",
+      work_date: "2026-09-29",
+      actor_role: "employe",
+      source_kind: "employe",
+      exception_code: "shift_too_long",
+    });
+
+    expect(
+      findActivePendingPunchOutFromEvents([automaticPunchOut], [punchIn], {
+        operationalWorkDate: "2026-09-29",
+        employeeId: 21,
+      })
+    ).toBeNull();
+    expect(
+      findActivePendingPunchOutFromEvents([employeePunchOut], [punchIn], {
+        operationalWorkDate: "2026-09-29",
+        employeeId: 21,
+      })?.id
+    ).toBe("out-employee");
+  });
+
   it("second punch_out avec sortie deja en attente est detecte comme active pending", () => {
     const approved = [
       event({
