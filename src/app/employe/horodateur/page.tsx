@@ -20,6 +20,7 @@ import {
   formatElapsedHours,
   isOpenShiftState,
   resolveEmployeePunchGuidance,
+  resolveEmployeHorodateurPunchOutControl,
   resolveShiftTimePresentation,
 } from "@/app/lib/employee-punch-guidance.shared";
 import {
@@ -869,18 +870,6 @@ function normalizePendingPunchOut(raw: unknown): EmployeeSnapshot["pendingPunchO
   };
 }
 
-function formatPendingPunchOutBannerMessage(
-  pendingPunchOut: NonNullable<EmployeeSnapshot["pendingPunchOut"]>
-) {
-  const label = new Date(pendingPunchOut.occurredAt).toLocaleTimeString("fr-CA", {
-    timeZone: "America/Toronto",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  });
-  return `Votre sortie a deja ete soumise a ${label} et attend la validation de la direction. Votre quart est ferme; la paie reste a valider.`;
-}
-
 export default function EmployeHorodateurPage() {
   const router = useRouter();
   const { user, loading: accessLoading, hasPermission } = useCurrentAccess();
@@ -1177,9 +1166,11 @@ export default function EmployeHorodateurPage() {
   const isHorsQuart = currentStateValue === "hors_quart";
   const isShiftCompleted = currentStateValue === "termine";
   const pendingPunchOut = snapshot?.pendingPunchOut ?? null;
-  const punchOutBlockedReason = pendingPunchOut
-    ? formatPendingPunchOutBannerMessage(pendingPunchOut)
-    : null;
+  const punchOutControl = resolveEmployeHorodateurPunchOutControl({
+    currentState: currentStateValue,
+    pendingPunchOut,
+  });
+  const punchOutBlockedReason = punchOutControl.blockedReason;
   const punchInBlockedReason = useMemo(() => {
     if (isHorsQuart || isShiftCompleted) {
       if (canStartShiftPunch) {
@@ -1202,8 +1193,7 @@ export default function EmployeHorodateurPage() {
     snapshot?.pendingExceptions.length,
   ]);
   const canPunchInNow = !punchInBlockedReason;
-  const canPunchOutNow =
-    !punchOutBlockedReason && !isHorsQuart && !isShiftCompleted;
+  const canPunchOutNow = punchOutControl.canPunchOut;
   const canTestPunchLocation = canPunchInNow || canPunchOutNow;
   const showPunchGpsPanel =
     canTestPunchLocation || punchGpsUi.phase !== "idle";
@@ -1770,7 +1760,7 @@ export default function EmployeHorodateurPage() {
 
       {message ? <AccessNotice title="Information" description={message} /> : null}
 
-      {pendingPunchOut ? (
+      {punchOutControl.blockedReason ? (
         <section
           className="tagora-panel"
           style={{ marginTop: 24, borderColor: "rgba(245,158,11,0.55)" }}
@@ -1779,7 +1769,7 @@ export default function EmployeHorodateurPage() {
             Sortie soumise — validation en cours
           </h2>
           <p style={{ margin: 0, lineHeight: 1.55, color: "#0f172a" }}>
-            {formatPendingPunchOutBannerMessage(pendingPunchOut)}
+            {punchOutControl.blockedReason}
           </p>
         </section>
       ) : null}
@@ -1933,17 +1923,17 @@ export default function EmployeHorodateurPage() {
                 disabled={
                   saving ||
                   (punchGuidance.primary.eventType === "punch_in" && Boolean(punchInBlockedReason)) ||
-                  (punchGuidance.primary.eventType === "punch_out" && Boolean(punchOutBlockedReason))
+                  (punchGuidance.primary.eventType === "punch_out" && punchOutControl.primaryDisabled)
                 }
                 title={
                   punchGuidance.primary.eventType === "punch_out"
-                    ? punchOutBlockedReason ?? undefined
+                    ? punchOutControl.blockedReason ?? undefined
                     : punchInBlockedReason ?? undefined
                 }
                 onClick={() => void handlePrimaryPunch(punchGuidance.primary?.eventType ?? "")}
               >
-                {punchGuidance.primary.eventType === "punch_out" && punchOutBlockedReason
-                  ? "Sortie soumise"
+                {punchGuidance.primary.eventType === "punch_out" && punchOutControl.primaryDisabled
+                  ? punchOutControl.primaryLabel
                   : PRIMARY_PUNCH_ACTIONS.find(
                       (action) => action.eventType === punchGuidance.primary?.eventType
                     )?.label ?? punchGuidance.primary.label}

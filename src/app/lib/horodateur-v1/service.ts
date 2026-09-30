@@ -112,6 +112,7 @@ import {
   resolveLivePreferredOperationalState,
   resolveOperationalWorkDate,
 } from "./operational-state.shared";
+import { isAutomaticMissingPendingPunchOut } from "./recompute-current-state.shared";
 import {
   isUrgentHorodateurIncident,
   shouldGrandfatherHistoricalAlert,
@@ -2658,17 +2659,23 @@ export async function recomputeCurrentState(
     ...pendingOperationalEvents,
   ]);
   /**
-   * Etat operationnel employe : inclut punch_out en_attente pour fermer le quart cote interface.
-   * La paie reste calculee uniquement sur normal / approuve (recomputeShiftForDate).
+   * Etat operationnel employe : une sortie en attente soumise par l'employe
+   * ferme le quart cote interface. Une fin automatique en attente, creee par
+   * l'escalade des punchs manquants, reste ignoree pour ne pas ecraser un
+   * quart ouvert par « termine ». La paie reste calculee uniquement sur
+   * normal / approuve (recomputeShiftForDate).
    */
-  const pendingPunchOutEvents = pendingOperationalEvents.filter(
+  const livePendingOperationalEvents = pendingOperationalEvents.filter(
+    (event) => !isAutomaticMissingPendingPunchOut(event)
+  );
+  const pendingPunchOutEvents = livePendingOperationalEvents.filter(
     (event) => toCanonicalEventType(event.event_type) === "punch_out"
   );
   const nowIso = new Date().toISOString();
   const calendarWorkDate = getLocalWorkDate(nowIso);
   const operationalState = resolveLivePreferredOperationalState({
     approvedEvents,
-    pendingOperationalEvents,
+    pendingOperationalEvents: livePendingOperationalEvents,
     calendarWorkDate,
     ignorePaidBreakPunches,
   });
@@ -3553,6 +3560,7 @@ export async function createEmployeePunch(options: {
   }
   const duplicatePunch = sameDayEvents.find(
     (event) =>
+      !isAutomaticMissingPendingPunchOut(event) &&
       toCanonicalEventType(event.event_type) === canonicalType &&
       isDuplicatePunchWithinWindow({
         existingOccurredAt: getEventOccurredAt(event),
@@ -3612,7 +3620,11 @@ export async function createEmployeePunch(options: {
       employeeId: employee.employeeId,
       statuses: ["en_attente"],
     })
-  ).filter((event) => toCanonicalEventType(event.event_type) === "punch_out");
+  ).filter(
+    (event) =>
+      toCanonicalEventType(event.event_type) === "punch_out" &&
+      !isAutomaticMissingPendingPunchOut(event)
+  );
 
   if (canonicalType === "punch_out") {
     const autoClosed = await closeOpenPauseOrMealBeforePunchOut({
@@ -4122,6 +4134,9 @@ function getLatestPendingLiveAccrualCapAt(
   let latestMs = -1;
 
   for (const event of pendingOperationalEvents) {
+    if (isAutomaticMissingPendingPunchOut(event)) {
+      continue;
+    }
     const canonical = toCanonicalEventType(event.event_type);
     if (!canonical || !PENDING_LIVE_ACCRUAL_CAP_EVENT_TYPES.has(canonical)) {
       continue;

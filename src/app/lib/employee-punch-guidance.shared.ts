@@ -37,6 +37,37 @@ export type EmployeePunchGuidance = {
   arrivalBlockedMessage: string | null;
 };
 
+export function formatPendingEmployeePunchOutBanner(occurredAt: string) {
+  const label = new Date(occurredAt).toLocaleTimeString("fr-CA", {
+    timeZone: "America/Toronto",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+  return `Votre sortie a deja ete soumise a ${label} et attend la validation de la direction. Votre quart est ferme; la paie reste a valider.`;
+}
+
+/**
+ * L'écran employé ne bloque la sortie que lorsqu'une sortie a vraiment été
+ * soumise. Une fin automatique en attente n'arrive pas dans ce snapshot.
+ */
+export function resolveEmployeHorodateurPunchOutControl(input: {
+  currentState: string | null | undefined;
+  pendingPunchOut: { occurredAt: string } | null;
+}) {
+  const state = input.currentState ?? "hors_quart";
+  const blockedReason = input.pendingPunchOut
+    ? formatPendingEmployeePunchOutBanner(input.pendingPunchOut.occurredAt)
+    : null;
+  const shiftOpen = state !== "hors_quart" && state !== "termine";
+  return {
+    blockedReason,
+    canPunchOut: blockedReason == null && shiftOpen,
+    primaryDisabled: blockedReason != null,
+    primaryLabel: blockedReason == null ? "Pointer ma sortie" : "Sortie soumise",
+  };
+}
+
 const ARRIVAL_BLOCKED_MESSAGE =
   "Un quart est déjà ouvert. Pointez votre sortie, ou ajoutez une heure d'arrivée oubliée si l'heure est inexacte.";
 
