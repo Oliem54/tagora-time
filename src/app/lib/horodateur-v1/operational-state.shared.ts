@@ -279,6 +279,11 @@ export function computeStateFromEventTimeline(
   };
 }
 
+/**
+ * Une fin automatique en attente n'est pas une sortie employé déjà soumise.
+ * Une sortie en attente réellement créée par l'employé continue de bloquer
+ * un second punch_out.
+ */
 export function findActivePendingPunchOutFromEvents(
   pendingPunchOutEvents: HorodateurPhase1EventRecord[],
   approvedEvents: HorodateurPhase1EventRecord[]
@@ -286,7 +291,8 @@ export function findActivePendingPunchOutFromEvents(
   const pendingPunchOuts = pendingPunchOutEvents.filter(
     (event) =>
       event.status === "en_attente" &&
-      toCanonicalEventType(event.event_type) === "punch_out"
+      toCanonicalEventType(event.event_type) === "punch_out" &&
+      !isAutomaticMissingPendingPunchOut(event)
   );
 
   if (pendingPunchOuts.length === 0) {
