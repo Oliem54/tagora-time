@@ -147,6 +147,7 @@ describe("recompute shift bounds for quart_debut and quart_fin", () => {
     expect(summary.shiftStartAt).toBe("2026-09-29T10:30:00.000Z");
     expect(summary.shiftEndAt).toBe("2026-09-29T19:00:00.000Z");
     expect(summary.unpaidLunchMinutes).toBe(30);
+    expect(summary.workedMinutes).toBe(480);
     expect(summary.status).toBe("ferme");
   });
 

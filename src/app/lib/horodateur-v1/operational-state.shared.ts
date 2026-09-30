@@ -1,3 +1,4 @@
+import { isAutomaticMissingPendingPunchOut } from "./recompute-current-state.shared";
 import {
   getEventOccurredAt,
   getLocalWorkDate,
@@ -68,7 +69,7 @@ export function selectLivePendingOperationalEvents(
     }
     const canonical = toCanonicalEventType(event.event_type);
     if (canonical === "punch_out") {
-      return true;
+      return !isAutomaticMissingPendingPunchOut(event);
     }
     return canonical === "punch_in" && eventWorkDate(event) === calendarWorkDate;
   });
@@ -88,7 +89,8 @@ export function buildOperationalStateEvents(
       : pendingOperationalEvents.filter(
           (event) =>
             event.status === "en_attente" &&
-            toCanonicalEventType(event.event_type) === "punch_out"
+            toCanonicalEventType(event.event_type) === "punch_out" &&
+            !isAutomaticMissingPendingPunchOut(event)
         );
   return sortHorodateurEventsByOccurredAt([
     ...approvedEvents,
