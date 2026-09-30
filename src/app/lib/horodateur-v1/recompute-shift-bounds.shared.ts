@@ -4,7 +4,8 @@
  * `quart_fin` / `punch_out`, `dinner_debut` et `dinner_fin` ne comptent
  * que s'ils sont normal ou approuve, à `occurred_at`, sinon `event_time`.
  * Un événement en attente, y compris une fin automatique, ne devient pas
- * une borne approuvée.
+ * une borne approuvée. Les minutes de dîner approuvé sont soustraites du
+ * temps travaillé, comme `worked_minutes` dans la migration SQL.
  */
 
 export type RecomputeShiftBoundStatus =
@@ -142,16 +143,18 @@ export function summarizeRecomputeShiftBounds(
 
   const startMs = timestampMs(shiftStartAt);
   const endMs = timestampMs(shiftEndAt);
-  const workedMinutes =
+  const unpaidLunchMinutes = pairedMinutes(dinnerStarts, dinnerEnds);
+  const grossMinutes =
     startMs != null && endMs != null && endMs >= startMs
       ? Math.floor((endMs - startMs) / 60000)
       : 0;
+  const workedMinutes = Math.max(0, grossMinutes - unpaidLunchMinutes);
 
   return {
     shiftStartAt,
     shiftEndAt,
     workedMinutes,
-    unpaidLunchMinutes: pairedMinutes(dinnerStarts, dinnerEnds),
+    unpaidLunchMinutes,
     status: shiftStartAt && !shiftEndAt ? "ouvert" : "ferme",
   };
 }

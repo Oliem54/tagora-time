@@ -112,6 +112,7 @@ import {
   resolveLivePreferredOperationalState,
   resolveOperationalWorkDate,
 } from "./operational-state.shared";
+import { isAutomaticMissingPendingPunchOut } from "./recompute-current-state.shared";
 import {
   isUrgentHorodateurIncident,
   shouldGrandfatherHistoricalAlert,
@@ -2658,17 +2659,23 @@ export async function recomputeCurrentState(
     ...pendingOperationalEvents,
   ]);
   /**
-   * Etat operationnel employe : inclut punch_out en_attente pour fermer le quart cote interface.
-   * La paie reste calculee uniquement sur normal / approuve (recomputeShiftForDate).
+   * Etat operationnel employe : une sortie en attente soumise par l'employe
+   * ferme le quart cote interface. Une fin automatique en attente, creee par
+   * l'escalade des punchs manquants, reste ignoree pour ne pas ecraser un
+   * quart ouvert par « termine ». La paie reste calculee uniquement sur
+   * normal / approuve (recomputeShiftForDate).
    */
-  const pendingPunchOutEvents = pendingOperationalEvents.filter(
+  const livePendingOperationalEvents = pendingOperationalEvents.filter(
+    (event) => !isAutomaticMissingPendingPunchOut(event)
+  );
+  const pendingPunchOutEvents = livePendingOperationalEvents.filter(
     (event) => toCanonicalEventType(event.event_type) === "punch_out"
   );
   const nowIso = new Date().toISOString();
   const calendarWorkDate = getLocalWorkDate(nowIso);
   const operationalState = resolveLivePreferredOperationalState({
     approvedEvents,
-    pendingOperationalEvents,
+    pendingOperationalEvents: livePendingOperationalEvents,
     calendarWorkDate,
     ignorePaidBreakPunches,
   });

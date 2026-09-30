@@ -52,6 +52,28 @@ function isStateBearing(event: RecomputeCurrentStateEvent) {
   return true;
 }
 
+/**
+ * Fin créée par l'escalade des punchs manquants. Elle reste en attente et ne
+ * doit pas fermer l'état opérationnel, contrairement à une sortie employé
+ * déjà soumise (par exemple quart trop long).
+ */
+export function isAutomaticMissingPendingPunchOut(event: {
+  eventType?: string | null;
+  event_type?: string | null;
+  status?: string | null;
+  sourceKind?: string | null;
+  source_kind?: string | null;
+  actorRole?: string | null;
+  actor_role?: string | null;
+}) {
+  const eventType = event.eventType ?? event.event_type ?? "";
+  const isPunchOut = eventType === "quart_fin" || eventType === "punch_out";
+  if (!isPunchOut || event.status !== "en_attente") return false;
+  const sourceKind = event.sourceKind ?? event.source_kind ?? "";
+  const actorRole = event.actorRole ?? event.actor_role ?? "";
+  return sourceKind === "automatique" || actorRole === "systeme";
+}
+
 function stateFromEventType(eventType: string): RecomputeCurrentStateKind {
   if (
     eventType === "clock_in" ||

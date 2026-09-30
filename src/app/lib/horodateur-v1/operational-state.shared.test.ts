@@ -100,6 +100,32 @@ describe("operational-state.shared — Vincent", () => {
     expect(filterEventsForPayrollRecompute([punchIn, punchOutPending])).toHaveLength(1);
   });
 
+  it("quart_fin automatique en_attente ne ferme pas le quart ouvert", () => {
+    const punchIn = event({
+      id: "in-1",
+      event_type: "quart_debut",
+      status: "approuve",
+      occurred_at: "2026-09-29T10:30:12.000Z",
+      work_date: "2026-09-29",
+    });
+    const automaticPunchOut = event({
+      id: "out-automatic",
+      event_type: "quart_fin",
+      status: "en_attente",
+      occurred_at: "2026-09-29T19:10:23.000Z",
+      work_date: "2026-09-29",
+      actor_role: "systeme",
+      source_kind: "automatique",
+      exception_code: "missing_punch_adjustment",
+    });
+
+    const operational = computeStateFromEventTimeline(
+      buildOperationalStateEvents([punchIn], [automaticPunchOut], "2026-09-29")
+    );
+
+    expect(operational.currentState).toBe("en_quart");
+  });
+
   it("second punch_out avec sortie deja en attente est detecte comme active pending", () => {
     const approved = [
       event({
