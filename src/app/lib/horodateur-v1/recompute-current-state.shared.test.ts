@@ -50,6 +50,12 @@ describe("recompute current state for stored horodateur event types", () => {
     expect(sql).toContain("coalesce(e.occurred_at, e.event_time)");
     expect(sql).toContain("e.event_type not in ('manual_correction', 'correction')");
     expect(sql).toContain("e.is_manual_correction = false");
+    expect(sql).toContain("coalesce(c.break_1_paid, true)");
+    expect(sql).toContain("v_pause_paid");
+    expect(stateFilter).toContain("'break_start'");
+    expect(stateFilter).toContain("'pause_start'");
+    expect(stateFilter).toContain("'break_end'");
+    expect(stateFilter).toContain("'pause_end'");
     expect(sql).not.toMatch(/\bupdate\s+public\.horodateur_events\b/i);
     expect(sql).not.toMatch(/\binsert\s+into\s+public\.horodateur_events\b/i);
     expect(sql).not.toMatch(/\bupdate\s+public\.horodateur_exceptions\b/i);
@@ -276,38 +282,161 @@ describe("recompute current state for stored horodateur event types", () => {
     });
   });
 
-  it("maps an approved pause_debut to en_pause and ignores a pending pause", () => {
+  it("maps an approved unpaid pause_debut to en_pause and ignores a pending or refused pause", () => {
     expect(
-      resolveRecomputeCurrentState([
-        {
-          eventType: "quart_debut",
-          status: "normal",
-          eventTime: PATRICK_ARRIVAL_AT,
-        },
-        {
-          eventType: "pause_debut",
-          status: "approuve",
-          eventTime: "2026-09-29T16:00:00.000Z",
-        },
-      ])
+      resolveRecomputeCurrentState(
+        [
+          {
+            eventType: "quart_debut",
+            status: "normal",
+            eventTime: PATRICK_ARRIVAL_AT,
+          },
+          {
+            eventType: "pause_debut",
+            status: "approuve",
+            eventTime: "2026-09-29T16:00:00.000Z",
+          },
+        ],
+        { pausePaid: false }
+      )
     ).toEqual({
       currentState: "en_pause",
       lastEventType: "pause_debut",
     });
     expect(
-      resolveRecomputeCurrentState([
-        {
-          eventType: "quart_debut",
-          status: "normal",
-          eventTime: PATRICK_ARRIVAL_AT,
-        },
-        {
-          eventType: "pause_debut",
-          status: "en_attente",
-          eventTime: "2026-09-29T16:00:00.000Z",
-        },
-      ]).currentState
-    ).toBe("en_quart");
+      resolveRecomputeCurrentState(
+        [
+          {
+            eventType: "quart_debut",
+            status: "normal",
+            eventTime: PATRICK_ARRIVAL_AT,
+          },
+          {
+            eventType: "pause_debut",
+            status: "en_attente",
+            eventTime: "2026-09-29T16:00:00.000Z",
+          },
+        ],
+        { pausePaid: false }
+      )
+    ).toEqual({
+      currentState: "en_quart",
+      lastEventType: "quart_debut",
+    });
+    expect(
+      resolveRecomputeCurrentState(
+        [
+          {
+            eventType: "quart_debut",
+            status: "normal",
+            eventTime: PATRICK_ARRIVAL_AT,
+          },
+          {
+            eventType: "pause_debut",
+            status: "refuse",
+            eventTime: "2026-09-29T16:00:00.000Z",
+          },
+        ],
+        { pausePaid: false }
+      )
+    ).toEqual({
+      currentState: "en_quart",
+      lastEventType: "quart_debut",
+    });
+    expect(
+      resolveRecomputeCurrentState(
+        [
+          {
+            eventType: "quart_debut",
+            status: "normal",
+            eventTime: PATRICK_ARRIVAL_AT,
+          },
+          {
+            eventType: "break_start",
+            status: "normal",
+            eventTime: "2026-09-29T16:00:00.000Z",
+          },
+        ],
+        { pausePaid: false }
+      ).currentState
+    ).toBe("en_pause");
+    expect(
+      resolveRecomputeCurrentState(
+        [
+          {
+            eventType: "quart_debut",
+            status: "normal",
+            eventTime: PATRICK_ARRIVAL_AT,
+          },
+          {
+            eventType: "pause_debut",
+            status: "approuve",
+            eventTime: "2026-09-29T16:00:00.000Z",
+          },
+          {
+            eventType: "pause_fin",
+            status: "approuve",
+            eventTime: "2026-09-29T16:15:00.000Z",
+          },
+        ],
+        { pausePaid: false }
+      )
+    ).toEqual({
+      currentState: "en_quart",
+      lastEventType: "pause_fin",
+    });
+  });
+
+  it("ignores a paid pause and does not let a correction or pending pause become the state", () => {
+    const arrival = {
+      eventType: "quart_debut",
+      status: "normal" as const,
+      eventTime: PATRICK_ARRIVAL_AT,
+    };
+
+    for (const eventType of ["pause_debut", "pause_start", "break_start", "pause_fin", "pause_end", "break_end"]) {
+      expect(
+        resolveRecomputeCurrentState([
+          arrival,
+          {
+            eventType,
+            status: "approuve",
+            eventTime: "2026-09-29T16:00:00.000Z",
+          },
+        ])
+      ).toEqual({
+        currentState: "en_quart",
+        lastEventType: "quart_debut",
+      });
+    }
+
+    expect(
+      resolveRecomputeCurrentState(
+        [
+          arrival,
+          {
+            eventType: "pause_debut",
+            status: "en_attente",
+            eventTime: "2026-09-29T16:00:00.000Z",
+          },
+          {
+            eventType: "pause_fin",
+            status: "approuve",
+            eventTime: "2026-09-29T16:15:00.000Z",
+          },
+          {
+            eventType: "correction",
+            status: "approuve",
+            eventTime: "2026-09-29T22:00:00.000Z",
+            isManualCorrection: true,
+          },
+        ],
+        { pausePaid: true }
+      )
+    ).toEqual({
+      currentState: "en_quart",
+      lastEventType: "quart_debut",
+    });
   });
 
   it("keeps Patrick on 29 September in service after his 06:30 arrival and invents no exit", () => {

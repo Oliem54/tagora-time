@@ -4,7 +4,11 @@
 -- pause_debut / pause_fin count on the same rule, at coalesce(occurred_at,
 -- event_time). Those minutes are subtracted only when the pause or dinner is
 -- unpaid: break_1_paid false for pauses, lunch_paid false for dinners.
--- Pending and refused stored types stay out of those bounds.
+-- shift_start_at stays the real punch. Worked and payable minutes use a
+-- payable start clamped to chauffeurs.schedule_start in America/Toronto when
+-- that punch is earlier on the same work date. Gross minutes stay on the
+-- real bounds. A null schedule_start does not clamp. Pending and refused
+-- stored types stay out of those bounds.
 -- clock_in, shift_start, clock_out, shift_end, break_start, pause_start,
 -- break_end, pause_end, dinner_start, and dinner_end keep the previous rule.
 -- Does not change the trigger, RLS, or grants, and does not rewrite punch
@@ -24,6 +28,7 @@ declare
   v_chauffeur_found boolean := false;
   v_pause_paid boolean := true;
   v_lunch_paid boolean := false;
+  v_schedule_start time;
   v_has_agg boolean := false;
   v_done integer;
 begin
@@ -32,13 +37,15 @@ begin
     c.organization_company_id,
     c.primary_company,
     coalesce(c.break_1_paid, true),
-    coalesce(c.lunch_paid, false)
+    coalesce(c.lunch_paid, false),
+    c.schedule_start
   into
     v_organization_id,
     v_organization_company_id,
     v_company_context,
     v_pause_paid,
-    v_lunch_paid
+    v_lunch_paid,
+    v_schedule_start
   from public.chauffeurs c
   where c.id = p_employee_id;
 
@@ -123,6 +130,23 @@ begin
       ) as shift_end_at
     from base_events
     group by employee_id, work_date
+  ),
+  payable as (
+    select
+      a.employee_id,
+      a.work_date,
+      a.week_start_date,
+      a.shift_start_at,
+      a.shift_end_at,
+      case
+        when a.shift_start_at is null or v_schedule_start is null then a.shift_start_at
+        when (a.shift_start_at at time zone 'America/Toronto')::date <> a.work_date
+          then a.shift_start_at
+        when (a.shift_start_at at time zone 'America/Toronto')::time >= v_schedule_start
+          then a.shift_start_at
+        else (a.work_date + v_schedule_start) at time zone 'America/Toronto'
+      end as payable_start_at
+    from agg a
   ),
   break_starts as (
     select
@@ -307,35 +331,35 @@ begin
       organization_company_id
     )
     select
-      a.employee_id,
-      a.work_date,
-      a.week_start_date,
+      p.employee_id,
+      p.work_date,
+      p.week_start_date,
       v_company_context,
-      a.shift_start_at,
-      a.shift_end_at,
+      p.shift_start_at,
+      p.shift_end_at,
       case
-        when a.shift_start_at is not null and a.shift_end_at is not null
-        then greatest(0, floor(extract(epoch from (a.shift_end_at - a.shift_start_at)) / 60))::int
+        when p.shift_start_at is not null and p.shift_end_at is not null
+        then greatest(0, floor(extract(epoch from (p.shift_end_at - p.shift_start_at)) / 60))::int
         else 0
       end as gross_minutes,
       0,
       s.unpaid_break_minutes,
       s.unpaid_lunch_minutes,
       case
-        when a.shift_start_at is not null and a.shift_end_at is not null
+        when p.payable_start_at is not null and p.shift_end_at is not null
         then greatest(
           0,
-          floor(extract(epoch from (a.shift_end_at - a.shift_start_at)) / 60)::int
+          floor(extract(epoch from (p.shift_end_at - p.payable_start_at)) / 60)::int
           - s.unpaid_break_minutes
           - s.unpaid_lunch_minutes
         )
         else 0
       end as worked_minutes,
       case
-        when a.shift_start_at is not null and a.shift_end_at is not null
+        when p.payable_start_at is not null and p.shift_end_at is not null
         then greatest(
           0,
-          floor(extract(epoch from (a.shift_end_at - a.shift_start_at)) / 60)::int
+          floor(extract(epoch from (p.shift_end_at - p.payable_start_at)) / 60)::int
           - s.unpaid_break_minutes
           - s.unpaid_lunch_minutes
         )
@@ -346,19 +370,19 @@ begin
       (
         s.pair_anomalies
         + case
-            when a.shift_start_at is not null and a.shift_end_at is null then 1
+            when p.shift_start_at is not null and p.shift_end_at is null then 1
             else 0
           end
       )::int as anomalies_count,
       case
-        when a.shift_start_at is not null and a.shift_end_at is null
+        when p.shift_start_at is not null and p.shift_end_at is null
         then 'ouvert'::public.horodateur_shift_status
         else 'ferme'::public.horodateur_shift_status
       end as status,
       timezone('utc'::text, now()),
       v_organization_id,
       v_organization_company_id
-    from agg a
+    from payable p
     cross join stats s
     cross join exception_stats ex
     on conflict (employee_id, work_date)

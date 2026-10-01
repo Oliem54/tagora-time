@@ -34,6 +34,11 @@ describe("recompute shift bounds for quart_debut and quart_fin", () => {
     expect(sql).toContain("- s.unpaid_break_minutes");
     expect(sql).toContain("coalesce(c.break_1_paid, true)");
     expect(sql).toContain("coalesce(c.lunch_paid, false)");
+    expect(sql).toContain("c.schedule_start");
+    expect(sql).toContain("payable_start_at");
+    expect(sql).toContain("America/Toronto");
+    expect(sql).toContain("p.shift_end_at - p.shift_start_at");
+    expect(sql).toContain("p.shift_end_at - p.payable_start_at");
     expect(sql).toContain("when v_pause_paid then 0");
     expect(sql).toContain("when v_lunch_paid then 0");
     const pairClause = sql.slice(
@@ -449,5 +454,132 @@ describe("recompute shift bounds for quart_debut and quart_fin", () => {
     expect(summary.shiftEndAt).toBeNull();
     expect(summary.workedMinutes).toBe(0);
     expect(summary.status).toBe("ferme");
+  });
+
+  it("keeps the real quart_debut and clamps payable minutes to scheduleStart", () => {
+    const punchAt = "2026-06-08T10:35:00.000Z";
+    const endAt = "2026-06-08T19:00:00.000Z";
+    const summary = summarizeRecomputeShiftBounds(
+      [
+        {
+          eventType: "quart_debut",
+          status: "normal",
+          occurredAt: punchAt,
+          eventTime: punchAt,
+        },
+        {
+          eventType: "quart_fin",
+          status: "approuve",
+          occurredAt: endAt,
+          eventTime: endAt,
+        },
+      ],
+      { scheduleStart: "07:00:00", workDate: "2026-06-08" }
+    );
+
+    expect(summary.shiftStartAt).toBe(punchAt);
+    expect(summary.payableStartAt).toBe("2026-06-08T07:00:00-04:00");
+    expect(summary.workedMinutes).toBe(480);
+    expect(summary.payableMinutes).toBe(480);
+    expect(summary.payableMinutes).toBeLessThan(505);
+  });
+
+  it("does not overestimate payable minutes when an early punch has an unpaid pause", () => {
+    const punchAt = "2026-06-08T10:35:00.000Z";
+    const summary = summarizeRecomputeShiftBounds(
+      [
+        {
+          eventType: "quart_debut",
+          status: "normal",
+          occurredAt: punchAt,
+          eventTime: punchAt,
+        },
+        {
+          eventType: "pause_debut",
+          status: "approuve",
+          occurredAt: "2026-06-08T13:00:00.000Z",
+          eventTime: "2026-06-08T13:00:00.000Z",
+        },
+        {
+          eventType: "pause_fin",
+          status: "approuve",
+          occurredAt: "2026-06-08T13:15:00.000Z",
+          eventTime: "2026-06-08T13:15:00.000Z",
+        },
+        {
+          eventType: "quart_fin",
+          status: "approuve",
+          occurredAt: "2026-06-08T19:00:00.000Z",
+          eventTime: "2026-06-08T19:00:00.000Z",
+        },
+      ],
+      {
+        pausePaid: false,
+        scheduleStart: "07:00:00",
+        workDate: "2026-06-08",
+      }
+    );
+
+    expect(summary.shiftStartAt).toBe(punchAt);
+    expect(summary.unpaidBreakMinutes).toBe(15);
+    expect(summary.workedMinutes).toBe(465);
+    expect(summary.payableMinutes).toBe(465);
+  });
+
+  it("does not clamp a quart_debut at or after scheduleStart", () => {
+    const punchAt = "2026-06-08T11:00:00.000Z";
+    const summary = summarizeRecomputeShiftBounds(
+      [
+        {
+          eventType: "quart_debut",
+          status: "normal",
+          occurredAt: punchAt,
+          eventTime: punchAt,
+        },
+        {
+          eventType: "quart_fin",
+          status: "approuve",
+          occurredAt: "2026-06-08T19:00:00.000Z",
+          eventTime: "2026-06-08T19:00:00.000Z",
+        },
+      ],
+      { scheduleStart: "07:00:00", workDate: "2026-06-08" }
+    );
+
+    expect(summary.shiftStartAt).toBe(punchAt);
+    expect(summary.payableStartAt).toBe(punchAt);
+    expect(summary.workedMinutes).toBe(480);
+    expect(summary.payableMinutes).toBe(480);
+  });
+
+  it("does not apply a manual correction when clamping payable minutes", () => {
+    const punchAt = "2026-06-08T10:35:00.000Z";
+    const summary = summarizeRecomputeShiftBounds(
+      [
+        {
+          eventType: "quart_debut",
+          status: "normal",
+          occurredAt: punchAt,
+          eventTime: punchAt,
+        },
+        {
+          eventType: "correction",
+          status: "approuve",
+          occurredAt: "2026-06-08T10:00:00.000Z",
+          eventTime: "2026-06-08T10:00:00.000Z",
+        },
+        {
+          eventType: "quart_fin",
+          status: "approuve",
+          occurredAt: "2026-06-08T19:00:00.000Z",
+          eventTime: "2026-06-08T19:00:00.000Z",
+        },
+      ],
+      { scheduleStart: "07:00:00", workDate: "2026-06-08" }
+    );
+
+    expect(summary.shiftStartAt).toBe(punchAt);
+    expect(summary.payableStartAt).toBe("2026-06-08T07:00:00-04:00");
+    expect(summary.payableMinutes).toBe(480);
   });
 });

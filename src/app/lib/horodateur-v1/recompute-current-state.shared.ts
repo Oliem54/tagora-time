@@ -4,7 +4,11 @@
  * (`source_kind` automatique ou `actor_role` systeme) est ignorée. Une sortie
  * employé encore en attente ferme le quart. Une arrivée employé en attente
  * reste un événement d'état. Dîner et pause stockés ne comptent que s'ils
- * sont normal ou approuve. Un refus est ignoré. L'ordre suit
+ * sont normal ou approuve. Une pause payée (`pausePaid`, défaut vrai comme
+ * `coalesce(break_1_paid, true)`) ignore `pause_debut`, `pause_fin` et les
+ * alias `break_start`, `pause_start`, `break_end`, `pause_end`. Une pause non
+ * payée conserve le mapping. Ignorer une pause ne l'approuve pas. Un refus
+ * est ignoré. L'ordre suit
  * coalesce(occurred_at, event_time). Une correction manuelle, y compris le
  * type stocké `correction`, ne devient pas l'état. Les types anglais gardent la règle précédente, y compris un
  * `clock_out` en attente.
@@ -43,6 +47,14 @@ const APPROVED_ONLY_EVENT_TYPES = new Set([
   "pause_debut",
   "pause_fin",
 ]);
+const PAID_PAUSE_EVENT_TYPES = new Set([
+  "break_start",
+  "pause_start",
+  "pause_debut",
+  "break_end",
+  "pause_end",
+  "pause_fin",
+]);
 
 function timestampMs(value: string | null | undefined) {
   if (!value) return null;
@@ -54,12 +66,13 @@ function canonicalOccurredAt(event: RecomputeCurrentStateEvent) {
   return event.occurredAt ?? event.eventTime ?? null;
 }
 
-function isStateBearing(event: RecomputeCurrentStateEvent) {
+function isStateBearing(event: RecomputeCurrentStateEvent, pausePaid: boolean) {
   if (event.status === "refuse") return false;
   if (event.eventType === "manual_correction" || event.eventType === "correction") {
     return false;
   }
   if (event.isManualCorrection === true) return false;
+  if (pausePaid && PAID_PAUSE_EVENT_TYPES.has(event.eventType)) return false;
   if (
     APPROVED_ONLY_EVENT_TYPES.has(event.eventType) &&
     !APPROVED_STATUSES.has(event.status)
@@ -155,9 +168,11 @@ function compareLatest(left: RecomputeCurrentStateEvent, right: RecomputeCurrent
 }
 
 export function resolveRecomputeCurrentState(
-  events: RecomputeCurrentStateEvent[]
+  events: RecomputeCurrentStateEvent[],
+  flags?: { pausePaid?: boolean }
 ): RecomputeCurrentStateSummary {
-  const latest = events.filter(isStateBearing).sort(compareLatest)[0] ?? null;
+  const pausePaid = flags?.pausePaid !== false;
+  const latest = events.filter((event) => isStateBearing(event, pausePaid)).sort(compareLatest)[0] ?? null;
   if (!latest) {
     return { currentState: "hors_quart", lastEventType: null };
   }

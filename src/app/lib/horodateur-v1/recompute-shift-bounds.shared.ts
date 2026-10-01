@@ -10,7 +10,12 @@
  * comme `worked_minutes` dans la migration SQL. `pausePaid` suit
  * `break_1_paid`. `lunchPaid` suit `lunch_paid`. Les minutes payées ne sont
  * pas soustraites. Un couple incomplet reste compté dans `pairAnomalies`.
+ * `shiftStartAt` reste l'heure réelle. Si `scheduleStart` et `workDate` sont
+ * fournis, les minutes travaillées et payables partent du début clampé par
+ * `resolvePayableWorkSegmentStartAt`. Sans horaire, aucun clamp.
  */
+
+import { resolvePayableWorkSegmentStartAt } from "./rules";
 
 export type RecomputeShiftBoundStatus =
   | "normal"
@@ -28,7 +33,9 @@ export type RecomputeShiftBoundEvent = {
 export type RecomputeShiftBoundSummary = {
   shiftStartAt: string | null;
   shiftEndAt: string | null;
+  payableStartAt: string | null;
   workedMinutes: number;
+  payableMinutes: number;
   unpaidBreakMinutes: number;
   unpaidLunchMinutes: number;
   pairAnomalies: number;
@@ -155,7 +162,12 @@ function pairedMinutes(starts: string[], ends: string[]) {
 
 export function summarizeRecomputeShiftBounds(
   events: RecomputeShiftBoundEvent[],
-  flags?: { pausePaid?: boolean; lunchPaid?: boolean }
+  flags?: {
+    pausePaid?: boolean;
+    lunchPaid?: boolean;
+    scheduleStart?: string | null;
+    workDate?: string | null;
+  }
 ): RecomputeShiftBoundSummary {
   const pausePaid = flags?.pausePaid === true;
   const lunchPaid = flags?.lunchPaid === true;
@@ -180,23 +192,36 @@ export function summarizeRecomputeShiftBounds(
     if (breakEndAt) breakEnds.push(breakEndAt);
   }
 
-  const startMs = timestampMs(shiftStartAt);
+  const payableStartAt =
+    shiftStartAt && flags?.scheduleStart && flags.workDate
+      ? resolvePayableWorkSegmentStartAt({
+          punchInOccurredAt: shiftStartAt,
+          workDate: flags.workDate,
+          scheduleStart: flags.scheduleStart,
+        })
+      : shiftStartAt;
+  const payableStartMs = timestampMs(payableStartAt);
   const endMs = timestampMs(shiftEndAt);
   const unpaidLunchMinutes = lunchPaid ? 0 : pairedMinutes(dinnerStarts, dinnerEnds);
   const unpaidBreakMinutes = pausePaid ? 0 : pairedMinutes(breakStarts, breakEnds);
   const pairAnomalies =
     Math.abs(breakStarts.length - breakEnds.length) +
     Math.abs(dinnerStarts.length - dinnerEnds.length);
-  const grossMinutes =
-    startMs != null && endMs != null && endMs >= startMs
-      ? Math.floor((endMs - startMs) / 60000)
+  const payableGrossMinutes =
+    payableStartMs != null && endMs != null && endMs >= payableStartMs
+      ? Math.floor((endMs - payableStartMs) / 60000)
       : 0;
-  const workedMinutes = Math.max(0, grossMinutes - unpaidBreakMinutes - unpaidLunchMinutes);
+  const workedMinutes = Math.max(
+    0,
+    payableGrossMinutes - unpaidBreakMinutes - unpaidLunchMinutes
+  );
 
   return {
     shiftStartAt,
     shiftEndAt,
+    payableStartAt,
     workedMinutes,
+    payableMinutes: workedMinutes,
     unpaidBreakMinutes,
     unpaidLunchMinutes,
     pairAnomalies,

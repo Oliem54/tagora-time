@@ -1,8 +1,13 @@
 -- Teach public.recompute_horodateur_current_state the stored event types.
 -- quart_debut and punch_in map to en_quart, including an employee arrival
--- still en_attente. dinner_fin and pause_fin map to en_quart, and dinner_debut
--- maps to en_diner, and pause_debut maps to en_pause, only when normal or
--- approuve. quart_fin and punch_out map to termine, including an employee
+-- still en_attente. dinner_fin maps to en_quart and dinner_debut maps to
+-- en_diner only when normal or approuve. pause_fin maps to en_quart and
+-- pause_debut maps to en_pause only when normal or approuve and break_1_paid
+-- is false. When break_1_paid is true, pause_debut, pause_fin, and the aliases
+-- break_start, pause_start, break_end, and pause_end are ignored, so a paid
+-- pause cannot set en_pause. Ignoring those rows does not approve a pending
+-- or refused event. quart_fin and punch_out
+-- map to termine, including an employee
 -- exit that is still en_attente. A pending automatic exit (source_kind
 -- automatique or actor_role systeme) is ignored, so it cannot close the live
 -- shift. Pending dinner and pause events stay ignored. Refused events stay
@@ -26,21 +31,25 @@ declare
   v_organization_company_id uuid;
   v_company_context text;
   v_chauffeur_found boolean := false;
+  v_pause_paid boolean := true;
   v_has_latest boolean := false;
   v_done integer;
 begin
   select
     c.organization_id,
     c.organization_company_id,
-    c.primary_company
+    c.primary_company,
+    coalesce(c.break_1_paid, true)
   into
     v_organization_id,
     v_organization_company_id,
-    v_company_context
+    v_company_context,
+    v_pause_paid
   from public.chauffeurs c
   where c.id = p_employee_id;
 
   v_chauffeur_found := found;
+  v_pause_paid := coalesce(v_pause_paid, true);
 
   select exists (
     select 1
@@ -90,6 +99,17 @@ begin
         and e.status not in (
           'normal'::public.horodateur_event_status,
           'approuve'::public.horodateur_event_status
+        )
+      )
+      and not (
+        v_pause_paid
+        and e.event_type in (
+          'break_start',
+          'pause_start',
+          'pause_debut',
+          'break_end',
+          'pause_end',
+          'pause_fin'
         )
       )
       and not (
