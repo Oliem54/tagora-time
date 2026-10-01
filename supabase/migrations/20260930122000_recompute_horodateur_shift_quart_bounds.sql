@@ -12,8 +12,13 @@
 -- date. The off-duty gap between segments is not payable. Gross minutes stay
 -- on the stored bounds. A null schedule_start does not clamp. Pending and
 -- refused stored types stay out of those bounds.
--- clock_in, shift_start, clock_out, shift_end, break_start, pause_start,
--- break_end, pause_end, dinner_start, and dinner_end keep the previous rule.
+-- clock_in and shift_start open a segment only when normal or approuve, and
+-- still use event_time. A pending English arrival does not clear shift_end_at.
+-- clock_out, shift_end, break_start, pause_start, break_end, pause_end,
+-- dinner_start, and dinner_end keep the previous rule. Unpaid pause and dinner
+-- minutes count only where the pair overlaps a closed payable segment. A pair
+-- in the off-duty gap does not reduce worked or payable minutes. Pair anomaly
+-- counts stay on the raw start and end counts.
 -- Does not change the trigger, RLS, or grants, and does not rewrite punch
 -- rows or exception statuses.
 
@@ -114,7 +119,12 @@ begin
       select
         id,
         case
-          when event_type in ('clock_in', 'shift_start') then event_time
+          when event_type in ('clock_in', 'shift_start')
+            and status in (
+              'normal'::public.horodateur_event_status,
+              'approuve'::public.horodateur_event_status
+            )
+            then event_time
           when event_type in ('quart_debut', 'punch_in')
             and status in (
               'normal'::public.horodateur_event_status,
@@ -179,7 +189,9 @@ begin
           end
         else null::timestamp with time zone
       end as segment_payable_start_at,
-      0::int as closed_payable_minutes
+      0::int as closed_payable_minutes,
+      '{}'::timestamp with time zone[] as segment_payable_starts,
+      '{}'::timestamp with time zone[] as segment_ends
     from ordered_bounds
     where rn = 1
     union all
@@ -251,7 +263,29 @@ begin
             )
             else 0
           end
-      )::int as closed_payable_minutes
+      )::int as closed_payable_minutes,
+      case
+        when o.bound_kind = 'end'
+          and w.segment_start_at is not null
+          and w.segment_payable_start_at is not null
+          and o.bound_at >= w.segment_start_at
+          and w.shift_end_at is null
+          then w.segment_payable_starts || w.segment_payable_start_at
+        else w.segment_payable_starts
+      end as segment_payable_starts,
+      case
+        when o.bound_kind = 'end'
+          and w.segment_start_at is not null
+          and o.bound_at >= w.segment_start_at
+          and w.shift_end_at is null
+          then w.segment_ends || o.bound_at
+        when o.bound_kind = 'end'
+          and w.segment_start_at is not null
+          and w.shift_end_at is not null
+          and o.bound_at > w.shift_end_at
+          then (w.segment_ends)[1:cardinality(w.segment_ends) - 1] || o.bound_at
+        else w.segment_ends
+      end as segment_ends
     from segment_walk w
     join ordered_bounds o on o.rn = w.rn + 1
   ),
@@ -262,7 +296,9 @@ begin
       date_trunc('week', be.work_date::timestamp)::date as week_start_date,
       w.shift_start_at,
       w.shift_end_at,
-      coalesce(w.closed_payable_minutes, 0) as closed_payable_minutes
+      coalesce(w.closed_payable_minutes, 0) as closed_payable_minutes,
+      coalesce(w.segment_payable_starts, '{}'::timestamp with time zone[]) as segment_payable_starts,
+      coalesce(w.segment_ends, '{}'::timestamp with time zone[]) as segment_ends
     from (
       select distinct employee_id, work_date
       from base_events
@@ -342,7 +378,8 @@ begin
   ),
   break_pairs as (
     select
-      greatest(0, floor(extract(epoch from (e.event_time - s.event_time)) / 60))::int as minutes
+      s.event_time as pair_start,
+      e.event_time as pair_end
     from break_starts s
     join break_ends e
       on e.rn = s.rn
@@ -406,21 +443,61 @@ begin
   ),
   lunch_pairs as (
     select
-      greatest(0, floor(extract(epoch from (e.event_time - s.event_time)) / 60))::int as minutes
+      s.event_time as pair_start,
+      e.event_time as pair_end
     from lunch_starts s
     join lunch_ends e
       on e.rn = s.rn
      and e.event_time > s.event_time
   ),
+  closed_segments as (
+    select
+      start_item.payable_start,
+      end_item.segment_end
+    from agg a
+    cross join lateral unnest(a.segment_payable_starts)
+      with ordinality as start_item(payable_start, segment_ord)
+    join lateral unnest(a.segment_ends)
+      with ordinality as end_item(segment_end, segment_ord)
+      on end_item.segment_ord = start_item.segment_ord
+  ),
+  break_overlap as (
+    select coalesce(sum(
+      greatest(
+        0,
+        floor(extract(epoch from (
+          least(p.pair_end, seg.segment_end) - greatest(p.pair_start, seg.payable_start)
+        )) / 60)::int
+      )
+    ), 0)::int as minutes
+    from break_pairs p
+    join closed_segments seg
+      on p.pair_end > seg.payable_start
+     and p.pair_start < seg.segment_end
+  ),
+  lunch_overlap as (
+    select coalesce(sum(
+      greatest(
+        0,
+        floor(extract(epoch from (
+          least(p.pair_end, seg.segment_end) - greatest(p.pair_start, seg.payable_start)
+        )) / 60)::int
+      )
+    ), 0)::int as minutes
+    from lunch_pairs p
+    join closed_segments seg
+      on p.pair_end > seg.payable_start
+     and p.pair_start < seg.segment_end
+  ),
   stats as (
     select
       case
         when v_pause_paid then 0
-        else coalesce((select sum(minutes) from break_pairs), 0)
+        else coalesce((select minutes from break_overlap), 0)
       end::int as unpaid_break_minutes,
       case
         when v_lunch_paid then 0
-        else coalesce((select sum(minutes) from lunch_pairs), 0)
+        else coalesce((select minutes from lunch_overlap), 0)
       end::int as unpaid_lunch_minutes,
       (
         abs((select count(*) from break_starts) - (select count(*) from break_ends))

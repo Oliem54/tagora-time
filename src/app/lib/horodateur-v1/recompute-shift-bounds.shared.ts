@@ -1,12 +1,16 @@
 /**
  * Bornes du recalcul SQL `recompute_horodateur_shift`.
- * Les types anglais gardent `event_time`. `quart_debut` / `punch_in`,
- * `quart_fin` / `punch_out`, `dinner_debut` et `dinner_fin` ne comptent
- * que s'ils sont normal ou approuve, à `occurred_at`, sinon `event_time`.
- * Un événement en attente, y compris une fin automatique, ne devient pas
- * une borne approuvée. `pause_debut` et `pause_fin` approuvés sont soustraits
- * comme les pauses anglaises. Les minutes de dîner et de pause approuvés
- * sont soustraites du temps travaillé seulement s'ils ne sont pas payés,
+ * `clock_in` / `shift_start` approuvés ou normaux gardent `event_time`.
+ * Une arrivée anglaise en attente n'ouvre pas de segment et ne remet pas
+ * `shiftEndAt` à vide. `quart_debut` / `punch_in`, `quart_fin` / `punch_out`,
+ * `dinner_debut` et `dinner_fin` ne comptent que s'ils sont normal ou
+ * approuve, à `occurred_at`, sinon `event_time`. Un événement en attente,
+ * y compris une fin automatique, ne devient pas une borne approuvée.
+ * `pause_debut` et `pause_fin` approuvés sont soustraits comme les pauses
+ * anglaises, seulement sur leur intersection avec un segment payable fermé.
+ * Une pause ou un dîner dans le trou entre deux quarts ne réduit pas les
+ * minutes. Les minutes de dîner et de pause approuvés sont soustraites du
+ * temps travaillé seulement s'ils ne sont pas payés,
  * comme `worked_minutes` dans la migration SQL. `pausePaid` suit
  * `break_1_paid`. `lunchPaid` suit `lunch_paid`. Les minutes payées ne sont
  * pas soustraites. Un couple incomplet reste compté dans `pairAnomalies`.
@@ -98,10 +102,11 @@ function payableSegmentMinutes(segmentPayableStartAt: string, untilAt: string) {
 }
 
 function startCandidate(event: RecomputeShiftBoundEvent) {
+  if (!APPROVED_STATUSES.has(event.status)) return null;
   if (LEGACY_START_TYPES.has(event.eventType)) {
     return event.eventTime ?? null;
   }
-  if (QUART_START_TYPES.has(event.eventType) && APPROVED_STATUSES.has(event.status)) {
+  if (QUART_START_TYPES.has(event.eventType)) {
     return event.occurredAt ?? event.eventTime ?? null;
   }
   return null;
@@ -157,7 +162,32 @@ function dinnerEndCandidate(event: RecomputeShiftBoundEvent) {
   return null;
 }
 
-function pairedMinutes(starts: string[], ends: string[]) {
+function overlapMinutes(
+  pairStartAt: string,
+  pairEndAt: string,
+  segments: Array<{ payableStartAt: string; endAt: string }>
+) {
+  const pairStartMs = timestampMs(pairStartAt);
+  const pairEndMs = timestampMs(pairEndAt);
+  if (pairStartMs == null || pairEndMs == null || pairEndMs <= pairStartMs) return 0;
+  let total = 0;
+  for (const segment of segments) {
+    const segmentStartMs = timestampMs(segment.payableStartAt);
+    const segmentEndMs = timestampMs(segment.endAt);
+    if (segmentStartMs == null || segmentEndMs == null) continue;
+    const overlapStartMs = Math.max(pairStartMs, segmentStartMs);
+    const overlapEndMs = Math.min(pairEndMs, segmentEndMs);
+    if (overlapEndMs <= overlapStartMs) continue;
+    total += Math.floor((overlapEndMs - overlapStartMs) / 60000);
+  }
+  return total;
+}
+
+function pairedOverlapMinutes(
+  starts: string[],
+  ends: string[],
+  segments: Array<{ payableStartAt: string; endAt: string }>
+) {
   const orderedStarts = [...starts].sort(
     (left, right) => (timestampMs(left) ?? 0) - (timestampMs(right) ?? 0)
   );
@@ -167,10 +197,10 @@ function pairedMinutes(starts: string[], ends: string[]) {
   let total = 0;
   const count = Math.min(orderedStarts.length, orderedEnds.length);
   for (let index = 0; index < count; index += 1) {
-    const startMs = timestampMs(orderedStarts[index]);
-    const endMs = timestampMs(orderedEnds[index]);
-    if (startMs == null || endMs == null || endMs <= startMs) continue;
-    total += Math.floor((endMs - startMs) / 60000);
+    const startAt = orderedStarts[index];
+    const endAt = orderedEnds[index];
+    if (!startAt || !endAt) continue;
+    total += overlapMinutes(startAt, endAt, segments);
   }
   return total;
 }
@@ -219,6 +249,7 @@ export function summarizeRecomputeShiftBounds(
   let shiftEndAt: string | null = null;
   let segmentStartAt: string | null = null;
   let closedPayableMinutes = 0;
+  const closedSegments: Array<{ payableStartAt: string; endAt: string }> = [];
 
   for (const bound of bounds) {
     if (bound.kind === "start") {
@@ -246,14 +277,24 @@ export function summarizeRecomputeShiftBounds(
       shiftEndAt == null ? 0 : payableSegmentMinutes(segmentPayableAt, shiftEndAt);
     closedPayableMinutes +=
       payableSegmentMinutes(segmentPayableAt, bound.at) - previousCounted;
+    if (shiftEndAt == null) {
+      closedSegments.push({ payableStartAt: segmentPayableAt, endAt: bound.at });
+    } else {
+      const currentSegment = closedSegments[closedSegments.length - 1];
+      if (currentSegment) currentSegment.endAt = bound.at;
+    }
     shiftEndAt = bound.at;
   }
 
   const payableStartAt = shiftStartAt
     ? payableSegmentStart(shiftStartAt, flags)
     : null;
-  const unpaidLunchMinutes = lunchPaid ? 0 : pairedMinutes(dinnerStarts, dinnerEnds);
-  const unpaidBreakMinutes = pausePaid ? 0 : pairedMinutes(breakStarts, breakEnds);
+  const unpaidLunchMinutes = lunchPaid
+    ? 0
+    : pairedOverlapMinutes(dinnerStarts, dinnerEnds, closedSegments);
+  const unpaidBreakMinutes = pausePaid
+    ? 0
+    : pairedOverlapMinutes(breakStarts, breakEnds, closedSegments);
   const pairAnomalies =
     Math.abs(breakStarts.length - breakEnds.length) +
     Math.abs(dinnerStarts.length - dinnerEnds.length);
