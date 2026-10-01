@@ -6,7 +6,7 @@
 -- unpaid: break_1_paid false for pauses, lunch_paid false for dinners.
 -- shift_start_at stays the real punch. Worked and payable minutes use a
 -- payable start clamped to chauffeurs.schedule_start in America/Toronto when
--- that punch is earlier on the same work date. Gross minutes stay on the
+-- the punch local minutes are earlier on the same work date. Gross minutes stay on the
 -- real bounds. A null schedule_start does not clamp. Pending and refused
 -- stored types stay out of those bounds.
 -- clock_in, shift_start, clock_out, shift_end, break_start, pause_start,
@@ -142,7 +142,13 @@ begin
         when a.shift_start_at is null or v_schedule_start is null then a.shift_start_at
         when (a.shift_start_at at time zone 'America/Toronto')::date <> a.work_date
           then a.shift_start_at
-        when (a.shift_start_at at time zone 'America/Toronto')::time >= v_schedule_start
+        when (
+          extract(hour from (a.shift_start_at at time zone 'America/Toronto'))::int * 60
+          + extract(minute from (a.shift_start_at at time zone 'America/Toronto'))::int
+        ) >= (
+          extract(hour from v_schedule_start)::int * 60
+          + extract(minute from v_schedule_start)::int
+        )
           then a.shift_start_at
         else (a.work_date + v_schedule_start) at time zone 'America/Toronto'
       end as payable_start_at

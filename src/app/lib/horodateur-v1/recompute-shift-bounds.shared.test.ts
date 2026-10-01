@@ -144,6 +144,30 @@ describe("recompute shift bounds for quart_debut and quart_fin", () => {
       unpaidLunchMinutes: 0,
       status: "ferme",
     });
+
+    const onSchedule = summarizeRecomputeShiftBounds(
+      [
+        {
+          eventType: "quart_debut",
+          status: "normal",
+          occurredAt: "2026-09-29T10:30:12.000Z",
+          eventTime: "2026-09-29T10:30:12.000Z",
+        },
+        {
+          eventType: "quart_fin",
+          status: "en_attente",
+          occurredAt: "2026-09-29T19:00:00.000Z",
+          eventTime: "2026-09-29T19:10:23.000Z",
+        },
+      ],
+      { scheduleStart: "06:30:00", workDate: "2026-09-29" }
+    );
+    expect(onSchedule.shiftStartAt).toBe("2026-09-29T10:30:12.000Z");
+    expect(onSchedule.payableStartAt).toBe("2026-09-29T10:30:12.000Z");
+    expect(onSchedule.shiftEndAt).toBeNull();
+    expect(onSchedule.workedMinutes).toBe(0);
+    expect(onSchedule.payableMinutes).toBe(0);
+    expect(onSchedule.status).toBe("ouvert");
   });
 
   it("pairs approved dinner_debut and dinner_fin without treating them as a shift end", () => {
