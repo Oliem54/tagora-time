@@ -10,9 +10,13 @@
  * comme `worked_minutes` dans la migration SQL. `pausePaid` suit
  * `break_1_paid`. `lunchPaid` suit `lunch_paid`. Les minutes payées ne sont
  * pas soustraites. Un couple incomplet reste compté dans `pairAnomalies`.
- * `shiftStartAt` reste l'heure réelle. Si `scheduleStart` et `workDate` sont
- * fournis, les minutes travaillées et payables partent du début clampé par
- * `resolvePayableWorkSegmentStartAt`. Sans horaire, aucun clamp.
+ * `shiftStartAt` reste la première arrivée réelle. Une arrivée approuvée
+ * plus tard le même jour remet `shiftEndAt` à vide tant que ce segment n'a
+ * pas sa propre sortie, donc le quart courant reste ouvert. Les minutes
+ * travaillées et payables additionnent les segments fermés. Chaque segment
+ * est clampé par `resolvePayableWorkSegmentStartAt` quand `scheduleStart` et
+ * `workDate` sont fournis. Le trou hors service entre deux quarts n'est pas
+ * payé. Sans horaire, aucun clamp.
  */
 
 import { resolvePayableWorkSegmentStartAt } from "./rules";
@@ -66,20 +70,31 @@ function timestampMs(value: string | null | undefined) {
   return Number.isFinite(ms) ? ms : null;
 }
 
-function earlier(current: string | null, candidate: string | null) {
-  const candidateMs = timestampMs(candidate);
-  if (candidateMs == null) return current;
-  const currentMs = timestampMs(current);
-  if (currentMs == null || candidateMs < currentMs) return candidate;
-  return current;
-}
-
 function later(current: string | null, candidate: string | null) {
   const candidateMs = timestampMs(candidate);
   if (candidateMs == null) return current;
   const currentMs = timestampMs(current);
   if (currentMs == null || candidateMs > currentMs) return candidate;
   return current;
+}
+
+function payableSegmentStart(
+  segmentStartAt: string,
+  flags?: { scheduleStart?: string | null; workDate?: string | null }
+) {
+  if (!flags?.scheduleStart || !flags.workDate) return segmentStartAt;
+  return resolvePayableWorkSegmentStartAt({
+    punchInOccurredAt: segmentStartAt,
+    workDate: flags.workDate,
+    scheduleStart: flags.scheduleStart,
+  });
+}
+
+function payableSegmentMinutes(segmentPayableStartAt: string, untilAt: string) {
+  const startMs = timestampMs(segmentPayableStartAt);
+  const untilMs = timestampMs(untilAt);
+  if (startMs == null || untilMs == null || untilMs <= startMs) return 0;
+  return Math.floor((untilMs - startMs) / 60000);
 }
 
 function startCandidate(event: RecomputeShiftBoundEvent) {
@@ -171,17 +186,18 @@ export function summarizeRecomputeShiftBounds(
 ): RecomputeShiftBoundSummary {
   const pausePaid = flags?.pausePaid === true;
   const lunchPaid = flags?.lunchPaid === true;
-  let shiftStartAt: string | null = null;
-  let shiftEndAt: string | null = null;
   const dinnerStarts: string[] = [];
   const dinnerEnds: string[] = [];
   const breakStarts: string[] = [];
   const breakEnds: string[] = [];
+  const bounds: Array<{ at: string; kind: "start" | "end" }> = [];
 
   for (const event of events) {
     if (event.status === "refuse") continue;
-    shiftStartAt = earlier(shiftStartAt, startCandidate(event));
-    shiftEndAt = later(shiftEndAt, endCandidate(event));
+    const startAt = startCandidate(event);
+    const endAt = endCandidate(event);
+    if (startAt) bounds.push({ at: startAt, kind: "start" });
+    if (endAt) bounds.push({ at: endAt, kind: "end" });
     const dinnerStartAt = dinnerStartCandidate(event);
     const dinnerEndAt = dinnerEndCandidate(event);
     const breakStartAt = breakStartCandidate(event);
@@ -192,28 +208,58 @@ export function summarizeRecomputeShiftBounds(
     if (breakEndAt) breakEnds.push(breakEndAt);
   }
 
-  const payableStartAt =
-    shiftStartAt && flags?.scheduleStart && flags.workDate
-      ? resolvePayableWorkSegmentStartAt({
-          punchInOccurredAt: shiftStartAt,
-          workDate: flags.workDate,
-          scheduleStart: flags.scheduleStart,
-        })
-      : shiftStartAt;
-  const payableStartMs = timestampMs(payableStartAt);
-  const endMs = timestampMs(shiftEndAt);
+  bounds.sort((left, right) => {
+    const delta = (timestampMs(left.at) ?? 0) - (timestampMs(right.at) ?? 0);
+    if (delta !== 0) return delta;
+    if (left.kind === right.kind) return 0;
+    return left.kind === "start" ? -1 : 1;
+  });
+
+  let shiftStartAt: string | null = null;
+  let shiftEndAt: string | null = null;
+  let segmentStartAt: string | null = null;
+  let closedPayableMinutes = 0;
+
+  for (const bound of bounds) {
+    if (bound.kind === "start") {
+      if (!shiftStartAt || shiftEndAt) {
+        if (!shiftStartAt) shiftStartAt = bound.at;
+        shiftEndAt = null;
+        segmentStartAt = bound.at;
+      }
+      continue;
+    }
+
+    if (!segmentStartAt) {
+      shiftEndAt = later(shiftEndAt, bound.at);
+      continue;
+    }
+
+    const segmentStartMs = timestampMs(segmentStartAt);
+    const endMs = timestampMs(bound.at);
+    if (segmentStartMs == null || endMs == null || endMs < segmentStartMs) continue;
+    const previousEndMs = timestampMs(shiftEndAt);
+    if (previousEndMs != null && endMs <= previousEndMs) continue;
+
+    const segmentPayableAt = payableSegmentStart(segmentStartAt, flags);
+    const previousCounted =
+      shiftEndAt == null ? 0 : payableSegmentMinutes(segmentPayableAt, shiftEndAt);
+    closedPayableMinutes +=
+      payableSegmentMinutes(segmentPayableAt, bound.at) - previousCounted;
+    shiftEndAt = bound.at;
+  }
+
+  const payableStartAt = shiftStartAt
+    ? payableSegmentStart(shiftStartAt, flags)
+    : null;
   const unpaidLunchMinutes = lunchPaid ? 0 : pairedMinutes(dinnerStarts, dinnerEnds);
   const unpaidBreakMinutes = pausePaid ? 0 : pairedMinutes(breakStarts, breakEnds);
   const pairAnomalies =
     Math.abs(breakStarts.length - breakEnds.length) +
     Math.abs(dinnerStarts.length - dinnerEnds.length);
-  const payableGrossMinutes =
-    payableStartMs != null && endMs != null && endMs >= payableStartMs
-      ? Math.floor((endMs - payableStartMs) / 60000)
-      : 0;
   const workedMinutes = Math.max(
     0,
-    payableGrossMinutes - unpaidBreakMinutes - unpaidLunchMinutes
+    closedPayableMinutes - unpaidBreakMinutes - unpaidLunchMinutes
   );
 
   return {

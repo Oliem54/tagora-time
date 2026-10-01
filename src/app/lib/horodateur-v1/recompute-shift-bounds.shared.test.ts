@@ -38,7 +38,9 @@ describe("recompute shift bounds for quart_debut and quart_fin", () => {
     expect(sql).toContain("payable_start_at");
     expect(sql).toContain("America/Toronto");
     expect(sql).toContain("p.shift_end_at - p.shift_start_at");
-    expect(sql).toContain("p.shift_end_at - p.payable_start_at");
+    expect(sql).toContain("closed_payable_minutes");
+    expect(sql).toContain("p.closed_payable_minutes");
+    expect(sql).toContain("when o.bound_kind = 'start' and w.shift_end_at is not null then null");
     expect(sql).toContain("when v_pause_paid then 0");
     expect(sql).toContain("when v_lunch_paid then 0");
     const pairClause = sql.slice(
@@ -605,5 +607,98 @@ describe("recompute shift bounds for quart_debut and quart_fin", () => {
     expect(summary.shiftStartAt).toBe(punchAt);
     expect(summary.payableStartAt).toBe("2026-06-08T07:00:00-04:00");
     expect(summary.payableMinutes).toBe(480);
+  });
+
+  it("sums two same-day shifts without paying the gap between them", () => {
+    const summary = summarizeRecomputeShiftBounds([
+      {
+        eventType: "quart_debut",
+        status: "approuve",
+        occurredAt: "2026-09-29T14:00:00.000Z",
+        eventTime: "2026-09-29T14:00:00.000Z",
+      },
+      {
+        eventType: "quart_fin",
+        status: "approuve",
+        occurredAt: "2026-09-29T18:00:00.000Z",
+        eventTime: "2026-09-29T18:00:00.000Z",
+      },
+      {
+        eventType: "quart_debut",
+        status: "approuve",
+        occurredAt: "2026-09-29T19:00:00.000Z",
+        eventTime: "2026-09-29T19:00:00.000Z",
+      },
+      {
+        eventType: "quart_fin",
+        status: "approuve",
+        occurredAt: "2026-09-29T22:00:00.000Z",
+        eventTime: "2026-09-29T22:00:00.000Z",
+      },
+    ]);
+
+    expect(summary.shiftStartAt).toBe("2026-09-29T14:00:00.000Z");
+    expect(summary.shiftEndAt).toBe("2026-09-29T22:00:00.000Z");
+    expect(summary.workedMinutes).toBe(420);
+    expect(summary.payableMinutes).toBe(420);
+    expect(summary.workedMinutes).toBeLessThan(480);
+    expect(summary.status).toBe("ferme");
+  });
+
+  it("reopens the shift after a later same-day arrival and keeps the first segment", () => {
+    const summary = summarizeRecomputeShiftBounds([
+      {
+        eventType: "quart_debut",
+        status: "normal",
+        occurredAt: "2026-09-29T14:00:00.000Z",
+        eventTime: "2026-09-29T14:00:00.000Z",
+      },
+      {
+        eventType: "quart_fin",
+        status: "approuve",
+        occurredAt: "2026-09-29T18:00:00.000Z",
+        eventTime: "2026-09-29T18:00:00.000Z",
+      },
+      {
+        eventType: "quart_debut",
+        status: "approuve",
+        occurredAt: "2026-09-29T19:00:00.000Z",
+        eventTime: "2026-09-29T19:00:00.000Z",
+      },
+    ]);
+
+    expect(summary.shiftStartAt).toBe("2026-09-29T14:00:00.000Z");
+    expect(summary.shiftEndAt).toBeNull();
+    expect(summary.status).toBe("ouvert");
+    expect(summary.workedMinutes).toBe(240);
+    expect(summary.payableMinutes).toBe(240);
+  });
+
+  it("does not reopen a closed shift for a pending later arrival", () => {
+    const summary = summarizeRecomputeShiftBounds([
+      {
+        eventType: "quart_debut",
+        status: "approuve",
+        occurredAt: "2026-09-29T14:00:00.000Z",
+        eventTime: "2026-09-29T14:00:00.000Z",
+      },
+      {
+        eventType: "quart_fin",
+        status: "approuve",
+        occurredAt: "2026-09-29T18:00:00.000Z",
+        eventTime: "2026-09-29T18:00:00.000Z",
+      },
+      {
+        eventType: "quart_debut",
+        status: "en_attente",
+        occurredAt: "2026-09-29T19:00:00.000Z",
+        eventTime: "2026-09-29T19:00:00.000Z",
+      },
+    ]);
+
+    expect(summary.shiftEndAt).toBe("2026-09-29T18:00:00.000Z");
+    expect(summary.workedMinutes).toBe(240);
+    expect(summary.payableMinutes).toBe(240);
+    expect(summary.status).toBe("ferme");
   });
 });
