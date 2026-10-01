@@ -1,9 +1,11 @@
 /**
  * État courant du recalcul SQL `recompute_horodateur_current_state`.
- * Le dernier événement non refusé fixe l'état. `quart_debut`, `quart_fin`,
- * `dinner_debut` et `dinner_fin` ne comptent que s'ils sont normal ou
- * approuve. Un `quart_fin` en attente ne devient pas une sortie. Les types
- * anglais gardent la règle précédente, y compris un `clock_out` en attente.
+ * Le dernier événement retenu fixe l'état. Une fin automatique en attente
+ * (`source_kind` automatique ou `actor_role` systeme) est ignorée. Une sortie
+ * employé encore en attente ferme le quart. Une arrivée employé en attente
+ * reste un événement d'état. Dîner et pause stockés ne comptent que s'ils
+ * sont normal ou approuve. Un refus est ignoré. Les types anglais gardent
+ * la règle précédente, y compris un `clock_out` en attente.
  */
 
 import type { RecomputeShiftBoundStatus } from "./recompute-shift-bounds.shared";
@@ -21,6 +23,8 @@ export type RecomputeCurrentStateEvent = {
   eventTime?: string | null;
   createdAt?: string | null;
   id?: string | null;
+  sourceKind?: string | null;
+  actorRole?: string | null;
 };
 
 export type RecomputeCurrentStateSummary = {
@@ -29,13 +33,11 @@ export type RecomputeCurrentStateSummary = {
 };
 
 const APPROVED_STATUSES = new Set<RecomputeShiftBoundStatus>(["normal", "approuve"]);
-const REAL_EVENT_TYPES = new Set([
-  "quart_debut",
-  "punch_in",
-  "quart_fin",
-  "punch_out",
+const APPROVED_ONLY_EVENT_TYPES = new Set([
   "dinner_debut",
   "dinner_fin",
+  "pause_debut",
+  "pause_fin",
 ]);
 
 function timestampMs(value: string | null | undefined) {
@@ -46,9 +48,13 @@ function timestampMs(value: string | null | undefined) {
 
 function isStateBearing(event: RecomputeCurrentStateEvent) {
   if (event.status === "refuse") return false;
-  if (REAL_EVENT_TYPES.has(event.eventType) && !APPROVED_STATUSES.has(event.status)) {
+  if (
+    APPROVED_ONLY_EVENT_TYPES.has(event.eventType) &&
+    !APPROVED_STATUSES.has(event.status)
+  ) {
     return false;
   }
+  if (isAutomaticMissingPendingPunchOut(event)) return false;
   return true;
 }
 
@@ -82,6 +88,7 @@ function stateFromEventType(eventType: string): RecomputeCurrentStateKind {
     eventType === "punch_in" ||
     eventType === "break_end" ||
     eventType === "pause_end" ||
+    eventType === "pause_fin" ||
     eventType === "lunch_end" ||
     eventType === "diner_end" ||
     eventType === "dinner_end" ||
@@ -89,7 +96,11 @@ function stateFromEventType(eventType: string): RecomputeCurrentStateKind {
   ) {
     return "en_quart";
   }
-  if (eventType === "break_start" || eventType === "pause_start") {
+  if (
+    eventType === "break_start" ||
+    eventType === "pause_start" ||
+    eventType === "pause_debut"
+  ) {
     return "en_pause";
   }
   if (

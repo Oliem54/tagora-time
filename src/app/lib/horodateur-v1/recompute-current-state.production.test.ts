@@ -184,11 +184,15 @@ describe("recomputeCurrentState after an automatic pending quart_fin", () => {
         eventType: arrival.event_type,
         status: "normal",
         eventTime: arrival.occurred_at,
+        sourceKind: arrival.source_kind,
+        actorRole: arrival.actor_role,
       },
       {
         eventType: automaticEnd.event_type,
         status: "en_attente",
         eventTime: automaticEnd.occurred_at,
+        sourceKind: automaticEnd.source_kind,
+        actorRole: automaticEnd.actor_role,
       },
     ]);
     expect(sqlMirror).toEqual({
@@ -196,7 +200,8 @@ describe("recomputeCurrentState after an automatic pending quart_fin", () => {
       lastEventType: "quart_debut",
     });
     expect(sql).toContain("'quart_fin'");
-    expect(sql).toContain("e.status not in (");
+    expect(sql).toContain("'automatique'::public.horodateur_source_kind");
+    expect(sql).toContain("'systeme'::public.horodateur_actor_role");
     expect(sql).toContain("'normal'::public.horodateur_event_status");
     expect(sql).toContain("'approuve'::public.horodateur_event_status");
   });

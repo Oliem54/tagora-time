@@ -21,6 +21,10 @@ describe("recompute current state for stored horodateur event types", () => {
     expect(sql).toContain("'dinner_debut'");
     expect(sql).toContain("'dinner_fin'");
     expect(sql).toContain("'quart_fin', 'punch_out'");
+    expect(sql).toContain("'pause_debut'");
+    expect(sql).toContain("'pause_fin'");
+    expect(sql).toContain("'automatique'::public.horodateur_source_kind");
+    expect(sql).toContain("'systeme'::public.horodateur_actor_role");
     expect(sql).toContain("'clock_in', 'shift_start'");
     expect(sql).toContain("'clock_out', 'shift_end'");
     expect(sql).toContain("'dinner_start'");
@@ -31,6 +35,15 @@ describe("recompute current state for stored horodateur event types", () => {
     expect(sql).toContain("'normal'::public.horodateur_event_status");
     expect(sql).toContain("'approuve'::public.horodateur_event_status");
     expect(sql).toContain("x.status = 'en_attente'::public.horodateur_exception_status");
+    const stateFilter = sql.slice(sql.indexOf("and not ("), sql.indexOf("order by e.event_time"));
+    expect(stateFilter).toContain("'dinner_debut', 'dinner_fin', 'pause_debut', 'pause_fin'");
+    expect(stateFilter).toContain("e.event_type in ('quart_fin', 'punch_out')");
+    expect(stateFilter).toContain("e.status = 'en_attente'::public.horodateur_event_status");
+    expect(stateFilter).not.toContain("'quart_debut'");
+    expect(stateFilter).not.toContain("'punch_in'");
+    expect(sql).not.toMatch(
+      /event_type in \(\s*'quart_debut',\s*'punch_in',\s*'quart_fin',\s*'punch_out'/
+    );
     expect(sql).not.toMatch(/\bupdate\s+public\.horodateur_events\b/i);
     expect(sql).not.toMatch(/\binsert\s+into\s+public\.horodateur_events\b/i);
     expect(sql).not.toMatch(/\bupdate\s+public\.horodateur_exceptions\b/i);
@@ -168,8 +181,8 @@ describe("recompute current state for stored horodateur event types", () => {
     ).toBe("termine");
   });
 
-  it("does not let a pending quart_fin or dinner event become the live state", () => {
-    const summary = resolveRecomputeCurrentState([
+  it("ignores a pending dinner and an automatic pending exit, and keeps an employee pending exit", () => {
+    const withPendingDinner = resolveRecomputeCurrentState([
       {
         eventType: "quart_debut",
         status: "normal",
@@ -185,17 +198,110 @@ describe("recompute current state for stored horodateur event types", () => {
         status: "en_attente",
         eventTime: "2026-09-29T16:30:00.000Z",
       },
+    ]);
+    const withAutomaticExit = resolveRecomputeCurrentState([
+      {
+        eventType: "quart_debut",
+        status: "normal",
+        eventTime: PATRICK_ARRIVAL_AT,
+        sourceKind: "employe",
+        actorRole: "employe",
+      },
       {
         eventType: "quart_fin",
         status: "en_attente",
         eventTime: "2026-09-29T19:10:23.000Z",
+        sourceKind: "automatique",
+        actorRole: "systeme",
+      },
+    ]);
+    const withEmployeeExit = resolveRecomputeCurrentState([
+      {
+        eventType: "quart_debut",
+        status: "normal",
+        eventTime: PATRICK_ARRIVAL_AT,
+        sourceKind: "employe",
+        actorRole: "employe",
+      },
+      {
+        eventType: "quart_fin",
+        status: "en_attente",
+        eventTime: "2026-09-29T21:00:00.000Z",
+        sourceKind: "employe",
+        actorRole: "employe",
       },
     ]);
 
-    expect(summary.currentState).toBe("en_quart");
-    expect(summary.lastEventType).toBe("quart_debut");
-    expect(summary.currentState).not.toBe("termine");
-    expect(summary.currentState).not.toBe("hors_quart");
+    expect(withPendingDinner).toEqual({
+      currentState: "en_quart",
+      lastEventType: "quart_debut",
+    });
+    expect(withAutomaticExit).toEqual({
+      currentState: "en_quart",
+      lastEventType: "quart_debut",
+    });
+    expect(withEmployeeExit).toEqual({
+      currentState: "termine",
+      lastEventType: "quart_fin",
+    });
+    expect(
+      resolveEmployeePunchGuidance({ currentState: withEmployeeExit.currentState }).primary
+    ).toEqual({ eventType: null, label: "Consulter le pointage" });
+    expect(
+      resolveRecomputeCurrentState([
+        {
+          eventType: "quart_debut",
+          status: "normal",
+          eventTime: PATRICK_ARRIVAL_AT,
+          sourceKind: "employe",
+          actorRole: "employe",
+        },
+        {
+          eventType: "punch_out",
+          status: "en_attente",
+          eventTime: "2026-09-29T21:05:00.000Z",
+          sourceKind: "employe",
+          actorRole: "employe",
+        },
+      ])
+    ).toEqual({
+      currentState: "termine",
+      lastEventType: "punch_out",
+    });
+  });
+
+  it("maps an approved pause_debut to en_pause and ignores a pending pause", () => {
+    expect(
+      resolveRecomputeCurrentState([
+        {
+          eventType: "quart_debut",
+          status: "normal",
+          eventTime: PATRICK_ARRIVAL_AT,
+        },
+        {
+          eventType: "pause_debut",
+          status: "approuve",
+          eventTime: "2026-09-29T16:00:00.000Z",
+        },
+      ])
+    ).toEqual({
+      currentState: "en_pause",
+      lastEventType: "pause_debut",
+    });
+    expect(
+      resolveRecomputeCurrentState([
+        {
+          eventType: "quart_debut",
+          status: "normal",
+          eventTime: PATRICK_ARRIVAL_AT,
+        },
+        {
+          eventType: "pause_debut",
+          status: "en_attente",
+          eventTime: "2026-09-29T16:00:00.000Z",
+        },
+      ]).currentState
+    ).toBe("en_quart");
   });
 
   it("keeps Patrick on 29 September in service after his 06:30 arrival and invents no exit", () => {
@@ -211,6 +317,8 @@ describe("recompute current state for stored horodateur event types", () => {
         eventType: "quart_fin",
         status: "en_attente",
         eventTime: "2026-09-29T19:10:23.000Z",
+        sourceKind: "automatique",
+        actorRole: "systeme",
       },
     ]);
 
@@ -223,14 +331,37 @@ describe("recompute current state for stored horodateur event types", () => {
     ).toEqual({ eventType: "punch_out", label: "Pointer ma sortie" });
   });
 
-  it("ignores a refused quart_fin and a pending quart_debut", () => {
+  it("keeps a pending employee arrival and ignores a refused exit", () => {
     expect(
       resolveRecomputeCurrentState([
+        {
+          eventType: "quart_fin",
+          status: "approuve",
+          eventTime: "2026-09-29T19:00:00.000Z",
+          sourceKind: "employe",
+          actorRole: "employe",
+        },
         {
           eventType: "quart_debut",
           status: "en_attente",
           eventTime: "2026-09-30T10:30:00.000Z",
+          sourceKind: "employe",
+          actorRole: "employe",
         },
+        {
+          eventType: "quart_fin",
+          status: "refuse",
+          eventTime: "2026-09-30T19:00:00.000Z",
+          sourceKind: "employe",
+          actorRole: "employe",
+        },
+      ])
+    ).toEqual({
+      currentState: "en_quart",
+      lastEventType: "quart_debut",
+    });
+    expect(
+      resolveRecomputeCurrentState([
         {
           eventType: "quart_fin",
           status: "refuse",

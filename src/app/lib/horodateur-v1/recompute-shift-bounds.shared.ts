@@ -4,8 +4,10 @@
  * `quart_fin` / `punch_out`, `dinner_debut` et `dinner_fin` ne comptent
  * que s'ils sont normal ou approuve, à `occurred_at`, sinon `event_time`.
  * Un événement en attente, y compris une fin automatique, ne devient pas
- * une borne approuvée. Les minutes de dîner approuvé sont soustraites du
- * temps travaillé, comme `worked_minutes` dans la migration SQL.
+ * une borne approuvée. `pause_debut` et `pause_fin` approuvés sont soustraits
+ * comme les pauses anglaises. Les minutes de dîner et de pause approuvés
+ * sont soustraites du temps travaillé, comme `worked_minutes` dans la
+ * migration SQL.
  */
 
 export type RecomputeShiftBoundStatus =
@@ -25,6 +27,7 @@ export type RecomputeShiftBoundSummary = {
   shiftStartAt: string | null;
   shiftEndAt: string | null;
   workedMinutes: number;
+  unpaidBreakMinutes: number;
   unpaidLunchMinutes: number;
   status: "ouvert" | "ferme";
 };
@@ -42,6 +45,10 @@ const LEGACY_DINNER_START_TYPES = new Set([
 const LEGACY_DINNER_END_TYPES = new Set(["lunch_end", "diner_end", "dinner_end"]);
 const DINNER_START_TYPES = new Set(["dinner_debut"]);
 const DINNER_END_TYPES = new Set(["dinner_fin"]);
+const LEGACY_BREAK_START_TYPES = new Set(["break_start", "pause_start"]);
+const LEGACY_BREAK_END_TYPES = new Set(["break_end", "pause_end"]);
+const STORED_BREAK_START_TYPES = new Set(["pause_debut"]);
+const STORED_BREAK_END_TYPES = new Set(["pause_fin"]);
 
 function timestampMs(value: string | null | undefined) {
   if (!value) return null;
@@ -95,6 +102,26 @@ function dinnerStartCandidate(event: RecomputeShiftBoundEvent) {
   return null;
 }
 
+function breakStartCandidate(event: RecomputeShiftBoundEvent) {
+  if (LEGACY_BREAK_START_TYPES.has(event.eventType)) {
+    return event.eventTime ?? null;
+  }
+  if (STORED_BREAK_START_TYPES.has(event.eventType) && APPROVED_STATUSES.has(event.status)) {
+    return event.occurredAt ?? event.eventTime ?? null;
+  }
+  return null;
+}
+
+function breakEndCandidate(event: RecomputeShiftBoundEvent) {
+  if (LEGACY_BREAK_END_TYPES.has(event.eventType)) {
+    return event.eventTime ?? null;
+  }
+  if (STORED_BREAK_END_TYPES.has(event.eventType) && APPROVED_STATUSES.has(event.status)) {
+    return event.occurredAt ?? event.eventTime ?? null;
+  }
+  return null;
+}
+
 function dinnerEndCandidate(event: RecomputeShiftBoundEvent) {
   if (LEGACY_DINNER_END_TYPES.has(event.eventType)) {
     return event.eventTime ?? null;
@@ -130,6 +157,8 @@ export function summarizeRecomputeShiftBounds(
   let shiftEndAt: string | null = null;
   const dinnerStarts: string[] = [];
   const dinnerEnds: string[] = [];
+  const breakStarts: string[] = [];
+  const breakEnds: string[] = [];
 
   for (const event of events) {
     if (event.status === "refuse") continue;
@@ -137,23 +166,29 @@ export function summarizeRecomputeShiftBounds(
     shiftEndAt = later(shiftEndAt, endCandidate(event));
     const dinnerStartAt = dinnerStartCandidate(event);
     const dinnerEndAt = dinnerEndCandidate(event);
+    const breakStartAt = breakStartCandidate(event);
+    const breakEndAt = breakEndCandidate(event);
     if (dinnerStartAt) dinnerStarts.push(dinnerStartAt);
     if (dinnerEndAt) dinnerEnds.push(dinnerEndAt);
+    if (breakStartAt) breakStarts.push(breakStartAt);
+    if (breakEndAt) breakEnds.push(breakEndAt);
   }
 
   const startMs = timestampMs(shiftStartAt);
   const endMs = timestampMs(shiftEndAt);
   const unpaidLunchMinutes = pairedMinutes(dinnerStarts, dinnerEnds);
+  const unpaidBreakMinutes = pairedMinutes(breakStarts, breakEnds);
   const grossMinutes =
     startMs != null && endMs != null && endMs >= startMs
       ? Math.floor((endMs - startMs) / 60000)
       : 0;
-  const workedMinutes = Math.max(0, grossMinutes - unpaidLunchMinutes);
+  const workedMinutes = Math.max(0, grossMinutes - unpaidBreakMinutes - unpaidLunchMinutes);
 
   return {
     shiftStartAt,
     shiftEndAt,
     workedMinutes,
+    unpaidBreakMinutes,
     unpaidLunchMinutes,
     status: shiftStartAt && !shiftEndAt ? "ouvert" : "ferme",
   };

@@ -22,9 +22,16 @@ describe("recompute shift bounds for quart_debut and quart_fin", () => {
     expect(sql).toContain("'dinner_end'");
     expect(sql).toContain("'dinner_debut'");
     expect(sql).toContain("'dinner_fin'");
+    expect(sql).toContain("'pause_debut'");
+    expect(sql).toContain("'pause_fin'");
     expect(sql).toContain("'normal'::public.horodateur_event_status");
     expect(sql).toContain("'approuve'::public.horodateur_event_status");
     expect(sql).toContain("coalesce(occurred_at, event_time)");
+    expect(sql).toContain("event_type = 'pause_debut'");
+    expect(sql).toContain("event_type = 'pause_fin'");
+    expect(sql).toContain("event_type = 'dinner_debut'");
+    expect(sql).toContain("event_type = 'dinner_fin'");
+    expect(sql).toContain("- s.unpaid_break_minutes");
     expect(sql).not.toMatch(/\bupdate\s+public\.horodateur_events\b/i);
     expect(sql).not.toMatch(/\binsert\s+into\s+public\.horodateur_events\b/i);
     expect(sql).not.toMatch(/\bupdate\s+public\.horodateur_exceptions\b/i);
@@ -107,10 +114,12 @@ describe("recompute shift bounds for quart_debut and quart_fin", () => {
     expect(summary.workedMinutes).toBe(0);
     expect(summary.unpaidLunchMinutes).toBe(0);
     expect(summary.status).toBe("ouvert");
+    expect(summary.unpaidBreakMinutes).toBe(0);
     expect(summary).not.toEqual({
       shiftStartAt: null,
       shiftEndAt: null,
       workedMinutes: 0,
+      unpaidBreakMinutes: 0,
       unpaidLunchMinutes: 0,
       status: "ferme",
     });
@@ -181,6 +190,113 @@ describe("recompute shift bounds for quart_debut and quart_fin", () => {
     expect(summary.shiftEndAt).toBe("2026-09-29T18:00:00.000Z");
     expect(summary.unpaidLunchMinutes).toBe(20);
     expect(summary.status).toBe("ferme");
+  });
+
+  it("subtracts an approved pause_debut and pause_fin pair from worked minutes", () => {
+    const summary = summarizeRecomputeShiftBounds([
+      {
+        eventType: "quart_debut",
+        status: "normal",
+        occurredAt: "2026-09-29T10:30:00.000Z",
+        eventTime: "2026-09-29T10:30:00.000Z",
+      },
+      {
+        eventType: "pause_debut",
+        status: "normal",
+        occurredAt: "2026-09-29T16:00:00.000Z",
+        eventTime: "2026-09-29T16:05:00.000Z",
+      },
+      {
+        eventType: "pause_fin",
+        status: "approuve",
+        occurredAt: "2026-09-29T16:30:00.000Z",
+        eventTime: "2026-09-29T16:40:00.000Z",
+      },
+      {
+        eventType: "quart_fin",
+        status: "approuve",
+        occurredAt: "2026-09-29T19:00:00.000Z",
+        eventTime: "2026-09-29T19:00:00.000Z",
+      },
+    ]);
+
+    expect(summary.unpaidBreakMinutes).toBe(30);
+    expect(summary.workedMinutes).toBe(480);
+    expect(summary.status).toBe("ferme");
+  });
+
+  it("ignores a pending pause pair and a refused pause", () => {
+    const summary = summarizeRecomputeShiftBounds([
+      {
+        eventType: "quart_debut",
+        status: "normal",
+        occurredAt: "2026-09-29T10:30:00.000Z",
+        eventTime: "2026-09-29T10:30:00.000Z",
+      },
+      {
+        eventType: "pause_debut",
+        status: "en_attente",
+        occurredAt: "2026-09-29T16:00:00.000Z",
+        eventTime: "2026-09-29T16:00:00.000Z",
+      },
+      {
+        eventType: "pause_fin",
+        status: "en_attente",
+        occurredAt: "2026-09-29T16:30:00.000Z",
+        eventTime: "2026-09-29T16:30:00.000Z",
+      },
+      {
+        eventType: "pause_debut",
+        status: "refuse",
+        occurredAt: "2026-09-29T17:00:00.000Z",
+        eventTime: "2026-09-29T17:00:00.000Z",
+      },
+      {
+        eventType: "pause_fin",
+        status: "refuse",
+        occurredAt: "2026-09-29T17:20:00.000Z",
+        eventTime: "2026-09-29T17:20:00.000Z",
+      },
+      {
+        eventType: "quart_fin",
+        status: "approuve",
+        occurredAt: "2026-09-29T19:00:00.000Z",
+        eventTime: "2026-09-29T19:00:00.000Z",
+      },
+    ]);
+
+    expect(summary.unpaidBreakMinutes).toBe(0);
+    expect(summary.workedMinutes).toBe(510);
+  });
+
+  it("keeps English break_start and break_end on event_time", () => {
+    const summary = summarizeRecomputeShiftBounds([
+      {
+        eventType: "shift_start",
+        status: "normal",
+        eventTime: "2026-09-29T10:00:00.000Z",
+      },
+      {
+        eventType: "break_start",
+        status: "normal",
+        occurredAt: "2026-09-29T16:00:00.000Z",
+        eventTime: "2026-09-29T15:00:00.000Z",
+      },
+      {
+        eventType: "break_end",
+        status: "normal",
+        occurredAt: "2026-09-29T16:40:00.000Z",
+        eventTime: "2026-09-29T15:20:00.000Z",
+      },
+      {
+        eventType: "shift_end",
+        status: "normal",
+        eventTime: "2026-09-29T18:00:00.000Z",
+      },
+    ]);
+
+    expect(summary.unpaidBreakMinutes).toBe(20);
+    expect(summary.workedMinutes).toBe(460);
   });
 
   it("ignores a pending quart_debut and a refused quart_fin", () => {
