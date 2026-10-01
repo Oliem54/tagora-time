@@ -2795,6 +2795,12 @@ function resolveMealLimitMinutes(employee: HorodateurPhase1EmployeeProfile) {
   );
 }
 
+const SERVICE_ENGLISH_SHIFT_END_TYPES = new Set(["clock_out", "shift_end"]);
+
+function isServiceEnglishShiftEnd(eventType: string) {
+  return SERVICE_ENGLISH_SHIFT_END_TYPES.has(eventType);
+}
+
 export async function recomputeShiftForDate(
   employeeId: number,
   workDate: string,
@@ -2845,12 +2851,57 @@ export async function recomputeShiftForDate(
   const anomalies: string[] = [];
   let state: HorodateurPhase1StateKind = "hors_quart";
 
+  const closeOpenSegment = (exitAt: string) => {
+    if (
+      !shiftStartAt ||
+      shiftEndAt ||
+      (state !== "en_quart" && state !== "en_pause" && state !== "en_diner")
+    ) {
+      return false;
+    }
+
+    shiftEndAt = exitAt;
+
+    if (state === "en_quart" && workSegmentStartAt) {
+      workedMinutes += diffMinutes(workSegmentStartAt, exitAt);
+    } else if (state === "en_pause") {
+      const duration = pauseStartAt ? diffMinutes(pauseStartAt, exitAt) : 0;
+      if (employee.pausePaid) {
+        paidBreakMinutes += duration;
+      } else {
+        unpaidBreakMinutes += duration;
+      }
+      anomalies.push("punch_out pendant pause active (missing break_end).");
+    } else if (state === "en_diner") {
+      const duration = dinnerStartAt ? diffMinutes(dinnerStartAt, exitAt) : 0;
+      if (!employee.lunchPaid) {
+        unpaidLunchMinutes += duration;
+      }
+      anomalies.push("punch_out pendant diner actif (missing meal_end).");
+    }
+
+    workSegmentStartAt = null;
+    pauseStartAt = null;
+    dinnerStartAt = null;
+    terrainStartAt = null;
+    state = "termine";
+    return true;
+  };
+
   for (const event of orderedEvents) {
     const eventOccurredAt = getEventOccurredAt(event);
     const canonicalEventType = toCanonicalEventType(event.event_type);
 
     if (!eventOccurredAt) {
       anomalies.push(`Evenement ${event.event_type} sans horodatage exploitable.`);
+      continue;
+    }
+
+    if (isServiceEnglishShiftEnd(String(event.event_type))) {
+      const exitAt = event.event_time ?? null;
+      if (exitAt) {
+        closeOpenSegment(exitAt);
+      }
       continue;
     }
 
@@ -2993,36 +3044,10 @@ export async function recomputeShiftForDate(
     }
 
     if (canonicalEventType === "punch_out") {
-      if (!shiftStartAt) {
+      if (!closeOpenSegment(eventOccurredAt) && !shiftStartAt) {
         anomalies.push("punch_out sans punch_in.");
         state = "termine";
-        continue;
       }
-      shiftEndAt = eventOccurredAt;
-
-      if (state === "en_quart" && workSegmentStartAt) {
-        workedMinutes += diffMinutes(workSegmentStartAt, eventOccurredAt);
-      } else if (state === "en_pause") {
-        const duration = pauseStartAt ? diffMinutes(pauseStartAt, eventOccurredAt) : 0;
-        if (employee.pausePaid) {
-          paidBreakMinutes += duration;
-        } else {
-          unpaidBreakMinutes += duration;
-        }
-        anomalies.push("punch_out pendant pause active (missing break_end).");
-      } else if (state === "en_diner") {
-        const duration = dinnerStartAt ? diffMinutes(dinnerStartAt, eventOccurredAt) : 0;
-        if (!employee.lunchPaid) {
-          unpaidLunchMinutes += duration;
-        }
-        anomalies.push("punch_out pendant diner actif (missing meal_end).");
-      }
-
-      workSegmentStartAt = null;
-      pauseStartAt = null;
-      dinnerStartAt = null;
-      terrainStartAt = null;
-      state = "termine";
       continue;
     }
   }
