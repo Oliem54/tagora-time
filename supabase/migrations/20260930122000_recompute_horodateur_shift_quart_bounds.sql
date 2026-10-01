@@ -253,14 +253,8 @@ begin
         else coalesce((select sum(minutes) from lunch_pairs), 0)
       end::int as unpaid_lunch_minutes,
       (
-        case
-          when v_pause_paid then 0
-          else abs((select count(*) from break_starts) - (select count(*) from break_ends))
-        end
-        + case
-          when v_lunch_paid then 0
-          else abs((select count(*) from lunch_starts) - (select count(*) from lunch_ends))
-        end
+        abs((select count(*) from break_starts) - (select count(*) from break_ends))
+        + abs((select count(*) from lunch_starts) - (select count(*) from lunch_ends))
       )::int as pair_anomalies
   ),
   exception_stats as (

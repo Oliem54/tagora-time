@@ -7,8 +7,9 @@
 -- automatique or actor_role systeme) is ignored, so it cannot close the live
 -- shift. Pending dinner and pause events stay ignored. Refused events stay
 -- ignored and never become approuve. The latest event is chosen with
--- coalesce(occurred_at, event_time). A manual_correction does not become
--- the current state.
+-- coalesce(occurred_at, event_time). Stored correction rows, the legacy
+-- manual_correction name, and is_manual_correction do not become the
+-- current state.
 -- clock_in, shift_start, clock_out, shift_end, dinner_start, and dinner_end
 -- keep the previous rule. Does not change the trigger, RLS, or grants, and
 -- does not rewrite punch rows or exception statuses.
@@ -82,7 +83,8 @@ begin
     from public.horodateur_events e
     where e.employee_id = p_employee_id
       and e.status <> 'refuse'::public.horodateur_event_status
-      and e.event_type <> 'manual_correction'
+      and e.event_type not in ('manual_correction', 'correction')
+      and e.is_manual_correction = false
       and not (
         e.event_type in ('dinner_debut', 'dinner_fin', 'pause_debut', 'pause_fin')
         and e.status not in (

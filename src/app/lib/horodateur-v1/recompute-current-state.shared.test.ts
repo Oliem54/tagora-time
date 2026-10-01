@@ -48,7 +48,8 @@ describe("recompute current state for stored horodateur event types", () => {
       /event_type in \(\s*'quart_debut',\s*'punch_in',\s*'quart_fin',\s*'punch_out'/
     );
     expect(sql).toContain("coalesce(e.occurred_at, e.event_time)");
-    expect(sql).toContain("e.event_type <> 'manual_correction'");
+    expect(sql).toContain("e.event_type not in ('manual_correction', 'correction')");
+    expect(sql).toContain("e.is_manual_correction = false");
     expect(sql).not.toMatch(/\bupdate\s+public\.horodateur_events\b/i);
     expect(sql).not.toMatch(/\binsert\s+into\s+public\.horodateur_events\b/i);
     expect(sql).not.toMatch(/\bupdate\s+public\.horodateur_exceptions\b/i);
@@ -422,15 +423,29 @@ describe("recompute current state for stored horodateur event types", () => {
         },
         {
           id: "manual",
-          eventType: "manual_correction",
+          eventType: "correction",
           status: "approuve",
           occurredAt: "2026-09-29T22:00:00.000Z",
           eventTime: "2026-09-29T22:00:00.000Z",
+          isManualCorrection: true,
         },
       ])
     ).toEqual({
       currentState: "en_quart",
       lastEventType: "quart_debut",
+    });
+    expect(
+      resolveRecomputeCurrentState([
+        {
+          eventType: "correction",
+          status: "approuve",
+          occurredAt: "2026-09-29T22:00:00.000Z",
+          isManualCorrection: true,
+        },
+      ])
+    ).toEqual({
+      currentState: "hors_quart",
+      lastEventType: null,
     });
   });
 });

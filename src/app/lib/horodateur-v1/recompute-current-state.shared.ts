@@ -5,8 +5,8 @@
  * employé encore en attente ferme le quart. Une arrivée employé en attente
  * reste un événement d'état. Dîner et pause stockés ne comptent que s'ils
  * sont normal ou approuve. Un refus est ignoré. L'ordre suit
- * coalesce(occurred_at, event_time). Une correction manuelle ne devient pas
- * l'état. Les types anglais gardent la règle précédente, y compris un
+ * coalesce(occurred_at, event_time). Une correction manuelle, y compris le
+ * type stocké `correction`, ne devient pas l'état. Les types anglais gardent la règle précédente, y compris un
  * `clock_out` en attente.
  */
 
@@ -28,6 +28,7 @@ export type RecomputeCurrentStateEvent = {
   id?: string | null;
   sourceKind?: string | null;
   actorRole?: string | null;
+  isManualCorrection?: boolean;
 };
 
 export type RecomputeCurrentStateSummary = {
@@ -55,7 +56,10 @@ function canonicalOccurredAt(event: RecomputeCurrentStateEvent) {
 
 function isStateBearing(event: RecomputeCurrentStateEvent) {
   if (event.status === "refuse") return false;
-  if (event.eventType === "manual_correction") return false;
+  if (event.eventType === "manual_correction" || event.eventType === "correction") {
+    return false;
+  }
+  if (event.isManualCorrection === true) return false;
   if (
     APPROVED_ONLY_EVENT_TYPES.has(event.eventType) &&
     !APPROVED_STATUSES.has(event.status)

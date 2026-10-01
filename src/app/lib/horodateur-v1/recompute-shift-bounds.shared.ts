@@ -8,7 +8,8 @@
  * comme les pauses anglaises. Les minutes de dîner et de pause approuvés
  * sont soustraites du temps travaillé seulement s'ils ne sont pas payés,
  * comme `worked_minutes` dans la migration SQL. `pausePaid` suit
- * `break_1_paid`. `lunchPaid` suit `lunch_paid`.
+ * `break_1_paid`. `lunchPaid` suit `lunch_paid`. Les minutes payées ne sont
+ * pas soustraites. Un couple incomplet reste compté dans `pairAnomalies`.
  */
 
 export type RecomputeShiftBoundStatus =
@@ -30,6 +31,7 @@ export type RecomputeShiftBoundSummary = {
   workedMinutes: number;
   unpaidBreakMinutes: number;
   unpaidLunchMinutes: number;
+  pairAnomalies: number;
   status: "ouvert" | "ferme";
 };
 
@@ -182,6 +184,9 @@ export function summarizeRecomputeShiftBounds(
   const endMs = timestampMs(shiftEndAt);
   const unpaidLunchMinutes = lunchPaid ? 0 : pairedMinutes(dinnerStarts, dinnerEnds);
   const unpaidBreakMinutes = pausePaid ? 0 : pairedMinutes(breakStarts, breakEnds);
+  const pairAnomalies =
+    Math.abs(breakStarts.length - breakEnds.length) +
+    Math.abs(dinnerStarts.length - dinnerEnds.length);
   const grossMinutes =
     startMs != null && endMs != null && endMs >= startMs
       ? Math.floor((endMs - startMs) / 60000)
@@ -194,6 +199,7 @@ export function summarizeRecomputeShiftBounds(
     workedMinutes,
     unpaidBreakMinutes,
     unpaidLunchMinutes,
+    pairAnomalies,
     status: shiftStartAt && !shiftEndAt ? "ouvert" : "ferme",
   };
 }
