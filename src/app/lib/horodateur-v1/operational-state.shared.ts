@@ -281,8 +281,9 @@ export function computeStateFromEventTimeline(
 
 /**
  * Une fin automatique en attente n'est pas une sortie employé déjà soumise.
- * Une sortie en attente réellement créée par l'employé continue de bloquer
- * un second punch_out.
+ * Une sortie employé en attente du quart courant bloque un second punch_out.
+ * Une arrivée approuvée plus récente, comme un nouveau quart_debut, retire
+ * la sortie en attente du quart précédent.
  */
 export function findActivePendingPunchOutFromEvents(
   pendingPunchOutEvents: HorodateurPhase1EventRecord[],
@@ -299,6 +300,7 @@ export function findActivePendingPunchOutFromEvents(
     return null;
   }
 
+  const orderedApproved = sortHorodateurEventsByOccurredAt(approvedEvents);
   const sortedPending = sortHorodateurEventsByOccurredAt(pendingPunchOuts).reverse();
 
   for (const pending of sortedPending) {
@@ -311,7 +313,7 @@ export function findActivePendingPunchOutFromEvents(
       pending.work_date?.trim() || getLocalWorkDate(pendingAt);
     const pendingMs = new Date(pendingAt).getTime();
 
-    const hasApprovedCloseOnSameDay = approvedEvents.some((event) => {
+    const hasApprovedCloseOnSameDay = orderedApproved.some((event) => {
       if (toCanonicalEventType(event.event_type) !== "punch_out") {
         return false;
       }
@@ -330,7 +332,18 @@ export function findActivePendingPunchOutFromEvents(
       return new Date(approvedAt).getTime() >= pendingMs;
     });
 
-    if (!hasApprovedCloseOnSameDay) {
+    const hasLaterApprovedShiftStart = orderedApproved.some((event) => {
+      if (!shouldTreatApprovedEventAsShiftStart(event, orderedApproved)) {
+        return false;
+      }
+      const startAt = getEventOccurredAt(event);
+      if (!startAt) {
+        return false;
+      }
+      return new Date(startAt).getTime() > pendingMs;
+    });
+
+    if (!hasApprovedCloseOnSameDay && !hasLaterApprovedShiftStart) {
       return pending;
     }
   }

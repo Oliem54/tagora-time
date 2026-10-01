@@ -2,7 +2,9 @@
 -- types. quart_debut / punch_in and quart_fin / punch_out count as shift bounds
 -- only when status is normal or approuve. dinner_debut / dinner_fin and
 -- pause_debut / pause_fin count on the same rule, at coalesce(occurred_at,
--- event_time). Pending and refused stored types stay out of those bounds.
+-- event_time). Those minutes are subtracted only when the pause or dinner is
+-- unpaid: break_1_paid false for pauses, lunch_paid false for dinners.
+-- Pending and refused stored types stay out of those bounds.
 -- clock_in, shift_start, clock_out, shift_end, break_start, pause_start,
 -- break_end, pause_end, dinner_start, and dinner_end keep the previous rule.
 -- Does not change the trigger, RLS, or grants, and does not rewrite punch
@@ -20,21 +22,29 @@ declare
   v_organization_company_id uuid;
   v_company_context text;
   v_chauffeur_found boolean := false;
+  v_pause_paid boolean := true;
+  v_lunch_paid boolean := false;
   v_has_agg boolean := false;
   v_done integer;
 begin
   select
     c.organization_id,
     c.organization_company_id,
-    c.primary_company
+    c.primary_company,
+    coalesce(c.break_1_paid, true),
+    coalesce(c.lunch_paid, false)
   into
     v_organization_id,
     v_organization_company_id,
-    v_company_context
+    v_company_context,
+    v_pause_paid,
+    v_lunch_paid
   from public.chauffeurs c
   where c.id = p_employee_id;
 
   v_chauffeur_found := found;
+  v_pause_paid := coalesce(v_pause_paid, true);
+  v_lunch_paid := coalesce(v_lunch_paid, false);
 
   select exists (
     select 1
@@ -234,11 +244,23 @@ begin
   ),
   stats as (
     select
-      coalesce((select sum(minutes) from break_pairs), 0)::int as unpaid_break_minutes,
-      coalesce((select sum(minutes) from lunch_pairs), 0)::int as unpaid_lunch_minutes,
+      case
+        when v_pause_paid then 0
+        else coalesce((select sum(minutes) from break_pairs), 0)
+      end::int as unpaid_break_minutes,
+      case
+        when v_lunch_paid then 0
+        else coalesce((select sum(minutes) from lunch_pairs), 0)
+      end::int as unpaid_lunch_minutes,
       (
-        abs((select count(*) from break_starts) - (select count(*) from break_ends))
-        + abs((select count(*) from lunch_starts) - (select count(*) from lunch_ends))
+        case
+          when v_pause_paid then 0
+          else abs((select count(*) from break_starts) - (select count(*) from break_ends))
+        end
+        + case
+          when v_lunch_paid then 0
+          else abs((select count(*) from lunch_starts) - (select count(*) from lunch_ends))
+        end
       )::int as pair_anomalies
   ),
   exception_stats as (

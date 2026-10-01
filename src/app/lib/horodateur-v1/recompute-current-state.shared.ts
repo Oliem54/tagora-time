@@ -4,8 +4,10 @@
  * (`source_kind` automatique ou `actor_role` systeme) est ignorée. Une sortie
  * employé encore en attente ferme le quart. Une arrivée employé en attente
  * reste un événement d'état. Dîner et pause stockés ne comptent que s'ils
- * sont normal ou approuve. Un refus est ignoré. Les types anglais gardent
- * la règle précédente, y compris un `clock_out` en attente.
+ * sont normal ou approuve. Un refus est ignoré. L'ordre suit
+ * coalesce(occurred_at, event_time). Une correction manuelle ne devient pas
+ * l'état. Les types anglais gardent la règle précédente, y compris un
+ * `clock_out` en attente.
  */
 
 import type { RecomputeShiftBoundStatus } from "./recompute-shift-bounds.shared";
@@ -20,6 +22,7 @@ export type RecomputeCurrentStateKind =
 export type RecomputeCurrentStateEvent = {
   eventType: string;
   status: RecomputeShiftBoundStatus;
+  occurredAt?: string | null;
   eventTime?: string | null;
   createdAt?: string | null;
   id?: string | null;
@@ -46,8 +49,13 @@ function timestampMs(value: string | null | undefined) {
   return Number.isFinite(ms) ? ms : null;
 }
 
+function canonicalOccurredAt(event: RecomputeCurrentStateEvent) {
+  return event.occurredAt ?? event.eventTime ?? null;
+}
+
 function isStateBearing(event: RecomputeCurrentStateEvent) {
   if (event.status === "refuse") return false;
+  if (event.eventType === "manual_correction") return false;
   if (
     APPROVED_ONLY_EVENT_TYPES.has(event.eventType) &&
     !APPROVED_STATUSES.has(event.status)
@@ -123,8 +131,8 @@ function stateFromEventType(eventType: string): RecomputeCurrentStateKind {
 }
 
 function compareLatest(left: RecomputeCurrentStateEvent, right: RecomputeCurrentStateEvent) {
-  const leftTime = timestampMs(left.eventTime);
-  const rightTime = timestampMs(right.eventTime);
+  const leftTime = timestampMs(canonicalOccurredAt(left));
+  const rightTime = timestampMs(canonicalOccurredAt(right));
   if (leftTime == null && rightTime != null) return 1;
   if (leftTime != null && rightTime == null) return -1;
   if (leftTime != null && rightTime != null && leftTime !== rightTime) {

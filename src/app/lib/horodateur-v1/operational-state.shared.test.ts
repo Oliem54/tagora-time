@@ -183,6 +183,64 @@ describe("operational-state.shared — Vincent", () => {
     ).toBe("out-pending");
   });
 
+  it("une sortie en attente d un quart precedent est depassee par une arrivee plus recente", () => {
+    const previousArrival = event({
+      id: "in-previous",
+      event_type: "quart_debut",
+      status: "approuve",
+      occurred_at: "2026-09-29T10:30:12.000Z",
+      work_date: "2026-09-29",
+    });
+    const pendingExit = event({
+      id: "out-previous",
+      event_type: "quart_fin",
+      status: "en_attente",
+      occurred_at: "2026-09-29T21:00:00.000Z",
+      work_date: "2026-09-29",
+      actor_role: "employe",
+      source_kind: "employe",
+    });
+    const nextArrival = event({
+      id: "in-next",
+      event_type: "quart_debut",
+      status: "normal",
+      occurred_at: "2026-09-30T10:30:00.000Z",
+      work_date: "2026-09-30",
+      actor_role: "employe",
+      source_kind: "employe",
+    });
+
+    expect(
+      findActivePendingPunchOutFromEvents(
+        [pendingExit],
+        [previousArrival, nextArrival]
+      )
+    ).toBeNull();
+  });
+
+  it("une sortie employe en attente du quart courant bloque encore un doublon", () => {
+    const arrival = event({
+      id: "in-current",
+      event_type: "quart_debut",
+      status: "approuve",
+      occurred_at: "2026-09-30T10:30:00.000Z",
+      work_date: "2026-09-30",
+    });
+    const pendingExit = event({
+      id: "out-current",
+      event_type: "quart_fin",
+      status: "en_attente",
+      occurred_at: "2026-09-30T21:00:00.000Z",
+      work_date: "2026-09-30",
+      actor_role: "employe",
+      source_kind: "employe",
+    });
+
+    expect(findActivePendingPunchOutFromEvents([pendingExit], [arrival])?.id).toBe(
+      "out-current"
+    );
+  });
+
   it("formatte le message alreadySubmitted pour Vincent", () => {
     const message = formatPendingPunchOutSubmittedMessage("2026-06-05T10:40:26.034+00:00");
     expect(message).toContain("soumise a validation");

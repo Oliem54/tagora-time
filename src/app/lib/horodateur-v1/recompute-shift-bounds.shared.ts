@@ -6,8 +6,9 @@
  * Un événement en attente, y compris une fin automatique, ne devient pas
  * une borne approuvée. `pause_debut` et `pause_fin` approuvés sont soustraits
  * comme les pauses anglaises. Les minutes de dîner et de pause approuvés
- * sont soustraites du temps travaillé, comme `worked_minutes` dans la
- * migration SQL.
+ * sont soustraites du temps travaillé seulement s'ils ne sont pas payés,
+ * comme `worked_minutes` dans la migration SQL. `pausePaid` suit
+ * `break_1_paid`. `lunchPaid` suit `lunch_paid`.
  */
 
 export type RecomputeShiftBoundStatus =
@@ -151,8 +152,11 @@ function pairedMinutes(starts: string[], ends: string[]) {
 }
 
 export function summarizeRecomputeShiftBounds(
-  events: RecomputeShiftBoundEvent[]
+  events: RecomputeShiftBoundEvent[],
+  flags?: { pausePaid?: boolean; lunchPaid?: boolean }
 ): RecomputeShiftBoundSummary {
+  const pausePaid = flags?.pausePaid === true;
+  const lunchPaid = flags?.lunchPaid === true;
   let shiftStartAt: string | null = null;
   let shiftEndAt: string | null = null;
   const dinnerStarts: string[] = [];
@@ -176,8 +180,8 @@ export function summarizeRecomputeShiftBounds(
 
   const startMs = timestampMs(shiftStartAt);
   const endMs = timestampMs(shiftEndAt);
-  const unpaidLunchMinutes = pairedMinutes(dinnerStarts, dinnerEnds);
-  const unpaidBreakMinutes = pairedMinutes(breakStarts, breakEnds);
+  const unpaidLunchMinutes = lunchPaid ? 0 : pairedMinutes(dinnerStarts, dinnerEnds);
+  const unpaidBreakMinutes = pausePaid ? 0 : pairedMinutes(breakStarts, breakEnds);
   const grossMinutes =
     startMs != null && endMs != null && endMs >= startMs
       ? Math.floor((endMs - startMs) / 60000)

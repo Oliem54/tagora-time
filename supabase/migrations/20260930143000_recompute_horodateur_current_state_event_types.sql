@@ -6,7 +6,9 @@
 -- exit that is still en_attente. A pending automatic exit (source_kind
 -- automatique or actor_role systeme) is ignored, so it cannot close the live
 -- shift. Pending dinner and pause events stay ignored. Refused events stay
--- ignored and never become approuve.
+-- ignored and never become approuve. The latest event is chosen with
+-- coalesce(occurred_at, event_time). A manual_correction does not become
+-- the current state.
 -- clock_in, shift_start, clock_out, shift_end, dinner_start, and dinner_end
 -- keep the previous rule. Does not change the trigger, RLS, or grants, and
 -- does not rewrite punch rows or exception statuses.
@@ -67,7 +69,7 @@ begin
     select
       e.id as last_event_id,
       e.event_type as last_event_type,
-      e.event_time as last_event_at,
+      coalesce(e.occurred_at, e.event_time) as last_event_at,
       case
         when e.event_type in ('clock_in', 'shift_start', 'quart_debut', 'punch_in') then 'en_quart'::public.horodateur_state_kind
         when e.event_type in ('break_start', 'pause_start', 'pause_debut') then 'en_pause'::public.horodateur_state_kind
@@ -80,6 +82,7 @@ begin
     from public.horodateur_events e
     where e.employee_id = p_employee_id
       and e.status <> 'refuse'::public.horodateur_event_status
+      and e.event_type <> 'manual_correction'
       and not (
         e.event_type in ('dinner_debut', 'dinner_fin', 'pause_debut', 'pause_fin')
         and e.status not in (
@@ -95,7 +98,7 @@ begin
           or e.actor_role = 'systeme'::public.horodateur_actor_role
         )
       )
-    order by e.event_time desc nulls last, e.created_at desc nulls last, e.id desc
+    order by coalesce(e.occurred_at, e.event_time) desc nulls last, e.created_at desc nulls last, e.id desc
     limit 1
   ),
   open_exception as (

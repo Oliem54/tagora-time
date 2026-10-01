@@ -35,7 +35,10 @@ describe("recompute current state for stored horodateur event types", () => {
     expect(sql).toContain("'normal'::public.horodateur_event_status");
     expect(sql).toContain("'approuve'::public.horodateur_event_status");
     expect(sql).toContain("x.status = 'en_attente'::public.horodateur_exception_status");
-    const stateFilter = sql.slice(sql.indexOf("and not ("), sql.indexOf("order by e.event_time"));
+    const stateFilter = sql.slice(
+      sql.indexOf("and not ("),
+      sql.indexOf("order by coalesce(e.occurred_at, e.event_time)")
+    );
     expect(stateFilter).toContain("'dinner_debut', 'dinner_fin', 'pause_debut', 'pause_fin'");
     expect(stateFilter).toContain("e.event_type in ('quart_fin', 'punch_out')");
     expect(stateFilter).toContain("e.status = 'en_attente'::public.horodateur_event_status");
@@ -44,6 +47,8 @@ describe("recompute current state for stored horodateur event types", () => {
     expect(sql).not.toMatch(
       /event_type in \(\s*'quart_debut',\s*'punch_in',\s*'quart_fin',\s*'punch_out'/
     );
+    expect(sql).toContain("coalesce(e.occurred_at, e.event_time)");
+    expect(sql).toContain("e.event_type <> 'manual_correction'");
     expect(sql).not.toMatch(/\bupdate\s+public\.horodateur_events\b/i);
     expect(sql).not.toMatch(/\binsert\s+into\s+public\.horodateur_events\b/i);
     expect(sql).not.toMatch(/\bupdate\s+public\.horodateur_exceptions\b/i);
@@ -371,6 +376,61 @@ describe("recompute current state for stored horodateur event types", () => {
     ).toEqual({
       currentState: "hors_quart",
       lastEventType: null,
+    });
+  });
+
+  it("orders current state by coalesce(occurred_at, event_time)", () => {
+    expect(
+      resolveRecomputeCurrentState([
+        {
+          eventType: "quart_debut",
+          status: "normal",
+          occurredAt: "2026-09-29T10:30:00.000Z",
+          eventTime: "2026-09-30T02:00:00.000Z",
+        },
+        {
+          eventType: "quart_fin",
+          status: "approuve",
+          occurredAt: "2026-09-29T19:00:00.000Z",
+          eventTime: "2026-09-29T19:00:00.000Z",
+        },
+      ])
+    ).toEqual({
+      currentState: "termine",
+      lastEventType: "quart_fin",
+    });
+  });
+
+  it("keeps Patrick in service and ignores a later manual correction", () => {
+    expect(
+      resolveRecomputeCurrentState([
+        {
+          id: "arrival",
+          eventType: "quart_debut",
+          status: "normal",
+          occurredAt: PATRICK_ARRIVAL_AT,
+          eventTime: "2026-09-30T02:00:00.000Z",
+        },
+        {
+          id: "automatic-end",
+          eventType: "quart_fin",
+          status: "en_attente",
+          occurredAt: "2026-09-29T19:10:23.000Z",
+          eventTime: "2026-09-29T19:10:23.000Z",
+          sourceKind: "automatique",
+          actorRole: "systeme",
+        },
+        {
+          id: "manual",
+          eventType: "manual_correction",
+          status: "approuve",
+          occurredAt: "2026-09-29T22:00:00.000Z",
+          eventTime: "2026-09-29T22:00:00.000Z",
+        },
+      ])
+    ).toEqual({
+      currentState: "en_quart",
+      lastEventType: "quart_debut",
     });
   });
 });
