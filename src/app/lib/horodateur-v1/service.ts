@@ -2840,6 +2840,7 @@ export async function recomputeShiftForDate(
 
   let shiftStartAt: string | null = null;
   let shiftEndAt: string | null = null;
+  let openSegmentStartAt: string | null = null;
   let workSegmentStartAt: string | null = null;
   let pauseStartAt: string | null = null;
   let dinnerStartAt: string | null = null;
@@ -2852,9 +2853,18 @@ export async function recomputeShiftForDate(
   let state: HorodateurPhase1StateKind = "hors_quart";
 
   const closeOpenSegment = (exitAt: string) => {
+    const segmentStartMs = openSegmentStartAt
+      ? new Date(openSegmentStartAt).getTime()
+      : null;
+    const exitMs = new Date(exitAt).getTime();
     if (
       !shiftStartAt ||
+      !openSegmentStartAt ||
       shiftEndAt ||
+      segmentStartMs == null ||
+      !Number.isFinite(segmentStartMs) ||
+      !Number.isFinite(exitMs) ||
+      exitMs < segmentStartMs ||
       (state !== "en_quart" && state !== "en_pause" && state !== "en_diner")
     ) {
       return false;
@@ -2881,6 +2891,7 @@ export async function recomputeShiftForDate(
     }
 
     workSegmentStartAt = null;
+    openSegmentStartAt = null;
     pauseStartAt = null;
     dinnerStartAt = null;
     terrainStartAt = null;
@@ -2917,6 +2928,7 @@ export async function recomputeShiftForDate(
     if (shouldTreatApprovedEventAsShiftStart(event, orderedEvents)) {
       if (shiftStartAt && shiftEndAt && state === "termine") {
         shiftEndAt = null;
+        openSegmentStartAt = eventOccurredAt;
         workSegmentStartAt = resolvePayableWorkSegmentStartAt({
           punchInOccurredAt: eventOccurredAt,
           workDate,
@@ -2928,6 +2940,7 @@ export async function recomputeShiftForDate(
 
       if (!shiftStartAt) {
         shiftStartAt = eventOccurredAt;
+        openSegmentStartAt = eventOccurredAt;
         workSegmentStartAt = resolvePayableWorkSegmentStartAt({
           punchInOccurredAt: eventOccurredAt,
           workDate,

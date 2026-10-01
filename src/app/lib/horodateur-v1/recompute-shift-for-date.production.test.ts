@@ -255,6 +255,43 @@ describe("recomputeShiftForDate closed segment guard", () => {
     expect(shift.payable_minutes).toBe(240);
   });
 
+  it("ignores an English exit whose event_time is before the open segment start", async () => {
+    const earlyExit = "2026-09-29T13:00:00.000Z";
+    const recordedAt = "2026-09-29T18:00:00.000Z";
+
+    for (const eventType of ["clock_out", "shift_end"] as const) {
+      installEvents([
+        event({
+          id: "arrival",
+          event_type: "quart_debut",
+          status: "approuve",
+          occurred_at: FIRST_START,
+          event_time: FIRST_START,
+        }),
+        event({
+          id: "english-exit",
+          event_type: eventType as HorodateurPhase1EventType,
+          status: "normal",
+          occurred_at: recordedAt,
+          event_time: earlyExit,
+        }),
+      ]);
+      getEmployeeById.mockResolvedValue(employee);
+      getShiftByEmployeeAndWorkDate.mockResolvedValue(null);
+      listExceptionsForShift.mockResolvedValue([]);
+
+      const { recomputeShiftForDate } = await import("./service");
+      const shift = await recomputeShiftForDate(7, WORK_DATE, { persist: false });
+
+      expect(shift.shift_start_at).toBe(FIRST_START);
+      expect(shift.shift_end_at).toBeNull();
+      expect(shift.shift_end_at).not.toBe(earlyExit);
+      expect(shift.worked_minutes).toBe(0);
+      expect(shift.payable_minutes).toBe(0);
+      expect(shift.gross_minutes).toBe(240);
+    }
+  });
+
   it("closes an open segment with the English exit event_time", async () => {
     installEvents([
       event({
