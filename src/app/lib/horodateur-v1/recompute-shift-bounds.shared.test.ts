@@ -46,6 +46,8 @@ describe("recompute shift bounds for quart_debut and quart_fin", () => {
     );
     expect(sql).toContain("least(p.pair_end, seg.segment_end)");
     expect(sql).toContain("greatest(p.pair_start, seg.payable_start)");
+    expect(sql).toContain("s.depth = e.depth");
+    expect(sql).not.toContain("e.rn = s.rn");
     expect(sql).toContain("when v_pause_paid then 0");
     expect(sql).toContain("when v_lunch_paid then 0");
     const pairClause = sql.slice(
@@ -984,6 +986,62 @@ describe("recompute shift bounds for quart_debut and quart_fin", () => {
     expect(unmatchedGapPause.pairAnomalies).toBe(1);
     expect(unmatchedGapPause.unpaidBreakMinutes).toBe(0);
     expect(unmatchedGapPause.workedMinutes).toBe(420);
+  });
+
+  it("does not let an orphan gap pause consume the next valid pause end", () => {
+    const summary = summarizeRecomputeShiftBounds([
+      {
+        eventType: "quart_debut",
+        status: "approuve",
+        occurredAt: "2026-09-29T08:00:00.000Z",
+        eventTime: "2026-09-29T08:00:00.000Z",
+      },
+      {
+        eventType: "quart_fin",
+        status: "approuve",
+        occurredAt: "2026-09-29T12:00:00.000Z",
+        eventTime: "2026-09-29T12:00:00.000Z",
+      },
+      {
+        eventType: "pause_debut",
+        status: "approuve",
+        occurredAt: "2026-09-29T12:30:00.000Z",
+        eventTime: "2026-09-29T12:30:00.000Z",
+      },
+      {
+        eventType: "quart_debut",
+        status: "approuve",
+        occurredAt: "2026-09-29T13:00:00.000Z",
+        eventTime: "2026-09-29T13:00:00.000Z",
+      },
+      {
+        eventType: "pause_debut",
+        status: "approuve",
+        occurredAt: "2026-09-29T14:00:00.000Z",
+        eventTime: "2026-09-29T14:00:00.000Z",
+      },
+      {
+        eventType: "pause_fin",
+        status: "approuve",
+        occurredAt: "2026-09-29T14:15:00.000Z",
+        eventTime: "2026-09-29T14:15:00.000Z",
+      },
+      {
+        eventType: "quart_fin",
+        status: "approuve",
+        occurredAt: "2026-09-29T17:00:00.000Z",
+        eventTime: "2026-09-29T17:00:00.000Z",
+      },
+    ]);
+
+    expect(summary.shiftStartAt).toBe("2026-09-29T08:00:00.000Z");
+    expect(summary.shiftEndAt).toBe("2026-09-29T17:00:00.000Z");
+    expect(summary.unpaidBreakMinutes).toBe(15);
+    expect(summary.unpaidBreakMinutes).not.toBe(75);
+    expect(summary.workedMinutes).toBe(465);
+    expect(summary.payableMinutes).toBe(465);
+    expect(summary.pairAnomalies).toBe(1);
+    expect(summary.status).toBe("ferme");
   });
 
   it("does not let a later English exit extend a closed shift after a pending arrival", () => {

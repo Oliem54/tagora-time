@@ -359,4 +359,72 @@ describe("recomputeShiftForDate closed segment guard", () => {
     expect(shift.worked_minutes).toBe(240);
     expect(shift.payable_minutes).toBe(240);
   });
+
+  it("does not let an orphan gap pause consume the next valid pause", async () => {
+    installEvents([
+      event({
+        id: "start-1",
+        event_type: "quart_debut",
+        status: "approuve",
+        occurred_at: "2026-09-29T08:00:00.000Z",
+        event_time: "2026-09-29T08:00:00.000Z",
+      }),
+      event({
+        id: "end-1",
+        event_type: "quart_fin",
+        status: "approuve",
+        occurred_at: "2026-09-29T12:00:00.000Z",
+        event_time: "2026-09-29T12:00:00.000Z",
+      }),
+      event({
+        id: "orphan-pause",
+        event_type: "pause_debut",
+        status: "approuve",
+        occurred_at: "2026-09-29T12:30:00.000Z",
+        event_time: "2026-09-29T12:30:00.000Z",
+      }),
+      event({
+        id: "start-2",
+        event_type: "quart_debut",
+        status: "approuve",
+        occurred_at: "2026-09-29T13:00:00.000Z",
+        event_time: "2026-09-29T13:00:00.000Z",
+      }),
+      event({
+        id: "pause-start",
+        event_type: "pause_debut",
+        status: "approuve",
+        occurred_at: "2026-09-29T14:00:00.000Z",
+        event_time: "2026-09-29T14:00:00.000Z",
+      }),
+      event({
+        id: "pause-end",
+        event_type: "pause_fin",
+        status: "approuve",
+        occurred_at: "2026-09-29T14:15:00.000Z",
+        event_time: "2026-09-29T14:15:00.000Z",
+      }),
+      event({
+        id: "end-2",
+        event_type: "quart_fin",
+        status: "approuve",
+        occurred_at: "2026-09-29T17:00:00.000Z",
+        event_time: "2026-09-29T17:00:00.000Z",
+      }),
+    ]);
+    getEmployeeById.mockResolvedValue({ ...employee, pausePaid: false });
+    getShiftByEmployeeAndWorkDate.mockResolvedValue(null);
+    listExceptionsForShift.mockResolvedValue([]);
+
+    const { recomputeShiftForDate } = await import("./service");
+    const shift = await recomputeShiftForDate(7, WORK_DATE, { persist: false });
+
+    expect(shift.shift_start_at).toBe("2026-09-29T08:00:00.000Z");
+    expect(shift.shift_end_at).toBe("2026-09-29T17:00:00.000Z");
+    expect(shift.unpaid_break_minutes).toBe(15);
+    expect(shift.unpaid_break_minutes).not.toBe(75);
+    expect(shift.worked_minutes).toBe(465);
+    expect(shift.payable_minutes).toBe(465);
+    expect(shift.gross_minutes).toBe(540);
+  });
 });

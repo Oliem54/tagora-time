@@ -19,8 +19,10 @@
 -- clock_out, shift_end, break_start, pause_start, break_end, pause_end,
 -- dinner_start, and dinner_end keep the previous rule. Unpaid pause and dinner
 -- minutes count only where the pair overlaps a closed payable segment. A pair
--- in the off-duty gap does not reduce worked or payable minutes. Pair anomaly
--- counts stay on the raw start and end counts.
+-- in the off-duty gap does not reduce worked or payable minutes. An orphan
+-- pause or dinner start, including one in the off-duty gap, does not consume
+-- a later end: each end pairs with the latest unmatched start before it.
+-- Pair anomaly counts stay on the raw start and end counts.
 -- Does not change the trigger, RLS, or grants, and does not rewrite punch
 -- rows or exception statuses.
 
@@ -358,15 +360,6 @@ begin
     ) break_end_bounds
     where bound_at is not null
   ),
-  break_pairs as (
-    select
-      s.event_time as pair_start,
-      e.event_time as pair_end
-    from break_starts s
-    join break_ends e
-      on e.rn = s.rn
-     and e.event_time > s.event_time
-  ),
   lunch_starts as (
     select
       id,
@@ -423,14 +416,88 @@ begin
     ) lunch_end_bounds
     where bound_at is not null
   ),
-  lunch_pairs as (
+  pair_marks as (
+    select 'break'::text as pair_kind, event_time, 'start'::text as kind, id
+    from break_starts
+    union all
+    select 'break'::text, event_time, 'end'::text, id
+    from break_ends
+    union all
+    select 'lunch'::text, event_time, 'start'::text, id
+    from lunch_starts
+    union all
+    select 'lunch'::text, event_time, 'end'::text, id
+    from lunch_ends
+  ),
+  pair_ordered as (
     select
+      pair_kind,
+      event_time,
+      kind,
+      id,
+      row_number() over (
+        partition by pair_kind
+        order by event_time, case when kind = 'start' then 0 else 1 end, id
+      ) as seq
+    from pair_marks
+  ),
+  pair_depth as (
+    select
+      pair_kind,
+      event_time,
+      kind,
+      id,
+      seq,
+      case when kind = 'start' then 1 else 0 end as depth,
+      case when kind = 'start' then 1 else 0 end as balance
+    from pair_ordered
+    where seq = 1
+    union all
+    select
+      o.pair_kind,
+      o.event_time,
+      o.kind,
+      o.id,
+      o.seq,
+      case
+        when o.kind = 'start' then d.balance + 1
+        when d.balance > 0 then d.balance
+        else 0
+      end as depth,
+      case
+        when o.kind = 'start' then d.balance + 1
+        when d.balance > 0 then d.balance - 1
+        else 0
+      end as balance
+    from pair_depth d
+    join pair_ordered o
+      on o.pair_kind = d.pair_kind
+     and o.seq = d.seq + 1
+  ),
+  paired_bounds as (
+    select distinct on (e.pair_kind, e.id)
+      e.pair_kind,
       s.event_time as pair_start,
       e.event_time as pair_end
-    from lunch_starts s
-    join lunch_ends e
-      on e.rn = s.rn
-     and e.event_time > s.event_time
+    from pair_depth e
+    join pair_depth s
+      on s.pair_kind = e.pair_kind
+     and s.kind = 'start'
+     and e.kind = 'end'
+     and s.depth = e.depth
+     and s.depth > 0
+     and s.event_time < e.event_time
+    order by e.pair_kind, e.id, s.event_time desc, s.id desc
+  ),
+  break_pairs as (
+    select pair_start, pair_end
+    from paired_bounds
+    where pair_kind = 'break'
+  ),
+  lunch_pairs as (
+    select pair_start, pair_end
+    from paired_bounds
+    where pair_kind = 'lunch'
   ),
   closed_segments as (
     select

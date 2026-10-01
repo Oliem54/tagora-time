@@ -2629,11 +2629,6 @@ export async function recomputeCurrentState(
       return String(left.id).localeCompare(String(right.id));
     });
 
-  /** Flux complet (approuvé + en attente) — pour last_event_* et métadonnées. */
-  const effectiveEvents = sortEventsForState([
-    ...approvedEvents,
-    ...pendingOperationalEvents,
-  ]);
   /**
    * Etat operationnel employe : une sortie en attente soumise par l'employe
    * ferme le quart cote interface. Une fin automatique en attente, creee par
@@ -2644,6 +2639,15 @@ export async function recomputeCurrentState(
   const livePendingOperationalEvents = pendingOperationalEvents.filter(
     (event) => !isAutomaticMissingPendingPunchOut(event)
   );
+  /**
+   * Métadonnées du dernier événement : même exclusion que l'état opérationnel.
+   * Une fin automatique plus tardive ne doit pas devenir last_event_id, sinon
+   * la relecture du pointage refuse la vraie sortie déjà enregistrée.
+   */
+  const metadataEvents = sortEventsForState([
+    ...approvedEvents,
+    ...livePendingOperationalEvents,
+  ]);
   const pendingPunchOutEvents = livePendingOperationalEvents.filter(
     (event) => toCanonicalEventType(event.event_type) === "punch_out"
   );
@@ -2661,8 +2665,8 @@ export async function recomputeCurrentState(
   );
 
   const lastEvent =
-    effectiveEvents.length > 0
-      ? effectiveEvents[effectiveEvents.length - 1]
+    metadataEvents.length > 0
+      ? metadataEvents[metadataEvents.length - 1]
       : getLastApprovedEvent(approvedEvents);
   const pendingExceptionsCount = await countPendingExceptionsForEmployee(employeeId);
 

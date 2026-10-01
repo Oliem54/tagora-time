@@ -12,7 +12,10 @@
  * `pause_debut` et `pause_fin` approuvés sont soustraits comme les pauses
  * anglaises, seulement sur leur intersection avec un segment payable fermé.
  * Une pause ou un dîner dans le trou entre deux quarts ne réduit pas les
- * minutes. Les minutes de dîner et de pause approuvés sont soustraites du
+ * minutes. Une pause ou un dîner orphelin, y compris dans le trou hors
+ * service, ne consomme pas une fin ultérieure : chaque fin se jumelle avec
+ * le début non apparié le plus récent qui la précède. Les minutes de dîner
+ * et de pause approuvés sont soustraites du
  * temps travaillé seulement s'ils ne sont pas payés,
  * comme `worked_minutes` dans la migration SQL. `pausePaid` suit
  * `break_1_paid`. `lunchPaid` suit `lunch_paid`. Les minutes payées ne sont
@@ -183,19 +186,49 @@ function pairedOverlapMinutes(
   ends: string[],
   segments: Array<{ payableStartAt: string; endAt: string }>
 ) {
-  const orderedStarts = [...starts].sort(
-    (left, right) => (timestampMs(left) ?? 0) - (timestampMs(right) ?? 0)
-  );
-  const orderedEnds = [...ends].sort(
-    (left, right) => (timestampMs(left) ?? 0) - (timestampMs(right) ?? 0)
-  );
+  const marks = [
+    ...starts.map((at, index) => ({ at, kind: "start" as const, index })),
+    ...ends.map((at, index) => ({ at, kind: "end" as const, index })),
+  ].filter((mark) => timestampMs(mark.at) != null);
+  marks.sort((left, right) => {
+    const delta = (timestampMs(left.at) ?? 0) - (timestampMs(right.at) ?? 0);
+    if (delta !== 0) return delta;
+    if (left.kind !== right.kind) return left.kind === "start" ? -1 : 1;
+    return left.index - right.index;
+  });
+
+  let balance = 0;
+  const depths = marks.map((mark) => {
+    if (mark.kind === "start") {
+      balance += 1;
+      return { ...mark, depth: balance };
+    }
+    if (balance > 0) {
+      const depth = balance;
+      balance -= 1;
+      return { ...mark, depth };
+    }
+    return { ...mark, depth: 0 };
+  });
+
+  const usedStartIndexes = new Set<number>();
   let total = 0;
-  const count = Math.min(orderedStarts.length, orderedEnds.length);
-  for (let index = 0; index < count; index += 1) {
-    const startAt = orderedStarts[index];
-    const endAt = orderedEnds[index];
-    if (!startAt || !endAt) continue;
-    total += overlapMinutes(startAt, endAt, segments);
+  for (const endMark of depths) {
+    if (endMark.kind !== "end" || endMark.depth <= 0) continue;
+    const startMark = depths
+      .filter(
+        (mark) =>
+          mark.kind === "start" &&
+          mark.depth === endMark.depth &&
+          !usedStartIndexes.has(mark.index) &&
+          (timestampMs(mark.at) ?? 0) < (timestampMs(endMark.at) ?? 0)
+      )
+      .sort(
+        (left, right) => (timestampMs(right.at) ?? 0) - (timestampMs(left.at) ?? 0)
+      )[0];
+    if (!startMark) continue;
+    usedStartIndexes.add(startMark.index);
+    total += overlapMinutes(startMark.at, endMark.at, segments);
   }
   return total;
 }
