@@ -82,8 +82,9 @@ describe("recompute shift bounds for quart_debut and quart_fin", () => {
     ]);
 
     expect(pending.shiftStartAt).toBeNull();
-    expect(pending.shiftEndAt).toBe("2026-09-29T18:00:00.000Z");
+    expect(pending.shiftEndAt).toBeNull();
     expect(pending.workedMinutes).toBe(0);
+    expect(pending.payableMinutes).toBe(0);
     expect(pending.status).toBe("ferme");
 
     const approved = summarizeRecomputeShiftBounds([
@@ -983,5 +984,100 @@ describe("recompute shift bounds for quart_debut and quart_fin", () => {
     expect(unmatchedGapPause.pairAnomalies).toBe(1);
     expect(unmatchedGapPause.unpaidBreakMinutes).toBe(0);
     expect(unmatchedGapPause.workedMinutes).toBe(420);
+  });
+
+  it("does not let a later English exit extend a closed shift after a pending arrival", () => {
+    const closedShift = [
+      {
+        eventType: "quart_debut",
+        status: "approuve" as const,
+        occurredAt: "2026-09-29T14:00:00.000Z",
+        eventTime: "2026-09-29T14:00:00.000Z",
+      },
+      {
+        eventType: "quart_fin",
+        status: "approuve" as const,
+        occurredAt: "2026-09-29T18:00:00.000Z",
+        eventTime: "2026-09-29T18:00:00.000Z",
+      },
+    ];
+
+    const pendingClockIn = summarizeRecomputeShiftBounds([
+      ...closedShift,
+      {
+        eventType: "clock_in",
+        status: "en_attente",
+        occurredAt: "2026-09-29T19:30:00.000Z",
+        eventTime: "2026-09-29T19:00:00.000Z",
+      },
+      {
+        eventType: "clock_out",
+        status: "normal",
+        occurredAt: "2026-09-29T22:30:00.000Z",
+        eventTime: "2026-09-29T22:00:00.000Z",
+      },
+    ]);
+    const pendingShiftStart = summarizeRecomputeShiftBounds([
+      ...closedShift,
+      {
+        eventType: "shift_start",
+        status: "en_attente",
+        eventTime: "2026-09-29T19:00:00.000Z",
+      },
+      {
+        eventType: "shift_end",
+        status: "normal",
+        eventTime: "2026-09-29T22:00:00.000Z",
+      },
+    ]);
+
+    for (const summary of [pendingClockIn, pendingShiftStart]) {
+      expect(summary.shiftStartAt).toBe("2026-09-29T14:00:00.000Z");
+      expect(summary.shiftEndAt).toBe("2026-09-29T18:00:00.000Z");
+      expect(summary.status).toBe("ferme");
+      expect(summary.workedMinutes).toBe(240);
+      expect(summary.payableMinutes).toBe(240);
+    }
+  });
+
+  it("does not let an isolated English exit extend a closed shift", () => {
+    const closedShift = [
+      {
+        eventType: "quart_debut",
+        status: "normal" as const,
+        occurredAt: "2026-09-29T14:00:00.000Z",
+        eventTime: "2026-09-29T14:00:00.000Z",
+      },
+      {
+        eventType: "quart_fin",
+        status: "approuve" as const,
+        occurredAt: "2026-09-29T18:00:00.000Z",
+        eventTime: "2026-09-29T18:00:00.000Z",
+      },
+    ];
+
+    const isolatedClockOut = summarizeRecomputeShiftBounds([
+      ...closedShift,
+      {
+        eventType: "clock_out",
+        status: "normal",
+        eventTime: "2026-09-29T22:00:00.000Z",
+      },
+    ]);
+    const isolatedShiftEnd = summarizeRecomputeShiftBounds([
+      ...closedShift,
+      {
+        eventType: "shift_end",
+        status: "approuve",
+        eventTime: "2026-09-29T22:00:00.000Z",
+      },
+    ]);
+
+    for (const summary of [isolatedClockOut, isolatedShiftEnd]) {
+      expect(summary.shiftEndAt).toBe("2026-09-29T18:00:00.000Z");
+      expect(summary.workedMinutes).toBe(240);
+      expect(summary.payableMinutes).toBe(240);
+      expect(summary.status).toBe("ferme");
+    }
   });
 });

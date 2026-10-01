@@ -2,7 +2,10 @@
  * Bornes du recalcul SQL `recompute_horodateur_shift`.
  * `clock_in` / `shift_start` approuvés ou normaux gardent `event_time`.
  * Une arrivée anglaise en attente n'ouvre pas de segment et ne remet pas
- * `shiftEndAt` à vide. `quart_debut` / `punch_in`, `quart_fin` / `punch_out`,
+ * `shiftEndAt` à vide. Une sortie anglaise ne ferme qu'un segment encore
+ * ouvert par une arrivée valide : elle ne prolonge pas un segment déjà fermé
+ * et n'étend pas le quart à travers le trou hors service. `quart_debut` /
+ * `punch_in`, `quart_fin` / `punch_out`,
  * `dinner_debut` et `dinner_fin` ne comptent que s'ils sont normal ou
  * approuve, à `occurred_at`, sinon `event_time`. Un événement en attente,
  * y compris une fin automatique, ne devient pas une borne approuvée.
@@ -72,14 +75,6 @@ function timestampMs(value: string | null | undefined) {
   if (!value) return null;
   const ms = new Date(value).getTime();
   return Number.isFinite(ms) ? ms : null;
-}
-
-function later(current: string | null, candidate: string | null) {
-  const candidateMs = timestampMs(candidate);
-  if (candidateMs == null) return current;
-  const currentMs = timestampMs(current);
-  if (currentMs == null || candidateMs > currentMs) return candidate;
-  return current;
 }
 
 function payableSegmentStart(
@@ -261,28 +256,15 @@ export function summarizeRecomputeShiftBounds(
       continue;
     }
 
-    if (!segmentStartAt) {
-      shiftEndAt = later(shiftEndAt, bound.at);
-      continue;
-    }
+    if (!segmentStartAt || shiftEndAt) continue;
 
     const segmentStartMs = timestampMs(segmentStartAt);
     const endMs = timestampMs(bound.at);
     if (segmentStartMs == null || endMs == null || endMs < segmentStartMs) continue;
-    const previousEndMs = timestampMs(shiftEndAt);
-    if (previousEndMs != null && endMs <= previousEndMs) continue;
 
     const segmentPayableAt = payableSegmentStart(segmentStartAt, flags);
-    const previousCounted =
-      shiftEndAt == null ? 0 : payableSegmentMinutes(segmentPayableAt, shiftEndAt);
-    closedPayableMinutes +=
-      payableSegmentMinutes(segmentPayableAt, bound.at) - previousCounted;
-    if (shiftEndAt == null) {
-      closedSegments.push({ payableStartAt: segmentPayableAt, endAt: bound.at });
-    } else {
-      const currentSegment = closedSegments[closedSegments.length - 1];
-      if (currentSegment) currentSegment.endAt = bound.at;
-    }
+    closedPayableMinutes += payableSegmentMinutes(segmentPayableAt, bound.at);
+    closedSegments.push({ payableStartAt: segmentPayableAt, endAt: bound.at });
     shiftEndAt = bound.at;
   }
 

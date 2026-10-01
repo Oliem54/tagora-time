@@ -14,6 +14,8 @@
 -- refused stored types stay out of those bounds.
 -- clock_in and shift_start open a segment only when normal or approuve, and
 -- still use event_time. A pending English arrival does not clear shift_end_at.
+-- An English exit closes only a segment that is still open. It does not
+-- extend an already closed segment across the off-duty gap.
 -- clock_out, shift_end, break_start, pause_start, break_end, pause_end,
 -- dinner_start, and dinner_end keep the previous rule. Unpaid pause and dinner
 -- minutes count only where the pair overlaps a closed payable segment. A pair
@@ -164,10 +166,7 @@ begin
         when bound_kind = 'start' then bound_at
         else null::timestamp with time zone
       end as shift_start_at,
-      case
-        when bound_kind = 'end' then bound_at
-        else null::timestamp with time zone
-      end as shift_end_at,
+      null::timestamp with time zone as shift_end_at,
       case
         when bound_kind = 'start' then bound_at
         else null::timestamp with time zone
@@ -207,12 +206,8 @@ begin
         when o.bound_kind = 'start' and w.shift_end_at is not null then null
         when o.bound_kind = 'end'
           and w.segment_start_at is not null
+          and w.shift_end_at is null
           and o.bound_at >= w.segment_start_at
-          and (w.shift_end_at is null or o.bound_at > w.shift_end_at)
-          then o.bound_at
-        when o.bound_kind = 'end'
-          and w.segment_start_at is null
-          and (w.shift_end_at is null or o.bound_at > w.shift_end_at)
           then o.bound_at
         else w.shift_end_at
       end as shift_end_at,
@@ -247,19 +242,11 @@ begin
             when o.bound_kind = 'end'
               and w.segment_start_at is not null
               and w.segment_payable_start_at is not null
+              and w.shift_end_at is null
               and o.bound_at >= w.segment_start_at
-              and (w.shift_end_at is null or o.bound_at > w.shift_end_at)
             then greatest(
               0,
               floor(extract(epoch from (o.bound_at - w.segment_payable_start_at)) / 60)::int
-              - case
-                  when w.shift_end_at is not null
-                  then greatest(
-                    0,
-                    floor(extract(epoch from (w.shift_end_at - w.segment_payable_start_at)) / 60)::int
-                  )
-                  else 0
-                end
             )
             else 0
           end
@@ -279,11 +266,6 @@ begin
           and o.bound_at >= w.segment_start_at
           and w.shift_end_at is null
           then w.segment_ends || o.bound_at
-        when o.bound_kind = 'end'
-          and w.segment_start_at is not null
-          and w.shift_end_at is not null
-          and o.bound_at > w.shift_end_at
-          then (w.segment_ends)[1:cardinality(w.segment_ends) - 1] || o.bound_at
         else w.segment_ends
       end as segment_ends
     from segment_walk w
