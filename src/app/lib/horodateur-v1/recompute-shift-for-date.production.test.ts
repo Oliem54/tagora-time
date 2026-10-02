@@ -500,4 +500,69 @@ describe("recomputeShiftForDate closed segment guard", () => {
     expect(shift.payable_minutes).toBe(270);
     expect(shift.payable_minutes).not.toBe(315);
   });
+
+  it("adds a modified exception with a null shift id once", async () => {
+    installEvents([
+      event({
+        id: "arrival",
+        event_type: "quart_debut",
+        status: "approuve",
+        occurred_at: FIRST_START,
+        event_time: FIRST_START,
+      }),
+      event({
+        id: "exit",
+        event_type: "quart_fin",
+        status: "approuve",
+        occurred_at: FIRST_END,
+        event_time: FIRST_END,
+      }),
+    ]);
+    getEmployeeById.mockResolvedValue(employee);
+    getShiftByEmployeeAndWorkDate.mockResolvedValue(null);
+    listExceptionsForShift.mockResolvedValue([
+      {
+        id: "exc-modified",
+        employee_id: 7,
+        shift_id: null,
+        source_event_id: "arrival",
+        exception_type: "missing_punch_adjustment",
+        reason_label: "Ajustement modifié",
+        details: null,
+        impact_minutes: 20,
+        status: "modifie",
+        requested_at: FIRST_END,
+        requested_by_user_id: null,
+        reviewed_at: FIRST_END,
+        reviewed_by_user_id: null,
+        review_note: null,
+        approved_minutes: 20,
+      },
+      {
+        id: "exc-approved",
+        employee_id: 7,
+        shift_id: null,
+        source_event_id: "exit",
+        exception_type: "missing_punch_adjustment",
+        reason_label: "Approuvé",
+        details: null,
+        impact_minutes: 10,
+        status: "approuve",
+        requested_at: FIRST_END,
+        requested_by_user_id: null,
+        reviewed_at: FIRST_END,
+        reviewed_by_user_id: null,
+        review_note: null,
+        approved_minutes: 10,
+      },
+    ]);
+
+    const { recomputeShiftForDate } = await import("./service");
+    const shift = await recomputeShiftForDate(7, WORK_DATE, { persist: false });
+
+    expect(shift.worked_minutes).toBe(240);
+    expect(shift.approved_exception_minutes).toBe(30);
+    expect(shift.payable_minutes).toBe(270);
+    expect(shift.payable_minutes).not.toBe(300);
+  });
 });
