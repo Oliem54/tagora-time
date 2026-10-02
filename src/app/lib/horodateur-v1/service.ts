@@ -2805,6 +2805,13 @@ function isServiceEnglishShiftEnd(eventType: string) {
   return SERVICE_ENGLISH_SHIFT_END_TYPES.has(eventType);
 }
 
+function payrollMachineOrderAt(event: HorodateurPhase1EventRecord) {
+  if (isServiceEnglishShiftEnd(String(event.event_type))) {
+    return event.event_time ?? getEventOccurredAt(event);
+  }
+  return getEventOccurredAt(event);
+}
+
 export async function recomputeShiftForDate(
   employeeId: number,
   workDate: string,
@@ -2822,8 +2829,8 @@ export async function recomputeShiftForDate(
   const orderedEvents = approvedEvents
     .slice()
     .sort((left, right) => {
-      const leftAt = getEventOccurredAt(left);
-      const rightAt = getEventOccurredAt(right);
+      const leftAt = payrollMachineOrderAt(left);
+      const rightAt = payrollMachineOrderAt(right);
       if (!leftAt && !rightAt) {
         return String(left.id).localeCompare(String(right.id));
       }

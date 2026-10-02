@@ -288,7 +288,8 @@ describe("recomputeShiftForDate closed segment guard", () => {
       expect(shift.shift_end_at).not.toBe(earlyExit);
       expect(shift.worked_minutes).toBe(0);
       expect(shift.payable_minutes).toBe(0);
-      expect(shift.gross_minutes).toBe(240);
+      expect(shift.gross_minutes).toBe(0);
+      expect(shift.gross_minutes).not.toBe(240);
     }
   });
 
@@ -321,6 +322,52 @@ describe("recomputeShiftForDate closed segment guard", () => {
     expect(shift.gross_minutes).toBe(240);
     expect(shift.worked_minutes).toBe(240);
     expect(shift.payable_minutes).toBe(240);
+  });
+
+  it("orders a legacy exit by its closing event_time before a later pause", async () => {
+    const arrivalAt = "2026-09-29T13:00:00.000Z";
+    const pauseAt = "2026-09-29T15:00:00.000Z";
+    const exitEventTime = "2026-09-29T14:00:00.000Z";
+    const exitOccurredAt = "2026-09-29T16:00:00.000Z";
+
+    for (const eventType of ["clock_out", "shift_end"] as const) {
+      installEvents([
+        event({
+          id: "arrival",
+          event_type: "quart_debut",
+          status: "approuve",
+          occurred_at: arrivalAt,
+          event_time: arrivalAt,
+        }),
+        event({
+          id: "pause",
+          event_type: "pause_debut",
+          status: "approuve",
+          occurred_at: pauseAt,
+          event_time: pauseAt,
+        }),
+        event({
+          id: "legacy-exit",
+          event_type: eventType as HorodateurPhase1EventType,
+          status: "normal",
+          occurred_at: exitOccurredAt,
+          event_time: exitEventTime,
+        }),
+      ]);
+      getEmployeeById.mockResolvedValue(employee);
+      getShiftByEmployeeAndWorkDate.mockResolvedValue(null);
+      listExceptionsForShift.mockResolvedValue([]);
+
+      const { recomputeShiftForDate } = await import("./service");
+      const shift = await recomputeShiftForDate(7, WORK_DATE, { persist: false });
+
+      expect(shift.shift_start_at).toBe(arrivalAt);
+      expect(shift.shift_end_at).toBe(exitEventTime);
+      expect(shift.worked_minutes).toBe(60);
+      expect(shift.worked_minutes).not.toBe(120);
+      expect(shift.payable_minutes).toBe(60);
+      expect(shift.payable_minutes).not.toBe(120);
+    }
   });
 
   it("does not let a later approved punch_out extend a closed segment", async () => {
