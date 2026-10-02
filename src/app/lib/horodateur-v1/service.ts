@@ -3486,6 +3486,9 @@ export async function createEmployeePunch(options: {
   );
 
   if (canonicalType === "punch_out") {
+    // Un état « terminé » persisté par une ancienne fin automatique ne doit
+    // pas classer la vraie sortie comme une transition invalide.
+    currentState = await recomputeCurrentState(employee.employeeId);
     const autoClosed = await closeOpenPauseOrMealBeforePunchOut({
       employee,
       actorUserId: options.actorUserId,

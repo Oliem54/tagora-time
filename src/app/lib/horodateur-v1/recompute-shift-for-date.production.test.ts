@@ -405,6 +405,13 @@ describe("recomputeShiftForDate closed segment guard", () => {
         event_time: "2026-09-29T14:15:00.000Z",
       }),
       event({
+        id: "orphan-pause-end",
+        event_type: "pause_fin",
+        status: "approuve",
+        occurred_at: "2026-09-29T14:30:00.000Z",
+        event_time: "2026-09-29T14:30:00.000Z",
+      }),
+      event({
         id: "end-2",
         event_type: "quart_fin",
         status: "approuve",
@@ -422,9 +429,75 @@ describe("recomputeShiftForDate closed segment guard", () => {
     expect(shift.shift_start_at).toBe("2026-09-29T08:00:00.000Z");
     expect(shift.shift_end_at).toBe("2026-09-29T17:00:00.000Z");
     expect(shift.unpaid_break_minutes).toBe(15);
-    expect(shift.unpaid_break_minutes).not.toBe(75);
+    expect(shift.unpaid_break_minutes).not.toBe(105);
     expect(shift.worked_minutes).toBe(465);
     expect(shift.payable_minutes).toBe(465);
     expect(shift.gross_minutes).toBe(540);
+  });
+
+  it("adds approved exception minutes to payable and leaves pending minutes out", async () => {
+    installEvents([
+      event({
+        id: "arrival",
+        event_type: "quart_debut",
+        status: "approuve",
+        occurred_at: FIRST_START,
+        event_time: FIRST_START,
+      }),
+      event({
+        id: "exit",
+        event_type: "quart_fin",
+        status: "approuve",
+        occurred_at: FIRST_END,
+        event_time: FIRST_END,
+      }),
+    ]);
+    getEmployeeById.mockResolvedValue(employee);
+    getShiftByEmployeeAndWorkDate.mockResolvedValue(null);
+    listExceptionsForShift.mockResolvedValue([
+      {
+        id: "exc-approved",
+        employee_id: 7,
+        shift_id: null,
+        source_event_id: "arrival",
+        exception_type: "missing_punch_adjustment",
+        reason_label: "Ajustement",
+        details: null,
+        impact_minutes: 20,
+        status: "approuve",
+        requested_at: FIRST_END,
+        requested_by_user_id: null,
+        reviewed_at: FIRST_END,
+        reviewed_by_user_id: null,
+        review_note: null,
+        approved_minutes: 30,
+      },
+      {
+        id: "exc-pending",
+        employee_id: 7,
+        shift_id: null,
+        source_event_id: "exit",
+        exception_type: "missing_punch_adjustment",
+        reason_label: "En attente",
+        details: null,
+        impact_minutes: 45,
+        status: "en_attente",
+        requested_at: FIRST_END,
+        requested_by_user_id: null,
+        reviewed_at: null,
+        reviewed_by_user_id: null,
+        review_note: null,
+        approved_minutes: null,
+      },
+    ]);
+
+    const { recomputeShiftForDate } = await import("./service");
+    const shift = await recomputeShiftForDate(7, WORK_DATE, { persist: false });
+
+    expect(shift.worked_minutes).toBe(240);
+    expect(shift.approved_exception_minutes).toBe(30);
+    expect(shift.pending_exception_minutes).toBe(45);
+    expect(shift.payable_minutes).toBe(270);
+    expect(shift.payable_minutes).not.toBe(315);
   });
 });

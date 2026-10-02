@@ -21,8 +21,11 @@
 -- minutes count only where the pair overlaps a closed payable segment. A pair
 -- in the off-duty gap does not reduce worked or payable minutes. An orphan
 -- pause or dinner start, including one in the off-duty gap, does not consume
--- a later end: each end pairs with the latest unmatched start before it.
--- Pair anomaly counts stay on the raw start and end counts.
+-- a later end. Starts and ends pair only inside the same closed shift
+-- segment. An end in the gap before the next segment can still close a
+-- start from the segment that just ended. Pair anomaly counts stay on the
+-- raw start and end counts. Payable minutes add approved exception minutes
+-- once, on top of worked minutes, and do not add pending exception minutes.
 -- Does not change the trigger, RLS, or grants, and does not rewrite punch
 -- rows or exception statuses.
 
@@ -416,27 +419,92 @@ begin
     ) lunch_end_bounds
     where bound_at is not null
   ),
+  closed_segments as (
+    select
+      start_item.payable_start,
+      end_item.segment_end,
+      start_item.segment_ord
+    from agg a
+    cross join lateral unnest(a.segment_payable_starts)
+      with ordinality as start_item(payable_start, segment_ord)
+    join lateral unnest(a.segment_ends)
+      with ordinality as end_item(segment_end, segment_ord)
+      on end_item.segment_ord = start_item.segment_ord
+  ),
+  segment_bounds as (
+    select
+      segment_ord,
+      payable_start,
+      segment_end,
+      lead(payable_start) over (order by segment_ord) as next_payable_start
+    from closed_segments
+  ),
   pair_marks as (
-    select 'break'::text as pair_kind, event_time, 'start'::text as kind, id
-    from break_starts
+    select
+      'break'::text as pair_kind,
+      s.event_time,
+      'start'::text as kind,
+      s.id,
+      seg.segment_ord
+    from break_starts s
+    join segment_bounds seg
+      on s.event_time >= seg.payable_start
+     and s.event_time < seg.segment_end
     union all
-    select 'break'::text, event_time, 'end'::text, id
-    from break_ends
+    select
+      'break'::text,
+      e.event_time,
+      'end'::text,
+      e.id,
+      seg.segment_ord
+    from break_ends e
+    join segment_bounds seg
+      on (
+        e.event_time > seg.payable_start
+        and e.event_time <= seg.segment_end
+      )
+      or (
+        e.event_time > seg.segment_end
+        and (seg.next_payable_start is null or e.event_time < seg.next_payable_start)
+      )
     union all
-    select 'lunch'::text, event_time, 'start'::text, id
-    from lunch_starts
+    select
+      'lunch'::text,
+      s.event_time,
+      'start'::text,
+      s.id,
+      seg.segment_ord
+    from lunch_starts s
+    join segment_bounds seg
+      on s.event_time >= seg.payable_start
+     and s.event_time < seg.segment_end
     union all
-    select 'lunch'::text, event_time, 'end'::text, id
-    from lunch_ends
+    select
+      'lunch'::text,
+      e.event_time,
+      'end'::text,
+      e.id,
+      seg.segment_ord
+    from lunch_ends e
+    join segment_bounds seg
+      on (
+        e.event_time > seg.payable_start
+        and e.event_time <= seg.segment_end
+      )
+      or (
+        e.event_time > seg.segment_end
+        and (seg.next_payable_start is null or e.event_time < seg.next_payable_start)
+      )
   ),
   pair_ordered as (
     select
       pair_kind,
+      segment_ord,
       event_time,
       kind,
       id,
       row_number() over (
-        partition by pair_kind
+        partition by pair_kind, segment_ord
         order by event_time, case when kind = 'start' then 0 else 1 end, id
       ) as seq
     from pair_marks
@@ -444,6 +512,7 @@ begin
   pair_depth as (
     select
       pair_kind,
+      segment_ord,
       event_time,
       kind,
       id,
@@ -455,6 +524,7 @@ begin
     union all
     select
       o.pair_kind,
+      o.segment_ord,
       o.event_time,
       o.kind,
       o.id,
@@ -472,6 +542,7 @@ begin
     from pair_depth d
     join pair_ordered o
       on o.pair_kind = d.pair_kind
+     and o.segment_ord = d.segment_ord
      and o.seq = d.seq + 1
   ),
   paired_bounds as (
@@ -482,6 +553,7 @@ begin
     from pair_depth e
     join pair_depth s
       on s.pair_kind = e.pair_kind
+     and s.segment_ord = e.segment_ord
      and s.kind = 'start'
      and e.kind = 'end'
      and s.depth = e.depth
@@ -498,17 +570,6 @@ begin
     select pair_start, pair_end
     from paired_bounds
     where pair_kind = 'lunch'
-  ),
-  closed_segments as (
-    select
-      start_item.payable_start,
-      end_item.segment_end
-    from agg a
-    cross join lateral unnest(a.segment_payable_starts)
-      with ordinality as start_item(payable_start, segment_ord)
-    join lateral unnest(a.segment_ends)
-      with ordinality as end_item(segment_end, segment_ord)
-      on end_item.segment_ord = start_item.segment_ord
   ),
   break_overlap as (
     select coalesce(sum(
@@ -625,9 +686,12 @@ begin
       ) as worked_minutes,
       greatest(
         0,
-        p.closed_payable_minutes
-        - s.unpaid_break_minutes
-        - s.unpaid_lunch_minutes
+        greatest(
+          0,
+          p.closed_payable_minutes
+          - s.unpaid_break_minutes
+          - s.unpaid_lunch_minutes
+        ) + ex.approved_exception_minutes
       ) as payable_minutes,
       ex.approved_exception_minutes,
       ex.pending_exception_minutes,

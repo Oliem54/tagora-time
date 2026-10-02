@@ -13,8 +13,10 @@
  * anglaises, seulement sur leur intersection avec un segment payable fermé.
  * Une pause ou un dîner dans le trou entre deux quarts ne réduit pas les
  * minutes. Une pause ou un dîner orphelin, y compris dans le trou hors
- * service, ne consomme pas une fin ultérieure : chaque fin se jumelle avec
- * le début non apparié le plus récent qui la précède. Les minutes de dîner
+ * service, ne consomme pas une fin ultérieure. Les débuts et les fins se
+ * jumellent seulement dans le même segment fermé. Une fin dans le trou
+ * avant le segment suivant peut encore fermer un début de ce segment.
+ * Les minutes de dîner
  * et de pause approuvés sont soustraites du
  * temps travaillé seulement s'ils ne sont pas payés,
  * comme `worked_minutes` dans la migration SQL. `pausePaid` suit
@@ -181,54 +183,100 @@ function overlapMinutes(
   return total;
 }
 
+function segmentIndexForPoint(
+  at: string,
+  segments: Array<{ payableStartAt: string; endAt: string }>,
+  kind: "start" | "end"
+) {
+  const atMs = timestampMs(at);
+  if (atMs == null) return null;
+  for (let index = 0; index < segments.length; index += 1) {
+    const segment = segments[index];
+    if (!segment) continue;
+    const startMs = timestampMs(segment.payableStartAt);
+    const endMs = timestampMs(segment.endAt);
+    if (startMs == null || endMs == null) continue;
+    if (kind === "start" && atMs >= startMs && atMs < endMs) return index;
+    if (kind === "end" && atMs > startMs && atMs <= endMs) return index;
+  }
+  if (kind === "start") return null;
+  for (let index = 0; index < segments.length; index += 1) {
+    const segment = segments[index];
+    const next = segments[index + 1];
+    if (!segment) continue;
+    const endMs = timestampMs(segment.endAt);
+    const nextStartMs = next ? timestampMs(next.payableStartAt) : null;
+    if (endMs == null) continue;
+    if (atMs > endMs && (nextStartMs == null || atMs < nextStartMs)) return index;
+  }
+  return null;
+}
+
 function pairedOverlapMinutes(
   starts: string[],
   ends: string[],
   segments: Array<{ payableStartAt: string; endAt: string }>
 ) {
-  const marks = [
-    ...starts.map((at, index) => ({ at, kind: "start" as const, index })),
-    ...ends.map((at, index) => ({ at, kind: "end" as const, index })),
-  ].filter((mark) => timestampMs(mark.at) != null);
-  marks.sort((left, right) => {
-    const delta = (timestampMs(left.at) ?? 0) - (timestampMs(right.at) ?? 0);
-    if (delta !== 0) return delta;
-    if (left.kind !== right.kind) return left.kind === "start" ? -1 : 1;
-    return left.index - right.index;
-  });
-
-  let balance = 0;
-  const depths = marks.map((mark) => {
-    if (mark.kind === "start") {
-      balance += 1;
-      return { ...mark, depth: balance };
-    }
-    if (balance > 0) {
-      const depth = balance;
-      balance -= 1;
-      return { ...mark, depth };
-    }
-    return { ...mark, depth: 0 };
-  });
-
-  const usedStartIndexes = new Set<number>();
+  const located = [
+    ...starts.map((at, index) => ({
+      at,
+      kind: "start" as const,
+      index,
+      segmentIndex: segmentIndexForPoint(at, segments, "start"),
+    })),
+    ...ends.map((at, index) => ({
+      at,
+      kind: "end" as const,
+      index,
+      segmentIndex: segmentIndexForPoint(at, segments, "end"),
+    })),
+  ].filter(
+    (mark) => timestampMs(mark.at) != null && mark.segmentIndex != null
+  );
+  const segmentIndexes = [
+    ...new Set(located.map((mark) => mark.segmentIndex as number)),
+  ];
   let total = 0;
-  for (const endMark of depths) {
-    if (endMark.kind !== "end" || endMark.depth <= 0) continue;
-    const startMark = depths
-      .filter(
-        (mark) =>
-          mark.kind === "start" &&
-          mark.depth === endMark.depth &&
-          !usedStartIndexes.has(mark.index) &&
-          (timestampMs(mark.at) ?? 0) < (timestampMs(endMark.at) ?? 0)
-      )
-      .sort(
-        (left, right) => (timestampMs(right.at) ?? 0) - (timestampMs(left.at) ?? 0)
-      )[0];
-    if (!startMark) continue;
-    usedStartIndexes.add(startMark.index);
-    total += overlapMinutes(startMark.at, endMark.at, segments);
+  for (const segmentIndex of segmentIndexes) {
+    const marks = located
+      .filter((mark) => mark.segmentIndex === segmentIndex)
+      .sort((left, right) => {
+        const delta = (timestampMs(left.at) ?? 0) - (timestampMs(right.at) ?? 0);
+        if (delta !== 0) return delta;
+        if (left.kind !== right.kind) return left.kind === "start" ? -1 : 1;
+        return left.index - right.index;
+      });
+    let balance = 0;
+    const depths = marks.map((mark) => {
+      if (mark.kind === "start") {
+        balance += 1;
+        return { ...mark, depth: balance };
+      }
+      if (balance > 0) {
+        const depth = balance;
+        balance -= 1;
+        return { ...mark, depth };
+      }
+      return { ...mark, depth: 0 };
+    });
+    const usedStartIndexes = new Set<number>();
+    for (const endMark of depths) {
+      if (endMark.kind !== "end" || endMark.depth <= 0) continue;
+      const startMark = depths
+        .filter(
+          (mark) =>
+            mark.kind === "start" &&
+            mark.depth === endMark.depth &&
+            !usedStartIndexes.has(mark.index) &&
+            (timestampMs(mark.at) ?? 0) < (timestampMs(endMark.at) ?? 0)
+        )
+        .sort(
+          (left, right) => (timestampMs(right.at) ?? 0) - (timestampMs(left.at) ?? 0)
+        )[0];
+      if (!startMark) continue;
+      usedStartIndexes.add(startMark.index);
+      total += overlapMinutes(startMark.at, endMark.at, segments);
+    }
   }
   return total;
 }
@@ -240,6 +288,7 @@ export function summarizeRecomputeShiftBounds(
     lunchPaid?: boolean;
     scheduleStart?: string | null;
     workDate?: string | null;
+    approvedExceptionMinutes?: number | null;
   }
 ): RecomputeShiftBoundSummary {
   const pausePaid = flags?.pausePaid === true;
@@ -317,13 +366,17 @@ export function summarizeRecomputeShiftBounds(
     0,
     closedPayableMinutes - unpaidBreakMinutes - unpaidLunchMinutes
   );
+  const approvedExceptionMinutes = Math.max(
+    0,
+    Math.floor(flags?.approvedExceptionMinutes ?? 0)
+  );
 
   return {
     shiftStartAt,
     shiftEndAt,
     payableStartAt,
     workedMinutes,
-    payableMinutes: workedMinutes,
+    payableMinutes: Math.max(0, workedMinutes + approvedExceptionMinutes),
     unpaidBreakMinutes,
     unpaidLunchMinutes,
     pairAnomalies,

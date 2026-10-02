@@ -47,7 +47,14 @@ describe("recompute shift bounds for quart_debut and quart_fin", () => {
     expect(sql).toContain("least(p.pair_end, seg.segment_end)");
     expect(sql).toContain("greatest(p.pair_start, seg.payable_start)");
     expect(sql).toContain("s.depth = e.depth");
+    expect(sql).toContain("o.segment_ord = d.segment_ord");
     expect(sql).not.toContain("e.rn = s.rn");
+    const payableClause = sql.slice(
+      sql.indexOf("as worked_minutes"),
+      sql.indexOf("as payable_minutes")
+    );
+    expect(payableClause).toContain("ex.approved_exception_minutes");
+    expect(payableClause).not.toContain("pending_exception_minutes");
     expect(sql).toContain("when v_pause_paid then 0");
     expect(sql).toContain("when v_lunch_paid then 0");
     const pairClause = sql.slice(
@@ -1042,6 +1049,91 @@ describe("recompute shift bounds for quart_debut and quart_fin", () => {
     expect(summary.payableMinutes).toBe(465);
     expect(summary.pairAnomalies).toBe(1);
     expect(summary.status).toBe("ferme");
+  });
+
+  it("deducts only the valid pause when a gap start and a later orphan end surround it", () => {
+    const summary = summarizeRecomputeShiftBounds([
+      {
+        eventType: "quart_debut",
+        status: "approuve",
+        occurredAt: "2026-09-29T08:00:00.000Z",
+        eventTime: "2026-09-29T08:00:00.000Z",
+      },
+      {
+        eventType: "quart_fin",
+        status: "approuve",
+        occurredAt: "2026-09-29T12:00:00.000Z",
+        eventTime: "2026-09-29T12:00:00.000Z",
+      },
+      {
+        eventType: "pause_debut",
+        status: "approuve",
+        occurredAt: "2026-09-29T12:30:00.000Z",
+        eventTime: "2026-09-29T12:30:00.000Z",
+      },
+      {
+        eventType: "quart_debut",
+        status: "approuve",
+        occurredAt: "2026-09-29T13:00:00.000Z",
+        eventTime: "2026-09-29T13:00:00.000Z",
+      },
+      {
+        eventType: "pause_debut",
+        status: "approuve",
+        occurredAt: "2026-09-29T14:00:00.000Z",
+        eventTime: "2026-09-29T14:00:00.000Z",
+      },
+      {
+        eventType: "pause_fin",
+        status: "approuve",
+        occurredAt: "2026-09-29T14:15:00.000Z",
+        eventTime: "2026-09-29T14:15:00.000Z",
+      },
+      {
+        eventType: "pause_fin",
+        status: "approuve",
+        occurredAt: "2026-09-29T14:30:00.000Z",
+        eventTime: "2026-09-29T14:30:00.000Z",
+      },
+      {
+        eventType: "quart_fin",
+        status: "approuve",
+        occurredAt: "2026-09-29T17:00:00.000Z",
+        eventTime: "2026-09-29T17:00:00.000Z",
+      },
+    ]);
+
+    expect(summary.unpaidBreakMinutes).toBe(15);
+    expect(summary.unpaidBreakMinutes).not.toBe(105);
+    expect(summary.workedMinutes).toBe(465);
+    expect(summary.payableMinutes).toBe(465);
+    expect(summary.pairAnomalies).toBe(0);
+  });
+
+  it("adds approved exception minutes to payable without changing worked minutes", () => {
+    const events = [
+      {
+        eventType: "quart_debut",
+        status: "approuve" as const,
+        occurredAt: "2026-09-29T14:00:00.000Z",
+        eventTime: "2026-09-29T14:00:00.000Z",
+      },
+      {
+        eventType: "quart_fin",
+        status: "approuve" as const,
+        occurredAt: "2026-09-29T18:00:00.000Z",
+        eventTime: "2026-09-29T18:00:00.000Z",
+      },
+    ];
+    const summary = summarizeRecomputeShiftBounds(events, {
+      approvedExceptionMinutes: 30,
+    });
+    expect(summary.workedMinutes).toBe(240);
+    expect(summary.payableMinutes).toBe(270);
+    expect(
+      summarizeRecomputeShiftBounds(events, { approvedExceptionMinutes: 0 })
+        .payableMinutes
+    ).toBe(240);
   });
 
   it("does not let a later English exit extend a closed shift after a pending arrival", () => {

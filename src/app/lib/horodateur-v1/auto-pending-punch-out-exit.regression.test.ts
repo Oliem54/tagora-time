@@ -416,4 +416,47 @@ describe("real punch-out after an automatic pending quart_fin", () => {
       }).primaryLabel
     ).toBe("Sortie soumise");
   });
+
+  it("recomputes a stale termine state before classifying the real exit", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(REAL_EXIT_AT));
+    installCommonMocks();
+    getCurrentStateByEmployeeId.mockResolvedValue({
+      employee_id: 7,
+      current_state: "termine",
+      last_event_id: "automatic-end",
+      last_event_type: "quart_fin",
+      last_event_at: AUTOMATIC_END_AT,
+      company_context: "oliem_solutions",
+      has_open_exception: true,
+    });
+    installEventStore([arrival, automaticEnd]);
+
+    const { createEmployeePunch } = await import("./service");
+    const created = await createEmployeePunch({
+      actorUserId: "auth-7",
+      eventType: "punch_out",
+      occurredAt: REAL_EXIT_AT,
+      sourceKind: "qr",
+    });
+
+    expect(automaticEnd.status).toBe("en_attente");
+    expect(arrival.status).toBe("normal");
+    expect(upsertCurrentState).toHaveBeenCalledWith(
+      expect.objectContaining({ current_state: "en_quart" })
+    );
+    expect(upsertCurrentState.mock.invocationCallOrder[0]).toBeLessThan(
+      insertEvent.mock.invocationCallOrder[0]
+    );
+    expect(insertEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: "punch_out",
+        status: "normal",
+        sourceKind: "qr",
+      })
+    );
+    expect(insertException).not.toHaveBeenCalled();
+    expect(created.event.status).toBe("normal");
+    expect(created.exception).toBeNull();
+  });
 });
