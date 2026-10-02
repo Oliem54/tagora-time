@@ -22,10 +22,12 @@
 -- in the off-duty gap does not reduce worked or payable minutes. An orphan
 -- pause or dinner start, including one in the off-duty gap, does not consume
 -- a later end. Starts and ends pair only inside the same closed shift
--- segment. An end in the gap before the next segment can still close a
--- start from the segment that just ended. Pair anomaly counts stay on the
--- raw start and end counts. Payable minutes add approved exception minutes
--- once, on top of worked minutes, and do not add pending exception minutes.
+-- segment, using the real segment start. The payable clamp still limits the
+-- deducted overlap. An end in the gap before the next real segment start can
+-- still close a start from the segment that just ended. Pair anomaly counts
+-- stay on the raw start and end counts. Payable minutes add approved and
+-- modified exception minutes once, on top of worked minutes, for exceptions
+-- whose source event falls on the work date. Pending minutes stay out.
 -- Does not change the trigger, RLS, or grants, and does not rewrite punch
 -- rows or exception statuses.
 
@@ -195,7 +197,8 @@ begin
       end as segment_payable_start_at,
       0::int as closed_payable_minutes,
       '{}'::timestamp with time zone[] as segment_payable_starts,
-      '{}'::timestamp with time zone[] as segment_ends
+      '{}'::timestamp with time zone[] as segment_ends,
+      '{}'::timestamp with time zone[] as segment_starts
     from ordered_bounds
     where rn = 1
     union all
@@ -272,7 +275,15 @@ begin
           and w.shift_end_at is null
           then w.segment_ends || o.bound_at
         else w.segment_ends
-      end as segment_ends
+      end as segment_ends,
+      case
+        when o.bound_kind = 'end'
+          and w.segment_start_at is not null
+          and o.bound_at >= w.segment_start_at
+          and w.shift_end_at is null
+          then w.segment_starts || w.segment_start_at
+        else w.segment_starts
+      end as segment_starts
     from segment_walk w
     join ordered_bounds o on o.rn = w.rn + 1
   ),
@@ -285,7 +296,8 @@ begin
       w.shift_end_at,
       coalesce(w.closed_payable_minutes, 0) as closed_payable_minutes,
       coalesce(w.segment_payable_starts, '{}'::timestamp with time zone[]) as segment_payable_starts,
-      coalesce(w.segment_ends, '{}'::timestamp with time zone[]) as segment_ends
+      coalesce(w.segment_ends, '{}'::timestamp with time zone[]) as segment_ends,
+      coalesce(w.segment_starts, '{}'::timestamp with time zone[]) as segment_starts
     from (
       select distinct employee_id, work_date
       from base_events
@@ -421,22 +433,27 @@ begin
   ),
   closed_segments as (
     select
-      start_item.payable_start,
+      raw_item.segment_start,
+      payable_item.payable_start,
       end_item.segment_end,
-      start_item.segment_ord
+      raw_item.segment_ord
     from agg a
-    cross join lateral unnest(a.segment_payable_starts)
-      with ordinality as start_item(payable_start, segment_ord)
+    cross join lateral unnest(a.segment_starts)
+      with ordinality as raw_item(segment_start, segment_ord)
+    join lateral unnest(a.segment_payable_starts)
+      with ordinality as payable_item(payable_start, segment_ord)
+      on payable_item.segment_ord = raw_item.segment_ord
     join lateral unnest(a.segment_ends)
       with ordinality as end_item(segment_end, segment_ord)
-      on end_item.segment_ord = start_item.segment_ord
+      on end_item.segment_ord = raw_item.segment_ord
   ),
   segment_bounds as (
     select
       segment_ord,
+      segment_start,
       payable_start,
       segment_end,
-      lead(payable_start) over (order by segment_ord) as next_payable_start
+      lead(segment_start) over (order by segment_ord) as next_segment_start
     from closed_segments
   ),
   pair_marks as (
@@ -448,7 +465,7 @@ begin
       seg.segment_ord
     from break_starts s
     join segment_bounds seg
-      on s.event_time >= seg.payable_start
+      on s.event_time >= seg.segment_start
      and s.event_time < seg.segment_end
     union all
     select
@@ -460,12 +477,12 @@ begin
     from break_ends e
     join segment_bounds seg
       on (
-        e.event_time > seg.payable_start
+        e.event_time > seg.segment_start
         and e.event_time <= seg.segment_end
       )
       or (
         e.event_time > seg.segment_end
-        and (seg.next_payable_start is null or e.event_time < seg.next_payable_start)
+        and (seg.next_segment_start is null or e.event_time < seg.next_segment_start)
       )
     union all
     select
@@ -476,7 +493,7 @@ begin
       seg.segment_ord
     from lunch_starts s
     join segment_bounds seg
-      on s.event_time >= seg.payable_start
+      on s.event_time >= seg.segment_start
      and s.event_time < seg.segment_end
     union all
     select
@@ -488,12 +505,12 @@ begin
     from lunch_ends e
     join segment_bounds seg
       on (
-        e.event_time > seg.payable_start
+        e.event_time > seg.segment_start
         and e.event_time <= seg.segment_end
       )
       or (
         e.event_time > seg.segment_end
-        and (seg.next_payable_start is null or e.event_time < seg.next_payable_start)
+        and (seg.next_segment_start is null or e.event_time < seg.next_segment_start)
       )
   ),
   pair_ordered as (
@@ -618,7 +635,10 @@ begin
     select
       coalesce(sum(
         case
-          when x.status = 'approuve'::public.horodateur_exception_status
+          when x.status in (
+            'approuve'::public.horodateur_exception_status,
+            'modifie'::public.horodateur_exception_status
+          )
           then coalesce(x.approved_minutes, x.impact_minutes, 0)
           else 0
         end
@@ -631,8 +651,11 @@ begin
         end
       ), 0)::int as pending_exception_minutes
     from public.horodateur_exceptions x
+    join public.horodateur_events ev
+      on ev.id = x.source_event_id
+     and ev.employee_id = p_employee_id
+     and ev.work_date = p_work_date
     where x.employee_id = p_employee_id
-      and x.shift_id in (select id from existing_shift)
   ),
   deleted as (
     delete from public.horodateur_shifts s

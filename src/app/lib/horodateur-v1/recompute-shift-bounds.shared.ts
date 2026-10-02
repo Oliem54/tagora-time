@@ -14,7 +14,9 @@
  * Une pause ou un dîner dans le trou entre deux quarts ne réduit pas les
  * minutes. Une pause ou un dîner orphelin, y compris dans le trou hors
  * service, ne consomme pas une fin ultérieure. Les débuts et les fins se
- * jumellent seulement dans le même segment fermé. Une fin dans le trou
+ * jumellent seulement dans le même segment fermé, sur le vrai début du
+ * segment. Le clamp horaire limite seulement le chevauchement payable.
+ * Une fin dans le trou
  * avant le segment suivant peut encore fermer un début de ce segment.
  * Les minutes de dîner
  * et de pause approuvés sont soustraites du
@@ -185,7 +187,7 @@ function overlapMinutes(
 
 function segmentIndexForPoint(
   at: string,
-  segments: Array<{ payableStartAt: string; endAt: string }>,
+  segments: Array<{ segmentStartAt: string; endAt: string }>,
   kind: "start" | "end"
 ) {
   const atMs = timestampMs(at);
@@ -193,7 +195,7 @@ function segmentIndexForPoint(
   for (let index = 0; index < segments.length; index += 1) {
     const segment = segments[index];
     if (!segment) continue;
-    const startMs = timestampMs(segment.payableStartAt);
+    const startMs = timestampMs(segment.segmentStartAt);
     const endMs = timestampMs(segment.endAt);
     if (startMs == null || endMs == null) continue;
     if (kind === "start" && atMs >= startMs && atMs < endMs) return index;
@@ -205,7 +207,7 @@ function segmentIndexForPoint(
     const next = segments[index + 1];
     if (!segment) continue;
     const endMs = timestampMs(segment.endAt);
-    const nextStartMs = next ? timestampMs(next.payableStartAt) : null;
+    const nextStartMs = next ? timestampMs(next.segmentStartAt) : null;
     if (endMs == null) continue;
     if (atMs > endMs && (nextStartMs == null || atMs < nextStartMs)) return index;
   }
@@ -215,7 +217,7 @@ function segmentIndexForPoint(
 function pairedOverlapMinutes(
   starts: string[],
   ends: string[],
-  segments: Array<{ payableStartAt: string; endAt: string }>
+  segments: Array<{ segmentStartAt: string; payableStartAt: string; endAt: string }>
 ) {
   const located = [
     ...starts.map((at, index) => ({
@@ -326,7 +328,11 @@ export function summarizeRecomputeShiftBounds(
   let shiftEndAt: string | null = null;
   let segmentStartAt: string | null = null;
   let closedPayableMinutes = 0;
-  const closedSegments: Array<{ payableStartAt: string; endAt: string }> = [];
+  const closedSegments: Array<{
+    segmentStartAt: string;
+    payableStartAt: string;
+    endAt: string;
+  }> = [];
 
   for (const bound of bounds) {
     if (bound.kind === "start") {
@@ -346,7 +352,11 @@ export function summarizeRecomputeShiftBounds(
 
     const segmentPayableAt = payableSegmentStart(segmentStartAt, flags);
     closedPayableMinutes += payableSegmentMinutes(segmentPayableAt, bound.at);
-    closedSegments.push({ payableStartAt: segmentPayableAt, endAt: bound.at });
+    closedSegments.push({
+      segmentStartAt,
+      payableStartAt: segmentPayableAt,
+      endAt: bound.at,
+    });
     shiftEndAt = bound.at;
   }
 

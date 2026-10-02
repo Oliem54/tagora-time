@@ -48,6 +48,10 @@ describe("recompute shift bounds for quart_debut and quart_fin", () => {
     expect(sql).toContain("greatest(p.pair_start, seg.payable_start)");
     expect(sql).toContain("s.depth = e.depth");
     expect(sql).toContain("o.segment_ord = d.segment_ord");
+    expect(sql).toContain("s.event_time >= seg.segment_start");
+    expect(sql).toContain("ev.work_date = p_work_date");
+    expect(sql).toContain("'modifie'::public.horodateur_exception_status");
+    expect(sql).not.toContain("x.shift_id in (select id from existing_shift)");
     expect(sql).not.toContain("e.rn = s.rn");
     const payableClause = sql.slice(
       sql.indexOf("as worked_minutes"),
@@ -583,6 +587,48 @@ describe("recompute shift bounds for quart_debut and quart_fin", () => {
 
     expect(summary.shiftStartAt).toBe(punchAt);
     expect(summary.unpaidBreakMinutes).toBe(15);
+    expect(summary.workedMinutes).toBe(465);
+    expect(summary.payableMinutes).toBe(465);
+  });
+
+  it("deducts only the payable overlap when an unpaid pause starts before the schedule clamp", () => {
+    const summary = summarizeRecomputeShiftBounds(
+      [
+        {
+          eventType: "quart_debut",
+          status: "normal",
+          occurredAt: "2026-06-08T10:35:00.000Z",
+          eventTime: "2026-06-08T10:35:00.000Z",
+        },
+        {
+          eventType: "pause_debut",
+          status: "approuve",
+          occurredAt: "2026-06-08T10:45:00.000Z",
+          eventTime: "2026-06-08T10:45:00.000Z",
+        },
+        {
+          eventType: "pause_fin",
+          status: "approuve",
+          occurredAt: "2026-06-08T11:15:00.000Z",
+          eventTime: "2026-06-08T11:15:00.000Z",
+        },
+        {
+          eventType: "quart_fin",
+          status: "approuve",
+          occurredAt: "2026-06-08T19:00:00.000Z",
+          eventTime: "2026-06-08T19:00:00.000Z",
+        },
+      ],
+      {
+        pausePaid: false,
+        scheduleStart: "07:00:00",
+        workDate: "2026-06-08",
+      }
+    );
+
+    expect(summary.unpaidBreakMinutes).toBe(15);
+    expect(summary.unpaidBreakMinutes).not.toBe(0);
+    expect(summary.unpaidBreakMinutes).not.toBe(30);
     expect(summary.workedMinutes).toBe(465);
     expect(summary.payableMinutes).toBe(465);
   });
