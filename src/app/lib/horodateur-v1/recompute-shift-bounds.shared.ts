@@ -15,7 +15,9 @@
  * minutes. Une pause ou un dîner orphelin, y compris dans le trou hors
  * service, ne consomme pas une fin ultérieure. Les débuts et les fins se
  * jumellent seulement dans le même segment fermé, sur le vrai début du
- * segment. Le clamp horaire limite seulement le chevauchement payable.
+ * segment. Un second début pendant une pause déjà ouverte est rejeté et ne
+ * forme pas une paire imbriquée. Le clamp horaire limite seulement le
+ * chevauchement payable.
  * Une fin dans le trou
  * avant le segment suivant peut encore fermer un début de ce segment.
  * Les minutes de dîner
@@ -248,27 +250,29 @@ function pairedOverlapMinutes(
         if (left.kind !== right.kind) return left.kind === "start" ? -1 : 1;
         return left.index - right.index;
       });
-    let balance = 0;
-    const depths = marks.map((mark) => {
+    let open = false;
+    const accepted = marks.map((mark) => {
       if (mark.kind === "start") {
-        balance += 1;
-        return { ...mark, depth: balance };
+        if (!open) {
+          open = true;
+          return { ...mark, accepted: true };
+        }
+        return { ...mark, accepted: false };
       }
-      if (balance > 0) {
-        const depth = balance;
-        balance -= 1;
-        return { ...mark, depth };
+      if (open) {
+        open = false;
+        return { ...mark, accepted: true };
       }
-      return { ...mark, depth: 0 };
+      return { ...mark, accepted: false };
     });
     const usedStartIndexes = new Set<number>();
-    for (const endMark of depths) {
-      if (endMark.kind !== "end" || endMark.depth <= 0) continue;
-      const startMark = depths
+    for (const endMark of accepted) {
+      if (endMark.kind !== "end" || !endMark.accepted) continue;
+      const startMark = accepted
         .filter(
           (mark) =>
             mark.kind === "start" &&
-            mark.depth === endMark.depth &&
+            mark.accepted &&
             !usedStartIndexes.has(mark.index) &&
             (timestampMs(mark.at) ?? 0) < (timestampMs(endMark.at) ?? 0)
         )

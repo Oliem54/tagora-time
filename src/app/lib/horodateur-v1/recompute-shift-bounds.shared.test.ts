@@ -47,6 +47,8 @@ describe("recompute shift bounds for quart_debut and quart_fin", () => {
     expect(sql).toContain("least(p.pair_end, seg.segment_end)");
     expect(sql).toContain("greatest(p.pair_start, seg.payable_start)");
     expect(sql).toContain("s.depth = e.depth");
+    expect(sql).toContain("when o.kind = 'start' and d.balance = 0 then 1");
+    expect(sql).not.toContain("when o.kind = 'start' then d.balance + 1");
     expect(sql).toContain("o.segment_ord = d.segment_ord");
     expect(sql).toContain("s.event_time >= seg.segment_start");
     expect(sql).toContain("ev.work_date = p_work_date");
@@ -1095,6 +1097,106 @@ describe("recompute shift bounds for quart_debut and quart_fin", () => {
     expect(summary.payableMinutes).toBe(465);
     expect(summary.pairAnomalies).toBe(1);
     expect(summary.status).toBe("ferme");
+  });
+
+  it("rejects a nested pause start and deducts only the open pause", () => {
+    const summary = summarizeRecomputeShiftBounds(
+      [
+        {
+          eventType: "quart_debut",
+          status: "approuve",
+          occurredAt: "2026-09-29T08:00:00.000Z",
+          eventTime: "2026-09-29T08:00:00.000Z",
+        },
+        {
+          eventType: "pause_debut",
+          status: "approuve",
+          occurredAt: "2026-09-29T10:00:00.000Z",
+          eventTime: "2026-09-29T10:00:00.000Z",
+        },
+        {
+          eventType: "pause_debut",
+          status: "approuve",
+          occurredAt: "2026-09-29T10:05:00.000Z",
+          eventTime: "2026-09-29T10:05:00.000Z",
+        },
+        {
+          eventType: "pause_fin",
+          status: "approuve",
+          occurredAt: "2026-09-29T10:15:00.000Z",
+          eventTime: "2026-09-29T10:15:00.000Z",
+        },
+        {
+          eventType: "pause_fin",
+          status: "approuve",
+          occurredAt: "2026-09-29T10:20:00.000Z",
+          eventTime: "2026-09-29T10:20:00.000Z",
+        },
+        {
+          eventType: "quart_fin",
+          status: "approuve",
+          occurredAt: "2026-09-29T17:00:00.000Z",
+          eventTime: "2026-09-29T17:00:00.000Z",
+        },
+      ],
+      { pausePaid: false, lunchPaid: false }
+    );
+
+    expect(summary.unpaidBreakMinutes).toBe(15);
+    expect(summary.unpaidBreakMinutes).not.toBe(30);
+    expect(summary.workedMinutes).toBe(525);
+    expect(summary.payableMinutes).toBe(525);
+    expect(summary.pairAnomalies).toBe(0);
+  });
+
+  it("rejects a nested dinner start the same way", () => {
+    const summary = summarizeRecomputeShiftBounds(
+      [
+        {
+          eventType: "quart_debut",
+          status: "approuve",
+          occurredAt: "2026-09-29T08:00:00.000Z",
+          eventTime: "2026-09-29T08:00:00.000Z",
+        },
+        {
+          eventType: "dinner_debut",
+          status: "approuve",
+          occurredAt: "2026-09-29T10:00:00.000Z",
+          eventTime: "2026-09-29T10:00:00.000Z",
+        },
+        {
+          eventType: "dinner_debut",
+          status: "approuve",
+          occurredAt: "2026-09-29T10:05:00.000Z",
+          eventTime: "2026-09-29T10:05:00.000Z",
+        },
+        {
+          eventType: "dinner_fin",
+          status: "approuve",
+          occurredAt: "2026-09-29T10:15:00.000Z",
+          eventTime: "2026-09-29T10:15:00.000Z",
+        },
+        {
+          eventType: "dinner_fin",
+          status: "approuve",
+          occurredAt: "2026-09-29T10:20:00.000Z",
+          eventTime: "2026-09-29T10:20:00.000Z",
+        },
+        {
+          eventType: "quart_fin",
+          status: "approuve",
+          occurredAt: "2026-09-29T17:00:00.000Z",
+          eventTime: "2026-09-29T17:00:00.000Z",
+        },
+      ],
+      { pausePaid: false, lunchPaid: false }
+    );
+
+    expect(summary.unpaidLunchMinutes).toBe(15);
+    expect(summary.unpaidLunchMinutes).not.toBe(30);
+    expect(summary.workedMinutes).toBe(525);
+    expect(summary.payableMinutes).toBe(525);
+    expect(summary.pairAnomalies).toBe(0);
   });
 
   it("deducts only the valid pause when a gap start and a later orphan end surround it", () => {

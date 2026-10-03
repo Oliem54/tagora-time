@@ -24,8 +24,10 @@
 -- a later end. Starts and ends pair only inside the same closed shift
 -- segment, using the real segment start. The payable clamp still limits the
 -- deducted overlap. An end in the gap before the next real segment start can
--- still close a start from the segment that just ended. Pair anomaly counts
--- stay on the raw start and end counts. Payable minutes add approved and
+-- still close a start from the segment that just ended. A second pause or
+-- dinner start while one is already open is rejected and does not form a
+-- nested pair. Pair anomaly counts stay on the raw start and end counts.
+-- Payable minutes add approved and
 -- modified exception minutes once, on top of worked minutes, for exceptions
 -- whose source event falls on the work date. Pending minutes stay out.
 -- Does not change the trigger, RLS, or grants, and does not rewrite punch
@@ -547,14 +549,14 @@ begin
       o.id,
       o.seq,
       case
-        when o.kind = 'start' then d.balance + 1
-        when d.balance > 0 then d.balance
+        when o.kind = 'start' and d.balance = 0 then 1
+        when o.kind = 'end' and d.balance > 0 then 1
         else 0
       end as depth,
       case
-        when o.kind = 'start' then d.balance + 1
-        when d.balance > 0 then d.balance - 1
-        else 0
+        when o.kind = 'start' and d.balance = 0 then 1
+        when o.kind = 'end' and d.balance > 0 then 0
+        else d.balance
       end as balance
     from pair_depth d
     join pair_ordered o
