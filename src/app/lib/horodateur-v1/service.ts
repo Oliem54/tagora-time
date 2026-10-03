@@ -102,6 +102,7 @@ import {
   resolveLivePreferredOperationalState,
   resolveOperationalWorkDate,
 } from "./operational-state.shared";
+import { isAutomaticMissingPendingPunchOut } from "./recompute-current-state.shared";
 import {
   isUrgentHorodateurIncident,
   shouldGrandfatherHistoricalAlert,
@@ -2628,23 +2629,33 @@ export async function recomputeCurrentState(
       return String(left.id).localeCompare(String(right.id));
     });
 
-  /** Flux complet (approuvé + en attente) — pour last_event_* et métadonnées. */
-  const effectiveEvents = sortEventsForState([
-    ...approvedEvents,
-    ...pendingOperationalEvents,
-  ]);
   /**
-   * Etat operationnel employe : inclut punch_out en_attente pour fermer le quart cote interface.
-   * La paie reste calculee uniquement sur normal / approuve (recomputeShiftForDate).
+   * Etat operationnel employe : une sortie en attente soumise par l'employe
+   * ferme le quart cote interface. Une fin automatique en attente, creee par
+   * l'escalade des punchs manquants, reste ignoree pour ne pas ecraser un
+   * quart ouvert par « termine ». La paie reste calculee uniquement sur
+   * normal / approuve (recomputeShiftForDate).
    */
-  const pendingPunchOutEvents = pendingOperationalEvents.filter(
+  const livePendingOperationalEvents = pendingOperationalEvents.filter(
+    (event) => !isAutomaticMissingPendingPunchOut(event)
+  );
+  /**
+   * Métadonnées du dernier événement : même exclusion que l'état opérationnel.
+   * Une fin automatique plus tardive ne doit pas devenir last_event_id, sinon
+   * la relecture du pointage refuse la vraie sortie déjà enregistrée.
+   */
+  const metadataEvents = sortEventsForState([
+    ...approvedEvents,
+    ...livePendingOperationalEvents,
+  ]);
+  const pendingPunchOutEvents = livePendingOperationalEvents.filter(
     (event) => toCanonicalEventType(event.event_type) === "punch_out"
   );
   const nowIso = new Date().toISOString();
   const calendarWorkDate = getLocalWorkDate(nowIso);
   const operationalState = resolveLivePreferredOperationalState({
     approvedEvents,
-    pendingOperationalEvents,
+    pendingOperationalEvents: livePendingOperationalEvents,
     calendarWorkDate,
     ignorePaidBreakPunches,
   });
@@ -2654,8 +2665,8 @@ export async function recomputeCurrentState(
   );
 
   const lastEvent =
-    effectiveEvents.length > 0
-      ? effectiveEvents[effectiveEvents.length - 1]
+    metadataEvents.length > 0
+      ? metadataEvents[metadataEvents.length - 1]
       : getLastApprovedEvent(approvedEvents);
   const pendingExceptionsCount = await countPendingExceptionsForEmployee(employeeId);
 
@@ -2788,6 +2799,19 @@ function resolveMealLimitMinutes(employee: HorodateurPhase1EmployeeProfile) {
   );
 }
 
+const SERVICE_ENGLISH_SHIFT_END_TYPES = new Set(["clock_out", "shift_end"]);
+
+function isServiceEnglishShiftEnd(eventType: string) {
+  return SERVICE_ENGLISH_SHIFT_END_TYPES.has(eventType);
+}
+
+function payrollMachineOrderAt(event: HorodateurPhase1EventRecord) {
+  if (isServiceEnglishShiftEnd(String(event.event_type))) {
+    return event.event_time ?? getEventOccurredAt(event);
+  }
+  return getEventOccurredAt(event);
+}
+
 export async function recomputeShiftForDate(
   employeeId: number,
   workDate: string,
@@ -2805,8 +2829,8 @@ export async function recomputeShiftForDate(
   const orderedEvents = approvedEvents
     .slice()
     .sort((left, right) => {
-      const leftAt = getEventOccurredAt(left);
-      const rightAt = getEventOccurredAt(right);
+      const leftAt = payrollMachineOrderAt(left);
+      const rightAt = payrollMachineOrderAt(right);
       if (!leftAt && !rightAt) {
         return String(left.id).localeCompare(String(right.id));
       }
@@ -2827,6 +2851,7 @@ export async function recomputeShiftForDate(
 
   let shiftStartAt: string | null = null;
   let shiftEndAt: string | null = null;
+  let openSegmentStartAt: string | null = null;
   let workSegmentStartAt: string | null = null;
   let pauseStartAt: string | null = null;
   let dinnerStartAt: string | null = null;
@@ -2838,12 +2863,67 @@ export async function recomputeShiftForDate(
   const anomalies: string[] = [];
   let state: HorodateurPhase1StateKind = "hors_quart";
 
+  const closeOpenSegment = (exitAt: string) => {
+    const segmentStartMs = openSegmentStartAt
+      ? new Date(openSegmentStartAt).getTime()
+      : null;
+    const exitMs = new Date(exitAt).getTime();
+    if (
+      !shiftStartAt ||
+      !openSegmentStartAt ||
+      shiftEndAt ||
+      segmentStartMs == null ||
+      !Number.isFinite(segmentStartMs) ||
+      !Number.isFinite(exitMs) ||
+      exitMs < segmentStartMs ||
+      (state !== "en_quart" && state !== "en_pause" && state !== "en_diner")
+    ) {
+      return false;
+    }
+
+    shiftEndAt = exitAt;
+
+    if (state === "en_quart" && workSegmentStartAt) {
+      workedMinutes += diffMinutes(workSegmentStartAt, exitAt);
+    } else if (state === "en_pause") {
+      const duration = pauseStartAt ? diffMinutes(pauseStartAt, exitAt) : 0;
+      if (employee.pausePaid) {
+        paidBreakMinutes += duration;
+      } else {
+        unpaidBreakMinutes += duration;
+      }
+      anomalies.push("punch_out pendant pause active (missing break_end).");
+    } else if (state === "en_diner") {
+      const duration = dinnerStartAt ? diffMinutes(dinnerStartAt, exitAt) : 0;
+      if (!employee.lunchPaid) {
+        unpaidLunchMinutes += duration;
+      }
+      anomalies.push("punch_out pendant diner actif (missing meal_end).");
+    }
+
+    workSegmentStartAt = null;
+    openSegmentStartAt = null;
+    pauseStartAt = null;
+    dinnerStartAt = null;
+    terrainStartAt = null;
+    state = "termine";
+    return true;
+  };
+
   for (const event of orderedEvents) {
     const eventOccurredAt = getEventOccurredAt(event);
     const canonicalEventType = toCanonicalEventType(event.event_type);
 
     if (!eventOccurredAt) {
       anomalies.push(`Evenement ${event.event_type} sans horodatage exploitable.`);
+      continue;
+    }
+
+    if (isServiceEnglishShiftEnd(String(event.event_type))) {
+      const exitAt = event.event_time ?? null;
+      if (exitAt) {
+        closeOpenSegment(exitAt);
+      }
       continue;
     }
 
@@ -2859,6 +2939,7 @@ export async function recomputeShiftForDate(
     if (shouldTreatApprovedEventAsShiftStart(event, orderedEvents)) {
       if (shiftStartAt && shiftEndAt && state === "termine") {
         shiftEndAt = null;
+        openSegmentStartAt = eventOccurredAt;
         workSegmentStartAt = resolvePayableWorkSegmentStartAt({
           punchInOccurredAt: eventOccurredAt,
           workDate,
@@ -2870,6 +2951,7 @@ export async function recomputeShiftForDate(
 
       if (!shiftStartAt) {
         shiftStartAt = eventOccurredAt;
+        openSegmentStartAt = eventOccurredAt;
         workSegmentStartAt = resolvePayableWorkSegmentStartAt({
           punchInOccurredAt: eventOccurredAt,
           workDate,
@@ -2986,36 +3068,10 @@ export async function recomputeShiftForDate(
     }
 
     if (canonicalEventType === "punch_out") {
-      if (!shiftStartAt) {
+      if (!closeOpenSegment(eventOccurredAt) && !shiftStartAt) {
         anomalies.push("punch_out sans punch_in.");
         state = "termine";
-        continue;
       }
-      shiftEndAt = eventOccurredAt;
-
-      if (state === "en_quart" && workSegmentStartAt) {
-        workedMinutes += diffMinutes(workSegmentStartAt, eventOccurredAt);
-      } else if (state === "en_pause") {
-        const duration = pauseStartAt ? diffMinutes(pauseStartAt, eventOccurredAt) : 0;
-        if (employee.pausePaid) {
-          paidBreakMinutes += duration;
-        } else {
-          unpaidBreakMinutes += duration;
-        }
-        anomalies.push("punch_out pendant pause active (missing break_end).");
-      } else if (state === "en_diner") {
-        const duration = dinnerStartAt ? diffMinutes(dinnerStartAt, eventOccurredAt) : 0;
-        if (!employee.lunchPaid) {
-          unpaidLunchMinutes += duration;
-        }
-        anomalies.push("punch_out pendant diner actif (missing meal_end).");
-      }
-
-      workSegmentStartAt = null;
-      pauseStartAt = null;
-      dinnerStartAt = null;
-      terrainStartAt = null;
-      state = "termine";
       continue;
     }
   }
@@ -3371,6 +3427,7 @@ export async function createEmployeePunch(options: {
   });
   const duplicatePunch = sameDayEvents.find(
     (event) =>
+      !isAutomaticMissingPendingPunchOut(event) &&
       toCanonicalEventType(event.event_type) === canonicalType &&
       isDuplicatePunchWithinWindow({
         existingOccurredAt: getEventOccurredAt(event),
@@ -3429,9 +3486,16 @@ export async function createEmployeePunch(options: {
       employeeId: employee.employeeId,
       statuses: ["en_attente"],
     })
-  ).filter((event) => toCanonicalEventType(event.event_type) === "punch_out");
+  ).filter(
+    (event) =>
+      toCanonicalEventType(event.event_type) === "punch_out" &&
+      !isAutomaticMissingPendingPunchOut(event)
+  );
 
   if (canonicalType === "punch_out") {
+    // Un état « terminé » persisté par une ancienne fin automatique ne doit
+    // pas classer la vraie sortie comme une transition invalide.
+    currentState = await recomputeCurrentState(employee.employeeId);
     const autoClosed = await closeOpenPauseOrMealBeforePunchOut({
       employee,
       actorUserId: options.actorUserId,
@@ -3939,6 +4003,9 @@ function getLatestPendingLiveAccrualCapAt(
   let latestMs = -1;
 
   for (const event of pendingOperationalEvents) {
+    if (isAutomaticMissingPendingPunchOut(event)) {
+      continue;
+    }
     const canonical = toCanonicalEventType(event.event_type);
     if (!canonical || !PENDING_LIVE_ACCRUAL_CAP_EVENT_TYPES.has(canonical)) {
       continue;
