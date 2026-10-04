@@ -98,6 +98,69 @@ describe("operational-state.shared — Vincent", () => {
     expect(filterEventsForPayrollRecompute([punchIn, punchOutPending])).toHaveLength(1);
   });
 
+  it("quart_fin automatique en_attente ne ferme pas le quart ouvert", () => {
+    const punchIn = event({
+      id: "in-1",
+      event_type: "quart_debut",
+      status: "approuve",
+      occurred_at: "2026-09-29T10:30:12.000Z",
+      work_date: "2026-09-29",
+    });
+    const automaticPunchOut = event({
+      id: "out-automatic",
+      event_type: "quart_fin",
+      status: "en_attente",
+      occurred_at: "2026-09-29T19:10:23.000Z",
+      work_date: "2026-09-29",
+      actor_role: "systeme",
+      source_kind: "automatique",
+      exception_code: "missing_punch_adjustment",
+    });
+
+    const operational = computeStateFromEventTimeline(
+      buildOperationalStateEvents([punchIn], [automaticPunchOut], "2026-09-29")
+    );
+
+    expect(operational.currentState).toBe("en_quart");
+  });
+
+  it("une fin automatique en attente ne bloque pas la vraie sortie, une sortie employe oui", () => {
+    const punchIn = event({
+      id: "in-1",
+      event_type: "quart_debut",
+      status: "approuve",
+      occurred_at: "2026-09-29T10:30:12.000Z",
+      work_date: "2026-09-29",
+    });
+    const automaticPunchOut = event({
+      id: "out-automatic",
+      event_type: "quart_fin",
+      status: "en_attente",
+      occurred_at: "2026-09-29T19:00:00.000Z",
+      work_date: "2026-09-29",
+      actor_role: "systeme",
+      source_kind: "automatique",
+      exception_code: "missing_punch_adjustment",
+    });
+    const employeePunchOut = event({
+      id: "out-employee",
+      event_type: "quart_fin",
+      status: "en_attente",
+      occurred_at: "2026-09-29T21:00:00.000Z",
+      work_date: "2026-09-29",
+      actor_role: "employe",
+      source_kind: "employe",
+      exception_code: "shift_too_long",
+    });
+
+    expect(
+      findActivePendingPunchOutFromEvents([automaticPunchOut], [punchIn])
+    ).toBeNull();
+    expect(
+      findActivePendingPunchOutFromEvents([employeePunchOut], [punchIn])?.id
+    ).toBe("out-employee");
+  });
+
   it("second punch_out avec sortie deja en attente est detecte comme active pending", () => {
     const approved = [
       event({
@@ -118,6 +181,64 @@ describe("operational-state.shared — Vincent", () => {
     expect(
       findActivePendingPunchOutFromEvents([pendingOut, pendingOut], approved)?.id
     ).toBe("out-pending");
+  });
+
+  it("une sortie en attente d un quart precedent est depassee par une arrivee plus recente", () => {
+    const previousArrival = event({
+      id: "in-previous",
+      event_type: "quart_debut",
+      status: "approuve",
+      occurred_at: "2026-09-29T10:30:12.000Z",
+      work_date: "2026-09-29",
+    });
+    const pendingExit = event({
+      id: "out-previous",
+      event_type: "quart_fin",
+      status: "en_attente",
+      occurred_at: "2026-09-29T21:00:00.000Z",
+      work_date: "2026-09-29",
+      actor_role: "employe",
+      source_kind: "employe",
+    });
+    const nextArrival = event({
+      id: "in-next",
+      event_type: "quart_debut",
+      status: "normal",
+      occurred_at: "2026-09-30T10:30:00.000Z",
+      work_date: "2026-09-30",
+      actor_role: "employe",
+      source_kind: "employe",
+    });
+
+    expect(
+      findActivePendingPunchOutFromEvents(
+        [pendingExit],
+        [previousArrival, nextArrival]
+      )
+    ).toBeNull();
+  });
+
+  it("une sortie employe en attente du quart courant bloque encore un doublon", () => {
+    const arrival = event({
+      id: "in-current",
+      event_type: "quart_debut",
+      status: "approuve",
+      occurred_at: "2026-09-30T10:30:00.000Z",
+      work_date: "2026-09-30",
+    });
+    const pendingExit = event({
+      id: "out-current",
+      event_type: "quart_fin",
+      status: "en_attente",
+      occurred_at: "2026-09-30T21:00:00.000Z",
+      work_date: "2026-09-30",
+      actor_role: "employe",
+      source_kind: "employe",
+    });
+
+    expect(findActivePendingPunchOutFromEvents([pendingExit], [arrival])?.id).toBe(
+      "out-current"
+    );
   });
 
   it("formatte le message alreadySubmitted pour Vincent", () => {

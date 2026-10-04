@@ -36,6 +36,14 @@ export function isPunchConfirmedByServerReread(input: {
   return true;
 }
 
+export function employeePunchSubmissionFlags(alreadySubmitted: boolean | undefined) {
+  return {
+    alreadySubmitted: alreadySubmitted === true,
+    code:
+      alreadySubmitted === true ? ("punch_out_already_pending" as const) : undefined,
+  };
+}
+
 export function employeePunchSuccessMessage(input: {
   confirmed: boolean;
   alreadySubmitted?: boolean;
