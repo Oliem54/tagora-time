@@ -80,6 +80,24 @@ describe("recompute shift bounds for quart_debut and quart_fin", () => {
     expect(sql).not.toMatch(/\bupdate\s+public\.horodateur_exceptions\b/i);
   });
 
+  it("ships a later migration that rejects a nested pause or dinner start", () => {
+    const migrationsDir = join(process.cwd(), "supabase", "migrations");
+    const laterName = "20261004210000_recompute_horodateur_shift_reject_nested_pause.sql";
+    const later = readFileSync(join(migrationsDir, laterName), "utf8");
+    const registered = readFileSync(
+      join(migrationsDir, "20260930122000_recompute_horodateur_shift_quart_bounds.sql"),
+      "utf8"
+    );
+
+    expect(laterName.slice(0, 14) > "20260930143000").toBe(true);
+    expect(later).toContain("create or replace function public.recompute_horodateur_shift");
+    expect(later).toContain("when o.kind = 'start' and d.balance = 0 then 1");
+    expect(later).not.toContain("when o.kind = 'start' then d.balance + 1");
+    expect(later.slice(later.indexOf("create or replace function"))).toBe(
+      registered.slice(registered.indexOf("create or replace function"))
+    );
+  });
+
   it("keeps an approved English clock_in on event_time and ignores a pending one", () => {
     const pending = summarizeRecomputeShiftBounds([
       {
