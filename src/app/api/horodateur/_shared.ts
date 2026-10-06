@@ -1,4 +1,18 @@
 import { NextResponse } from "next/server";
+import {
+  hororaPortalRoleAllows,
+  type HororaDirectionTimeCapability,
+  type HororaEmployeeTimeCapability,
+} from "@/app/lib/auth/horora-role-model.shared";
+import {
+  hororaSupervisorHttpSessionTarget,
+  incompleteHororaSupervisorHttpTargetReason,
+  isCompleteHororaSupervisorHttpTarget,
+  resolveHororaScopedTimeAccess,
+  type HororaSupervisorGrantInput,
+  type HororaSupervisorTargetScope,
+} from "@/app/lib/auth/horora-supervisor-grant.shared";
+import { readEmployeSupervisorTimeAccess } from "@/app/lib/auth/horora-supervisor-grant.server";
 import { hasUserPermission } from "@/app/lib/auth/permissions";
 import {
   getAuthenticatedRequestUser,
@@ -292,10 +306,18 @@ export function isHorodateurPhase1ExceptionType(
   );
 }
 
-export async function requireEmployeeHorodateurAccess(req: NextRequest) {
+export async function requireEmployeeHorodateurAccess(
+  req: NextRequest,
+  capability: HororaEmployeeTimeCapability = "punch_in_out"
+) {
   const { user, role, organizationId } = await getAuthenticatedRequestUser(req);
 
-  if (!user || role !== "employe") {
+  const clockAllowed =
+    hororaPortalRoleAllows(role, capability) &&
+    (capability !== "punch_in_out" ||
+      hororaPortalRoleAllows(role, "punch_break_meal"));
+
+  if (!user || role !== "employe" || !clockAllowed) {
     return {
       ok: false as const,
       response: buildHorodateurValidationErrorResponse({
@@ -364,13 +386,54 @@ export async function requireEmployeeHorodateurAccess(req: NextRequest) {
   }
 }
 
-export async function requireDirectionHorodateurAccess(req: NextRequest) {
+export async function requireDirectionHorodateurAccess(
+  req: NextRequest,
+  capability: HororaDirectionTimeCapability = "view_team",
+  scope?: {
+    grant?: HororaSupervisorGrantInput | null;
+    target?: HororaSupervisorTargetScope | null;
+  } | null
+) {
   const authenticated = await getAuthenticatedRequestUser(req);
   const directionResolution = await resolveDirectionRequestUser(req);
   const user = authenticated.user ?? directionResolution.user;
   const role = authenticated.role;
   const authSource = authenticated.authSource ?? directionResolution.debug.authSource;
-  const hasDirectionAccess = role === "direction" || role === "admin";
+  const portalAccess =
+    (role === "direction" || role === "admin") &&
+    hororaPortalRoleAllows(role, capability);
+  void scope?.grant;
+  void scope?.target;
+  const httpTarget = hororaSupervisorHttpSessionTarget({
+    organizationId: authenticated.organizationId,
+  });
+  const scopedAccess = portalAccess
+    ? resolveHororaScopedTimeAccess({
+        portalRole: role,
+        capability,
+        grant: null,
+        target: null,
+      })
+    : role === "employe" && authenticated.user
+      ? isCompleteHororaSupervisorHttpTarget(httpTarget)
+        ? await readEmployeSupervisorTimeAccess({
+            authUserId: authenticated.user.id,
+            capability,
+            target: httpTarget,
+          })
+        : {
+            allowed: false as const,
+            source: "denied" as const,
+            reason: incompleteHororaSupervisorHttpTargetReason(httpTarget),
+          }
+      : {
+          allowed: false as const,
+          source: "denied" as const,
+          reason: "grant_absent",
+        };
+  const hasDirectionAccess =
+    scopedAccess.source === "portal_role" ||
+    (role === "employe" && scopedAccess.source === "supervisor_grant");
   // H4 membership role is authoritative for Admin bypass (not JWT alone).
   const hasTerrainPermission = hasUserPermission(authenticated.user, "terrain", role);
   const isDev = process.env.NODE_ENV !== "production";

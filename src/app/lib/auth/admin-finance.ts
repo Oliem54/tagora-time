@@ -1,4 +1,5 @@
 import type { User } from "@supabase/supabase-js";
+import { hororaPortalRoleAllows } from "@/app/lib/auth/horora-role-model.shared";
 import { getUserRole, type AppRole } from "@/app/lib/auth/roles";
 import type { AppPermission } from "@/app/lib/auth/permissions";
 
@@ -44,11 +45,12 @@ export function hasAdminFinanceAccess(
   if (!user) {
     return false;
   }
-  if (effectiveRole === "admin") {
-    return true;
-  }
-  if (effectiveRole === "direction" || effectiveRole === "employe") {
-    return false;
+  if (
+    effectiveRole === "admin" ||
+    effectiveRole === "direction" ||
+    effectiveRole === "employe"
+  ) {
+    return hororaPortalRoleAllows(effectiveRole, "admin_finance");
   }
   return getUserRole(user) === "admin";
 }

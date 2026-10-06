@@ -5,6 +5,7 @@ import {
   buildHorodateurErrorResponse,
   requireDirectionHorodateurAccess,
 } from "@/app/api/horodateur/_shared";
+import { hororaSupervisorHttpServerTarget } from "@/app/lib/auth/horora-supervisor-grant.shared";
 import { devInfo, logError } from "@/app/lib/logger";
 
 const STATUS_ORDER: Record<string, number> = {
@@ -81,7 +82,9 @@ export async function GET(req: NextRequest) {
       method: req.method,
     });
 
-    const auth = await requireDirectionHorodateurAccess(req);
+    const auth = await requireDirectionHorodateurAccess(req, "view_team", {
+      target: hororaSupervisorHttpServerTarget(),
+    });
 
     if (!auth.ok) {
       return auth.response;

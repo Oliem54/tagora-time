@@ -3,6 +3,7 @@ import {
   buildHorodateurErrorResponse,
   requireDirectionHorodateurAccess,
 } from "@/app/api/horodateur/_shared";
+import { hororaSupervisorHttpServerTarget } from "@/app/lib/auth/horora-supervisor-grant.shared";
 import {
   canRunExceptionBulkAction,
   EXCEPTION_BULK_ACTIONS,
@@ -22,7 +23,9 @@ function asAction(value: unknown): ExceptionBulkAction | null {
 
 export async function GET(req: NextRequest) {
   try {
-    const auth = await requireDirectionHorodateurAccess(req);
+    const auth = await requireDirectionHorodateurAccess(req, "approve_anomalies", {
+      target: hororaSupervisorHttpServerTarget(),
+    });
     if (!auth.ok) return auth.response;
     if (!canRunExceptionBulkAction(auth.debug.auth.role)) {
       return NextResponse.json(
@@ -41,7 +44,9 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    const auth = await requireDirectionHorodateurAccess(req);
+    const auth = await requireDirectionHorodateurAccess(req, "approve_anomalies", {
+      target: hororaSupervisorHttpServerTarget(),
+    });
     if (!auth.ok) return auth.response;
     if (!canRunExceptionBulkAction(auth.debug.auth.role)) {
       return NextResponse.json(
