@@ -105,7 +105,7 @@ const MODULES: ModuleDefinition[] = [
   {
     href: "/direction/horodateur",
     label: "Horodateur",
-    description: "Suivi live des punchs, pauses et exceptions.",
+    description: "Qui est en service, en pause ou au dîner, et ce qui attend une validation.",
     permission: null,
     group: "operations",
     icon: Clock3,
