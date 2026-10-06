@@ -53,13 +53,13 @@ describe("HORORA M2 public shell — active routes", () => {
 
   it("hub expose HORORA, Employé et Direction", () => {
     const hub = readSrc("src/app/components/time-public/TimeEntryHub.tsx");
-    expect(hub).toContain("NEXUS_PUBLIC_LOGIN_URL");
+    expect(hub).toContain('href="/employe/login"');
+    expect(hub).toContain('href="/direction/login"');
+    expect(hub).not.toContain("app.tagora.ca");
     expect(hub).toContain("Employé");
     expect(hub).toContain("Direction");
     expect(hub).toContain("gérer les opérations");
     expect(hub).not.toContain("TAGORA Time");
-    expect(hub).not.toContain('href="/employe/login"');
-    expect(hub).not.toContain('href="/direction/login"');
   });
 
   it("TimeBrand utilise les assets HORORA officiels (≥120, pas logo.png)", () => {
@@ -98,14 +98,14 @@ describe("HORORA M2 public shell — active routes", () => {
     const employee = readSrc("src/app/employe/login/page.tsx");
     const direction = readSrc("src/app/direction/login/page.tsx");
 
-    expect(employee).toContain("NEXUS_PUBLIC_LOGIN_URL");
+    expect(employee).toContain("hororaNexusLoginRedirectTarget");
     expect(employee).toContain("redirect");
     expect(employee).not.toContain("signInWithPassword");
     expect(employee).not.toContain("writeBrowserSessionCookie");
     expect(employee).not.toContain("TimeLoginForm");
     expect(employee).not.toContain("TAGORA Time");
 
-    expect(direction).toContain("NEXUS_PUBLIC_LOGIN_URL");
+    expect(direction).toContain("hororaNexusLoginRedirectTarget");
     expect(direction).toContain("redirect");
     expect(direction).not.toContain("signInWithPassword");
     expect(direction).not.toContain("signInWithPasswordWithTimeout");
@@ -116,7 +116,7 @@ describe("HORORA M2 public shell — active routes", () => {
     const direction = readSrc("src/app/direction/login/page.tsx");
     expect(direction).not.toContain('NEXT_PUBLIC_SHOW_LOGIN_DIAG === "1"');
     expect(direction).not.toContain("showLoginDiag");
-    expect(direction).toContain("NEXUS_PUBLIC_LOGIN_URL");
+    expect(direction).toContain("hororaNexusLoginRedirectTarget");
   });
 
   it("n’embarque pas l’ancien faux site ni TAGORA Time sur les routes actives", () => {

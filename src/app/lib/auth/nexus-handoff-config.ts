@@ -4,6 +4,7 @@
  */
 
 import { NEXUS_PUBLIC_MODULES_URL } from "@/app/lib/canonical-domains";
+import { resolveHororaNexusModulesDestination } from "@/app/lib/auth/horora-nexus-routing.shared";
 
 export const NEXUS_HANDOFF_VERSION = "TAGORA_HANDOFF_V1" as const;
 export const NEXUS_HANDOFF_ALGORITHM = "ES256" as const;
@@ -272,11 +273,7 @@ export function canonicalizeProductionNexusPortalReturn(url: URL): URL {
 
 export function resolveNexusDeniedReturnUrl(
   env: NexusHandoffEnvSource = process.env
-): string {
-  const portal = resolveNexusPortalReturnUrl(env);
-  if (portal.ok) return portal.url;
-  if (env.VERCEL_ENV === "production") {
-    return NEXUS_PRODUCTION_PORTAL_MODULES_URL;
-  }
-  return NEXUS_STAGING_PORTAL_MODULES_URL;
+): string | null {
+  const destination = resolveHororaNexusModulesDestination(env);
+  return destination.ok ? destination.url : null;
 }

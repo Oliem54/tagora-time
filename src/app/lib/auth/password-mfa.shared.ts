@@ -1,9 +1,12 @@
-import { NEXUS_PUBLIC_LOGIN_URL } from "@/app/lib/canonical-domains";
+import { hororaNexusLoginRedirectTarget } from "@/app/lib/auth/horora-nexus-routing.shared";
 
 export function isSafeInternalReturnPath(path: string | null | undefined): path is string {
   return typeof path === "string" && path.startsWith("/") && !path.startsWith("//");
 }
 
-export function loginPathForMissingMfaSession(_nextPath: string | null): string {
-  return NEXUS_PUBLIC_LOGIN_URL;
+export function loginPathForMissingMfaSession(
+  _nextPath: string | null,
+  env: Parameters<typeof hororaNexusLoginRedirectTarget>[0] = process.env
+): string {
+  return hororaNexusLoginRedirectTarget(env);
 }

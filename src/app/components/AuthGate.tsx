@@ -6,10 +6,10 @@ import { supabase } from "@/app/lib/supabase/client";
 import {
   getRequiredPermissionForPath,
 } from "@/app/lib/auth/permissions";
+import { HORORA_SAME_ORIGIN_LOGIN_PATH } from "@/app/lib/auth/horora-nexus-routing.shared";
 import {
   AppRole,
   getHomePathForRole,
-  getLoginPathForRole,
 } from "@/app/lib/auth/roles";
 import { appRoleMatchesArea } from "@/app/lib/auth/organization-role-mapping.shared";
 import {
@@ -168,7 +168,7 @@ export default function AuthGate({
           setStatus("allowed");
           return;
         }
-        router.replace(getLoginPathForRole(areaRole));
+        router.replace(HORORA_SAME_ORIGIN_LOGIN_PATH);
       } catch {
         if (cancelled) return;
         if (isPublicPath) {
@@ -176,7 +176,7 @@ export default function AuthGate({
           setInitFailed(false);
           setStatus("allowed");
         } else {
-          router.replace(getLoginPathForRole(areaRole));
+          router.replace(HORORA_SAME_ORIGIN_LOGIN_PATH);
         }
       }
     }

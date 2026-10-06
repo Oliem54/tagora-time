@@ -11,7 +11,7 @@ import CorrectionRequestModal, {
 import { useCurrentAccess } from "@/app/hooks/useCurrentAccess";
 import { useEmployeeGpsReporting } from "@/app/hooks/useEmployeeGpsReporting";
 import { getCompanyLabel } from "@/app/lib/account-requests.shared";
-import { NEXUS_PUBLIC_LOGIN_URL } from "@/app/lib/canonical-domains";
+import { HORORA_SAME_ORIGIN_LOGIN_PATH } from "@/app/lib/auth/horora-nexus-routing.shared";
 import { employeePunchRequestInit } from "@/app/lib/employee-punch-session.client";
 import {
   accrueOpenShiftDisplayMinutes,
@@ -966,7 +966,7 @@ export default function EmployeHorodateurPage() {
       ]);
 
       if (snapshotResponse.status === 401 || historyResponse.status === 401) {
-        window.location.assign(NEXUS_PUBLIC_LOGIN_URL);
+        window.location.assign(HORORA_SAME_ORIGIN_LOGIN_PATH);
         return false;
       }
 
@@ -1402,7 +1402,7 @@ export default function EmployeHorodateurPage() {
       assertActiveCorrectionSubmit(correctionCtx, activeCorrectionSubmitIdRef.current);
 
       if (response.status === 401) {
-        window.location.assign(NEXUS_PUBLIC_LOGIN_URL);
+        window.location.assign(HORORA_SAME_ORIGIN_LOGIN_PATH);
         return;
       }
 

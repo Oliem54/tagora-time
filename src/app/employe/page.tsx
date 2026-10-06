@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
-import { NEXUS_PUBLIC_LOGIN_URL } from "@/app/lib/canonical-domains";
+import { hororaNexusLoginRedirectTarget } from "@/app/lib/auth/horora-nexus-routing.shared";
 
 export const metadata: Metadata = {
   title: "Employe",
@@ -8,5 +8,5 @@ export const metadata: Metadata = {
 };
 
 export default function EmployePage() {
-  redirect(NEXUS_PUBLIC_LOGIN_URL);
+  redirect(hororaNexusLoginRedirectTarget());
 }

@@ -20,6 +20,12 @@ export function middleware(request: NextRequest) {
     if (gate.action === "redirect") {
       return NextResponse.redirect(new URL(gate.location), 303);
     }
+    if (gate.action === "deny") {
+      return new NextResponse("Connexion indisponible pour cet environnement.", {
+        status: 403,
+        headers: { "Cache-Control": "no-store" },
+      });
+    }
 
     const response = NextResponse.next();
     response.headers.set("X-Frame-Options", "DENY");

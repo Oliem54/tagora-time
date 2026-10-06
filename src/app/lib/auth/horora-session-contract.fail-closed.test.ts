@@ -31,6 +31,13 @@ import type { NexusMappingLookups } from "@/app/lib/auth/nexus-identity-mapping.
 import type { NexusReplayStore } from "@/app/lib/auth/nexus-handoff-replay.server";
 import type { MembershipRow } from "@/app/lib/saas/organization-membership.shared";
 import { NEXUS_PUBLIC_LOGIN_URL } from "@/app/lib/canonical-domains";
+
+const productionProjectEnv = {
+  VERCEL: "1",
+  VERCEL_ENV: "production",
+  VERCEL_URL: "tagora-time-example.vercel.app",
+  VERCEL_PROJECT_PRODUCTION_URL: "tagora-time.vercel.app",
+};
 import { getLoginPathForRole } from "@/app/lib/auth/roles";
 import { loginPathForMissingMfaSession } from "@/app/lib/auth/password-mfa.shared";
 import { readFileSync } from "node:fs";
@@ -270,6 +277,7 @@ describe("HORORA Nexus session contract fail-closed", () => {
       resolveHororaRequestAccess({
         pathname: "/employe/dashboard",
         hasBrokeredSessionCookie: false,
+        env: productionProjectEnv,
       })
     ).toEqual({ action: "redirect", location: NEXUS_PUBLIC_LOGIN_URL });
   });
@@ -294,6 +302,7 @@ describe("HORORA Nexus session contract fail-closed", () => {
       resolveHororaRequestAccess({
         pathname: "/employe/dashboard",
         hasBrokeredSessionCookie: false,
+        env: productionProjectEnv,
       })
     ).toEqual({ action: "redirect", location: NEXUS_PUBLIC_LOGIN_URL });
     expect(
@@ -310,11 +319,12 @@ describe("HORORA Nexus session contract fail-closed", () => {
       resolveHororaRequestAccess({
         pathname: "/employe/login",
         hasBrokeredSessionCookie: false,
+        env: productionProjectEnv,
       })
     ).toEqual({ action: "redirect", location: NEXUS_PUBLIC_LOGIN_URL });
-    expect(getLoginPathForRole("employe")).toBe(NEXUS_PUBLIC_LOGIN_URL);
+    expect(getLoginPathForRole("employe", productionProjectEnv)).toBe(NEXUS_PUBLIC_LOGIN_URL);
     const page = readFileSync(join(process.cwd(), "src/app/employe/login/page.tsx"), "utf8");
-    expect(page).toContain("NEXUS_PUBLIC_LOGIN_URL");
+    expect(page).toContain("hororaNexusLoginRedirectTarget");
     expect(page).toContain("redirect");
     expect(page).not.toContain("signInWithPassword");
   });
@@ -327,12 +337,15 @@ describe("HORORA Nexus session contract fail-closed", () => {
       resolveHororaRequestAccess({
         pathname: "/direction/login",
         hasBrokeredSessionCookie: true,
+        env: productionProjectEnv,
       })
     ).toEqual({ action: "redirect", location: NEXUS_PUBLIC_LOGIN_URL });
-    expect(getLoginPathForRole("direction")).toBe(NEXUS_PUBLIC_LOGIN_URL);
-    expect(loginPathForMissingMfaSession("/direction/dashboard")).toBe(NEXUS_PUBLIC_LOGIN_URL);
+    expect(getLoginPathForRole("direction", productionProjectEnv)).toBe(NEXUS_PUBLIC_LOGIN_URL);
+    expect(loginPathForMissingMfaSession("/direction/dashboard", productionProjectEnv)).toBe(
+      NEXUS_PUBLIC_LOGIN_URL
+    );
     const page = readFileSync(join(process.cwd(), "src/app/direction/login/page.tsx"), "utf8");
-    expect(page).toContain("NEXUS_PUBLIC_LOGIN_URL");
+    expect(page).toContain("hororaNexusLoginRedirectTarget");
     expect(page).not.toContain("signInWithPassword");
   });
 

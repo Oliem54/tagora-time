@@ -5,6 +5,10 @@
  */
 
 import { NEXUS_PUBLIC_LOGIN_URL } from "@/app/lib/canonical-domains";
+import {
+  NEXUS_STAGING_LOGIN_URL,
+  resolveHororaNexusLoginDestination,
+} from "@/app/lib/auth/horora-nexus-routing.shared";
 
 export const HORORA_SESSION_CONTRACT_VERSION = "HORORA_NEXUS_SESSION_V1" as const;
 export const HORORA_SESSION_CONTRACT_PREFIX =
@@ -37,9 +41,14 @@ export type HororaBrokeredCookieParse =
       readonly reason: "cookie_missing" | "pre_cutover_cookie";
     };
 
+export type HororaNexusLoginLocation =
+  | typeof NEXUS_PUBLIC_LOGIN_URL
+  | typeof NEXUS_STAGING_LOGIN_URL;
+
 export type HororaRequestAccessDecision =
   | { readonly action: "next" }
-  | { readonly action: "redirect"; readonly location: typeof NEXUS_PUBLIC_LOGIN_URL };
+  | { readonly action: "redirect"; readonly location: HororaNexusLoginLocation }
+  | { readonly action: "deny" };
 
 export type SanitizedHororaSessionProvenance = {
   readonly source:
@@ -93,19 +102,29 @@ export function isHororaAppSessionRequiredPath(
   );
 }
 
+function nexusLoginDecision(
+  env: Parameters<typeof resolveHororaNexusLoginDestination>[0]
+): HororaRequestAccessDecision {
+  const destination = resolveHororaNexusLoginDestination(env);
+  if (!destination.ok) return { action: "deny" };
+  return { action: "redirect", location: destination.url };
+}
+
 export function resolveHororaRequestAccess(input: {
   pathname: string;
   hasBrokeredSessionCookie: boolean;
+  env?: Parameters<typeof resolveHororaNexusLoginDestination>[0];
 }): HororaRequestAccessDecision {
   const pathname = normalizePathname(input.pathname);
+  const env = input.env ?? process.env;
   if (isNexusHandoffPath(pathname) || pathname.startsWith("/api/")) {
     return { action: "next" };
   }
   if (isLegacyHororaLoginPath(pathname)) {
-    return { action: "redirect", location: NEXUS_PUBLIC_LOGIN_URL };
+    return nexusLoginDecision(env);
   }
   if (isHororaAppSessionRequiredPath(pathname) && !input.hasBrokeredSessionCookie) {
-    return { action: "redirect", location: NEXUS_PUBLIC_LOGIN_URL };
+    return nexusLoginDecision(env);
   }
   return { action: "next" };
 }

@@ -1,8 +1,7 @@
 "use client";
 
 import { listMfaFactorsForUi } from "@/app/lib/auth/mfa.client";
-import { getLoginPathForRole, getUserRole } from "@/app/lib/auth/roles";
-import { NEXUS_PUBLIC_LOGIN_URL } from "@/app/lib/canonical-domains";
+import { HORORA_SAME_ORIGIN_LOGIN_PATH } from "@/app/lib/auth/horora-nexus-routing.shared";
 import {
   clearServerSessionCookie,
   writeBrowserSessionCookie,
@@ -57,9 +56,7 @@ export function clearTagoraAuthBrowserSession(): void {
 
 /** Déconnexion complète puis route login adaptée au rôle courant (employé vs direction/admin). */
 export async function signOutToSwitchAccount(): Promise<string> {
-  const { data } = await supabase.auth.getUser();
-  const role = getUserRole(data.user);
-  const loginPath = role ? getLoginPathForRole(role) : NEXUS_PUBLIC_LOGIN_URL;
+  const loginPath = HORORA_SAME_ORIGIN_LOGIN_PATH;
   await supabase.auth.signOut();
   await clearServerSessionCookie();
   try {

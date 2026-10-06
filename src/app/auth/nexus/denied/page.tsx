@@ -73,11 +73,13 @@ export default async function NexusHandoffDeniedPage({ searchParams }: PageProps
         <p>{copy.body}</p>
         <p>Code : {reason}</p>
       </HororaStateBanner>
-      <p className="time-public-back">
-        <Link href={returnUrl} className="horora-nexus-return">
-          Retour à Nexus
-        </Link>
-      </p>
+      {returnUrl ? (
+        <p className="time-public-back">
+          <Link href={returnUrl} className="horora-nexus-return">
+            Retour à Nexus
+          </Link>
+        </p>
+      ) : null}
     </TimePublicShell>
   );
 }

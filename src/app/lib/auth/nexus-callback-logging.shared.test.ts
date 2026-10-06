@@ -72,16 +72,25 @@ describe("Nexus callback logging and deny UX", () => {
     );
   });
 
-  it("always resolves the denied return link to absolute Nexus modules", () => {
+  it("resolves the denied return from the Vercel project, not a supplied portal URL", () => {
     expect(
       resolveNexusDeniedReturnUrl({
+        VERCEL: "1",
+        VERCEL_ENV: "production",
+        VERCEL_URL: "tagora-time-staging-example.vercel.app",
+        NEXUS_PORTAL_RETURN_URL: "https://app.tagora.ca/modules",
+      })
+    ).toBe(NEXUS_STAGING_PORTAL_MODULES_URL);
+    expect(resolveNexusDeniedReturnUrl({})).toBeNull();
+    expect(resolveNexusDeniedReturnUrl({ VERCEL_ENV: "production" })).toBeNull();
+    expect(
+      resolveNexusDeniedReturnUrl({
+        VERCEL: "1",
+        VERCEL_ENV: "production",
+        VERCEL_URL: "tagora-time-example.vercel.app",
         NEXUS_PORTAL_RETURN_URL: "https://tagora-nexus-staging.vercel.app/modules",
       })
-    ).toBe("https://tagora-nexus-staging.vercel.app/modules");
-    expect(resolveNexusDeniedReturnUrl({})).toBe(NEXUS_STAGING_PORTAL_MODULES_URL);
-    expect(resolveNexusDeniedReturnUrl({ VERCEL_ENV: "production" })).toBe(
-      "https://app.tagora.ca/modules"
-    );
+    ).toBe("https://app.tagora.ca/modules");
     expect(
       resolveNexusPortalReturnUrl({
         NEXUS_PORTAL_RETURN_URL: "https://tagora-nexus-staging.vercel.app/modules",

@@ -1,5 +1,5 @@
 import type { User } from "@supabase/supabase-js";
-import { NEXUS_PUBLIC_LOGIN_URL } from "@/app/lib/canonical-domains";
+import { hororaNexusLoginRedirectTarget } from "@/app/lib/auth/horora-nexus-routing.shared";
 
 export type AppRole = "employe" | "direction" | "admin";
 
@@ -61,8 +61,11 @@ export function getDashboardLabelForRole(role: AppRole): string {
   return "Tableau de bord direction";
 }
 
-export function getLoginPathForRole(_role: AppRole): string {
-  return NEXUS_PUBLIC_LOGIN_URL;
+export function getLoginPathForRole(
+  _role: AppRole,
+  env: Parameters<typeof hororaNexusLoginRedirectTarget>[0] = process.env
+): string {
+  return hororaNexusLoginRedirectTarget(env);
 }
 
 export function getPasswordChangePathForRole(role: AppRole): string {

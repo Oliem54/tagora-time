@@ -39,7 +39,8 @@ describe("HORORA session logout and MFA loop non-regression", () => {
     const gate = read("src/app/components/AuthGate.tsx");
     expect(gate).toContain('source === "nexus_handoff"');
     expect(gate).toContain("clearServerSessionCookie");
-    expect(gate).toContain("getLoginPathForRole");
+    expect(gate).toContain("HORORA_SAME_ORIGIN_LOGIN_PATH");
+    expect(gate).not.toContain("app.tagora.ca");
     expect(gate).not.toContain('router.replace("/direction/login")');
     expect(gate).not.toContain("getMandatoryMfaGate");
   });

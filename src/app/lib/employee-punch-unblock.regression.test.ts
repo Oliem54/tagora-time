@@ -120,12 +120,19 @@ describe("HORORA employee punch unblock", () => {
   });
 
   it("redirects unauthenticated or legacy sessions to Nexus", () => {
-    expect(getLoginPathForRole("employe")).toBe(NEXUS_PUBLIC_LOGIN_URL);
+    expect(
+      getLoginPathForRole("employe", {
+        VERCEL: "1",
+        VERCEL_ENV: "production",
+        VERCEL_URL: "tagora-time-example.vercel.app",
+      })
+    ).toBe(NEXUS_PUBLIC_LOGIN_URL);
     const hook = read("src/app/hooks/useEmployeePunchSnapshot.ts");
     const login = read("src/app/employe/login/page.tsx");
-    expect(hook).toContain("NEXUS_PUBLIC_LOGIN_URL");
+    expect(hook).toContain("HORORA_SAME_ORIGIN_LOGIN_PATH");
+    expect(hook).not.toContain("app.tagora.ca");
     expect(hook).toContain("response.status === 401");
-    expect(login).toContain("NEXUS_PUBLIC_LOGIN_URL");
+    expect(login).toContain("hororaNexusLoginRedirectTarget");
   });
 
   it("keeps Martin and Yves punch snapshots isolated by auth user id", () => {

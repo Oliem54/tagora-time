@@ -1,12 +1,12 @@
 "use client";
 
-import { Suspense, useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import PasswordUpdateSection from "@/app/components/auth/PasswordUpdateSection";
 import PageHeader from "@/app/components/ui/PageHeader";
 import SecondaryButton from "@/app/components/ui/SecondaryButton";
 import SectionCard from "@/app/components/ui/SectionCard";
-import { getLoginPathForRole, getUserRole } from "@/app/lib/auth/roles";
+import { HORORA_SAME_ORIGIN_LOGIN_PATH } from "@/app/lib/auth/horora-nexus-routing.shared";
 import { supabase } from "@/app/lib/supabase/client";
 
 function hasRecoverySignal() {
@@ -50,7 +50,7 @@ function NewPasswordPageContent() {
   const [loading, setLoading] = useState(true);
   const [validRecovery, setValidRecovery] = useState(false);
 
-  const loginPath = useMemo(() => getLoginPathForRole(role), [role]);
+  const loginPath = HORORA_SAME_ORIGIN_LOGIN_PATH;
 
   useEffect(() => {
     let isMounted = true;
@@ -113,11 +113,8 @@ function NewPasswordPageContent() {
   }, [searchParams]);
 
   async function handleRecoverySuccess() {
-    const { data } = await supabase.auth.getUser();
-    const nextRole = getUserRole(data.user) ?? role;
-
     await supabase.auth.signOut();
-    router.replace(`${getLoginPathForRole(nextRole)}?reset=ok`);
+    router.replace(`${HORORA_SAME_ORIGIN_LOGIN_PATH}?reset=ok`);
   }
 
   if (loading) {

@@ -1,13 +1,13 @@
 "use client";
 
-import { Suspense, useMemo, useState } from "react";
+import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import TimePublicShell from "@/app/components/time-public/TimePublicShell";
 import FeedbackMessage from "@/app/components/FeedbackMessage";
 import FormField from "@/app/components/ui/FormField";
 import PrimaryButton from "@/app/components/ui/PrimaryButton";
 import SecondaryButton from "@/app/components/ui/SecondaryButton";
-import { getLoginPathForRole } from "@/app/lib/auth/roles";
+import { HORORA_SAME_ORIGIN_LOGIN_PATH } from "@/app/lib/auth/horora-nexus-routing.shared";
 import { supabase } from "@/app/lib/supabase/client";
 
 function ResetPasswordRequestPageContent() {
@@ -19,7 +19,7 @@ function ResetPasswordRequestPageContent() {
   const [messageType, setMessageType] = useState<"success" | "error" | null>(null);
   const [sending, setSending] = useState(false);
 
-  const loginPath = useMemo(() => getLoginPathForRole(role), [role]);
+  const loginPath = HORORA_SAME_ORIGIN_LOGIN_PATH;
 
   async function handleResetEmail(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();

@@ -45,9 +45,20 @@ describe("HORORA owner Registre Nexus session", () => {
     const gate = read("src/app/components/AuthGate.tsx");
     const shared = read("src/app/api/horodateur/_shared.ts");
     expect(page).toContain("redirectToNexusLoginIfUnauthenticated(res.status)");
-    expect(getLoginPathForRole("admin")).toBe(NEXUS_PUBLIC_LOGIN_URL);
-    expect(getLoginPathForRole("direction")).toBe(NEXUS_PUBLIC_LOGIN_URL);
-    expect(gate).toContain("getLoginPathForRole(areaRole)");
+    expect(
+      getLoginPathForRole("admin", {
+        VERCEL: "1",
+        VERCEL_URL: "tagora-time-example.vercel.app",
+      })
+    ).toBe(NEXUS_PUBLIC_LOGIN_URL);
+    expect(
+      getLoginPathForRole("direction", {
+        VERCEL: "1",
+        VERCEL_URL: "tagora-time-example.vercel.app",
+      })
+    ).toBe(NEXUS_PUBLIC_LOGIN_URL);
+    expect(gate).toContain("HORORA_SAME_ORIGIN_LOGIN_PATH");
+    expect(gate).not.toContain("app.tagora.ca");
     expect(shared).toContain('code: "unauthenticated"');
     expect(shared).toContain("status: 401");
   });

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { NEXUS_PUBLIC_LOGIN_URL } from "@/app/lib/canonical-domains";
+import { HORORA_SAME_ORIGIN_LOGIN_PATH } from "@/app/lib/auth/horora-nexus-routing.shared";
 import { employeePunchRequestInit } from "@/app/lib/employee-punch-session.client";
 import {
   EMPLOYEE_PUNCH_GEOLOCATION_MAX_DURATION_MS,
@@ -173,7 +173,7 @@ function normalizeTodayTimeDisplay(
 }
 
 function redirectToNexusLogin() {
-  window.location.assign(NEXUS_PUBLIC_LOGIN_URL);
+  window.location.assign(HORORA_SAME_ORIGIN_LOGIN_PATH);
 }
 
 export function useEmployeePunchSnapshot(enabled: boolean) {

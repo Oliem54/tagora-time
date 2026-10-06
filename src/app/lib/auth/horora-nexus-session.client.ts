@@ -3,7 +3,7 @@
  * Do not require a Supabase Auth JWT in the browser.
  */
 
-import { NEXUS_PUBLIC_LOGIN_URL } from "@/app/lib/canonical-domains";
+import { HORORA_SAME_ORIGIN_LOGIN_PATH } from "@/app/lib/auth/horora-nexus-routing.shared";
 
 export function hororaNexusSessionRequestInit(init: RequestInit = {}): RequestInit {
   const headers = new Headers(init.headers);
@@ -25,7 +25,7 @@ export function redirectToNexusLoginIfUnauthenticated(status: number): boolean {
     return false;
   }
   if (typeof window !== "undefined") {
-    window.location.assign(NEXUS_PUBLIC_LOGIN_URL);
+    window.location.assign(HORORA_SAME_ORIGIN_LOGIN_PATH);
   }
   return true;
 }

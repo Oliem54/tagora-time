@@ -30,7 +30,7 @@ describe("HORORA employee login header — visual only", () => {
 
   it("redirige la connexion employé vers Nexus sans mot de passe local", () => {
     const page = readSrc(PAGE);
-    expect(page).toContain("NEXUS_PUBLIC_LOGIN_URL");
+    expect(page).toContain("hororaNexusLoginRedirectTarget");
     expect(page).toContain("redirect");
     expect(page).not.toContain("signInWithPassword");
     expect(page).not.toContain("writeBrowserSessionCookie");
