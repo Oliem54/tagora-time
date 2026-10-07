@@ -12,12 +12,14 @@ import { useCurrentAccess } from "@/app/hooks/useCurrentAccess";
 import { useEmployeeGpsReporting } from "@/app/hooks/useEmployeeGpsReporting";
 import { getCompanyLabel } from "@/app/lib/account-requests.shared";
 import { HORORA_SAME_ORIGIN_LOGIN_PATH } from "@/app/lib/auth/horora-nexus-routing.shared";
+import { resolveEmployeeHorodateurClockView } from "@/app/lib/employee-horodateur-clock.shared";
 import { employeePunchRequestInit } from "@/app/lib/employee-punch-session.client";
 import {
-  accrueOpenShiftDisplayMinutes,
   explainEmployeePunchError,
   resolveEmployeePunchGuidance,
+  isOpenShiftState,
   resolveEmployeHorodateurPunchOutControl,
+  resolveOpenShiftSafetyCapAlert,
 } from "@/app/lib/employee-punch-guidance.shared";
 import {
   employeePunchSuccessMessage,
@@ -424,9 +426,6 @@ const PUNCH_OUT_PENDING_APPROVAL_MESSAGE =
 
 const PUNCH_OUT_ALREADY_SUBMITTED_FALLBACK =
   "Votre sortie a déjà été soumise et attend la validation de la direction.";
-
-const OPEN_SHIFT_SAFETY_CAP_MESSAGE =
-  "Ce quart est ouvert depuis plus de 14 h. Pointez votre sortie. La direction devra approuver cette fermeture.";
 
 const PUNCH_FETCH_TIMEOUT_MS = 60_000;
 const PUNCH_GPS_DEADLINE_MS = EMPLOYEE_PUNCH_GEOLOCATION_MAX_DURATION_MS;
@@ -1128,7 +1127,7 @@ export default function EmployeHorodateurPage() {
 
     const displayTimerId = window.setInterval(() => {
       setDisplayNowMs(Date.now());
-    }, 15_000);
+    }, 1_000);
     window.addEventListener("focus", handleWindowFocus);
     document.addEventListener("visibilitychange", handleVisibilityChange);
 
@@ -1147,15 +1146,21 @@ export default function EmployeHorodateurPage() {
     snapshot?.currentState.current_state ??
     snapshot?.currentState.status ??
     "hors_quart";
-  const displayedPayableMinutesToday = accrueOpenShiftDisplayMinutes({
-    baseMinutes: snapshotPayableMinutesToday,
-    computedAt: todayTimeDisplay?.computedAt,
+  const openShiftSafetyCapAlert = resolveOpenShiftSafetyCapAlert({
+    currentState: currentStateValue,
+    openShiftSafetyCapReached: todayTimeDisplay?.openShiftSafetyCapReached === true,
+  });
+  const clockView = resolveEmployeeHorodateurClockView({
     nowMs: displayNowMs,
-    accrues:
-      todayTimeDisplay?.hasOpenShiftAccrual === true &&
-      !todayTimeDisplay.pendingPunchBlocksAccrual &&
-      !todayTimeDisplay.openShiftSafetyCapReached &&
-      currentStateValue === "en_quart",
+    currentState: currentStateValue,
+    lastEventAt: snapshot?.currentState.last_event_at,
+    payableMinutes: snapshotPayableMinutesToday,
+    computedAt: todayTimeDisplay?.computedAt,
+    hasOpenShiftAccrual: todayTimeDisplay?.hasOpenShiftAccrual,
+    pendingPunchBlocksAccrual: todayTimeDisplay?.pendingPunchBlocksAccrual,
+    openShiftSafetyCapReached: todayTimeDisplay?.openShiftSafetyCapReached,
+    pausePaid: snapshot?.employee.pausePaid,
+    lunchPaid: snapshot?.employee.lunchPaid,
   });
   const isHorsQuart = currentStateValue === "hors_quart";
   const isShiftCompleted = currentStateValue === "termine";
@@ -1814,6 +1819,48 @@ export default function EmployeHorodateurPage() {
         />
       ) : null}
 
+      <section className="tagora-panel" style={{ marginTop: 24 }} aria-label="Horloge et cumulatif">
+        <div className="tagora-label">Heure actuelle · {clockView.timezone}</div>
+        <div
+          style={{
+            marginTop: 8,
+            fontSize: 40,
+            fontWeight: 800,
+            letterSpacing: "-0.03em",
+            fontVariantNumeric: "tabular-nums",
+          }}
+        >
+          {clockView.currentTimeLabel}
+        </div>
+        <p className="tagora-note" style={{ marginTop: 8, marginBottom: 18 }}>
+          {clockView.currentTimeNote}
+        </p>
+        <div className={styles.kpiGrid}>
+          <div className="tagora-panel-muted">
+            <div className="tagora-label">Statut</div>
+            <div style={{ marginTop: 8, fontSize: 24, fontWeight: 800 }}>{clockView.statusLabel}</div>
+          </div>
+          <div className="tagora-panel-muted">
+            <div className="tagora-label">Dernier pointage confirmé</div>
+            <div style={{ marginTop: 8, fontSize: 18, fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>
+              {clockView.lastPunchLabel}
+            </div>
+            <p className="tagora-note" style={{ marginTop: 8, marginBottom: 0 }}>
+              {clockView.lastPunchNote}
+            </p>
+          </div>
+          <div className="tagora-panel-muted">
+            <div className="tagora-label">{clockView.cumulativeLabel}</div>
+            <div style={{ marginTop: 8, fontSize: 24, fontWeight: 800 }}>
+              {formatMinutes(clockView.cumulativeMinutes)}
+            </div>
+            <p className="tagora-note" style={{ marginTop: 8, marginBottom: 0, lineHeight: 1.45 }}>
+              {clockView.cumulativeNote}
+            </p>
+          </div>
+        </div>
+      </section>
+
       <section className="tagora-panel" style={{ marginTop: 24 }}>
         <div className={styles.kpiGrid}>
           <div className="tagora-panel-muted">
@@ -1834,7 +1881,7 @@ export default function EmployeHorodateurPage() {
           <div className="tagora-panel-muted">
             <div className="tagora-label">{todayTimeLabel}</div>
             <div style={{ marginTop: 8, fontSize: 24, fontWeight: 800 }}>
-              {formatMinutes(displayedPayableMinutesToday)}
+              {formatMinutes(clockView.cumulativeMinutes)}
             </div>
             {todayTimeDisplay?.hasOpenShiftAccrual ? (
               <p className="tagora-note" style={{ marginTop: 8, marginBottom: 0, lineHeight: 1.45 }}>
@@ -1847,14 +1894,15 @@ export default function EmployeHorodateurPage() {
                 Un pointage attend l'approbation. Le temps affiché ne progresse plus jusqu'à la validation.
               </p>
             ) : null}
-            {todayTimeDisplay?.openShiftWorkDateMismatch ? (
+            {todayTimeDisplay?.openShiftWorkDateMismatch &&
+            isOpenShiftState(currentStateValue) ? (
               <p className="tagora-note" style={{ marginTop: 8, marginBottom: 0, lineHeight: 1.45 }}>
                 Quart ouvert depuis{" "}
                 {todayTimeDisplay.openShiftWorkDate ?? "un jour précédent"}. Pointez votre sortie ou
                 contactez la direction.
               </p>
             ) : null}
-            {todayTimeDisplay?.openShiftSafetyCapReached ? (
+            {openShiftSafetyCapAlert ? (
               <p
                 className="tagora-note"
                 style={{
@@ -1865,7 +1913,7 @@ export default function EmployeHorodateurPage() {
                   fontWeight: 600,
                 }}
               >
-                {OPEN_SHIFT_SAFETY_CAP_MESSAGE}
+                {openShiftSafetyCapAlert}
               </p>
             ) : null}
             {todayTimeDisplay?.hasPendingOperationalPunchToday &&

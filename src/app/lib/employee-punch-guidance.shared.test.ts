@@ -3,6 +3,8 @@ import {
   accrueOpenShiftDisplayMinutes,
   explainEmployeePunchError,
   resolveEmployeePunchGuidance,
+  resolveEmployeeShiftStatusLine,
+  resolveOpenShiftSafetyCapAlert,
 } from "./employee-punch-guidance.shared";
 
 describe("employee punch guidance", () => {
@@ -63,6 +65,54 @@ describe("employee punch guidance", () => {
       "horodateur_events"
     );
     expect(explainEmployeePunchError("Pointage enregistré.")).toBe("Pointage enregistré.");
+  });
+
+  it("does not show an open-shift alert when the employee is not clocked in", () => {
+    expect(
+      resolveOpenShiftSafetyCapAlert({
+        currentState: "hors_quart",
+        openShiftSafetyCapReached: true,
+      })
+    ).toBeNull();
+    expect(
+      resolveEmployeeShiftStatusLine({
+        currentState: "hors_quart",
+        shiftStatus: "ouvert",
+      })
+    ).toBe("aucun quart en cours");
+    expect(
+      resolveEmployeeShiftStatusLine({
+        currentState: "hors_quart",
+        shiftStatus: null,
+      })
+    ).toBe("aucun quart en cours");
+    expect(resolveEmployeePunchGuidance({ currentState: "hors_quart" }).primary?.label).toBe(
+      "Pointer mon arrivée"
+    );
+    expect(resolveEmployeePunchGuidance({ currentState: "hors_quart" }).secondary).toEqual([]);
+  });
+
+  it("keeps the 14 hour safety alert only while a shift is actually open", () => {
+    expect(
+      resolveOpenShiftSafetyCapAlert({
+        currentState: "en_quart",
+        openShiftSafetyCapReached: true,
+      })
+    ).toBe(
+      "Ce quart est ouvert depuis plus de 14 h. Pointez votre sortie. La direction devra approuver cette fermeture."
+    );
+    expect(
+      resolveOpenShiftSafetyCapAlert({
+        currentState: "en_quart",
+        openShiftSafetyCapReached: false,
+      })
+    ).toBeNull();
+    expect(
+      resolveEmployeeShiftStatusLine({
+        currentState: "en_quart",
+        shiftStatus: "ouvert",
+      })
+    ).toBe("ouvert");
   });
 
   it("adds at most five live minutes between server refreshes", () => {

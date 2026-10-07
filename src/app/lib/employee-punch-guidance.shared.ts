@@ -75,6 +75,36 @@ export function isOpenShiftState(state: string | null | undefined): boolean {
   return state === "en_quart" || state === "en_pause" || state === "en_diner";
 }
 
+const OPEN_SHIFT_SAFETY_CAP_ALERT =
+  "Ce quart est ouvert depuis plus de 14 h. Pointez votre sortie. La direction devra approuver cette fermeture.";
+
+/**
+ * Un employé non pointé ne doit pas voir une alerte de quart ouvert,
+ * même si un ancien pointage d'arrivée n'a jamais été fermé.
+ */
+export function resolveOpenShiftSafetyCapAlert(input: {
+  currentState: string | null | undefined;
+  openShiftSafetyCapReached: boolean;
+}): string | null {
+  if (!input.openShiftSafetyCapReached || !isOpenShiftState(input.currentState)) {
+    return null;
+  }
+  return OPEN_SHIFT_SAFETY_CAP_ALERT;
+}
+
+/** Le statut de fiche « ouvert » ne doit pas contredire un employé non pointé. */
+export function resolveEmployeeShiftStatusLine(input: {
+  currentState: string | null | undefined;
+  shiftStatus: string | null | undefined;
+}): string {
+  if (!isOpenShiftState(input.currentState)) {
+    if (!input.shiftStatus || input.shiftStatus === "ouvert") {
+      return "aucun quart en cours";
+    }
+  }
+  return input.shiftStatus ?? "ouvert";
+}
+
 function formatTorontoClock(iso: string | null | undefined): string | null {
   if (!iso) return null;
   const date = new Date(iso);

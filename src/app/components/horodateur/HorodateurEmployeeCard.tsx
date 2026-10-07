@@ -8,7 +8,10 @@ import PrimaryButton from "@/app/components/ui/PrimaryButton";
 import SecondaryButton from "@/app/components/ui/SecondaryButton";
 import StatusBadge from "@/app/components/ui/StatusBadge";
 import type { EmployeePunchController } from "@/app/hooks/useEmployeePunchSnapshot";
-import { accrueOpenShiftDisplayMinutes } from "@/app/lib/employee-punch-guidance.shared";
+import {
+  accrueOpenShiftDisplayMinutes,
+  resolveEmployeeShiftStatusLine,
+} from "@/app/lib/employee-punch-guidance.shared";
 import {
   employeePunchStatusTone,
   mapEmployeePunchStatus,
@@ -206,7 +209,11 @@ export default function HorodateurEmployeeCard({
           <AppCard tone="muted" className="ui-stack-xs">
             <span className="ui-eyebrow">Quart</span>
             <span className="ui-text-muted">
-              Statut: {snapshot?.shift?.status ?? "ouvert"}
+              Statut:{" "}
+              {resolveEmployeeShiftStatusLine({
+                currentState,
+                shiftStatus: snapshot?.shift?.status,
+              })}
             </span>
             <span className="ui-text-muted">
               Minutes en attente:{" "}
