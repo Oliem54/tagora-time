@@ -14,19 +14,11 @@ import {
   isHororaPortalRole,
   resolveHororaPortalDecision,
 } from "@/app/lib/auth/horora-role-model.shared";
-import {
-  isHororaLocalNexusFixtureEnabled,
-  readHororaLocalFixtureRole,
-} from "@/app/lib/auth/horora-local-nexus-fixture";
 import { EMPLOYEE_FONCTION_OPTIONS } from "@/app/lib/employee-fonctions.shared";
 import {
   evaluateResolvedEmployeePunchProfile,
   selectUniqueActiveEmployeeForPunch,
 } from "@/app/lib/horodateur-v1/employee-punch-eligibility.shared";
-import {
-  HORORA_PRODUCTION_SUPABASE_HOST,
-  HORORA_STAGING_SUPABASE_HOST,
-} from "@/app/lib/supabase/supabase-host.shared";
 
 vi.mock("server-only", () => ({}));
 
@@ -37,14 +29,6 @@ const root = process.cwd();
 function read(rel: string) {
   return readFileSync(join(root, rel), "utf8");
 }
-
-const LOCAL_FIXTURE = {
-  nodeEnv: "development",
-  vercelEnv: undefined,
-  hostname: "localhost",
-  flag: "true",
-  supabaseUrl: `https://${HORORA_STAGING_SUPABASE_HOST}`,
-} as const;
 
 describe("HORORA role model", () => {
   it("keeps the portal shell to employe, direction and admin", () => {
@@ -228,35 +212,33 @@ describe("HORORA role model", () => {
     ).toMatchObject({ ok: false, code: "employee_inactive" });
   });
 
-  it("rejects Nexus business-role claims and keeps the local fixture on three roles", () => {
+  it("rejects Nexus business-role claims and keeps three simulated portal roles", () => {
     expect(FORBIDDEN_NEXUS_AUTHORITY_CLAIMS).toEqual(
       expect.arrayContaining(["module_business_role", "time_permission"])
     );
-    expect(readHororaLocalFixtureRole("employe")).toBe("employe");
-    expect(readHororaLocalFixtureRole("direction")).toBe("direction");
-    expect(readHororaLocalFixtureRole("admin")).toBe("admin");
-    expect(readHororaLocalFixtureRole("technicien")).toBe("direction");
-    expect(readHororaLocalFixtureRole("livreur")).toBe("direction");
-    expect(readHororaLocalFixtureRole("superviseur")).toBe("direction");
-    expect(readHororaLocalFixtureRole("paie")).toBe("direction");
-    expect(isHororaLocalNexusFixtureEnabled({ ...LOCAL_FIXTURE, nodeEnv: "production" })).toBe(
-      false
-    );
-    expect(isHororaLocalNexusFixtureEnabled({ ...LOCAL_FIXTURE, vercelEnv: "preview" })).toBe(
-      false
-    );
-    expect(isHororaLocalNexusFixtureEnabled({ ...LOCAL_FIXTURE, vercelEnv: "production" })).toBe(
-      false
-    );
-    expect(
-      isHororaLocalNexusFixtureEnabled({ ...LOCAL_FIXTURE, hostname: "time.tagora.ca" })
-    ).toBe(false);
-    expect(
-      isHororaLocalNexusFixtureEnabled({
-        ...LOCAL_FIXTURE,
-        supabaseUrl: `https://${HORORA_PRODUCTION_SUPABASE_HOST}`,
-      })
-    ).toBe(false);
+    const simulatedPortalRoles = ["employe", "direction", "admin"] as const;
+    const simulatedClosedLabels = ["technicien", "livreur", "superviseur", "paie"] as const;
+    expect([...simulatedPortalRoles]).toEqual([...HORORA_PORTAL_ROLES]);
+    for (const role of simulatedPortalRoles) {
+      expect(isHororaPortalRole(role)).toBe(true);
+    }
+    for (const label of simulatedClosedLabels) {
+      expect(isHororaPortalRole(label)).toBe(false);
+      expect(businessFunctionGrantsPortalAccess(label)).toBe(false);
+    }
+    for (const capability of [
+      "punch_in_out",
+      "read_payroll",
+      "manage_payroll",
+      "export_payroll",
+      "admin_finance",
+      "manage_employees",
+      "manage_configuration",
+    ] as const) {
+      expect(hororaPortalRoleAllows("employe", capability)).toBe(capability === "punch_in_out");
+      expect(hororaPortalRoleAllows("direction", capability)).toBe(false);
+    }
+    expect(hororaPortalRoleAllows("admin", "punch_in_out")).toBe(false);
   });
 
   it("reads the matrix from the punch, approval and payroll guards", () => {

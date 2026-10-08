@@ -408,12 +408,15 @@ export function decideHororaSupervisorHttpScope(input: {
     (input.portalRole === "direction" || input.portalRole === "admin") &&
     hororaPortalRoleAllows(input.portalRole, input.capability)
   ) {
-    return resolveHororaScopedTimeAccess({
-      portalRole: input.portalRole,
-      capability: input.capability,
-      grant: null,
-      target: null,
-    });
+    if (isHororaSupervisorGrantCapability(input.capability)) {
+      return resolveHororaScopedTimeAccess({
+        portalRole: input.portalRole,
+        capability: input.capability,
+        grant: null,
+        target: null,
+      });
+    }
+    return { allowed: true, source: "portal_role", reason: "portal_role" };
   }
   if (input.portalRole !== "employe") {
     return { allowed: false, source: "denied", reason: "grant_absent" };
