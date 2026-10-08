@@ -3,6 +3,10 @@
 import { useCallback, useEffect, useState } from "react";
 import FeedbackMessage from "@/app/components/FeedbackMessage";
 import TagoraCollapsibleSection from "@/app/components/TagoraCollapsibleSection";
+import {
+  hororaNexusSessionRequestInit,
+  redirectToNexusLoginIfUnauthenticated,
+} from "@/app/lib/auth/horora-nexus-session.client";
 import { supabase } from "@/app/lib/supabase/client";
 import {
   EMPLOYEE_LEAVE_TYPES,
@@ -41,13 +45,11 @@ export default function EmployeeLongLeaveSection({ employeeId }: { employeeId: n
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      if (!session?.access_token) return;
-      const res = await fetch(`/api/direction/ressources/employes/${employeeId}/leave-periods`, {
-        headers: { Authorization: `Bearer ${session.access_token}` },
-      });
+      const res = await fetch(
+        `/api/direction/ressources/employes/${employeeId}/leave-periods`,
+        hororaNexusSessionRequestInit()
+      );
+      if (redirectToNexusLoginIfUnauthenticated(res.status) || !res.ok) return;
       const j = (await res.json()) as { periods?: PeriodRow[] };
       setPeriods(Array.isArray(j.periods) ? j.periods : []);
     } finally {

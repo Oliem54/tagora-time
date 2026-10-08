@@ -14,6 +14,10 @@ import {
 } from "@/app/lib/account-requests.shared";
 import { hasAdminFinanceAccess } from "@/app/lib/auth/admin-finance";
 import type { AppRole } from "@/app/lib/auth/roles";
+import {
+  hororaNexusSessionRequestInit,
+  redirectToNexusLoginIfUnauthenticated,
+} from "@/app/lib/auth/horora-nexus-session.client";
 import { supabase } from "@/app/lib/supabase/client";
 import AdminImprovementNotificationsAccountSection from "./AdminImprovementNotificationsAccountSection";
 import EmployeeLongLeaveSection from "./EmployeeLongLeaveSection";
@@ -195,23 +199,15 @@ export default function EmployeeProfilePageClient({
     setLoading(true);
 
     try {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      const token = session?.access_token;
-      if (!token) {
-        setMessage(EMPLOYEE_PROFILE_LOAD_ERROR_MESSAGE);
-        setMessageType("error");
+      const response = await fetch(
+        buildEmployeeProfileGetApiPath(targetId),
+        hororaNexusSessionRequestInit()
+      );
+      if (redirectToNexusLoginIfUnauthenticated(response.status)) {
         setOriginalProfile(null);
         setLoading(false);
         return;
       }
-
-      const response = await fetch(buildEmployeeProfileGetApiPath(targetId), {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
 
       const json = (await response.json().catch(() => ({}))) as {
         success?: boolean;

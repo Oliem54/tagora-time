@@ -33,6 +33,7 @@ type AccessState = {
   permissions: AppPermission[];
   companyAccess: UserCompanyAccess;
   organizationId: string | null;
+  displayName: string | null;
   loading: boolean;
 };
 
@@ -46,6 +47,7 @@ export function useCurrentAccess() {
     permissions: [],
     companyAccess: buildUserCompanyAccess(null),
     organizationId: null,
+    displayName: null,
     loading: true,
   });
 
@@ -141,6 +143,7 @@ export function useCurrentAccess() {
               user: {
                 id: brokered.userId,
                 aud: "authenticated",
+                email: brokered.email ?? undefined,
                 app_metadata: {},
                 user_metadata: {},
                 created_at: new Date(0).toISOString(),
@@ -149,6 +152,7 @@ export function useCurrentAccess() {
               permissions: composePermissionsForEffectiveRole(brokered.appRole, []),
               companyAccess: buildUserCompanyAccess(null),
               organizationId: brokered.organizationId,
+              displayName: brokered.displayName,
               loading: false,
             });
             return;
@@ -201,6 +205,7 @@ export function useCurrentAccess() {
             ),
             companyAccess: buildUserCompanyAccess(user),
             organizationId,
+            displayName: null,
             loading: false,
           });
         });
@@ -218,6 +223,7 @@ export function useCurrentAccess() {
             permissions: [],
             companyAccess: buildUserCompanyAccess(null),
             organizationId: null,
+            displayName: null,
             loading: false,
           });
         }

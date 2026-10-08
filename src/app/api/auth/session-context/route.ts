@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthenticatedRequestUser } from "@/app/lib/account-requests.server";
+import { readReliableHororaSessionDisplay } from "@/app/lib/auth/horora-session-display.shared";
 
 export const dynamic = "force-dynamic";
 
@@ -24,6 +25,8 @@ export async function GET(req: NextRequest) {
       );
     }
 
+    const display = readReliableHororaSessionDisplay(user);
+
     return NextResponse.json({
       authenticated: true,
       authorized: true,
@@ -35,6 +38,8 @@ export async function GET(req: NextRequest) {
       membershipId: authenticated.membershipId,
       membershipRole: authenticated.membershipRole,
       source: "nexus_handoff",
+      displayName: display.displayName,
+      email: display.email,
     });
   } catch {
     return NextResponse.json(

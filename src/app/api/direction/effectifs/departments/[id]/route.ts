@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthenticatedRequestUser } from "@/app/lib/account-requests.server";
+import { nexusHandoffEffectifsMutationResponse } from "@/app/api/direction/effectifs/effectifs-mutation-guard.server";
 import { createAdminSupabaseClient } from "@/app/lib/supabase/admin";
 import {
   isEffectifsDepartmentKey,
@@ -91,10 +92,12 @@ export async function PATCH(
   ctx: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { user, role } = await getAuthenticatedRequestUser(req);
+    const { user, role, sessionSource } = await getAuthenticatedRequestUser(req);
     if (!user || (role !== "direction" && role !== "admin")) {
       return NextResponse.json({ error: "Accès refusé." }, { status: 403 });
     }
+    const nexusMutationDenied = nexusHandoffEffectifsMutationResponse(sessionSource);
+    if (nexusMutationDenied) return nexusMutationDenied;
 
     const { id } = await ctx.params;
     if (!id) {
@@ -200,10 +203,12 @@ export async function DELETE(
   ctx: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { user, role } = await getAuthenticatedRequestUser(req);
+    const { user, role, sessionSource } = await getAuthenticatedRequestUser(req);
     if (!user || (role !== "direction" && role !== "admin")) {
       return NextResponse.json({ error: "Accès refusé." }, { status: 403 });
     }
+    const nexusMutationDenied = nexusHandoffEffectifsMutationResponse(sessionSource);
+    if (nexusMutationDenied) return nexusMutationDenied;
 
     const { id } = await ctx.params;
     if (!id) {
