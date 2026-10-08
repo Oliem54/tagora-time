@@ -11,6 +11,10 @@ import {
   type AccountRequestCompany,
 } from "@/app/lib/account-requests.shared";
 import { formatFonctionsLabels } from "@/app/lib/employee-fonctions.shared";
+import {
+  hororaNexusSessionRequestInit,
+  redirectToNexusLoginIfUnauthenticated,
+} from "@/app/lib/auth/horora-nexus-session.client";
 import { supabase } from "@/app/lib/supabase/client";
 
 type EmployeListRow = {
@@ -43,17 +47,6 @@ export default function Page() {
     setMessageType(null);
 
     try {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      const token = session?.access_token;
-      if (!token) {
-        setMessage("Session expirée. Reconnectez-vous.");
-        setMessageType("error");
-        setEmployes([]);
-        return;
-      }
-
       const params = new URLSearchParams();
       params.set("status", statusFilter);
 
@@ -62,12 +55,17 @@ export default function Page() {
 
       let res: Response;
       try {
-        res = await fetch(`/api/direction/ressources/employes?${params.toString()}`, {
-          headers: { Authorization: `Bearer ${token}` },
-          signal: ac.signal,
-        });
+        res = await fetch(
+          `/api/direction/ressources/employes?${params.toString()}`,
+          hororaNexusSessionRequestInit({ signal: ac.signal })
+        );
       } finally {
         clearTimeout(t);
+      }
+
+      if (redirectToNexusLoginIfUnauthenticated(res.status)) {
+        setEmployes([]);
+        return;
       }
 
       const json = (await res.json().catch(() => ({}))) as {

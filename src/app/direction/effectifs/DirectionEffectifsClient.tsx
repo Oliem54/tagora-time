@@ -54,6 +54,10 @@ import type {
   EffectifsDepartmentKey,
   EffectifsEmployee,
 } from "@/app/lib/effectifs-payload.shared";
+import {
+  hororaNexusSessionRequestInit,
+  redirectToNexusLoginIfUnauthenticated,
+} from "@/app/lib/auth/horora-nexus-session.client";
 import { supabase } from "@/app/lib/supabase/client";
 import DirectionEffectifsMonthCalendar from "./DirectionEffectifsMonthCalendar";
 import DirectionEffectifsWeekCoverage from "./DirectionEffectifsWeekCoverage";
@@ -470,24 +474,15 @@ export default function DirectionEffectifsClient({
     setMessage("");
     setMessageType(null);
 
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
-    const token = session?.access_token;
-
-    if (!token) {
-      setMessage("Session expirée. Reconnectez-vous.");
-      setMessageType("error");
+    const res = await fetch(
+      `/api/direction/effectifs?company=${selectedCompany}`,
+      hororaNexusSessionRequestInit()
+    );
+    if (redirectToNexusLoginIfUnauthenticated(res.status)) {
       setPayload(null);
       setLoading(false);
       return;
     }
-
-    const res = await fetch(`/api/direction/effectifs?company=${selectedCompany}`, {
-      method: "GET",
-      headers: { Authorization: `Bearer ${token}` },
-      cache: "no-store",
-    });
 
     if (!res.ok) {
       const body = (await res.json().catch(() => null)) as { error?: string } | null;
@@ -523,19 +518,14 @@ export default function DirectionEffectifsClient({
     if (!user) return;
     setLiveRefreshing(true);
     try {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      const token = session?.access_token;
-      if (!token) {
+      const res = await fetch(
+        "/api/direction/horodateur/live",
+        hororaNexusSessionRequestInit()
+      );
+      if (redirectToNexusLoginIfUnauthenticated(res.status)) {
         setLiveBoard([]);
         return;
       }
-      const res = await fetch("/api/direction/horodateur/live", {
-        method: "GET",
-        headers: { Authorization: `Bearer ${token}` },
-        cache: "no-store",
-      });
       if (!res.ok) {
         setLiveBoard([]);
         return;
@@ -578,14 +568,11 @@ export default function DirectionEffectifsClient({
     let cancelled = false;
     (async () => {
       try {
-        const {
-          data: { session },
-        } = await supabase.auth.getSession();
-        if (!session?.access_token || cancelled) return;
-        const res = await fetch("/api/direction/effectifs/pending-schedule-requests-count", {
-          headers: { Authorization: `Bearer ${session.access_token}` },
-          cache: "no-store",
-        });
+        const res = await fetch(
+          "/api/direction/effectifs/pending-schedule-requests-count",
+          hororaNexusSessionRequestInit()
+        );
+        if (cancelled || redirectToNexusLoginIfUnauthenticated(res.status)) return;
         if (!res.ok || cancelled) return;
         const body = (await res.json()) as { count?: unknown };
         const n = Number(body.count);
@@ -1060,15 +1047,37 @@ export default function DirectionEffectifsClient({
     };
   }, [payload, liveBoard, todayIso]);
 
-  async function authJsonHeaders(): Promise<HeadersInit> {
+  async function authJsonHeaders(): Promise<HeadersInit | null> {
     const {
       data: { session },
     } = await supabase.auth.getSession();
-    const token = session?.access_token ?? "";
+    const token = session?.access_token?.trim() ?? "";
+    if (!token) return null;
     return {
       Authorization: `Bearer ${token}`,
       "Content-Type": "application/json",
     };
+  }
+
+  async function fetchEffectifsMutation(
+    input: string,
+    method: "POST" | "PATCH" | "PUT" | "DELETE",
+    body?: unknown
+  ): Promise<Response | null> {
+    const headers = await authJsonHeaders();
+    if (!headers) return null;
+    return fetch(input, {
+      method,
+      headers,
+      credentials: "omit",
+      cache: "no-store",
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+  }
+
+  function refuseEffectifsMutationWithoutSupabaseToken(): void {
+    setMessage("Session expirée. Reconnectez-vous.");
+    setMessageType("error");
   }
 
   async function handleCreateWindow(event: React.FormEvent) {
@@ -1077,21 +1086,21 @@ export default function DirectionEffectifsClient({
     setSaving(true);
     setMessage("");
     try {
-      const res = await fetch("/api/direction/effectifs", {
-        method: "POST",
-        headers: await authJsonHeaders(),
-        body: JSON.stringify({
-          company_key: newForm.company_key,
-          department_key: newForm.department_key,
-          location_key: newForm.location_key,
-          location_label: newForm.location_label,
-          weekday: newForm.weekday,
-          start_local: newForm.start_local,
-          end_local: newForm.end_local,
-          min_employees: newForm.min_employees,
-          active: newForm.active,
-        }),
+      const res = await fetchEffectifsMutation("/api/direction/effectifs", "POST", {
+        company_key: newForm.company_key,
+        department_key: newForm.department_key,
+        location_key: newForm.location_key,
+        location_label: newForm.location_label,
+        weekday: newForm.weekday,
+        start_local: newForm.start_local,
+        end_local: newForm.end_local,
+        min_employees: newForm.min_employees,
+        active: newForm.active,
       });
+      if (!res) {
+        refuseEffectifsMutationWithoutSupabaseToken();
+        return;
+      }
       const body = (await res.json().catch(() => null)) as { error?: string } | null;
       if (!res.ok) {
         setMessage(body?.error ?? "Erreur création.");
@@ -1112,19 +1121,19 @@ export default function DirectionEffectifsClient({
     setSaving(true);
     setMessage("");
     try {
-      const res = await fetch(`/api/direction/effectifs/${id}`, {
-        method: "PATCH",
-        headers: await authJsonHeaders(),
-        body: JSON.stringify({
-          company_key: editDraft.company_key,
-          start_local: editDraft.start_local,
-          end_local: editDraft.end_local,
-          min_employees: editDraft.min_employees,
-          location_key: editDraft.location_key,
-          location_label: editDraft.location_label,
-          active: editDraft.active,
-        }),
+      const res = await fetchEffectifsMutation(`/api/direction/effectifs/${id}`, "PATCH", {
+        company_key: editDraft.company_key,
+        start_local: editDraft.start_local,
+        end_local: editDraft.end_local,
+        min_employees: editDraft.min_employees,
+        location_key: editDraft.location_key,
+        location_label: editDraft.location_label,
+        active: editDraft.active,
       });
+      if (!res) {
+        refuseEffectifsMutationWithoutSupabaseToken();
+        return;
+      }
       const body = (await res.json().catch(() => null)) as { error?: string } | null;
       if (!res.ok) {
         setMessage(body?.error ?? "Erreur mise à jour.");
@@ -1147,10 +1156,11 @@ export default function DirectionEffectifsClient({
     setSaving(true);
     setMessage("");
     try {
-      const res = await fetch(`/api/direction/effectifs/${id}`, {
-        method: "DELETE",
-        headers: await authJsonHeaders(),
-      });
+      const res = await fetchEffectifsMutation(`/api/direction/effectifs/${id}`, "DELETE");
+      if (!res) {
+        refuseEffectifsMutationWithoutSupabaseToken();
+        return;
+      }
       const body = (await res.json().catch(() => null)) as { error?: string } | null;
       if (!res.ok) {
         setMessage(body?.error ?? "Erreur suppression.");
@@ -1174,10 +1184,10 @@ export default function DirectionEffectifsClient({
     setMessage("");
     setMessageType(null);
     try {
-      const res = await fetch("/api/direction/effectifs/calendar-exceptions", {
-        method: "POST",
-        headers: await authJsonHeaders(),
-        body: JSON.stringify({
+      const res = await fetchEffectifsMutation(
+        "/api/direction/effectifs/calendar-exceptions",
+        "POST",
+        {
           date: calExForm.date,
           title: calExForm.title,
           type: calExForm.type,
@@ -1187,8 +1197,12 @@ export default function DirectionEffectifsClient({
           start_time: calExForm.start_time.trim() || null,
           end_time: calExForm.end_time.trim() || null,
           notes: calExForm.notes.trim() || null,
-        }),
-      });
+        }
+      );
+      if (!res) {
+        refuseEffectifsMutationWithoutSupabaseToken();
+        return;
+      }
       const body = (await res.json().catch(() => null)) as { error?: string } | null;
       if (!res.ok) {
         setMessage(body?.error ?? "Erreur enregistrement.");
@@ -1217,14 +1231,14 @@ export default function DirectionEffectifsClient({
     setMessage("");
     setMessageType(null);
     try {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      const token = session?.access_token ?? "";
-      const res = await fetch(`/api/direction/effectifs/calendar-exceptions/${id}`, {
-        method: "DELETE",
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const res = await fetchEffectifsMutation(
+        `/api/direction/effectifs/calendar-exceptions/${id}`,
+        "DELETE"
+      );
+      if (!res) {
+        refuseEffectifsMutationWithoutSupabaseToken();
+        return;
+      }
       const body = (await res.json().catch(() => null)) as { error?: string } | null;
       if (!res.ok) {
         setMessage(body?.error ?? "Erreur suppression.");
@@ -1245,11 +1259,15 @@ export default function DirectionEffectifsClient({
     setMessage("");
     setMessageType(null);
     try {
-      const res = await fetch(`/api/direction/effectifs/schedule-requests/${id}`, {
-        method: "PATCH",
-        headers: await authJsonHeaders(),
-        body: JSON.stringify({ status }),
-      });
+      const res = await fetchEffectifsMutation(
+        `/api/direction/effectifs/schedule-requests/${id}`,
+        "PATCH",
+        { status }
+      );
+      if (!res) {
+        refuseEffectifsMutationWithoutSupabaseToken();
+        return;
+      }
       const body = (await res.json().catch(() => null)) as { error?: string } | null;
       if (!res.ok) {
         setMessage(body?.error ?? "Erreur.");
@@ -1270,11 +1288,15 @@ export default function DirectionEffectifsClient({
     setMessage("");
     setMessageType(null);
     try {
-      const res = await fetch("/api/direction/effectifs/regular-closed-days", {
-        method: "PUT",
-        headers: await authJsonHeaders(),
-        body: JSON.stringify({ closedDays: next, company_key: selectedCompany }),
-      });
+      const res = await fetchEffectifsMutation(
+        "/api/direction/effectifs/regular-closed-days",
+        "PUT",
+        { closedDays: next, company_key: selectedCompany }
+      );
+      if (!res) {
+        refuseEffectifsMutationWithoutSupabaseToken();
+        return;
+      }
       const body = (await res.json().catch(() => null)) as { error?: string } | null;
       if (!res.ok) {
         setMessage(body?.error ?? "Erreur mise à jour jours fermés.");
@@ -1296,18 +1318,22 @@ export default function DirectionEffectifsClient({
     setMessage("");
     setMessageType(null);
     try {
-      const res = await fetch("/api/direction/effectifs/regular-closed-days", {
-        method: "PUT",
-        headers: await authJsonHeaders(),
-        body: JSON.stringify({
+      const res = await fetchEffectifsMutation(
+        "/api/direction/effectifs/regular-closed-days",
+        "PUT",
+        {
           scope: form.scope,
           company_key: form.companyKey,
           department_key: form.scope === "department" ? form.departmentKey || null : null,
           location_key: form.scope === "location" ? form.locationKey || null : null,
           closedDays: form.days,
           active: form.active,
-        }),
-      });
+        }
+      );
+      if (!res) {
+        refuseEffectifsMutationWithoutSupabaseToken();
+        return;
+      }
       const body = (await res.json().catch(() => null)) as { error?: string } | null;
       if (!res.ok) {
         setMessage(body?.error ?? "Erreur mise à jour fermeture régulière.");
@@ -1373,16 +1399,11 @@ export default function DirectionEffectifsClient({
 
   const loadDirectoryDepartments = useCallback(async () => {
     try {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      const token = session?.access_token;
-      if (!token) return;
-      const res = await fetch("/api/direction/effectifs/departments", {
-        method: "GET",
-        headers: { Authorization: `Bearer ${token}` },
-        cache: "no-store",
-      });
+      const res = await fetch(
+        "/api/direction/effectifs/departments",
+        hororaNexusSessionRequestInit()
+      );
+      if (redirectToNexusLoginIfUnauthenticated(res.status)) return;
       const body = (await res.json().catch(() => null)) as {
         departments?: DirectoryDepartment[];
         tablePresent?: boolean;
@@ -1420,10 +1441,10 @@ export default function DirectionEffectifsClient({
     setMessage("");
     setMessageType(null);
     try {
-      const res = await fetch(`/api/direction/effectifs/departments/${id}`, {
-        method: "PATCH",
-        headers: await authJsonHeaders(),
-        body: JSON.stringify({
+      const res = await fetchEffectifsMutation(
+        `/api/direction/effectifs/departments/${id}`,
+        "PATCH",
+        {
           label: patch.label,
           company_key: patch.companyKey,
           location_key:
@@ -1434,8 +1455,12 @@ export default function DirectionEffectifsClient({
                 : patch.locationKey,
           sort_order: patch.sortOrder,
           active: patch.active,
-        }),
-      });
+        }
+      );
+      if (!res) {
+        refuseEffectifsMutationWithoutSupabaseToken();
+        return;
+      }
       const body = (await res.json().catch(() => null)) as {
         error?: string;
       } | null;
@@ -1461,10 +1486,14 @@ export default function DirectionEffectifsClient({
     setMessage("");
     setMessageType(null);
     try {
-      const res = await fetch(`/api/direction/effectifs/departments/${id}`, {
-        method: "DELETE",
-        headers: await authJsonHeaders(),
-      });
+      const res = await fetchEffectifsMutation(
+        `/api/direction/effectifs/departments/${id}`,
+        "DELETE"
+      );
+      if (!res) {
+        refuseEffectifsMutationWithoutSupabaseToken();
+        return;
+      }
       const body = (await res.json().catch(() => null)) as {
         error?: string;
         mode?: "deleted" | "deactivated";
@@ -1530,18 +1559,18 @@ export default function DirectionEffectifsClient({
     setMessage("");
     setMessageType(null);
     try {
-      const res = await fetch("/api/direction/effectifs/departments", {
-        method: "POST",
-        headers: await authJsonHeaders(),
-        body: JSON.stringify({
-          department_key: key,
-          label,
-          company_key: newDeptForm.companyKey,
-          location_key: newDeptForm.locationKey.trim() || null,
-          sort_order: newDeptForm.sortOrder,
-          active: newDeptForm.active,
-        }),
+      const res = await fetchEffectifsMutation("/api/direction/effectifs/departments", "POST", {
+        department_key: key,
+        label,
+        company_key: newDeptForm.companyKey,
+        location_key: newDeptForm.locationKey.trim() || null,
+        sort_order: newDeptForm.sortOrder,
+        active: newDeptForm.active,
       });
+      if (!res) {
+        refuseEffectifsMutationWithoutSupabaseToken();
+        return;
+      }
       const body = (await res.json().catch(() => null)) as {
         error?: string;
       } | null;
