@@ -7,7 +7,7 @@ import {
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { handleNexusCallback } from "@/app/auth/nexus/callback/route";
+import { handleNexusCallback } from "@/app/lib/auth/nexus-callback-handler.server";
 import {
   completeNexusCallbackPhaseA,
   inspectNexusHandoff,
