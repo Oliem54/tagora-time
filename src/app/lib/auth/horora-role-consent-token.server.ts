@@ -2,6 +2,7 @@
  * Verifies a proposed TAGORA_ROLE_CONSENT_V1 server token.
  * Issuer and ES256 keys come from the existing handoff configuration.
  * Launch audience tagora:time and typ TAGORA_HANDOFF_V1 are refused.
+ * Production is accepted only for the two consent audiences.
  */
 
 import {
@@ -42,10 +43,24 @@ export type HororaRoleConsentAssignment = {
 export const HORORA_ROLE_CONSENT_TYP = "TAGORA_ROLE_CONSENT_V1" as const;
 export const HORORA_ROLE_CATALOG_AUDIENCE = "tagora:time:role-catalog" as const;
 export const HORORA_ROLE_ASSIGNMENT_AUDIENCE = "tagora:time:role-assignment" as const;
-export const HORORA_ROLE_CONSENT_ENVIRONMENTS = ["local", "test", "staging"] as const;
+export const HORORA_ROLE_CONSENT_ENVIRONMENTS = [
+  "local",
+  "test",
+  "staging",
+  "production",
+] as const;
 
 export type HororaRoleConsentEnvironment =
   (typeof HORORA_ROLE_CONSENT_ENVIRONMENTS)[number];
+
+export function isHororaRoleConsentEnvironment(
+  value: unknown
+): value is HororaRoleConsentEnvironment {
+  return (
+    typeof value === "string" &&
+    (HORORA_ROLE_CONSENT_ENVIRONMENTS as readonly string[]).includes(value)
+  );
+}
 
 export type HororaRoleConsentAudience =
   | typeof HORORA_ROLE_CATALOG_AUDIENCE
@@ -172,10 +187,7 @@ export async function verifyTagoraRoleConsentV1(
   if (moduleKey !== NEXUS_TECHNICAL_MODULE_KEY) return fail("invalid_module_key");
 
   const environment = readString(payload.environment);
-  if (
-    !environment ||
-    !(HORORA_ROLE_CONSENT_ENVIRONMENTS as readonly string[]).includes(environment)
-  ) {
+  if (!isHororaRoleConsentEnvironment(environment)) {
     return fail("invalid_environment");
   }
 
@@ -221,7 +233,7 @@ export async function verifyTagoraRoleConsentV1(
       moduleKey: NEXUS_TECHNICAL_MODULE_KEY,
       organizationId,
       tenantId,
-      environment: environment as HororaRoleConsentEnvironment,
+      environment,
       operationId,
       iat,
       nbf,

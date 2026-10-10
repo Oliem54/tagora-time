@@ -4,6 +4,7 @@
  * are not forwarded. The table migration is local until a later apply GO.
  */
 
+import { isHororaRoleConsentEnvironment } from "@/app/lib/auth/horora-role-consent-token.server";
 import type { HororaRoleAcknowledgement } from "@/app/lib/auth/horora-role-consent.server";
 import {
   HORORA_ROLE_ACKNOWLEDGEMENT_TABLE,
@@ -177,9 +178,7 @@ function mapRow(value: unknown): HororaRoleAcknowledgement | null {
     row.nexus_tenant_id !== row.nexus_tenant_id.trim() ||
     typeof row.organization_id !== "string" ||
     typeof row.acknowledged_at !== "string" ||
-    (row.environment !== "local" &&
-      row.environment !== "test" &&
-      row.environment !== "staging") ||
+    !isHororaRoleConsentEnvironment(row.environment) ||
     (row.operation !== "ASSIGN" && row.operation !== "CHANGE")
   ) {
     return null;

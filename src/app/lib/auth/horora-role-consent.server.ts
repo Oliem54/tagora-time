@@ -9,7 +9,10 @@
 import { selectActiveMembershipRow } from "@/app/lib/saas/organization-membership.shared";
 import type { MembershipRow } from "@/app/lib/saas/organization-membership.shared";
 import type { NexusMappingLookups } from "@/app/lib/auth/nexus-identity-mapping.server";
-import type { HororaRoleConsentClaims } from "@/app/lib/auth/horora-role-consent-token.server";
+import type {
+  HororaRoleConsentClaims,
+  HororaRoleConsentEnvironment,
+} from "@/app/lib/auth/horora-role-consent-token.server";
 import {
   HORORA_ROLE_ASSIGNMENT_AUDIENCE,
   HORORA_ROLE_CATALOG_AUDIENCE,
@@ -63,7 +66,7 @@ export type HororaRoleAcknowledgement = {
   nexusOrganizationId: string;
   nexusTenantId: string;
   organizationId: string;
-  environment: "local" | "test" | "staging";
+  environment: HororaRoleConsentEnvironment;
   operation: "ASSIGN" | "CHANGE";
   catalogVersion: typeof HORORA_ROLE_CATALOG_VERSION;
   assignmentVersion: number;
