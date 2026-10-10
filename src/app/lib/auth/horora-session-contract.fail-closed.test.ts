@@ -48,6 +48,7 @@ const NOW = 1_700_000_000;
 const BINDING = {
   nexusActorId: SUBJECT,
   nexusOrganizationId: "nexus-org-1",
+  nexusTenantId: "tenant-1",
   nexusMembershipId: "mem-1",
   authUserId: AUTH_USER,
   organizationId: ORG_ID,
@@ -110,6 +111,7 @@ function mappingLookups(): NexusMappingLookups {
       return [
         {
           nexus_organization_id: "nexus-org-1",
+          nexus_tenant_id: "tenant-1",
           organization_id: ORG_ID,
           status: "active",
         },
