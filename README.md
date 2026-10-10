@@ -19,6 +19,15 @@ npm run dev
 
 Ouvrir [http://localhost:3000](http://localhost:3000).
 
+Le codage local ne demande pas Nexus live. Pour ouvrir les écrans authentifiés sur localhost :
+
+```bash
+HORORA_LOCAL_NEXUS_FIXTURE=true
+HORORA_LOCAL_FIXTURE_ROLE=direction
+```
+
+La fixture ne s'active qu'avec `npm run dev`, sur `localhost` ou `127.0.0.1`, et refuse l'hôte Supabase de Production. Elle ne crée aucun accès réel.
+
 ## Scripts
 
 | Script | Description |

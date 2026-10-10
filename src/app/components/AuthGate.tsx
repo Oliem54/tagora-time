@@ -148,7 +148,8 @@ export default function AuthGate({
         if (cancelled) return;
         if (
           brokeredCtx?.authorized &&
-          brokeredCtx.source === "nexus_handoff" &&
+          (brokeredCtx.source === "nexus_handoff" ||
+            brokeredCtx.source === "local_nexus_fixture") &&
           brokeredCtx.appRole
         ) {
           await authorizeNexusHandoff(brokeredCtx.appRole);

@@ -17,7 +17,7 @@ export type SessionContextResponse = {
   organizationId: string | null;
   membershipId: string | null;
   membershipRole: OrganizationMembershipRole | null;
-  source: "membership" | "nexus_handoff" | null;
+  source: "membership" | "nexus_handoff" | "local_nexus_fixture" | null;
   displayName: string | null;
   email: string | null;
 };
