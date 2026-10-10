@@ -243,8 +243,9 @@ describe("operational-state.shared — Vincent", () => {
 
   it("formatte le message alreadySubmitted pour Vincent", () => {
     const message = formatPendingPunchOutSubmittedMessage("2026-06-05T10:40:26.034+00:00");
-    expect(message).toContain("soumise a validation");
-    expect(message).toContain("continuer a utiliser l'horodateur normalement");
+    expect(message).toContain("soumise");
+    expect(message).toContain("direction");
+    expect(message).toContain("continuer à utiliser l'horodateur");
     expect(message.toLowerCase()).not.toContain("refus");
   });
 });

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { NEXUS_PUBLIC_LOGIN_URL } from "@/app/lib/canonical-domains";
+import { assignHororaModuleLogin } from "@/app/lib/auth/horora-nexus-session.client";
 import { employeePunchRequestInit } from "@/app/lib/employee-punch-session.client";
 import {
   EMPLOYEE_PUNCH_GEOLOCATION_MAX_DURATION_MS,
@@ -11,6 +12,11 @@ import {
   type EmployeePunchGeolocationFailureCode,
 } from "@/app/lib/employee-punch-geolocation.client";
 import { employeePunchSuccessMessage } from "@/app/lib/horodateur-v1/punch-confirmation.shared";
+import {
+  explainEmployeePunchError,
+  resolveEmployeePunchGuidance,
+  type EmployeePunchAction,
+} from "@/app/lib/employee-punch-guidance.shared";
 
 export const EMPLOYEE_PUNCH_BUSINESS_PERMISSION_MESSAGE =
   "La permission terrain est requise pour utiliser l'horodateur.";
@@ -28,7 +34,16 @@ export type EmployeePunchSnapshot = {
     email: string | null;
     primaryCompany: "oliem_solutions" | "titan_produits_industriels" | null;
     pausePaid?: boolean;
+    lunchPaid?: boolean;
   };
+  todayTimeDisplay?: {
+    officialPayableMinutes: number;
+    livePayableMinutes: number;
+    hasOpenShiftAccrual: boolean;
+    pendingPunchBlocksAccrual: boolean;
+    openShiftSafetyCapReached: boolean;
+    computedAt: string;
+  } | null;
   currentState: {
     current_state?: string | null;
     status?: string | null;
@@ -48,6 +63,7 @@ export type EmployeePunchSnapshot = {
     approved_exception_minutes: number;
     anomalies_count: number;
     status: string;
+    shift_start_at?: string | null;
   } | null;
   weeklyProjection: {
     workedMinutes: number;
@@ -109,6 +125,7 @@ function normalizeDashboardSnapshot(
       email: employee.email ?? null,
       primaryCompany: employee.primaryCompany ?? null,
       pausePaid: typeof employee.pausePaid === "boolean" ? employee.pausePaid : true,
+      lunchPaid: typeof employee.lunchPaid === "boolean" ? employee.lunchPaid : undefined,
     },
     currentState: {
       current_state: currentState.current_state ?? currentState.status ?? "hors_quart",
@@ -136,11 +153,28 @@ function normalizeDashboardSnapshot(
     pendingExceptions: Array.isArray(payload?.pendingExceptions)
       ? payload.pendingExceptions
       : [],
+    todayTimeDisplay: normalizeTodayTimeDisplay(payload?.todayTimeDisplay),
   } satisfies EmployeePunchSnapshot;
 }
 
+function normalizeTodayTimeDisplay(
+  raw: EmployeePunchSnapshot["todayTimeDisplay"] | undefined
+): EmployeePunchSnapshot["todayTimeDisplay"] {
+  if (!raw || typeof raw !== "object") return null;
+  return {
+    officialPayableMinutes:
+      typeof raw.officialPayableMinutes === "number" ? raw.officialPayableMinutes : 0,
+    livePayableMinutes:
+      typeof raw.livePayableMinutes === "number" ? raw.livePayableMinutes : 0,
+    hasOpenShiftAccrual: Boolean(raw.hasOpenShiftAccrual),
+    pendingPunchBlocksAccrual: Boolean(raw.pendingPunchBlocksAccrual),
+    openShiftSafetyCapReached: Boolean(raw.openShiftSafetyCapReached),
+    computedAt: typeof raw.computedAt === "string" ? raw.computedAt : new Date().toISOString(),
+  };
+}
+
 function redirectToNexusLogin() {
-  window.location.assign(NEXUS_PUBLIC_LOGIN_URL);
+  assignHororaModuleLogin(NEXUS_PUBLIC_LOGIN_URL);
 }
 
 export function useEmployeePunchSnapshot(enabled: boolean) {
@@ -155,15 +189,17 @@ export function useEmployeePunchSnapshot(enabled: boolean) {
   const submitLockRef = useRef(false);
   const pendingEventTypeRef = useRef<string | null>(null);
 
-  const loadSnapshot = useCallback(async () => {
+  const loadSnapshot = useCallback(async (options?: { background?: boolean }) => {
     if (!enabled) {
       setLoading(false);
       setSnapshot(null);
       return;
     }
 
-    setLoading(true);
-    setError("");
+    if (!options?.background) {
+      setLoading(true);
+      setError("");
+    }
 
     try {
       const response = await fetch(
@@ -184,16 +220,22 @@ export function useEmployeePunchSnapshot(enabled: boolean) {
         if (payload?.code === "permission_denied") {
           throw new Error(EMPLOYEE_PUNCH_BUSINESS_PERMISSION_MESSAGE);
         }
-        throw new Error(payload?.error ?? "Impossible de charger l'horodateur.");
+        throw new Error(
+          explainEmployeePunchError(payload?.error ?? "Impossible de charger l'horodateur.")
+        );
       }
 
       setSnapshot(normalizeDashboardSnapshot(payload));
     } catch (loadError) {
       setError(
-        loadError instanceof Error ? loadError.message : "Erreur de chargement."
+        explainEmployeePunchError(
+          loadError instanceof Error ? loadError.message : "Erreur de chargement."
+        )
       );
     } finally {
-      setLoading(false);
+      if (!options?.background) {
+        setLoading(false);
+      }
     }
   }, [enabled]);
 
@@ -201,24 +243,58 @@ export function useEmployeePunchSnapshot(enabled: boolean) {
     void loadSnapshot();
   }, [loadSnapshot]);
 
+  useEffect(() => {
+    if (!enabled) return;
+    const intervalId = window.setInterval(() => {
+      void loadSnapshot({ background: true });
+    }, 60_000);
+    const refresh = () => {
+      if (document.visibilityState === "hidden") return;
+      void loadSnapshot({ background: true });
+    };
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", refresh);
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", refresh);
+    };
+  }, [enabled, loadSnapshot]);
+
   const currentState =
     snapshot?.currentState.current_state ??
     snapshot?.currentState.status ??
     "hors_quart";
-  const principalAction =
-    currentState === "en_quart" ||
-    currentState === "en_pause" ||
-    currentState === "en_diner"
-      ? {
-          eventType: "punch_out",
-          label: "Pointer la sortie",
-        }
-      : {
-          eventType: "punch_in",
-          label: "Pointer l'entrée",
-        };
-
   const pausePaid = snapshot?.employee.pausePaid !== false;
+  const punchGuidance = useMemo(
+    () =>
+      resolveEmployeePunchGuidance({
+        currentState,
+        available: enabled,
+        pausePaid,
+        lunchPaid: snapshot?.employee.lunchPaid === true,
+        shiftStatus: snapshot?.shift?.status,
+        pendingValidation:
+          snapshot?.currentState.has_open_exception === true ||
+          snapshot?.shift?.status === "en_attente",
+        arrivalAt:
+          snapshot?.currentState.startedAt ?? snapshot?.shift?.shift_start_at ?? null,
+      }),
+    [currentState, enabled, pausePaid, snapshot]
+  );
+  const primaryFromGuidance = punchGuidance.primary;
+  const principalAction = primaryFromGuidance?.eventType
+    ? {
+        eventType: primaryFromGuidance.eventType,
+        label: primaryFromGuidance.label,
+        submitsPunch: true,
+      }
+    : {
+        eventType: "punch_in",
+        label: primaryFromGuidance?.label ?? "Consulter le pointage",
+        submitsPunch: false,
+      };
+  const secondaryActions: EmployeePunchAction[] = punchGuidance.secondary;
 
   const actionDisabled = useMemo(
     () => ({
@@ -297,9 +373,11 @@ export function useEmployeePunchSnapshot(enabled: boolean) {
 
         if (!response.ok) {
           throw new Error(
-            messageForHorodateurPunchGpsServerCode(
-              payload?.code,
-              payload?.error
+            explainEmployeePunchError(
+              messageForHorodateurPunchGpsServerCode(
+                payload?.code,
+                payload?.error
+              )
             )
           );
         }
@@ -324,7 +402,9 @@ export function useEmployeePunchSnapshot(enabled: boolean) {
         );
       } catch (submitError) {
         setError(
-          submitError instanceof Error ? submitError.message : "Erreur de pointage."
+          explainEmployeePunchError(
+            submitError instanceof Error ? submitError.message : "Erreur de pointage."
+          )
         );
       } finally {
         setGeolocationPending(false);
@@ -355,6 +435,10 @@ export function useEmployeePunchSnapshot(enabled: boolean) {
     geolocationFailure,
     currentState,
     principalAction,
+    secondaryActions,
+    guidanceText: punchGuidance.guidance,
+    serviceSinceLabel: punchGuidance.serviceSinceLabel,
+    statusLabel: punchGuidance.statusLabel,
     actionDisabled,
     loadSnapshot,
     submitPunch,

@@ -7,6 +7,7 @@ export const EMPLOYEE_PUNCH_STATUS = {
   nonPointe: "non_pointe",
   enService: "en_service",
   enPause: "en_pause",
+  enDiner: "en_diner",
   quartTermine: "quart_termine",
   indisponible: "indisponible",
 } as const;
@@ -18,14 +19,16 @@ const STATUS_LABEL: Record<EmployeePunchStatusId, string> = {
   non_pointe: "Non pointé",
   en_service: "En service",
   en_pause: "En pause",
+  en_diner: "Au dîner",
   quart_termine: "Quart terminé",
   indisponible: "Statut indisponible",
 };
 
 const NEXT_ACTION_LABEL: Record<EmployeePunchStatusId, string> = {
-  non_pointe: "Pointer",
-  en_service: "Continuer le quart",
+  non_pointe: "Pointer mon arrivée",
+  en_service: "Pointer ma sortie",
   en_pause: "Reprendre le service",
+  en_diner: "Terminer le dîner",
   quart_termine: "Consulter le pointage",
   indisponible: "Pointage indisponible",
 };
@@ -42,8 +45,9 @@ export function mapEmployeePunchStatus(
     case "en_quart":
       return EMPLOYEE_PUNCH_STATUS.enService;
     case "en_pause":
-    case "en_diner":
       return EMPLOYEE_PUNCH_STATUS.enPause;
+    case "en_diner":
+      return EMPLOYEE_PUNCH_STATUS.enDiner;
     case "termine":
       return EMPLOYEE_PUNCH_STATUS.quartTermine;
     case "hors_quart":
@@ -66,6 +70,7 @@ export function employeePunchNextActionLabel(status: EmployeePunchStatusId): str
 export const DIRECTION_PRESENCE_STATUS = {
   enService: "en_service",
   enPause: "en_pause",
+  auDiner: "au_diner",
   absent: "absent",
   quartTermine: "quart_termine",
   attentionRequise: "attention_requise",
@@ -77,6 +82,7 @@ export type DirectionPresenceStatusId =
 const DIRECTION_PRESENCE_LABEL: Record<DirectionPresenceStatusId, string> = {
   en_service: "En service",
   en_pause: "En pause",
+  au_diner: "Au dîner",
   absent: "Absent",
   quart_termine: "Quart terminé",
   attention_requise: "Attention requise",
@@ -98,8 +104,9 @@ export function mapDirectionPresenceStatus(
     case "en_quart":
       return DIRECTION_PRESENCE_STATUS.enService;
     case "en_pause":
-    case "en_diner":
       return DIRECTION_PRESENCE_STATUS.enPause;
+    case "en_diner":
+      return DIRECTION_PRESENCE_STATUS.auDiner;
     case "termine":
       return DIRECTION_PRESENCE_STATUS.quartTermine;
     default:
@@ -120,6 +127,7 @@ export function directionPresenceStatusTone(
     case DIRECTION_PRESENCE_STATUS.enService:
       return "success";
     case DIRECTION_PRESENCE_STATUS.enPause:
+    case DIRECTION_PRESENCE_STATUS.auDiner:
     case DIRECTION_PRESENCE_STATUS.attentionRequise:
       return "warning";
     case DIRECTION_PRESENCE_STATUS.quartTermine:
@@ -136,6 +144,7 @@ export function employeePunchStatusTone(
     case EMPLOYEE_PUNCH_STATUS.enService:
       return "success";
     case EMPLOYEE_PUNCH_STATUS.enPause:
+    case EMPLOYEE_PUNCH_STATUS.enDiner:
       return "warning";
     case EMPLOYEE_PUNCH_STATUS.quartTermine:
       return "info";

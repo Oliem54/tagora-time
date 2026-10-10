@@ -13,7 +13,7 @@ import { getEmployeeDashboardSnapshotByAuthUserId } from "@/app/lib/horodateur-v
 import { createAdminSupabaseClient } from "@/app/lib/supabase/admin";
 
 export async function GET(req: NextRequest) {
-  const auth = await requireEmployeeHorodateurAccess(req);
+  const auth = await requireEmployeeHorodateurAccess(req, "punch_in_out");
   if (!auth.ok) {
     return auth.response;
   }

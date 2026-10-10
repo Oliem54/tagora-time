@@ -10,6 +10,7 @@ import {
   parseOptionalIsoDateTime,
   requireEmployeeHorodateurAccess,
 } from "@/app/api/horodateur/_shared";
+import { hororaPortalRoleAllows } from "@/app/lib/auth/horora-role-model.shared";
 import {
   getActiveLeaveForEmployeeOnDate,
   insertPunchDuringLongLeaveAlert,
@@ -31,6 +32,11 @@ import {
   createEmployeePunch,
   getEmployeeDashboardSnapshotByAuthUserId,
 } from "@/app/lib/horodateur-v1/service";
+import {
+  buildLocalPunchQaPayload,
+  HORORA_LOCAL_PUNCH_QA_COOKIE,
+  localPunchQaStateFromRequest,
+} from "@/app/lib/horodateur-v1/local-punch-qa-fixture.shared";
 import {
   employeePunchSubmissionFlags,
   isPunchConfirmedByServerReread,
@@ -71,7 +77,15 @@ function buildPunchApiResponse(
 
 export async function GET(req: NextRequest) {
   try {
-    const auth = await requireEmployeeHorodateurAccess(req);
+    const localQa = localPunchQaStateFromRequest({
+      hostname: req.nextUrl.hostname,
+      cookie: req.cookies.get(HORORA_LOCAL_PUNCH_QA_COOKIE)?.value,
+    });
+    if (localQa) {
+      return NextResponse.json(buildLocalPunchQaPayload(localQa, Date.now()).punch);
+    }
+
+    const auth = await requireEmployeeHorodateurAccess(req, "view_own_hours");
 
     if (!auth.ok) {
       return auth.response;
@@ -99,7 +113,23 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    const auth = await requireEmployeeHorodateurAccess(req);
+    const localQa = localPunchQaStateFromRequest({
+      hostname: req.nextUrl.hostname,
+      cookie: req.cookies.get(HORORA_LOCAL_PUNCH_QA_COOKIE)?.value,
+    });
+    if (localQa) {
+      return NextResponse.json(
+        {
+          success: false,
+          ok: false,
+          error: "QA local : aucun pointage n'est enregistré.",
+          code: "local_punch_qa_readonly",
+        },
+        { status: 409 }
+      );
+    }
+
+    const auth = await requireEmployeeHorodateurAccess(req, "punch_in_out");
 
     if (!auth.ok) {
       return auth.response;
@@ -142,6 +172,14 @@ export async function POST(req: NextRequest) {
     }
 
     if (body.retroactive === true) {
+      if (!hororaPortalRoleAllows("employe", "request_own_correction")) {
+        return buildHorodateurValidationErrorResponse({
+          error: "Acces refuse.",
+          code: "forbidden",
+          status: 403,
+          route: "/api/horodateur/punch",
+        });
+      }
       const retroNote = normalizeNonEmptyString(body.note);
       if (!retroNote) {
         return buildHorodateurValidationErrorResponse({

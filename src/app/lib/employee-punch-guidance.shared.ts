@@ -44,7 +44,7 @@ export function formatPendingEmployeePunchOutBanner(occurredAt: string) {
     minute: "2-digit",
     hour12: false,
   });
-  return `Votre sortie a deja ete soumise a ${label} et attend la validation de la direction. Votre quart est ferme; la paie reste a valider.`;
+  return `Votre sortie a déjà été soumise à ${label} et attend la validation de la direction. Votre quart est fermé. La paie reste à valider.`;
 }
 
 /**
@@ -96,12 +96,70 @@ function formatEnServiceDepuis(iso: string | null | undefined): string | null {
   return clock ? `En service depuis ${clock}` : null;
 }
 
+export function accrueOpenShiftDisplayMinutes(input: {
+  baseMinutes: number;
+  computedAt?: string | null;
+  nowMs: number;
+  accrues: boolean;
+}): number {
+  const base = Math.max(0, input.baseMinutes || 0);
+  if (!input.accrues) return base;
+  const computed = input.computedAt ? Date.parse(input.computedAt) : Number.NaN;
+  if (!Number.isFinite(computed)) return base;
+  const extra = Math.floor((input.nowMs - computed) / 60_000);
+  if (extra <= 0) return base;
+  return base + Math.min(extra, 5);
+}
+
+/**
+ * Traduit les refus techniques de pointage en une phrase qu'un employé peut suivre.
+ * Laisse intact un message déjà lisible.
+ */
+export function explainEmployeePunchError(message: string): string {
+  const raw = message.trim();
+  if (!raw) {
+    return "Le pointage n'a pas pu être enregistré. Réessayez.";
+  }
+
+  const lower = raw.toLowerCase();
+  if (
+    /horodateur_|pgrst|violates|syntax error|\bsql\b|duplicate key/i.test(raw)
+  ) {
+    return "Le pointage n'a pas pu être enregistré. Réessayez. Si cela continue, contactez la direction.";
+  }
+  if (
+    lower.includes("etat courant:") ||
+    lower.includes("transition d etat") ||
+    lower.includes("sequence de pointage invalide") ||
+    lower.includes("séquence de pointage invalide")
+  ) {
+    return "Cette action ne correspond pas à votre situation actuelle. Utilisez le bouton principal : arrivée, reprise, fin de dîner ou sortie.";
+  }
+  if (lower.includes("pause payee") || lower.includes("pause payée")) {
+    return "Votre pause est payée. Vous n'avez pas à pointer le début ni la fin de pause.";
+  }
+  if (lower.includes("repas paye") || lower.includes("repas payé")) {
+    return "Votre dîner est payé. Vous n'avez pas à pointer le début ni la fin du dîner.";
+  }
+  if (lower.includes("chevauchement")) {
+    return "Cette heure est avant votre dernier pointage. Demandez une correction si l'heure est inexacte.";
+  }
+  if (lower.includes("type d evenement invalide") || lower.includes("type d'événement invalide")) {
+    return "Cette action de pointage n'est pas reconnue. Rechargez la page et utilisez le bouton principal.";
+  }
+  if (lower.includes("employe introuvable") || lower.includes("employé introuvable")) {
+    return "Votre fiche employé est introuvable. Contactez la direction avant de pointer.";
+  }
+  return raw;
+}
+
 export function resolveEmployeePunchGuidance(input: {
   currentState: string | null | undefined;
   available?: boolean;
   shiftStatus?: string | null;
   pendingValidation?: boolean;
   pausePaid?: boolean;
+  lunchPaid?: boolean;
   arrivalAt?: string | null;
 }): EmployeePunchGuidance {
   if (input.available === false) {
@@ -157,7 +215,9 @@ export function resolveEmployeePunchGuidance(input: {
     if (input.pausePaid === false) {
       secondary.push({ eventType: "break_start", label: "Commencer ma pause" });
     }
-    secondary.push({ eventType: "meal_start", label: "Commencer mon dîner" });
+    if (input.lunchPaid !== true) {
+      secondary.push({ eventType: "meal_start", label: "Commencer mon dîner" });
+    }
     if (pending) {
       return {
         phase: "quart_en_attente",

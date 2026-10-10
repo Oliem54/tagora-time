@@ -358,7 +358,7 @@ export function filterEventsForPayrollRecompute(
 }
 
 export function formatPendingPunchOutSubmittedMessage(_occurredAt: string): string {
-  return "Votre sortie a ete soumise a validation. Vous pouvez continuer a utiliser l'horodateur normalement.";
+  return "Votre sortie a été soumise à la direction. Vous pouvez continuer à utiliser l'horodateur.";
 }
 
 /**
