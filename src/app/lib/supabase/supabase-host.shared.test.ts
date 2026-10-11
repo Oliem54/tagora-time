@@ -45,6 +45,15 @@ describe("resolveHororaRuntimeSupabaseUrl", () => {
     expect(
       resolveHororaRuntimeSupabaseUrl(HORORA_PRODUCTION_SUPABASE_URL, stagingRuntime)
     ).toBe(`https://${HORORA_STAGING_SUPABASE_HOST}`);
+    const projectProductionTarget = resolveHororaRuntimeSupabaseUrl(
+      HORORA_PRODUCTION_SUPABASE_URL,
+      {
+        ...runtimeEnv("production"),
+        VERCEL_PROJECT_PRODUCTION_URL: "tagora-time-staging-oliem54s-projects.vercel.app",
+      }
+    );
+    expect(projectProductionTarget).toBe(`https://${HORORA_STAGING_SUPABASE_HOST}`);
+    expect(projectProductionTarget).not.toContain("qcgvzdlfsxybrmloijpt");
   });
 
   it("refuses an unknown Production Supabase host", () => {

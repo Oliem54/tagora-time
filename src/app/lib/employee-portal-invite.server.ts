@@ -91,7 +91,8 @@ function loginSegmentForInvite(portalRole: PortalInviteRole): string {
 export function buildEmployeeInviteUserByEmailPayload(
   employee: ChauffeurInviteRow,
   portalRole: PortalInviteRole,
-  permissions: AppPermission[]
+  permissions: AppPermission[],
+  options?: { deferRoleAnnouncement?: boolean }
 ) {
   const normalizedEmail = normalizeEmail(employee.courriel);
   const primaryCompany: AccountRequestCompany =
@@ -107,7 +108,7 @@ export function buildEmployeeInviteUserByEmailPayload(
     email: normalizedEmail,
     options: {
       data: {
-        role: portalRole,
+        ...(options?.deferRoleAnnouncement ? {} : { role: portalRole }),
         permissions,
         chauffeur_id: employee.id,
         full_name: employee.nom ?? null,

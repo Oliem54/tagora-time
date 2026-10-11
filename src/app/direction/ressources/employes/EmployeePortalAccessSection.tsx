@@ -3,8 +3,13 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { accountRequestPermissionOptions } from "@/app/lib/account-request-options";
 import {
+  APP_METADATA_ROLE_ANNOUNCEMENT_FAILED,
+  APP_METADATA_ROLE_ANNOUNCEMENT_FAILED_MESSAGE,
+} from "@/app/lib/employee-role-audit-commit.shared";
+import {
   applyEmployeePortalSaveFailureToForm,
   employeePortalSaveErrorMessage,
+  portalRoleChoiceFromAuthoritativeRole,
 } from "@/app/lib/employee-onboarding-tenant.shared";
 import type { EmployeProfile } from "./employee-profile-shared";
 
@@ -68,9 +73,10 @@ export default function EmployeePortalAccessSection({
   const [security, setSecurity] = useState<AccountSecuritySnapshot | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
-  const [localMessage, setLocalMessage] = useState<{ type: "ok" | "err"; text: string } | null>(
-    null
-  );
+  const [localMessage, setLocalMessage] = useState<{
+    type: "ok" | "err" | "pending";
+    text: string;
+  } | null>(null);
   const [portalRole, setPortalRole] = useState<PortalRoleChoice>("employe");
   const [portalPermissions, setPortalPermissions] = useState<string[]>([]);
 
@@ -86,7 +92,7 @@ export default function EmployeePortalAccessSection({
     );
   }, []);
 
-  const loadSecurity = useCallback(async () => {
+  const loadSecurity = useCallback(async (options?: { keepMessage?: boolean }) => {
     if (!accessToken || !canManage) {
       setLoading(false);
       setSecurity(null);
@@ -94,7 +100,9 @@ export default function EmployeePortalAccessSection({
     }
 
     setLoading(true);
-    setLocalMessage(null);
+    if (!options?.keepMessage) {
+      setLocalMessage(null);
+    }
     try {
       const res = await fetch(`/api/employees/${employeeId}/account-security`, {
         headers: { Authorization: `Bearer ${accessToken}` },
@@ -181,7 +189,24 @@ export default function EmployeePortalAccessSection({
         code?: string;
         requestedRole?: string;
         authoritativeRole?: string | null;
+        rolePersisted?: boolean;
       };
+
+      if (
+        json.code === APP_METADATA_ROLE_ANNOUNCEMENT_FAILED &&
+        json.rolePersisted === true
+      ) {
+        await loadSecurity({ keepMessage: true });
+        const recordedRole = portalRoleChoiceFromAuthoritativeRole(json.authoritativeRole);
+        if (recordedRole) {
+          setPortalRole(recordedRole);
+        }
+        setLocalMessage({
+          type: "pending",
+          text: APP_METADATA_ROLE_ANNOUNCEMENT_FAILED_MESSAGE,
+        });
+        return;
+      }
 
       if (!res.ok || json.success === false) {
         const conflictText = employeePortalSaveErrorMessage({
@@ -327,8 +352,15 @@ export default function EmployeePortalAccessSection({
             border:
               localMessage.type === "ok"
                 ? "1px solid rgba(34,197,94,0.35)"
-                : "1px solid rgba(239,68,68,0.35)",
-            color: localMessage.type === "ok" ? "#166534" : "#b91c1c",
+                : localMessage.type === "pending"
+                  ? "1px solid rgba(180,83,9,0.45)"
+                  : "1px solid rgba(239,68,68,0.35)",
+            color:
+              localMessage.type === "ok"
+                ? "#166534"
+                : localMessage.type === "pending"
+                  ? "#9a3412"
+                  : "#b91c1c",
           }}
         >
           {localMessage.text}

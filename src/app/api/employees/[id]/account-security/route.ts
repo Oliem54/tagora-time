@@ -6,7 +6,12 @@ import {
   normalizeCompany,
   normalizeEmail,
 } from "@/app/lib/account-requests.shared";
-import { getStrictDirectionRequestUser } from "@/app/lib/account-requests.server";
+import {
+  getAuthenticatedRequestUser,
+  getStrictDirectionRequestUser,
+} from "@/app/lib/account-requests.server";
+import { loadOnboardingMembershipsForAuthUser } from "@/app/lib/employee-onboarding-tenant.server";
+import { sessionPortalRoleForOrganization } from "@/app/lib/employee-onboarding-tenant.shared";
 import {
   buildRequiredPasswordMetadata,
   getPasswordPolicyMessage,
@@ -432,8 +437,26 @@ export async function GET(
       );
     }
 
+    const security = buildAccountSecuritySnapshot(employee, authUser);
+    const authenticated = await getAuthenticatedRequestUser(req);
+    if (authenticated.organizationId && authUser) {
+      const memberships = await loadOnboardingMembershipsForAuthUser(authUser.id);
+      if (!memberships.ok) {
+        return NextResponse.json({ error: memberships.error, code: memberships.code }, { status: memberships.status });
+      }
+      const authoritativeRole = sessionPortalRoleForOrganization(
+        memberships.memberships,
+        authenticated.organizationId
+      );
+      security.portalRole = authoritativeRole === "direction" ||
+        authoritativeRole === "manager" ||
+        authoritativeRole === "admin"
+        ? authoritativeRole
+        : "employe";
+    }
+
     return NextResponse.json({
-      security: buildAccountSecuritySnapshot(employee, authUser),
+      security,
     });
   } catch (error) {
     return NextResponse.json(
