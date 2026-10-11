@@ -1,0 +1,30 @@
+---
+description: HORORA reste autonome. Nexus fournit le contrat d'accès et ne bloque pas le codage local.
+alwaysApply: true
+---
+
+# Autonomie HORORA
+
+HORORA (`tagora-time`) se code, se teste et se déploie seul. Nexus est le portail d'identité et de lancement. Il ne fusionne pas les modules et n'est pas une base métier.
+
+## Contrat Nexus uniquement
+
+Identité, tenant, organisation, rôle d'entrée, droit module, environnement, audit, lancement.
+
+## Le module conserve
+
+Repo, logique métier, base Supabase HORORA, déploiement, tests, roadmap, rollback, valeur SaaS.
+
+## Sans Nexus live
+
+Fonctionnalité métier, bug, écran, test, build, UX, texte, workflow, API interne, fixture locale, validation Staging sans écriture d'accès réel, contrat d'intégration non activé en Production.
+
+Fixture locale : `HORORA_LOCAL_NEXUS_FIXTURE=true` avec `npm run dev` sur localhost. Rôle : `HORORA_LOCAL_FIXTURE_ROLE` (`employe`, `direction`, `admin`). Refusée si `NODE_ENV` n'est pas `development`, si Vercel est `preview` ou `production`, si l'hôte n'est pas local, ou si l'URL Supabase est l'hôte de Production.
+
+## Nexus requis
+
+Accès réel, identité réelle, User Central, garde Production, mapping réel, rôle réel, organisation réelle, abonnement réel, flow Production d'identité, écriture des tables Nexus Production.
+
+## Interdit
+
+Fusionner les repos. Déplacer le métier dans Nexus. Dépendance directe PULS ↔ DEPORA ↔ HORORA. Coder une règle métier de module dans Nexus. Déployer ou écrire en Production sans GO explicite.

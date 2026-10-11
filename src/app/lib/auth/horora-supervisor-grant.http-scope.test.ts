@@ -226,6 +226,41 @@ describe("supervisor HTTP scope", () => {
     }
   });
 
+  it("finds no company or department on the authenticated session", () => {
+    const authenticated = {
+      organizationId,
+      membershipId,
+      membershipRole: "employe",
+      role: "employe",
+    };
+    let storedRead = false;
+    const lookup = new Proxy(simulatedLookup, {
+      get(target, property, receiver) {
+        storedRead = true;
+        return Reflect.get(target, property, receiver);
+      },
+    });
+    const sessionTarget = hororaSupervisorHttpSessionTarget(authenticated);
+    expect(sessionTarget).toEqual({
+      organizationId,
+      organizationCompanyId: null,
+      effectifsDepartmentKey: null,
+    });
+    expect("organizationCompanyId" in authenticated).toBe(false);
+    expect("effectifsDepartmentKey" in authenticated).toBe(false);
+    expect(
+      decideHororaSupervisorHttpScope({
+        portalRole: "employe",
+        capability: "view_team",
+        target: sessionTarget,
+        callerAuthUserId: authUserId,
+        membership,
+        lookup,
+      })
+    ).toEqual({ allowed: false, source: "denied", reason: "target_company_absent" });
+    expect(storedRead).toBe(false);
+  });
+
   it("keeps company and department empty when only the server session has an organization", () => {
     let storedRead = false;
     const lookup = new Proxy(simulatedLookup, {
@@ -265,6 +300,8 @@ describe("supervisor HTTP scope", () => {
     expect(guard).toContain("void scope?.grant");
     expect(guard).toContain("void scope?.target");
     expect(guard).toContain("organizationId: authenticated.organizationId");
+    expect(guard).not.toContain("authenticated.organizationCompanyId");
+    expect(guard).not.toContain("authenticated.effectifsDepartmentKey");
     expect(guard).toContain("hororaSupervisorHttpSessionTarget");
     expect(guard).not.toContain("hororaSupervisorHttpServerTarget(scope?.target)");
     expect(guard).not.toContain("searchParams");
