@@ -16,9 +16,14 @@ import {
   verifyEmployeePortalAuthorityAfterWrite,
   type AuthoritativePortalRolePlan,
   type AuthoritativePortalRoleSource,
+  type CommittedOrganizationRole,
   type OnboardingCompanyRow,
   type OnboardingMembershipRow,
 } from "@/app/lib/employee-onboarding-tenant.shared";
+import {
+  HORORA_MEMBERSHIP_ROLE_AUDIT_RPC,
+  interpretAuditedRoleCommitRpc,
+} from "@/app/lib/employee-role-audit-commit.shared";
 import { createAdminSupabaseClient } from "@/app/lib/supabase/admin";
 
 export type DirectionEmployeeOnboardingActor = {
@@ -325,21 +330,24 @@ export async function applyEmployeePortalMembershipAndChauffeurLink(input: {
   employeeId: number;
   resolvedAuthUserId: string;
   plan: Extract<ReturnType<typeof planEmployeePortalAuthoritySave>, { ok: true }>;
+  membershipAlreadyCommitted?: boolean;
 }): Promise<{ ok: true } | EmployeePortalAuthorityFailure> {
-  const membership = await ensureEmployeeOrganizationMembership({
-    authUserId: input.resolvedAuthUserId,
-    organizationId: input.actorOrganizationId,
-  });
-  if (!membership.ok) {
-    if (membership.code === "direction_conversion_forbidden") {
-      return {
-        ok: false,
-        status: membership.status,
-        error: PORTAL_ROLE_AUTHORITY_CONFLICT_MESSAGE,
-        code: PORTAL_ROLE_AUTHORITY_CONFLICT,
-      };
+  if (!input.membershipAlreadyCommitted) {
+    const membership = await ensureEmployeeOrganizationMembership({
+      authUserId: input.resolvedAuthUserId,
+      organizationId: input.actorOrganizationId,
+    });
+    if (!membership.ok) {
+      if (membership.code === "direction_conversion_forbidden") {
+        return {
+          ok: false,
+          status: membership.status,
+          error: PORTAL_ROLE_AUTHORITY_CONFLICT_MESSAGE,
+          code: PORTAL_ROLE_AUTHORITY_CONFLICT,
+        };
+      }
+      return membership;
     }
-    return membership;
   }
 
   if (input.plan.linkChauffeur) {
@@ -555,6 +563,56 @@ export async function applyAuthoritativePortalRole(input: {
     return applied;
   }
   return applied;
+}
+
+export async function commitAuditedOrganizationRole(input: {
+  actorUserId: string;
+  actorEmail: string | null;
+  organizationId: string;
+  targetUserId: string;
+  targetEmployeeId: number | null;
+  newRole: CommittedOrganizationRole;
+  isDefault: boolean;
+  reason: string | null;
+}): Promise<
+  | { ok: true; role: CommittedOrganizationRole; audited: boolean; unchanged: boolean }
+  | EmployeePortalAuthorityFailure
+> {
+  const admin = createAdminSupabaseClient();
+  const { data, error } = await admin.rpc(HORORA_MEMBERSHIP_ROLE_AUDIT_RPC, {
+    p_actor_user_id: input.actorUserId,
+    p_organization_id: input.organizationId,
+    p_target_user_id: input.targetUserId,
+    p_new_role: input.newRole,
+    p_is_default: input.isDefault,
+    p_target_employee_id: input.targetEmployeeId,
+    p_changed_by_email: input.actorEmail,
+    p_reason: input.reason,
+  });
+  const interpreted = interpretAuditedRoleCommitRpc({
+    errorMessage: error?.message ?? null,
+    data: (data ?? null) as {
+      ok?: boolean;
+      role?: string;
+      audited?: boolean;
+      action?: string;
+    } | null,
+    expectedRole: input.newRole,
+  });
+  if (!interpreted.ok) {
+    return {
+      ok: false,
+      status: interpreted.status,
+      error: interpreted.error,
+      code: interpreted.code,
+    };
+  }
+  return {
+    ok: true,
+    role: interpreted.role,
+    audited: interpreted.audited,
+    unchanged: interpreted.unchanged,
+  };
 }
 
 export async function completeEmployeeTenantAccess(input: {

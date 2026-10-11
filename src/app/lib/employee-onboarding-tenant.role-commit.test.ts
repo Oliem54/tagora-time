@@ -487,11 +487,12 @@ describe("role writers call the membership plan before Auth writes", () => {
     const updateAt = route.indexOf('action === "update_portal_access"');
     const disableAt = route.indexOf('action === "disable_access"');
     const block = route.slice(updateAt, disableAt);
-    expect(block.indexOf("applyAuthoritativePortalRole")).toBeLessThan(block.indexOf("updateUserById"));
-    expect(block.indexOf("verifyEmployeePortalAccessAfterWrite")).toBeLessThan(
-      block.indexOf("user_role_audit_logs")
+    expect(block.indexOf("commitAuditedOrganizationRole")).toBeLessThan(block.indexOf("updateUserById"));
+    expect(block.indexOf("updateUserById")).toBeLessThan(
+      block.indexOf("verifyEmployeePortalAccessAfterWrite")
     );
-    expect(block).toContain("new_role: prepared.role");
+    expect(block).not.toContain("user_role_audit_logs");
+    expect(block).toContain("authoritativeRole: prepared.role");
   });
 
   it("gates the admin role action before app_metadata is written", () => {

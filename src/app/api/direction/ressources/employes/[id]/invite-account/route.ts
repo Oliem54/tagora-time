@@ -21,8 +21,8 @@ import {
 } from "@/app/lib/employee-portal-invite.server";
 import { createAdminSupabaseClient } from "@/app/lib/supabase/admin";
 import {
-  applyAuthoritativePortalRole,
   applyEmployeePortalMembershipAndChauffeurLink,
+  commitAuditedOrganizationRole,
   completeEmployeeTenantAccess,
   evaluateEmployeePortalAuthoritySave,
   prepareAuthoritativePortalRole,
@@ -30,6 +30,10 @@ import {
   type EmployeePortalAuthorityFailure,
 } from "@/app/lib/employee-onboarding-tenant.server";
 import { getAuthenticatedRequestUser } from "@/app/lib/account-requests.server";
+import {
+  APP_METADATA_ROLE_ANNOUNCEMENT_FAILED,
+  recordedRoleSecondarySyncPending,
+} from "@/app/lib/employee-role-audit-commit.shared";
 
 export const dynamic = "force-dynamic";
 
@@ -294,31 +298,45 @@ export async function POST(
         return jsonPortalAuthorityFailure(prepared);
       }
 
-      if (prepared.role === "direction" || prepared.action === "assign") {
-        const applied = await applyAuthoritativePortalRole({
-          authUserId: authUser.id,
-          organizationId: actorOrganizationId,
-          plan: prepared,
-        });
-        if (!applied.ok) {
-          return jsonPortalAuthorityFailure(applied);
-        }
-      } else {
-        const evaluated = await evaluateEmployeePortalAuthoritySave({
+      let roleAudited = false;
+      let chauffeurLink: Awaited<ReturnType<typeof evaluateEmployeePortalAuthoritySave>> | null =
+        null;
+      if (prepared.role !== "direction" && prepared.action !== "assign") {
+        chauffeurLink = await evaluateEmployeePortalAuthoritySave({
           actorOrganizationId,
           employeeId,
           resolvedAuthUserId: authUser.id,
           requestedPortalRole: prepared.role,
         });
-        if (!evaluated.ok) {
-          return jsonPortalAuthorityFailure(evaluated);
+        if (!chauffeurLink.ok) {
+          return jsonPortalAuthorityFailure(chauffeurLink);
         }
+      }
 
+      if (prepared.action !== "noop") {
+        const committed = await commitAuditedOrganizationRole({
+          actorUserId: actor.id,
+          actorEmail: actor.email ?? null,
+          organizationId: actorOrganizationId,
+          targetUserId: authUser.id,
+          targetEmployeeId: employeeId,
+          newRole: prepared.role,
+          isDefault: prepared.isDefault,
+          reason: "employee_portal_role",
+        });
+        if (!committed.ok) {
+          return jsonPortalAuthorityFailure(committed);
+        }
+        roleAudited = committed.audited;
+      }
+
+      if (chauffeurLink?.ok) {
         const applied = await applyEmployeePortalMembershipAndChauffeurLink({
           actorOrganizationId,
           employeeId,
           resolvedAuthUserId: authUser.id,
-          plan: evaluated.plan,
+          plan: chauffeurLink.plan,
+          membershipAlreadyCommitted: prepared.action !== "noop",
         });
         if (!applied.ok) {
           return jsonPortalAuthorityFailure(applied);
@@ -341,7 +359,14 @@ export async function POST(
       });
 
       if (updErr) {
-        return jsonErr(500, updErr.message);
+        if (roleAudited) {
+          return NextResponse.json(recordedRoleSecondarySyncPending(prepared.role), { status: 409 });
+        }
+        return jsonErr(500, updErr.message, APP_METADATA_ROLE_ANNOUNCEMENT_FAILED, {
+          rolePersisted: false,
+          audited: false,
+          secondarySync: "failed",
+        });
       }
 
       const verified = await verifyEmployeePortalAccessAfterWrite({
@@ -352,25 +377,6 @@ export async function POST(
       });
       if (!verified.ok) {
         return jsonPortalAuthorityFailure(verified);
-      }
-
-      const previousRole =
-        typeof authUser.app_metadata?.role === "string"
-          ? authUser.app_metadata.role
-          : typeof authUser.user_metadata?.role === "string"
-            ? authUser.user_metadata.role
-            : "unknown";
-      if (previousRole !== prepared.role) {
-        await supabase.from("user_role_audit_logs").insert({
-          target_user_id: authUser.id,
-          target_employee_id: employeeId,
-          old_role: previousRole,
-          new_role: prepared.role,
-          changed_by_user_id: actor.id,
-          changed_by_email: actor.email ?? null,
-          reason: "employee_portal_role",
-          created_at: new Date().toISOString(),
-        });
       }
 
       return NextResponse.json({

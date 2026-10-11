@@ -4,12 +4,16 @@ import {
   getAuthenticatedRequestUser,
 } from "@/app/lib/account-requests.server";
 import {
-  applyAuthoritativePortalRole,
+  commitAuditedOrganizationRole,
   loadOnboardingMembershipsForAuthUser,
   prepareAuthoritativePortalRole,
   verifyEmployeePortalAccessAfterWrite,
 } from "@/app/lib/employee-onboarding-tenant.server";
 import { sessionPortalRoleForOrganization } from "@/app/lib/employee-onboarding-tenant.shared";
+import {
+  APP_METADATA_ROLE_ANNOUNCEMENT_FAILED,
+  recordedRoleSecondarySyncPending,
+} from "@/app/lib/employee-role-audit-commit.shared";
 import { createAdminSupabaseClient } from "@/app/lib/supabase/admin";
 
 export const dynamic = "force-dynamic";
@@ -189,16 +193,31 @@ export async function PATCH(
       );
     }
 
-    const applied = await applyAuthoritativePortalRole({
-      authUserId,
-      organizationId: authenticated.organizationId,
-      plan: prepared,
-    });
-    if (!applied.ok) {
-      return NextResponse.json(
-        { error: applied.error, code: applied.code },
-        { status: applied.status }
-      );
+    let roleAudited = false;
+    if (prepared.action !== "noop") {
+      const committed = await commitAuditedOrganizationRole({
+        actorUserId: caller.id,
+        actorEmail: caller.email ?? null,
+        organizationId: authenticated.organizationId,
+        targetUserId: authUserId,
+        targetEmployeeId: id,
+        newRole: prepared.role,
+        isDefault: prepared.isDefault,
+        reason: reason || "admin_portal_role",
+      });
+      if (!committed.ok) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: committed.error,
+            code: committed.code,
+            rolePersisted: false,
+            audited: false,
+          },
+          { status: committed.status }
+        );
+      }
+      roleAudited = committed.audited;
     }
 
     const appMetadata = { ...(targetData.user.app_metadata ?? {}), role: prepared.role };
@@ -208,7 +227,20 @@ export async function PATCH(
       user_metadata: userMetadata,
     });
     if (updateError) {
-      return NextResponse.json({ error: updateError.message }, { status: 500 });
+      if (roleAudited) {
+        return NextResponse.json(recordedRoleSecondarySyncPending(prepared.role), { status: 409 });
+      }
+      return NextResponse.json(
+        {
+          success: false,
+          error: updateError.message,
+          code: APP_METADATA_ROLE_ANNOUNCEMENT_FAILED,
+          rolePersisted: false,
+          audited: false,
+          secondarySync: "failed",
+        },
+        { status: 500 }
+      );
     }
 
     const verified = await verifyEmployeePortalAccessAfterWrite({
@@ -223,17 +255,6 @@ export async function PATCH(
         { status: verified.status }
       );
     }
-
-    await supabase.from("user_role_audit_logs").insert({
-      target_user_id: authUserId,
-      target_employee_id: id,
-      old_role: currentRole ?? currentRoleRaw ?? "unknown",
-      new_role: prepared.role,
-      changed_by_user_id: caller.id,
-      changed_by_email: caller.email ?? null,
-      reason: reason || null,
-      created_at: new Date().toISOString(),
-    });
 
     return NextResponse.json({ success: true, role: prepared.role, authoritativeRole: prepared.role });
   } catch (e) {

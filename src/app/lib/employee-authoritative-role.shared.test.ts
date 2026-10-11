@@ -223,9 +223,10 @@ describe("role announcement source order", () => {
     );
     const patch = route.slice(route.indexOf("export async function PATCH"));
     expect(patch.indexOf("prepareAuthoritativePortalRole")).toBeLessThan(
-      patch.indexOf("applyAuthoritativePortalRole")
+      patch.indexOf("commitAuditedOrganizationRole")
     );
-    expect(patch.indexOf("applyAuthoritativePortalRole")).toBeLessThan(patch.indexOf("updateUserById"));
+    expect(patch.indexOf("commitAuditedOrganizationRole")).toBeLessThan(patch.indexOf("updateUserById"));
+    expect(patch).not.toContain("user_role_audit_logs");
     expect(patch).toContain("blockSelf: true");
     expect(route).toContain("sessionPortalRoleForOrganization");
     expect(route).not.toContain("role: nextRole");
