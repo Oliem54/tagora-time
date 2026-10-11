@@ -96,6 +96,7 @@ function lookups(role: OrganizationMembershipRole | string): NexusMappingLookups
       return [
         {
           nexus_organization_id: "nexus-org-1",
+          nexus_tenant_id: "tenant-1",
           organization_id: ORG_ID,
           status: "active",
         },

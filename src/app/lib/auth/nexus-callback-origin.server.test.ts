@@ -21,6 +21,7 @@ const TOKEN = "header.payload.signature";
 const BINDING: NexusResolvedBinding = {
   nexusActorId: "actor-1",
   nexusOrganizationId: "org_tagora_internal",
+  nexusTenantId: "tenant-1",
   nexusMembershipId: "mem-1",
   authUserId: "11111111-1111-4111-8111-111111111111",
   organizationId: "33333333-3333-4333-8333-333333333333",

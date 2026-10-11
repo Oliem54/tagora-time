@@ -115,7 +115,7 @@ export function createNexusMappingLookups(
     },
     async findOrganizationMaps(nexusOrganizationId) {
       return selectRows<NexusOrganizationMapRow>("horora_nexus_organization_map", {
-        select: "nexus_organization_id,organization_id,status",
+        select: "nexus_organization_id,nexus_tenant_id,organization_id,status",
         nexus_organization_id: `eq.${nexusOrganizationId}`,
         status: "eq.active",
       });

@@ -31,6 +31,8 @@ export type NexusIdentityMapRow = {
 
 export type NexusOrganizationMapRow = {
   nexus_organization_id: string;
+  /** Opaque Nexus tenant id. Null until an explicit backfill. Never a slug or tenantKey. */
+  nexus_tenant_id: string | null;
   organization_id: string;
   status: string;
 };
@@ -53,12 +55,14 @@ export type NexusMappingDenyReason =
   | "organization_mapping_ambiguous"
   | "organization_missing"
   | "organization_inactive"
+  | "tenant_mapping_absent"
   | "cross_tenant"
   | "mapping_unavailable";
 
 export type NexusResolvedBinding = {
   readonly nexusActorId: string;
   readonly nexusOrganizationId: string;
+  readonly nexusTenantId: string;
   readonly nexusMembershipId: string;
   readonly authUserId: string;
   readonly organizationId: string;
@@ -83,6 +87,7 @@ export type NexusMappingLookups = {
   }): Promise<{ duplicate: boolean }>;
   insertOrganizationMap?(row: {
     nexus_organization_id: string;
+    nexus_tenant_id: string;
     organization_id: string;
   }): Promise<{ duplicate: boolean }>;
 };
@@ -92,6 +97,29 @@ const UUID_RE =
 
 function fail(reason: NexusMappingDenyReason): NexusMappingResult {
   return { ok: false, reason };
+}
+
+function verifiedOpaqueTenant(tenantId: string): string | null {
+  if (typeof tenantId !== "string" || tenantId.trim().length === 0) return null;
+  return tenantId;
+}
+
+function organizationMapTenantDecision(
+  claims: NexusHandoffClaims,
+  organizationMap: NexusOrganizationMapRow
+): NexusMappingDenyReason | null {
+  if (organizationMap.nexus_organization_id !== claims.organization_id) {
+    return "organization_mapping_absent";
+  }
+  const claimed = verifiedOpaqueTenant(claims.tenant_id);
+  const mapped =
+    typeof organizationMap.nexus_tenant_id === "string" &&
+    organizationMap.nexus_tenant_id.trim().length > 0
+      ? organizationMap.nexus_tenant_id
+      : null;
+  if (!claimed || !mapped) return "tenant_mapping_absent";
+  if (mapped !== claimed) return "cross_tenant";
+  return null;
 }
 
 function isUuid(value: string): boolean {
@@ -187,6 +215,9 @@ async function buildBindingFromAuthorizedTarget(
   ports: NexusMappingLookups,
   authorized: { authUserId: string; organizationId: string; nexusOrganizationId: string }
 ): Promise<NexusMappingResult> {
+  const nexusTenantId = verifiedOpaqueTenant(claims.tenant_id);
+  if (!nexusTenantId) return fail("tenant_mapping_absent");
+
   let authExists = false;
   try {
     authExists = await ports.authUserExists(authorized.authUserId);
@@ -245,6 +276,7 @@ async function buildBindingFromAuthorizedTarget(
     binding: {
       nexusActorId: claims.user_id,
       nexusOrganizationId: claims.organization_id,
+      nexusTenantId,
       nexusMembershipId: claims.membership_id,
       authUserId: authorized.authUserId,
       organizationId: organization.id,
@@ -294,8 +326,11 @@ async function maybeInsertAuthorizedMaps(
   }
   if (ports.insertOrganizationMap) {
     try {
+      const nexusTenantId = verifiedOpaqueTenant(claims.tenant_id);
+      if (!nexusTenantId) return fail("tenant_mapping_absent");
       await ports.insertOrganizationMap({
         nexus_organization_id: claims.organization_id,
+        nexus_tenant_id: nexusTenantId,
         organization_id: authorized.organizationId,
       });
     } catch (error) {
@@ -392,7 +427,9 @@ export async function resolveNexusHororaBinding(
     if (orgMaps.length > 1) return fail("organization_mapping_ambiguous");
 
     const orgMap = orgMaps[0];
-    if (orgMap.status !== "active") return fail("organization_inactive");
+    if (!orgMap || orgMap.status !== "active") return fail("organization_inactive");
+    const tenantDecision = organizationMapTenantDecision(claims, orgMap);
+    if (tenantDecision) return fail(tenantDecision);
 
     const organization = await ports.findOrganization(orgMap.organization_id);
     if (!organization) return fail("organization_missing");
@@ -412,6 +449,7 @@ export async function resolveNexusHororaBinding(
       binding: {
         nexusActorId: claims.user_id,
         nexusOrganizationId: claims.organization_id,
+        nexusTenantId: claims.tenant_id,
         nexusMembershipId: claims.membership_id,
         authUserId: identity.auth_user_id,
         organizationId: organization.id,

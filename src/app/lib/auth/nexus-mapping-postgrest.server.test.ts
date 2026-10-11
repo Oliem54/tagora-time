@@ -286,6 +286,7 @@ describe("Nexus mapping PostgREST client", () => {
         return dispatchResult([
           {
             nexus_organization_id: DEFAULT_HORORA_NEXUS_ORGANIZATION_ID,
+            nexus_tenant_id: "tenant_tagora_internal",
             organization_id: ORG_ID,
             status: "active",
           },
