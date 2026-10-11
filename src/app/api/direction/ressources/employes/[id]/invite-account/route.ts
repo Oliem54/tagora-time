@@ -21,9 +21,11 @@ import {
 } from "@/app/lib/employee-portal-invite.server";
 import { createAdminSupabaseClient } from "@/app/lib/supabase/admin";
 import {
+  applyAuthoritativePortalRole,
   applyEmployeePortalMembershipAndChauffeurLink,
   completeEmployeeTenantAccess,
   evaluateEmployeePortalAuthoritySave,
+  prepareAuthoritativePortalRole,
   verifyEmployeePortalAccessAfterWrite,
   type EmployeePortalAuthorityFailure,
 } from "@/app/lib/employee-onboarding-tenant.server";
@@ -51,6 +53,7 @@ function jsonPortalAuthorityFailure(result: EmployeePortalAuthorityFailure) {
     ...(result.authoritativeRole !== undefined
       ? { authoritativeRole: result.authoritativeRole }
       : {}),
+    ...(result.missingRight ? { missingRight: result.missingRight } : {}),
   });
 }
 
@@ -277,29 +280,54 @@ export async function POST(
         return jsonErr(400, "Role portail invalide ou non autorise pour votre compte.");
       }
 
-      const evaluated = await evaluateEmployeePortalAuthoritySave({
+      const prepared = await prepareAuthoritativePortalRole({
+        source: "employee_portal",
+        actorRole: membershipAuth.role === "admin" ? "admin" : "direction",
+        actorUserId: actor.id,
         actorOrganizationId,
-        employeeId,
-        resolvedAuthUserId: authUser.id,
-        requestedPortalRole: parsed,
+        targetAuthUserId: authUser.id,
+        requestedRole: parsed,
+        preserveExistingRole: false,
+        blockSelf: true,
       });
-      if (!evaluated.ok) {
-        return jsonPortalAuthorityFailure(evaluated);
+      if (!prepared.ok) {
+        return jsonPortalAuthorityFailure(prepared);
       }
 
-      const applied = await applyEmployeePortalMembershipAndChauffeurLink({
-        actorOrganizationId,
-        employeeId,
-        resolvedAuthUserId: authUser.id,
-        plan: evaluated.plan,
-      });
-      if (!applied.ok) {
-        return jsonPortalAuthorityFailure(applied);
+      if (prepared.role === "direction" || prepared.action === "assign") {
+        const applied = await applyAuthoritativePortalRole({
+          authUserId: authUser.id,
+          organizationId: actorOrganizationId,
+          plan: prepared,
+        });
+        if (!applied.ok) {
+          return jsonPortalAuthorityFailure(applied);
+        }
+      } else {
+        const evaluated = await evaluateEmployeePortalAuthoritySave({
+          actorOrganizationId,
+          employeeId,
+          resolvedAuthUserId: authUser.id,
+          requestedPortalRole: prepared.role,
+        });
+        if (!evaluated.ok) {
+          return jsonPortalAuthorityFailure(evaluated);
+        }
+
+        const applied = await applyEmployeePortalMembershipAndChauffeurLink({
+          actorOrganizationId,
+          employeeId,
+          resolvedAuthUserId: authUser.id,
+          plan: evaluated.plan,
+        });
+        if (!applied.ok) {
+          return jsonPortalAuthorityFailure(applied);
+        }
       }
 
       const meta = buildEmployeePortalAuthMetadata({
         employee,
-        portalRole: parsed,
+        portalRole: prepared.role,
         permissions,
         actorUserId: actor.id,
         existingApp: (authUser.app_metadata ?? {}) as Record<string, unknown>,
@@ -320,19 +348,38 @@ export async function POST(
         actorOrganizationId,
         employeeId,
         resolvedAuthUserId: authUser.id,
-        requestedPortalRole: parsed,
+        requestedPortalRole: prepared.role,
       });
       if (!verified.ok) {
         return jsonPortalAuthorityFailure(verified);
       }
 
+      const previousRole =
+        typeof authUser.app_metadata?.role === "string"
+          ? authUser.app_metadata.role
+          : typeof authUser.user_metadata?.role === "string"
+            ? authUser.user_metadata.role
+            : "unknown";
+      if (previousRole !== prepared.role) {
+        await supabase.from("user_role_audit_logs").insert({
+          target_user_id: authUser.id,
+          target_employee_id: employeeId,
+          old_role: previousRole,
+          new_role: prepared.role,
+          changed_by_user_id: actor.id,
+          changed_by_email: actor.email ?? null,
+          reason: "employee_portal_role",
+          created_at: new Date().toISOString(),
+        });
+      }
+
       return NextResponse.json({
         success: true,
         message: "Permissions portail enregistrees.",
-        portalRole: parsed,
+        portalRole: prepared.role,
         permissions,
         requestedRole: parsed,
-        authoritativeRole: "employe",
+        authoritativeRole: prepared.role,
       });
     }
 
@@ -437,7 +484,27 @@ export async function POST(
         );
       }
 
-      const payload = buildEmployeeInviteUserByEmailPayload(employee, portalRole, permissions);
+      const prepared = await prepareAuthoritativePortalRole({
+        source: "employee_portal",
+        actorRole: actorAppRole,
+        actorUserId: actor.id,
+        actorOrganizationId,
+        targetAuthUserId: null,
+        requestedRole: portalRole,
+        preserveExistingRole: true,
+        blockSelf: false,
+      });
+      if (!prepared.ok) {
+        await markAudit("error", prepared.error);
+        return jsonPortalAuthorityFailure(prepared);
+      }
+
+      const payload = buildEmployeeInviteUserByEmailPayload(
+        employee,
+        prepared.role,
+        permissions,
+        { deferRoleAnnouncement: true }
+      );
       const { data, error } = await supabase.auth.admin.inviteUserByEmail(
         payload.email,
         payload.options
@@ -449,37 +516,46 @@ export async function POST(
       }
 
       const newUser = data.user;
-      if (newUser?.id) {
-        const meta = buildEmployeePortalAuthMetadata({
-          employee,
-          portalRole,
-          permissions,
-          actorUserId: actor.id,
-          existingApp: (newUser.app_metadata ?? {}) as Record<string, unknown>,
-          existingUser: (newUser.user_metadata ?? {}) as Record<string, unknown>,
-          requirePasswordChange: shouldRequirePasswordChangeForPortal(newUser),
-        });
-        await supabase.auth.admin.updateUserById(newUser.id, {
-          app_metadata: meta.appMetadata as Record<string, unknown>,
-          user_metadata: meta.userMetadata as Record<string, unknown>,
-        });
-        await syncEmployeeAuthLink(employeeId, newUser.id);
+      const resolved = newUser ?? (await findAuthUserByEmailForPortalInvite(normalizedEmail));
+      if (!resolved?.id) {
+        await markAudit("error", "Invitation creee sans compte Auth.");
+        return jsonErr(500, "Invitation creee sans compte Auth. Aucun role n a ete annonce.");
       }
 
-      const resolved = newUser ?? (await findAuthUserByEmailForPortalInvite(normalizedEmail));
-      if (resolved?.id) {
-        const tenant = await completeEmployeeTenantAccess({
-          actorOrganizationId,
-          employeeId,
-          authUserId: resolved.id,
-          requestedPrimaryCompany: employee.primary_company,
-          existingAppMetadata: (resolved.app_metadata ?? {}) as Record<string, unknown>,
-        });
-        if (!tenant.ok) {
-          await markAudit("error", tenant.error);
-          return jsonPortalAuthorityFailure(tenant);
-        }
+      const tenant = await completeEmployeeTenantAccess({
+        actorOrganizationId,
+        actorUserId: actor.id,
+        actorRole: actorAppRole,
+        employeeId,
+        authUserId: resolved.id,
+        requestedPortalRole: prepared.role,
+        requestedPrimaryCompany: employee.primary_company,
+        existingAppMetadata: (resolved.app_metadata ?? {}) as Record<string, unknown>,
+      });
+      if (!tenant.ok) {
+        await markAudit("error", tenant.error);
+        return jsonPortalAuthorityFailure(tenant);
       }
+
+      const meta = buildEmployeePortalAuthMetadata({
+        employee,
+        portalRole: prepared.role,
+        permissions,
+        actorUserId: actor.id,
+        existingApp: (resolved.app_metadata ?? {}) as Record<string, unknown>,
+        existingUser: (resolved.user_metadata ?? {}) as Record<string, unknown>,
+        requirePasswordChange: shouldRequirePasswordChangeForPortal(resolved),
+      });
+      const { error: updErr } = await supabase.auth.admin.updateUserById(resolved.id, {
+        app_metadata: meta.appMetadata as Record<string, unknown>,
+        user_metadata: meta.userMetadata as Record<string, unknown>,
+      });
+      if (updErr) {
+        await markAudit("error", updErr.message);
+        return jsonErr(500, updErr.message);
+      }
+      await syncEmployeeAuthLink(employeeId, resolved.id);
+
       const nextStatus = deriveInvitationStatusAfterSuccess(resolved, hadAuthId);
       await markAudit(nextStatus, null);
 
@@ -487,7 +563,9 @@ export async function POST(
         success: true,
         message: "Invitation envoyee.",
         status: nextStatus,
-        authUserId: resolved?.id ?? null,
+        authUserId: resolved.id,
+        portalRole: prepared.role,
+        authoritativeRole: prepared.role,
       });
     }
 
@@ -510,21 +588,51 @@ export async function POST(
         return jsonErr(409, linkCheck.error, "auth_linked_other_employee");
       }
 
+      const prepared = await prepareAuthoritativePortalRole({
+        source: "employee_portal",
+        actorRole: actorAppRole,
+        actorUserId: actor.id,
+        actorOrganizationId,
+        targetAuthUserId: authByEmail.id,
+        requestedRole: portalRole,
+        preserveExistingRole: true,
+        blockSelf: false,
+      });
+      if (!prepared.ok) {
+        await markAudit("error", prepared.error);
+        return jsonPortalAuthorityFailure(prepared);
+      }
+
       const evaluated = await evaluateEmployeePortalAuthoritySave({
         actorOrganizationId,
         employeeId,
         resolvedAuthUserId: authByEmail.id,
-        requestedPortalRole: portalRole,
+        requestedPortalRole: prepared.role,
       });
       if (!evaluated.ok) {
         await markAudit("error", evaluated.error);
         return jsonPortalAuthorityFailure(evaluated);
       }
 
+      const tenant = await completeEmployeeTenantAccess({
+        actorOrganizationId,
+        actorUserId: actor.id,
+        actorRole: actorAppRole,
+        employeeId,
+        authUserId: authByEmail.id,
+        requestedPortalRole: prepared.role,
+        requestedPrimaryCompany: employee.primary_company,
+        existingAppMetadata: (authByEmail.app_metadata ?? {}) as Record<string, unknown>,
+      });
+      if (!tenant.ok) {
+        await markAudit("error", tenant.error);
+        return jsonPortalAuthorityFailure(tenant);
+      }
+
       const requirePwd = shouldRequirePasswordChangeForPortal(authByEmail);
       const meta = buildEmployeePortalAuthMetadata({
         employee,
-        portalRole,
+        portalRole: prepared.role,
         permissions,
         actorUserId: actor.id,
         existingApp: (authByEmail.app_metadata ?? {}) as Record<string, unknown>,
@@ -544,18 +652,6 @@ export async function POST(
 
       await syncEmployeeAuthLink(employeeId, authByEmail.id);
 
-      const tenant = await completeEmployeeTenantAccess({
-        actorOrganizationId,
-        employeeId,
-        authUserId: authByEmail.id,
-        requestedPrimaryCompany: employee.primary_company,
-        existingAppMetadata: meta.appMetadata,
-      });
-      if (!tenant.ok) {
-        await markAudit("error", tenant.error);
-        return jsonPortalAuthorityFailure(tenant);
-      }
-
       const refreshed = (await supabase.auth.admin.getUserById(authByEmail.id)).data.user ?? null;
       const nextStatus = deriveInvitationStatusAfterSuccess(refreshed as User | null, hadAuthId);
       await markAudit(nextStatus === "active" ? "active" : "linked", null);
@@ -565,6 +661,8 @@ export async function POST(
         message: "Compte lie a la fiche employe.",
         status: nextStatus,
         authUserId: authByEmail.id,
+        portalRole: prepared.role,
+        authoritativeRole: prepared.role,
       });
     }
 
@@ -579,7 +677,37 @@ export async function POST(
         return jsonErr(409, "Le compte est deja actif. Le renvoi d invitation n est pas necessaire.");
       }
 
-      const payload = buildEmployeeInviteUserByEmailPayload(employee, portalRole, permissions);
+      const prepared = await prepareAuthoritativePortalRole({
+        source: "employee_portal",
+        actorRole: actorAppRole,
+        actorUserId: actor.id,
+        actorOrganizationId,
+        targetAuthUserId: authByEmail.id,
+        requestedRole: portalRole,
+        preserveExistingRole: true,
+        blockSelf: false,
+      });
+      if (!prepared.ok) {
+        await markAudit("error", prepared.error);
+        return jsonPortalAuthorityFailure(prepared);
+      }
+
+      const tenant = await completeEmployeeTenantAccess({
+        actorOrganizationId,
+        actorUserId: actor.id,
+        actorRole: actorAppRole,
+        employeeId,
+        authUserId: authByEmail.id,
+        requestedPortalRole: prepared.role,
+        requestedPrimaryCompany: employee.primary_company,
+        existingAppMetadata: (authByEmail.app_metadata ?? {}) as Record<string, unknown>,
+      });
+      if (!tenant.ok) {
+        await markAudit("error", tenant.error);
+        return jsonPortalAuthorityFailure(tenant);
+      }
+
+      const payload = buildEmployeeInviteUserByEmailPayload(employee, prepared.role, permissions);
       const { data, error } = await supabase.auth.admin.inviteUserByEmail(
         payload.email,
         payload.options
@@ -591,47 +719,35 @@ export async function POST(
       }
 
       const newUser = data.user ?? authByEmail;
-      if (newUser?.id) {
-        const meta = buildEmployeePortalAuthMetadata({
-          employee,
-          portalRole,
-          permissions,
-          actorUserId: actor.id,
-          existingApp: (newUser.app_metadata ?? {}) as Record<string, unknown>,
-          existingUser: (newUser.user_metadata ?? {}) as Record<string, unknown>,
-          requirePasswordChange: shouldRequirePasswordChangeForPortal(newUser as User),
-        });
-        await supabase.auth.admin.updateUserById(newUser.id, {
-          app_metadata: meta.appMetadata as Record<string, unknown>,
-          user_metadata: meta.userMetadata as Record<string, unknown>,
-        });
-        await syncEmployeeAuthLink(employeeId, newUser.id);
+      const meta = buildEmployeePortalAuthMetadata({
+        employee,
+        portalRole: prepared.role,
+        permissions,
+        actorUserId: actor.id,
+        existingApp: (newUser.app_metadata ?? {}) as Record<string, unknown>,
+        existingUser: (newUser.user_metadata ?? {}) as Record<string, unknown>,
+        requirePasswordChange: shouldRequirePasswordChangeForPortal(newUser as User),
+      });
+      const { error: updErr } = await supabase.auth.admin.updateUserById(newUser.id, {
+        app_metadata: meta.appMetadata as Record<string, unknown>,
+        user_metadata: meta.userMetadata as Record<string, unknown>,
+      });
+      if (updErr) {
+        await markAudit("error", updErr.message);
+        return jsonErr(500, updErr.message);
       }
+      await syncEmployeeAuthLink(employeeId, newUser.id);
 
-      const resolved =
-        (data.user as User | undefined) ??
-        (await findAuthUserByEmailForPortalInvite(normalizedEmail));
-      if (resolved?.id) {
-        const tenant = await completeEmployeeTenantAccess({
-          actorOrganizationId,
-          employeeId,
-          authUserId: resolved.id,
-          requestedPrimaryCompany: employee.primary_company,
-          existingAppMetadata: (resolved.app_metadata ?? {}) as Record<string, unknown>,
-        });
-        if (!tenant.ok) {
-          await markAudit("error", tenant.error);
-          return jsonPortalAuthorityFailure(tenant);
-        }
-      }
-      const nextStatus = deriveInvitationStatusAfterSuccess(resolved, hadAuthId);
+      const nextStatus = deriveInvitationStatusAfterSuccess(newUser as User, hadAuthId);
       await markAudit(nextStatus, null);
 
       return NextResponse.json({
         success: true,
         message: "Invitation renvoyee.",
         status: nextStatus,
-        authUserId: resolved?.id ?? null,
+        authUserId: newUser.id,
+        portalRole: prepared.role,
+        authoritativeRole: prepared.role,
       });
     }
 

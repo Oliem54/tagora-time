@@ -3,6 +3,13 @@ import {
   extractRoleFromUser,
   getAuthenticatedRequestUser,
 } from "@/app/lib/account-requests.server";
+import {
+  applyAuthoritativePortalRole,
+  loadOnboardingMembershipsForAuthUser,
+  prepareAuthoritativePortalRole,
+  verifyEmployeePortalAccessAfterWrite,
+} from "@/app/lib/employee-onboarding-tenant.server";
+import { sessionPortalRoleForOrganization } from "@/app/lib/employee-onboarding-tenant.shared";
 import { createAdminSupabaseClient } from "@/app/lib/supabase/admin";
 
 export const dynamic = "force-dynamic";
@@ -41,9 +48,11 @@ export async function GET(
   { params }: { params: Promise<{ employeeId: string }> }
 ) {
   try {
-    const { user: caller, role } = await getAuthenticatedRequestUser(req);
+    const authenticated = await getAuthenticatedRequestUser(req);
+    const caller = authenticated.user;
+    const role = authenticated.role;
 
-    if (!caller) {
+    if (!caller || !authenticated.organizationId) {
       return NextResponse.json({ error: "Authentification requise." }, { status: 401 });
     }
     if (role !== "admin") {
@@ -56,7 +65,7 @@ export async function GET(
       return NextResponse.json({ error: "Identifiant employe invalide." }, { status: 400 });
     }
 
-    const { supabase, authUserId } = await resolveEmployeeAuthUserId(id);
+    const { authUserId } = await resolveEmployeeAuthUserId(id);
 
     if (!authUserId) {
       return NextResponse.json({
@@ -65,25 +74,15 @@ export async function GET(
       });
     }
 
-    const { data: authData, error: authError } = await supabase.auth.admin.getUserById(authUserId);
-    if (authError || !authData.user) {
-      return NextResponse.json({
-        authUserId,
-        portalRole: null as AssignableRole | null,
-      });
-    }
-
-    const explicitRole =
-      typeof authData.user.app_metadata?.role === "string"
-        ? authData.user.app_metadata.role
-        : typeof authData.user.user_metadata?.role === "string"
-          ? authData.user.user_metadata.role
-          : null;
-    const portalRole = parseAssignableRole(explicitRole) ?? extractRoleFromUser(authData.user);
+    const memberships = await loadOnboardingMembershipsForAuthUser(authUserId);
+    const portalRole = memberships.ok
+      ? sessionPortalRoleForOrganization(memberships.memberships, authenticated.organizationId)
+      : null;
 
     return NextResponse.json({
       authUserId,
       portalRole,
+      authoritativeRole: portalRole,
     });
   } catch (e) {
     console.error("[admin/employes/.../portal-account][GET] unexpected", e);
@@ -96,8 +95,10 @@ export async function PATCH(
   { params }: { params: Promise<{ employeeId: string }> }
 ) {
   try {
-    const { user: caller, role } = await getAuthenticatedRequestUser(req);
-    if (!caller) {
+    const authenticated = await getAuthenticatedRequestUser(req);
+    const caller = authenticated.user;
+    const role = authenticated.role;
+    if (!caller || !authenticated.organizationId) {
       return NextResponse.json({ error: "Authentification requise." }, { status: 401 });
     }
     if (role !== "admin") {
@@ -137,9 +138,6 @@ export async function PATCH(
           ? targetData.user.user_metadata.role
           : null;
     const currentRole = parseAssignableRole(currentRoleRaw) ?? extractRoleFromUser(targetData.user);
-    if (currentRole === nextRole) {
-      return NextResponse.json({ success: true, role: nextRole, unchanged: true });
-    }
 
     // Prevent removing admin role from the last active admin.
     if ((currentRole === "admin" || currentRoleRaw === "admin") && nextRole !== "admin") {
@@ -168,8 +166,43 @@ export async function PATCH(
       }
     }
 
-    const appMetadata = { ...(targetData.user.app_metadata ?? {}), role: nextRole };
-    const userMetadata = { ...(targetData.user.user_metadata ?? {}), role: nextRole };
+    const prepared = await prepareAuthoritativePortalRole({
+      source: "admin_portal_account",
+      actorRole: "admin",
+      actorUserId: caller.id,
+      actorOrganizationId: authenticated.organizationId,
+      targetAuthUserId: authUserId,
+      requestedRole: nextRole,
+      preserveExistingRole: false,
+      blockSelf: true,
+    });
+    if (!prepared.ok) {
+      return NextResponse.json(
+        {
+          error: prepared.error,
+          code: prepared.code,
+          requestedRole: prepared.requestedRole,
+          authoritativeRole: prepared.authoritativeRole,
+          missingRight: prepared.missingRight ?? null,
+        },
+        { status: prepared.status }
+      );
+    }
+
+    const applied = await applyAuthoritativePortalRole({
+      authUserId,
+      organizationId: authenticated.organizationId,
+      plan: prepared,
+    });
+    if (!applied.ok) {
+      return NextResponse.json(
+        { error: applied.error, code: applied.code },
+        { status: applied.status }
+      );
+    }
+
+    const appMetadata = { ...(targetData.user.app_metadata ?? {}), role: prepared.role };
+    const userMetadata = { ...(targetData.user.user_metadata ?? {}), role: prepared.role };
     const { error: updateError } = await supabase.auth.admin.updateUserById(authUserId, {
       app_metadata: appMetadata,
       user_metadata: userMetadata,
@@ -178,18 +211,31 @@ export async function PATCH(
       return NextResponse.json({ error: updateError.message }, { status: 500 });
     }
 
+    const verified = await verifyEmployeePortalAccessAfterWrite({
+      actorOrganizationId: authenticated.organizationId,
+      employeeId: id,
+      resolvedAuthUserId: authUserId,
+      requestedPortalRole: prepared.role,
+    });
+    if (!verified.ok) {
+      return NextResponse.json(
+        { error: verified.error, code: verified.code },
+        { status: verified.status }
+      );
+    }
+
     await supabase.from("user_role_audit_logs").insert({
       target_user_id: authUserId,
       target_employee_id: id,
       old_role: currentRole ?? currentRoleRaw ?? "unknown",
-      new_role: nextRole,
+      new_role: prepared.role,
       changed_by_user_id: caller.id,
       changed_by_email: caller.email ?? null,
       reason: reason || null,
       created_at: new Date().toISOString(),
     });
 
-    return NextResponse.json({ success: true, role: nextRole });
+    return NextResponse.json({ success: true, role: prepared.role, authoritativeRole: prepared.role });
   } catch (e) {
     console.error("[admin/employes/.../portal-account][PATCH] unexpected", e);
     return NextResponse.json({ error: "Erreur serveur." }, { status: 500 });

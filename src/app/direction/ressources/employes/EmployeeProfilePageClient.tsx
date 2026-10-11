@@ -384,15 +384,34 @@ export default function EmployeeProfilePageClient({
           reason: portalRoleReason.trim() || null,
         }),
       });
-      const payload = (await response.json().catch(() => ({}))) as { error?: string };
+      const payload = (await response.json().catch(() => ({}))) as {
+        error?: string;
+        role?: AssignablePortalRole;
+        authoritativeRole?: AssignablePortalRole | null;
+      };
       if (!response.ok) {
         throw new Error(payload.error || "Modification de role refusee.");
+      }
+      const confirmedRole =
+        payload.authoritativeRole === "employe" ||
+        payload.authoritativeRole === "direction" ||
+        payload.authoritativeRole === "manager" ||
+        payload.authoritativeRole === "admin"
+          ? payload.authoritativeRole
+          : payload.role;
+      if (
+        confirmedRole === "employe" ||
+        confirmedRole === "direction" ||
+        confirmedRole === "manager" ||
+        confirmedRole === "admin"
+      ) {
+        setPortalRoleValue(confirmedRole);
       }
       setPortalAccount((current) =>
         current
           ? {
               ...current,
-              portalRole: portalRoleValue,
+              portalRole: confirmedRole ?? current.portalRole,
             }
           : current
       );

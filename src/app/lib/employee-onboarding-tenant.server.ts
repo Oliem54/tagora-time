@@ -6,14 +6,16 @@ import {
   getStrictDirectionRequestUser,
 } from "@/app/lib/account-requests.server";
 import {
-  EMPLOYEE_ONBOARDING_MEMBERSHIP_ROLE,
   PORTAL_ROLE_AUTHORITY_CONFLICT,
   PORTAL_ROLE_AUTHORITY_CONFLICT_MESSAGE,
   mergeAppMetadataOrganization,
+  planAuthoritativePortalRoleCommit,
   planChauffeurTenantStamp,
   planEmployeeMembership,
   planEmployeePortalAuthoritySave,
   verifyEmployeePortalAuthorityAfterWrite,
+  type AuthoritativePortalRolePlan,
+  type AuthoritativePortalRoleSource,
   type OnboardingCompanyRow,
   type OnboardingMembershipRow,
 } from "@/app/lib/employee-onboarding-tenant.shared";
@@ -232,6 +234,7 @@ export type EmployeePortalAuthorityFailure = {
   code: string;
   requestedRole?: string;
   authoritativeRole?: string | null;
+  missingRight?: string;
 };
 
 export async function loadOnboardingMembershipsForAuthUser(authUserId: string): Promise<
@@ -390,18 +393,199 @@ export async function verifyEmployeePortalAccessAfterWrite(input: {
   return { ok: true };
 }
 
+function failureFromPlan(
+  plan: Extract<AuthoritativePortalRolePlan, { ok: false }>
+): EmployeePortalAuthorityFailure {
+  return {
+    ok: false,
+    status: plan.status,
+    error: plan.error,
+    code: plan.code,
+    requestedRole: plan.requestedRole,
+    authoritativeRole: plan.authoritativeRole,
+    missingRight: plan.missingRight,
+  };
+}
+
+export async function prepareAuthoritativePortalRole(input: {
+  source: AuthoritativePortalRoleSource;
+  actorRole: "direction" | "admin" | null;
+  actorUserId: string | null;
+  actorOrganizationId: string | null;
+  targetAuthUserId: string | null;
+  requestedRole: string;
+  preserveExistingRole: boolean;
+  blockSelf: boolean;
+}): Promise<AuthoritativePortalRolePlan> {
+  let memberships: OnboardingMembershipRow[] = [];
+  let existingAppRole: string | null = null;
+
+  if (input.targetAuthUserId) {
+    const loaded = await loadOnboardingMembershipsForAuthUser(input.targetAuthUserId);
+    if (!loaded.ok) {
+      return {
+        ok: false,
+        status: loaded.status,
+        error: loaded.error,
+        code: loaded.code,
+        requestedRole: input.requestedRole,
+        authoritativeRole: loaded.authoritativeRole ?? null,
+      };
+    }
+    memberships = loaded.memberships;
+
+    const admin = createAdminSupabaseClient();
+    const { data, error } = await admin.auth.admin.getUserById(input.targetAuthUserId);
+    if (error) {
+      return {
+        ok: false,
+        status: 500,
+        error: error.message,
+        code: "auth_reread_failed",
+        requestedRole: input.requestedRole,
+        authoritativeRole: null,
+      };
+    }
+    const raw = data.user?.app_metadata?.role;
+    existingAppRole = typeof raw === "string" ? raw : null;
+  }
+
+  return planAuthoritativePortalRoleCommit({
+    source: input.source,
+    actorRole: input.actorRole,
+    actorUserId: input.actorUserId,
+    actorOrganizationId: input.actorOrganizationId,
+    targetAuthUserId: input.targetAuthUserId,
+    requestedRole: input.requestedRole,
+    existingMemberships: memberships,
+    existingAppRole,
+    preserveExistingRole: input.preserveExistingRole,
+    blockSelf: input.blockSelf,
+  });
+}
+
+async function writeCommittedOrganizationRole(input: {
+  authUserId: string;
+  organizationId: string;
+  plan: Extract<AuthoritativePortalRolePlan, { ok: true }>;
+}): Promise<{ ok: true; action: "insert" | "assign" | "repair" } | EmployeePortalAuthorityFailure> {
+  if (input.plan.role !== "employe" && input.plan.role !== "direction") {
+    return {
+      ok: false,
+      status: 403,
+      error: "Role de membership non autorise.",
+      code: "unauthorized_membership_role",
+    };
+  }
+
+  const admin = createAdminSupabaseClient();
+  if (input.plan.action === "insert" || !input.plan.membershipId) {
+    const { data, error } = await admin
+      .from("organization_memberships")
+      .insert({
+        organization_id: input.organizationId,
+        user_id: input.authUserId,
+        role: input.plan.role,
+        status: input.plan.status,
+        is_default: input.plan.isDefault,
+        joined_at: new Date().toISOString(),
+        suspended_at: null,
+      })
+      .select("id");
+    if (error || !data?.length) {
+      return {
+        ok: false,
+        status: 500,
+        error: error?.message ?? "La membership n a pas ete ecrite.",
+        code: "membership_insert_failed",
+      };
+    }
+    return { ok: true, action: "insert" };
+  }
+
+  const { data, error } = await admin
+    .from("organization_memberships")
+    .update({
+      role: input.plan.role,
+      status: input.plan.status,
+      suspended_at: null,
+    })
+    .eq("id", input.plan.membershipId)
+    .eq("organization_id", input.organizationId)
+    .eq("user_id", input.authUserId)
+    .select("id");
+
+  if (error || !data?.length) {
+    return {
+      ok: false,
+      status: 500,
+      error: error?.message ?? "La membership n a pas ete ecrite.",
+      code: "membership_role_write_failed",
+    };
+  }
+  return { ok: true, action: "assign" };
+}
+
+export async function applyAuthoritativePortalRole(input: {
+  authUserId: string;
+  organizationId: string;
+  plan: Extract<AuthoritativePortalRolePlan, { ok: true }>;
+}): Promise<
+  { ok: true; action: "insert" | "repair" | "noop" | "assign" } | EmployeePortalAuthorityFailure
+> {
+  if (input.plan.action === "noop") {
+    return { ok: true, action: "noop" };
+  }
+  if (input.plan.role === "direction" || input.plan.action === "assign") {
+    return writeCommittedOrganizationRole(input);
+  }
+  const applied = await ensureEmployeeOrganizationMembership({
+    authUserId: input.authUserId,
+    organizationId: input.organizationId,
+  });
+  if (!applied.ok) {
+    if (applied.code === "direction_conversion_forbidden") {
+      return {
+        ok: false,
+        status: applied.status,
+        error: PORTAL_ROLE_AUTHORITY_CONFLICT_MESSAGE,
+        code: PORTAL_ROLE_AUTHORITY_CONFLICT,
+      };
+    }
+    return applied;
+  }
+  return applied;
+}
+
 export async function completeEmployeeTenantAccess(input: {
   actorOrganizationId: string;
+  actorUserId: string;
+  actorRole: "direction" | "admin";
   employeeId: number;
   authUserId: string;
+  requestedPortalRole: string;
   requestedPrimaryCompany: string | null;
   existingAppMetadata?: Record<string, unknown> | null;
 }): Promise<{ ok: true } | EmployeePortalAuthorityFailure> {
+  const prepared = await prepareAuthoritativePortalRole({
+    source: "employee_portal",
+    actorRole: input.actorRole,
+    actorUserId: input.actorUserId,
+    actorOrganizationId: input.actorOrganizationId,
+    targetAuthUserId: input.authUserId,
+    requestedRole: input.requestedPortalRole,
+    preserveExistingRole: true,
+    blockSelf: false,
+  });
+  if (!prepared.ok) {
+    return failureFromPlan(prepared);
+  }
+
   const evaluated = await evaluateEmployeePortalAuthoritySave({
     actorOrganizationId: input.actorOrganizationId,
     employeeId: input.employeeId,
     resolvedAuthUserId: input.authUserId,
-    requestedPortalRole: EMPLOYEE_ONBOARDING_MEMBERSHIP_ROLE,
+    requestedPortalRole: prepared.role,
   });
   if (!evaluated.ok) {
     return evaluated;
@@ -434,7 +618,7 @@ export async function completeEmployeeTenantAccess(input: {
   const { error: metaError } = await admin.auth.admin.updateUserById(input.authUserId, {
     app_metadata: {
       ...mergeAppMetadataOrganization(existing, input.actorOrganizationId),
-      role: EMPLOYEE_ONBOARDING_MEMBERSHIP_ROLE,
+      role: prepared.role,
     },
   });
   if (metaError) {
@@ -445,7 +629,7 @@ export async function completeEmployeeTenantAccess(input: {
     actorOrganizationId: input.actorOrganizationId,
     employeeId: input.employeeId,
     resolvedAuthUserId: input.authUserId,
-    requestedPortalRole: EMPLOYEE_ONBOARDING_MEMBERSHIP_ROLE,
+    requestedPortalRole: prepared.role,
   });
   if (!verified.ok) {
     return verified;

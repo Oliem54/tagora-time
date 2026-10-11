@@ -9,6 +9,7 @@ import {
   buildReactivatedAuthMetadataForUser,
   createAuditEntry,
   getCompanyDirectoryContext,
+  getRestorableRoleForAuthUser,
   getReviewLockMetadata,
   hasUserActivatedAccess,
   readAccessDisabledFromAuthUser,
@@ -34,6 +35,12 @@ import {
 } from "@/app/lib/auth/passwords";
 import { getUserPermissions } from "@/app/lib/auth/permissions";
 import { getUserRole, type AppRole } from "@/app/lib/auth/roles";
+import {
+  applyAuthoritativePortalRole,
+  loadOnboardingMembershipsForAuthUser,
+  prepareAuthoritativePortalRole,
+  verifyEmployeePortalAccessAfterWrite,
+} from "@/app/lib/employee-onboarding-tenant.server";
 import { createAdminSupabaseClient } from "@/app/lib/supabase/admin";
 
 type AccountRequestAction =
@@ -180,6 +187,25 @@ function createManagedRouteError(options: {
   error.details = options.details ?? null;
   error.hint = options.hint ?? null;
   return error;
+}
+
+async function prepareAccountRequestRole(input: {
+  actorRole: "direction" | "admin";
+  actorUserId: string;
+  organizationId: string;
+  targetAuthUserId: string | null;
+  requestedRole: string;
+}) {
+  return prepareAuthoritativePortalRole({
+    source: "account_request",
+    actorRole: input.actorRole,
+    actorUserId: input.actorUserId,
+    actorOrganizationId: input.organizationId,
+    targetAuthUserId: input.targetAuthUserId,
+    requestedRole: input.requestedRole,
+    preserveExistingRole: true,
+    blockSelf: true,
+  });
 }
 
 async function findAuthUserByEmail(email: string) {
@@ -542,7 +568,8 @@ function buildInvitationPayload(
   requestRow: AccountRequestRow,
   assignedRole: AppRole,
   assignedPermissions: string[],
-  chauffeurId?: number | null
+  chauffeurId?: number | null,
+  options?: { deferRoleAnnouncement?: boolean }
 ) {
   const companyAccessFlags = buildCompanyAccessFlags(requestRow.company, [
     requestRow.company,
@@ -557,7 +584,7 @@ function buildInvitationPayload(
     email: normalizeEmail(requestRow.email),
     options: {
       data: {
-        role: assignedRole,
+        ...(options?.deferRoleAnnouncement ? {} : { role: assignedRole }),
         permissions: assignedPermissions,
         chauffeur_id: chauffeurId ?? null,
         full_name: requestRow.full_name,
@@ -836,6 +863,8 @@ function serializeError(error: unknown) {
 async function ensureManagedAuthUser(options: {
   requestRow: AccountRequestRow;
   actorUserId: string;
+  actorRole: "direction" | "admin";
+  organizationId: string;
   assignedRole: AppRole;
   assignedPermissions: string[];
   chauffeurId?: number | null;
@@ -843,6 +872,23 @@ async function ensureManagedAuthUser(options: {
 }) {
   const supabase = createAdminSupabaseClient();
   const normalizedEmail = normalizeEmail(options.requestRow.email);
+  const existingUser = options.existingAuthUser ?? (await findAuthUserByEmail(normalizedEmail));
+  const prepared = await prepareAccountRequestRole({
+    actorRole: options.actorRole,
+    actorUserId: options.actorUserId,
+    organizationId: options.organizationId,
+    targetAuthUserId: existingUser?.id ?? null,
+    requestedRole: options.assignedRole,
+  });
+  if (!prepared.ok) {
+    throw createManagedRouteError({
+      status: prepared.status,
+      error: prepared.error,
+      code: prepared.code,
+      details: prepared.missingRight ?? null,
+    });
+  }
+  const authoritativeRole = prepared.role;
 
   logApprovalStep("lookup_auth_user", {
     requestId: options.requestRow.id,
@@ -850,7 +896,7 @@ async function ensureManagedAuthUser(options: {
     preloadedExistingUser: Boolean(options.existingAuthUser),
   });
 
-  let authUser = options.existingAuthUser ?? (await findAuthUserByEmail(normalizedEmail));
+  let authUser = existingUser;
   let created = false;
 
   if (!authUser) {
@@ -861,21 +907,22 @@ async function ensureManagedAuthUser(options: {
 
     const provisionalMetadata = buildManagedUserMetadata({
       requestRow: options.requestRow,
-      assignedRole: options.assignedRole,
+      assignedRole: authoritativeRole,
       assignedPermissions: options.assignedPermissions,
       actorUserId: options.actorUserId,
       chauffeurId: options.chauffeurId,
       requirePasswordChange: true,
       existingMetadata: null,
     });
+    const { role: _deferredRole, ...metadataWithoutRole } = provisionalMetadata;
 
     const { data, error } = await supabase.auth.admin.createUser({
       email: normalizedEmail,
       password: `${crypto.randomUUID()}Aa1!`,
       email_confirm: true,
-      app_metadata: provisionalMetadata,
+      app_metadata: metadataWithoutRole,
       user_metadata: {
-        ...provisionalMetadata,
+        ...metadataWithoutRole,
         full_name: options.requestRow.full_name,
         phone: options.requestRow.phone ?? null,
       },
@@ -911,6 +958,19 @@ async function ensureManagedAuthUser(options: {
     );
   }
 
+  const appliedRole = await applyAuthoritativePortalRole({
+    authUserId: authUser.id,
+    organizationId: options.organizationId,
+    plan: prepared,
+  });
+  if (!appliedRole.ok) {
+    throw createManagedRouteError({
+      status: appliedRole.status,
+      error: appliedRole.error,
+      code: appliedRole.code,
+    });
+  }
+
   const requirePasswordChange =
     !hasUserActivatedAccess(authUser) || hasPasswordChangeRequired(authUser);
 
@@ -923,7 +983,7 @@ async function ensureManagedAuthUser(options: {
 
   const appMetadata = buildManagedUserMetadata({
     requestRow: options.requestRow,
-    assignedRole: options.assignedRole,
+    assignedRole: authoritativeRole,
     assignedPermissions: options.assignedPermissions,
     actorUserId: options.actorUserId,
     chauffeurId: options.chauffeurId,
@@ -933,7 +993,7 @@ async function ensureManagedAuthUser(options: {
   const userMetadata = {
     ...buildManagedUserMetadata({
       requestRow: options.requestRow,
-      assignedRole: options.assignedRole,
+      assignedRole: authoritativeRole,
       assignedPermissions: options.assignedPermissions,
       actorUserId: options.actorUserId,
       chauffeurId: options.chauffeurId,
@@ -964,12 +1024,14 @@ async function ensureManagedAuthUser(options: {
     return {
       user: authUser,
       created,
+      rolePlan: prepared,
     };
   }
 
   return {
     user: refreshedUserData.user,
     created,
+    rolePlan: prepared,
   };
 }
 
@@ -1199,6 +1261,8 @@ async function markApprovalFailure(options: {
 async function upsertAccountAccess(options: {
   requestRow: AccountRequestRow;
   actorUserId: string;
+  actorRole: "direction" | "admin";
+  organizationId: string;
   assignedRole: AppRole;
   assignedPermissions: string[];
   confirmOverwriteExistingAccount: boolean;
@@ -1209,12 +1273,32 @@ async function upsertAccountAccess(options: {
   const existingUser = await findAuthUserByEmail(normalizedEmail);
   const existingRole = getUserRole(existingUser);
   const existingPermissions = getUserPermissions(existingUser);
+  const prepared = await prepareAccountRequestRole({
+    actorRole: options.actorRole,
+    actorUserId: options.actorUserId,
+    organizationId: options.organizationId,
+    targetAuthUserId: existingUser?.id ?? null,
+    requestedRole: options.assignedRole,
+  });
+  if (!prepared.ok) {
+    return {
+      ok: false as const,
+      status: prepared.status,
+      error: prepared.error,
+      code: prepared.code,
+      missingRight: prepared.missingRight,
+      existingAccount: buildExistingAccountSnapshot(existingUser),
+    };
+  }
+  const authoritativeRole = prepared.role;
 
   if (existingUser && !options.confirmOverwriteExistingAccount) {
     return {
       ok: false as const,
+      status: 409,
       error:
         "Un compte existe deja pour ce courriel. Activez l ecrasement pour remplacer le role et les permissions.",
+      code: "existing_account",
       existingAccount: buildExistingAccountSnapshot(existingUser),
     };
   }
@@ -1224,47 +1308,14 @@ async function upsertAccountAccess(options: {
   let invitationResult = "not_required";
 
   if (existingUser) {
-    const { error: updateUserError } = await supabase.auth.admin.updateUserById(
-      existingUser.id,
-      {
-        app_metadata: buildManagedUserMetadata({
-          requestRow: options.requestRow,
-          assignedRole: options.assignedRole,
-          assignedPermissions: options.assignedPermissions,
-          actorUserId: options.actorUserId,
-          chauffeurId: options.chauffeurId,
-          requirePasswordChange:
-            !hasUserActivatedAccess(existingUser) ||
-            hasPasswordChangeRequired(existingUser),
-          existingMetadata: existingUser.app_metadata,
-        }),
-        user_metadata: buildManagedUserMetadata({
-          requestRow: options.requestRow,
-          assignedRole: options.assignedRole,
-          assignedPermissions: options.assignedPermissions,
-          actorUserId: options.actorUserId,
-          chauffeurId: options.chauffeurId,
-          requirePasswordChange:
-            !hasUserActivatedAccess(existingUser) ||
-            hasPasswordChangeRequired(existingUser),
-          existingMetadata: existingUser.user_metadata,
-        }),
-      }
-    );
-
-    if (updateUserError) {
-      throw updateUserError;
-    }
-
     invitedUserId = existingUser.id;
-    finalStatus = hasUserActivatedAccess(existingUser) ? "active" : "invited";
-    invitationResult = "existing_account_updated";
   } else {
     const invitation = buildInvitationPayload(
       options.requestRow,
-      options.assignedRole,
+      authoritativeRole,
       options.assignedPermissions,
-      options.chauffeurId
+      options.chauffeurId,
+      { deferRoleAnnouncement: true }
     );
 
     const { data, error } = await supabase.auth.admin.inviteUserByEmail(
@@ -1283,6 +1334,70 @@ async function upsertAccountAccess(options: {
       : "invite_created_without_user_id";
   }
 
+  if (!invitedUserId) {
+    return {
+      ok: false as const,
+      status: 409,
+      error: "Compte Auth introuvable apres l invitation. Aucun role de membership n a ete confirme.",
+      code: "auth_user_missing",
+      existingAccount: buildExistingAccountSnapshot(existingUser),
+    };
+  }
+
+  const applied = await applyAuthoritativePortalRole({
+    authUserId: invitedUserId,
+    organizationId: options.organizationId,
+    plan: prepared,
+  });
+  if (!applied.ok) {
+    return {
+      ok: false as const,
+      status: applied.status,
+      error: applied.error,
+      code: applied.code,
+      existingAccount: buildExistingAccountSnapshot(existingUser),
+    };
+  }
+
+  const authForMetadata =
+    existingUser ??
+    (await supabase.auth.admin.getUserById(invitedUserId)).data.user ??
+    null;
+  const { error: updateUserError } = await supabase.auth.admin.updateUserById(
+    invitedUserId,
+    {
+      app_metadata: buildManagedUserMetadata({
+        requestRow: options.requestRow,
+        assignedRole: authoritativeRole,
+        assignedPermissions: options.assignedPermissions,
+        actorUserId: options.actorUserId,
+        chauffeurId: options.chauffeurId,
+        requirePasswordChange:
+          !hasUserActivatedAccess(authForMetadata) ||
+          hasPasswordChangeRequired(authForMetadata),
+        existingMetadata: authForMetadata?.app_metadata,
+      }),
+      user_metadata: buildManagedUserMetadata({
+        requestRow: options.requestRow,
+        assignedRole: authoritativeRole,
+        assignedPermissions: options.assignedPermissions,
+        actorUserId: options.actorUserId,
+        chauffeurId: options.chauffeurId,
+        requirePasswordChange:
+          !hasUserActivatedAccess(authForMetadata) ||
+          hasPasswordChangeRequired(authForMetadata),
+        existingMetadata: authForMetadata?.user_metadata,
+      }),
+    }
+  );
+  if (updateUserError) {
+    throw updateUserError;
+  }
+  if (existingUser) {
+    finalStatus = hasUserActivatedAccess(existingUser) ? "active" : "invited";
+    invitationResult = "existing_account_updated";
+  }
+
   return {
     ok: true as const,
     existingUser,
@@ -1291,6 +1406,7 @@ async function upsertAccountAccess(options: {
     invitedUserId,
     finalStatus,
     invitationResult,
+    authoritativeRole,
   };
 }
 
@@ -1819,10 +1935,25 @@ export async function PATCH(
         const authUserResult = await ensureManagedAuthUser({
           requestRow,
           actorUserId: user.id,
+          actorRole: role === "admin" ? "admin" : "direction",
+          organizationId: scope.organizationId,
           assignedRole,
           assignedPermissions,
           existingAuthUser,
         });
+
+        const appliedRole = await applyAuthoritativePortalRole({
+          authUserId: authUserResult.user.id,
+          organizationId: scope.organizationId,
+          plan: authUserResult.rolePlan,
+        });
+        if (!appliedRole.ok) {
+          throw createManagedRouteError({
+            status: appliedRole.status,
+            error: appliedRole.error,
+            code: appliedRole.code,
+          });
+        }
 
         approvalStep = "upsert_employee_profile";
         processingStep = approvalStep;
@@ -1857,6 +1988,20 @@ export async function PATCH(
             requestId: requestRow.id,
             userId: authUserResult.user.id,
             chauffeurId: employeeProfile.id,
+          });
+        }
+
+        const verifiedRole = await verifyEmployeePortalAccessAfterWrite({
+          actorOrganizationId: scope.organizationId,
+          employeeId: employeeProfile.id,
+          resolvedAuthUserId: authUserResult.user.id,
+          requestedPortalRole: authUserResult.rolePlan.role,
+        });
+        if (!verifiedRole.ok) {
+          throw createManagedRouteError({
+            status: verifiedRole.status,
+            error: verifiedRole.error,
+            code: verifiedRole.code,
           });
         }
 
@@ -2015,6 +2160,8 @@ export async function PATCH(
       const result = await upsertAccountAccess({
         requestRow,
         actorUserId: user.id,
+        actorRole: role === "admin" ? "admin" : "direction",
+        organizationId: scope.organizationId,
         assignedRole,
         assignedPermissions,
         confirmOverwriteExistingAccount,
@@ -2024,10 +2171,13 @@ export async function PATCH(
       if (!result.ok) {
         return NextResponse.json(
           {
+            success: false,
             error: result.error,
+            code: result.code,
+            missingRight: "missingRight" in result ? result.missingRight : undefined,
             existingAccount: result.existingAccount,
           },
-          { status: 409 }
+          { status: result.status }
         );
       }
 
@@ -2036,11 +2186,23 @@ export async function PATCH(
           userId: result.invitedUserId,
           chauffeurId: employeeProfile.id,
         });
+        const verifiedRole = await verifyEmployeePortalAccessAfterWrite({
+          actorOrganizationId: scope.organizationId,
+          employeeId: employeeProfile.id,
+          resolvedAuthUserId: result.invitedUserId,
+          requestedPortalRole: result.authoritativeRole,
+        });
+        if (!verifiedRole.ok) {
+          return NextResponse.json(
+            { success: false, error: verifiedRole.error, code: verifiedRole.code },
+            { status: verifiedRole.status }
+          );
+        }
       }
 
       const updated = await updateRequestRow(id, {
         status: result.finalStatus,
-        assigned_role: assignedRole,
+        assigned_role: result.authoritativeRole,
         assigned_permissions: assignedPermissions,
         review_note: reviewNote,
         reviewed_by: user.id,
@@ -2077,11 +2239,70 @@ export async function PATCH(
         requestRow,
       });
 
+      const existingInviteUser =
+        requestRow.invited_user_id != null
+          ? (
+              await createAdminSupabaseClient().auth.admin.getUserById(
+                requestRow.invited_user_id
+              )
+            ).data.user
+          : await findAuthUserByEmail(normalizeEmail(requestRow.email));
+      const prepared = await prepareAccountRequestRole({
+        actorRole: role === "admin" ? "admin" : "direction",
+        actorUserId: user.id,
+        organizationId: scope.organizationId,
+        targetAuthUserId: existingInviteUser?.id ?? null,
+        requestedRole: assignedRole,
+      });
+      if (!prepared.ok) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: prepared.error,
+            code: prepared.code,
+            missingRight: prepared.missingRight ?? null,
+            authoritativeRole: prepared.authoritativeRole,
+          },
+          { status: prepared.status }
+        );
+      }
+
+      if (!employeeProfile.id) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: "Fiche employe introuvable. Le renvoi n a pas confirme le role de membership.",
+            code: "employee_profile_missing",
+          },
+          { status: 409 }
+        );
+      }
+
+      let invitedId = existingInviteUser?.id ?? null;
+      if (invitedId) {
+        const appliedBeforeInvite = await applyAuthoritativePortalRole({
+          authUserId: invitedId,
+          organizationId: scope.organizationId,
+          plan: prepared,
+        });
+        if (!appliedBeforeInvite.ok) {
+          return NextResponse.json(
+            {
+              success: false,
+              error: appliedBeforeInvite.error,
+              code: appliedBeforeInvite.code,
+            },
+            { status: appliedBeforeInvite.status }
+          );
+        }
+      }
+
       const invitation = buildInvitationPayload(
         requestRow,
-        assignedRole,
+        prepared.role,
         assignedPermissions,
-        employeeProfile.id
+        employeeProfile.id,
+        { deferRoleAnnouncement: !invitedId }
       );
       const { data, error } = await createAdminSupabaseClient().auth.admin.inviteUserByEmail(
         invitation.email,
@@ -2092,15 +2313,63 @@ export async function PATCH(
         return NextResponse.json({ error: error.message }, { status: 500 });
       }
 
-      if (data.user?.id && employeeProfile.id) {
-        await syncUserChauffeurMetadata({
-          userId: data.user.id,
-          chauffeurId: employeeProfile.id,
+      invitedId = data.user?.id ?? invitedId;
+      if (!invitedId) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: "Compte Auth introuvable. Le renvoi n a pas confirme le role de membership.",
+            code: "auth_user_missing",
+          },
+          { status: 409 }
+        );
+      }
+
+      if (!existingInviteUser?.id) {
+        const appliedRole = await applyAuthoritativePortalRole({
+          authUserId: invitedId,
+          organizationId: scope.organizationId,
+          plan: prepared,
         });
+        if (!appliedRole.ok) {
+          return NextResponse.json(
+            { success: false, error: appliedRole.error, code: appliedRole.code },
+            { status: appliedRole.status }
+          );
+        }
+        const { error: roleError } = await createAdminSupabaseClient().auth.admin.updateUserById(
+          invitedId,
+          {
+            app_metadata: {
+              ...(data.user?.app_metadata ?? {}),
+              role: prepared.role,
+            },
+          }
+        );
+        if (roleError) {
+          return NextResponse.json({ error: roleError.message }, { status: 500 });
+        }
+      }
+
+      await syncUserChauffeurMetadata({
+        userId: invitedId,
+        chauffeurId: employeeProfile.id,
+      });
+      const verifiedRole = await verifyEmployeePortalAccessAfterWrite({
+        actorOrganizationId: scope.organizationId,
+        employeeId: employeeProfile.id,
+        resolvedAuthUserId: invitedId,
+        requestedPortalRole: prepared.role,
+      });
+      if (!verifiedRole.ok) {
+        return NextResponse.json(
+          { success: false, error: verifiedRole.error, code: verifiedRole.code },
+          { status: verifiedRole.status }
+        );
       }
 
       const updated = await updateRequestRow(id, {
-        assigned_role: assignedRole,
+        assigned_role: prepared.role,
         assigned_permissions: assignedPermissions,
         review_note: reviewNote,
         reviewed_by: user.id,
@@ -2210,8 +2479,44 @@ export async function PATCH(
         );
       }
 
-      const reactivationFallback = {
+      const restoredRole = getRestorableRoleForAuthUser(existingUser, {
         role: assignedRole,
+        permissions: assignedPermissions,
+      });
+      const prepared = await prepareAccountRequestRole({
+        actorRole: role === "admin" ? "admin" : "direction",
+        actorUserId: user.id,
+        organizationId: scope.organizationId,
+        targetAuthUserId: existingUser.id,
+        requestedRole: restoredRole,
+      });
+      if (!prepared.ok) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: prepared.error,
+            code: prepared.code,
+            missingRight: prepared.missingRight ?? null,
+            authoritativeRole: prepared.authoritativeRole,
+          },
+          { status: prepared.status }
+        );
+      }
+
+      const appliedRole = await applyAuthoritativePortalRole({
+        authUserId: existingUser.id,
+        organizationId: scope.organizationId,
+        plan: prepared,
+      });
+      if (!appliedRole.ok) {
+        return NextResponse.json(
+          { success: false, error: appliedRole.error, code: appliedRole.code },
+          { status: appliedRole.status }
+        );
+      }
+
+      const reactivationFallback = {
+        role: prepared.role,
         permissions: assignedPermissions,
       };
 
@@ -2237,6 +2542,31 @@ export async function PATCH(
 
       if (error) {
         return NextResponse.json({ error: error.message }, { status: 500 });
+      }
+
+      const memberships = await loadOnboardingMembershipsForAuthUser(existingUser.id);
+      const reread = await createAdminSupabaseClient().auth.admin.getUserById(existingUser.id);
+      const rereadRole =
+        typeof reread.data.user?.app_metadata?.role === "string"
+          ? reread.data.user.app_metadata.role
+          : null;
+      const membershipCoherent =
+        memberships.ok &&
+        memberships.memberships.some(
+          (row) =>
+            row.organization_id === scope.organizationId &&
+            row.role === prepared.role &&
+            row.status === "active"
+        );
+      if (reread.error || !membershipCoherent || rereadRole !== prepared.role) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: "Le role de membership et app_metadata.role ne correspondent pas.",
+            code: "role_sources_incoherent",
+          },
+          { status: 409 }
+        );
       }
 
       const nextStatus = hasUserActivatedAccess(existingUser) ? "active" : "invited";
@@ -2277,6 +2607,8 @@ export async function PATCH(
       const result = await upsertAccountAccess({
         requestRow,
         actorUserId: user.id,
+        actorRole: role === "admin" ? "admin" : "direction",
+        organizationId: scope.organizationId,
         assignedRole,
         assignedPermissions,
         confirmOverwriteExistingAccount,
@@ -2286,10 +2618,13 @@ export async function PATCH(
       if (!result.ok) {
         return NextResponse.json(
           {
+            success: false,
             error: result.error,
+            code: result.code,
+            missingRight: "missingRight" in result ? result.missingRight : undefined,
             existingAccount: result.existingAccount,
           },
-          { status: 409 }
+          { status: result.status }
         );
       }
 
@@ -2298,11 +2633,23 @@ export async function PATCH(
           userId: result.invitedUserId,
           chauffeurId: employeeProfile.id,
         });
+        const verifiedRole = await verifyEmployeePortalAccessAfterWrite({
+          actorOrganizationId: scope.organizationId,
+          employeeId: employeeProfile.id,
+          resolvedAuthUserId: result.invitedUserId,
+          requestedPortalRole: result.authoritativeRole,
+        });
+        if (!verifiedRole.ok) {
+          return NextResponse.json(
+            { success: false, error: verifiedRole.error, code: verifiedRole.code },
+            { status: verifiedRole.status }
+          );
+        }
       }
 
       const updated = await updateRequestRow(id, {
         status: result.finalStatus,
-        assigned_role: assignedRole,
+        assigned_role: result.authoritativeRole,
         assigned_permissions: assignedPermissions,
         review_note: reviewNote,
         reviewed_by: user.id,
