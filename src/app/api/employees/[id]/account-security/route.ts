@@ -12,6 +12,7 @@ import {
 } from "@/app/lib/account-requests.server";
 import { loadOnboardingMembershipsForAuthUser } from "@/app/lib/employee-onboarding-tenant.server";
 import { sessionPortalRoleForOrganization } from "@/app/lib/employee-onboarding-tenant.shared";
+import { confirmEmployeeMembershipPortalRole } from "@/app/lib/employee-portal-security-portrait.shared";
 import {
   buildRequiredPasswordMetadata,
   getPasswordPolicyMessage,
@@ -437,22 +438,25 @@ export async function GET(
       );
     }
 
-    const security = buildAccountSecuritySnapshot(employee, authUser);
+    const security = {
+      ...buildAccountSecuritySnapshot(employee, authUser),
+      portalRole: null as ReturnType<typeof confirmEmployeeMembershipPortalRole>["portalRole"],
+      membershipRoleConfirmed: false,
+    };
     const authenticated = await getAuthenticatedRequestUser(req);
     if (authenticated.organizationId && authUser) {
       const memberships = await loadOnboardingMembershipsForAuthUser(authUser.id);
       if (!memberships.ok) {
         return NextResponse.json({ error: memberships.error, code: memberships.code }, { status: memberships.status });
       }
-      const authoritativeRole = sessionPortalRoleForOrganization(
-        memberships.memberships,
-        authenticated.organizationId
+      const confirmed = confirmEmployeeMembershipPortalRole(
+        sessionPortalRoleForOrganization(
+          memberships.memberships,
+          authenticated.organizationId
+        )
       );
-      security.portalRole = authoritativeRole === "direction" ||
-        authoritativeRole === "manager" ||
-        authoritativeRole === "admin"
-        ? authoritativeRole
-        : "employe";
+      security.portalRole = confirmed.portalRole;
+      security.membershipRoleConfirmed = confirmed.membershipRoleConfirmed;
     }
 
     return NextResponse.json({

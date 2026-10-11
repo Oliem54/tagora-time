@@ -3,6 +3,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { accountRequestPermissionOptions } from "@/app/lib/account-request-options";
 import {
+  hororaNexusSessionRequestInit,
+  redirectToNexusLoginIfUnauthenticated,
+} from "@/app/lib/auth/horora-nexus-session.client";
+import {
   APP_METADATA_ROLE_ANNOUNCEMENT_FAILED,
   APP_METADATA_ROLE_ANNOUNCEMENT_FAILED_MESSAGE,
 } from "@/app/lib/employee-role-audit-commit.shared";
@@ -11,6 +15,10 @@ import {
   employeePortalSaveErrorMessage,
   portalRoleChoiceFromAuthoritativeRole,
 } from "@/app/lib/employee-onboarding-tenant.shared";
+import {
+  viewEmployeePortalSecurity,
+  type EmployeePortalRoleChoice,
+} from "@/app/lib/employee-portal-security-portrait.shared";
 import type { EmployeProfile } from "./employee-profile-shared";
 
 type AccountSecuritySnapshot = {
@@ -21,7 +29,8 @@ type AccountSecuritySnapshot = {
   accountExists: boolean;
   accountActivated: boolean;
   accessDisabled: boolean;
-  portalRole?: PortalRoleChoice;
+  portalRole?: PortalRoleChoice | null;
+  membershipRoleConfirmed?: boolean;
   permissions?: string[];
   availableActions: {
     resetPassword: boolean;
@@ -32,7 +41,7 @@ type AccountSecuritySnapshot = {
   };
 };
 
-type PortalRoleChoice = "employe" | "direction" | "manager" | "admin";
+type PortalRoleChoice = EmployeePortalRoleChoice;
 
 function formatDateTime(value: string | null | undefined) {
   if (!value) return "-";
@@ -49,16 +58,17 @@ function formatDateTime(value: string | null | undefined) {
   }
 }
 
-function parsePortalRoleChoice(value: unknown): PortalRoleChoice {
-  if (value === "direction" || value === "manager" || value === "admin") {
-    return value;
-  }
-  return "employe";
+function isPortalRoleChoice(value: string): value is PortalRoleChoice {
+  return (
+    value === "employe" ||
+    value === "direction" ||
+    value === "manager" ||
+    value === "admin"
+  );
 }
 
 export default function EmployeePortalAccessSection({
   employeeId,
-  accessToken,
   viewerRole,
   profile,
   onRefresh,
@@ -71,31 +81,27 @@ export default function EmployeePortalAccessSection({
 }) {
   const canManage = viewerRole === "direction" || viewerRole === "admin";
   const [security, setSecurity] = useState<AccountSecuritySnapshot | null>(null);
+  const [loadOutcome, setLoadOutcome] = useState<"pending" | "ok" | "error">("pending");
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [localMessage, setLocalMessage] = useState<{
     type: "ok" | "err" | "pending";
     text: string;
   } | null>(null);
-  const [portalRole, setPortalRole] = useState<PortalRoleChoice>("employe");
+  const [portalRole, setPortalRole] = useState<PortalRoleChoice | "">("");
   const [portalPermissions, setPortalPermissions] = useState<string[]>([]);
 
-  const applySecurityToForm = useCallback((snapshot: AccountSecuritySnapshot | null) => {
-    if (!snapshot) {
-      return;
-    }
-    setPortalRole(parsePortalRoleChoice(snapshot.portalRole));
-    setPortalPermissions(
-      Array.isArray(snapshot.permissions)
-        ? snapshot.permissions.filter((p) => typeof p === "string")
-        : []
-    );
+  const clearUnverifiedForm = useCallback(() => {
+    setSecurity(null);
+    setLoadOutcome("error");
+    setPortalRole("");
+    setPortalPermissions([]);
   }, []);
 
   const loadSecurity = useCallback(async (options?: { keepMessage?: boolean }) => {
-    if (!accessToken || !canManage) {
+    if (!canManage) {
       setLoading(false);
-      setSecurity(null);
+      clearUnverifiedForm();
       return;
     }
 
@@ -104,63 +110,68 @@ export default function EmployeePortalAccessSection({
       setLocalMessage(null);
     }
     try {
-      const res = await fetch(`/api/employees/${employeeId}/account-security`, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
+      const res = await fetch(
+        `/api/employees/${employeeId}/account-security`,
+        hororaNexusSessionRequestInit()
+      );
+      if (redirectToNexusLoginIfUnauthenticated(res.status)) {
+        clearUnverifiedForm();
+        return;
+      }
       const json = (await res.json().catch(() => ({}))) as {
         security?: AccountSecuritySnapshot;
         error?: string;
       };
-      if (!res.ok) {
-        setSecurity(null);
+      const nextView = viewEmployeePortalSecurity({
+        loaded: res.ok,
+        security: json.security,
+        profileAuthUserId: profile?.auth_user_id ?? null,
+      });
+      if (!res.ok || !nextView.portraitConfirmed) {
+        clearUnverifiedForm();
         setLocalMessage({
           type: "err",
           text: typeof json.error === "string" ? json.error : "Chargement du statut impossible.",
         });
         return;
       }
-      const nextSecurity = json.security ?? null;
-      setSecurity(nextSecurity);
-      applySecurityToForm(nextSecurity);
+      setLoadOutcome("ok");
+      setSecurity(json.security ?? null);
+      setPortalRole(nextView.recordedRole ?? "");
+      setPortalPermissions(nextView.permissions);
     } catch {
-      setSecurity(null);
+      clearUnverifiedForm();
       setLocalMessage({ type: "err", text: "Erreur reseau lors du chargement du statut." });
     } finally {
       setLoading(false);
     }
-  }, [accessToken, applySecurityToForm, canManage, employeeId]);
+  }, [canManage, clearUnverifiedForm, employeeId, profile?.auth_user_id]);
 
   useEffect(() => {
     void loadSecurity();
   }, [loadSecurity]);
 
-  const displayStatus = useMemo(() => {
-    if (profile?.account_invitation_status === "error" && profile.account_invitation_error) {
-      return "Erreur invitation";
-    }
-    if (!security) {
-      return profile?.account_invitation_status === "invited"
-        ? "Invitation envoyee"
-        : profile?.account_invitation_status === "active"
-          ? "Compte actif"
-          : profile?.account_invitation_status === "disabled"
-            ? "Compte desactive"
-            : "Aucun compte";
-    }
-    if (security.status === "active") return "Compte actif";
-    if (security.status === "invited") return "Invitation envoyee";
-    if (security.status === "disabled") return "Compte desactive";
-    return "Aucun compte";
-  }, [profile?.account_invitation_error, profile?.account_invitation_status, security]);
+  const securityView = useMemo(
+    () =>
+      viewEmployeePortalSecurity({
+        loaded: loadOutcome === "ok",
+        security,
+        profileAuthUserId: profile?.auth_user_id ?? null,
+      }),
+    [loadOutcome, profile?.auth_user_id, security]
+  );
 
   const linked = Boolean(profile?.auth_user_id ?? security?.authUserId);
-  const canSavePortalAccess = Boolean(linked && security?.accountExists && !security.accessDisabled);
+  const canSavePortalAccess = securityView.canSave;
+  const roleChosen = isPortalRoleChoice(portalRole);
 
   async function postInvite(
     action: "invite" | "link" | "resend" | "disable_access" | "update_portal_access"
   ) {
-    if (!accessToken) {
-      setLocalMessage({ type: "err", text: "Session expiree. Reconnectez-vous." });
+    if (action === "update_portal_access" && !canSavePortalAccess) {
+      return;
+    }
+    if (action !== "disable_access" && action !== "resend" && !roleChosen) {
       return;
     }
 
@@ -169,19 +180,19 @@ export default function EmployeePortalAccessSection({
     try {
       const res = await fetch(
         `/api/direction/ressources/employes/${employeeId}/invite-account`,
-        {
+        hororaNexusSessionRequestInit({
           method: "POST",
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-            "Content-Type": "application/json",
-          },
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             action,
-            portalRole: action === "disable_access" ? undefined : portalRole,
+            portalRole: action === "disable_access" ? undefined : portalRole || undefined,
             permissions: portalPermissions,
           }),
-        }
+        })
       );
+      if (redirectToNexusLoginIfUnauthenticated(res.status)) {
+        return;
+      }
       const json = (await res.json().catch(() => ({}))) as {
         success?: boolean;
         error?: string;
@@ -226,13 +237,15 @@ export default function EmployeePortalAccessSection({
           text: distinguished,
         });
         await loadSecurity();
-        setPortalRole(
-          applyEmployeePortalSaveFailureToForm({
-            currentFormRole: portalRole,
-            code: json.code,
-            authoritativeRole: json.authoritativeRole,
-          })
-        );
+        if (isPortalRoleChoice(portalRole)) {
+          setPortalRole(
+            applyEmployeePortalSaveFailureToForm({
+              currentFormRole: portalRole,
+              code: json.code,
+              authoritativeRole: json.authoritativeRole,
+            })
+          );
+        }
         return;
       }
 
@@ -255,10 +268,6 @@ export default function EmployeePortalAccessSection({
   }
 
   async function postSecurityAction(action: "reactivate_account") {
-    if (!accessToken) {
-      setLocalMessage({ type: "err", text: "Session expiree. Reconnectez-vous." });
-      return;
-    }
     if (viewerRole !== "admin") {
       setLocalMessage({
         type: "err",
@@ -270,14 +279,17 @@ export default function EmployeePortalAccessSection({
     setBusy(true);
     setLocalMessage(null);
     try {
-      const res = await fetch(`/api/employees/${employeeId}/account-security`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ action }),
-      });
+      const res = await fetch(
+        `/api/employees/${employeeId}/account-security`,
+        hororaNexusSessionRequestInit({
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action }),
+        })
+      );
+      if (redirectToNexusLoginIfUnauthenticated(res.status)) {
+        return;
+      }
       const json = (await res.json().catch(() => ({}))) as {
         success?: boolean;
         error?: string;
@@ -322,8 +334,12 @@ export default function EmployeePortalAccessSection({
   }
 
   const showAdminRoles = viewerRole === "admin";
-  const canInvite = Boolean(!linked && security && !security.accountExists);
-  const canLink = Boolean(!linked && security?.accountExists);
+  const canInvite = Boolean(
+    securityView.portraitConfirmed && !linked && security && !security.accountExists && roleChosen
+  );
+  const canLink = Boolean(
+    securityView.portraitConfirmed && !linked && security?.accountExists && roleChosen
+  );
   const canResend = Boolean(security?.availableActions?.resendInvitation);
   const canDisable = Boolean(security?.availableActions?.disableAccount);
   const canReactivate = Boolean(security?.availableActions?.reactivateAccount);
@@ -382,7 +398,7 @@ export default function EmployeePortalAccessSection({
           >
             <div>
               <div className="tagora-label">Statut du compte</div>
-              <div style={{ marginTop: 6, fontWeight: 700 }}>{displayStatus}</div>
+              <div style={{ marginTop: 6, fontWeight: 700 }}>{securityView.statusLabel}</div>
             </div>
             <div>
               <div className="tagora-label">Courriel du compte</div>
@@ -420,9 +436,16 @@ export default function EmployeePortalAccessSection({
               <select
                 className="tagora-input"
                 value={portalRole}
-                onChange={(e) => setPortalRole(e.target.value as PortalRoleChoice)}
-                disabled={busy}
+                onChange={(event) => {
+                  if (isPortalRoleChoice(event.target.value)) {
+                    setPortalRole(event.target.value);
+                  }
+                }}
+                disabled={busy || !securityView.portraitConfirmed}
               >
+                <option value="" disabled>
+                  Role non verifie
+                </option>
                 <option value="employe">Employe</option>
                 <option value="direction">Direction</option>
                 {showAdminRoles ? (
@@ -444,7 +467,7 @@ export default function EmployeePortalAccessSection({
                     type="checkbox"
                     checked={portalPermissions.includes(opt.value)}
                     onChange={() => togglePermission(opt.value)}
-                    disabled={busy}
+                    disabled={busy || !securityView.portraitConfirmed}
                     style={{ width: 18, height: 18, minWidth: 18, minHeight: 18 }}
                   />
                   <span>{opt.label}</span>
@@ -457,22 +480,22 @@ export default function EmployeePortalAccessSection({
             <button
               type="button"
               className="tagora-dark-action employee-portal-access-save-btn"
-              disabled={busy || !accessToken || !canSavePortalAccess}
+              disabled={busy || !canSavePortalAccess}
               onClick={() => void postInvite("update_portal_access")}
               title={
                 canSavePortalAccess
                   ? undefined
-                  : "Liez ou activez un compte avant d enregistrer les permissions."
+                  : securityView.blockMessage ??
+                    "Les donnees requises ne sont pas confirmees."
               }
             >
               {busy ? "Enregistrement..." : "Enregistrer les permissions portail"}
             </button>
           </div>
 
-          {!canSavePortalAccess && linked ? (
+          {securityView.blockMessage ? (
             <p className="tagora-note" style={{ margin: 0 }}>
-              Le compte est desactive ou introuvable : reactivez l acces avant de modifier les
-              permissions.
+              {securityView.blockMessage}
             </p>
           ) : null}
 
@@ -480,7 +503,7 @@ export default function EmployeePortalAccessSection({
             <button
               type="button"
               className="tagora-dark-action"
-              disabled={busy || !accessToken || !canInvite}
+              disabled={busy || !canInvite}
               onClick={() => void postInvite("invite")}
             >
               Inviter un compte utilisateur
@@ -488,7 +511,7 @@ export default function EmployeePortalAccessSection({
             <button
               type="button"
               className="tagora-dark-outline-action"
-              disabled={busy || !accessToken || !canLink}
+              disabled={busy || !canLink}
               onClick={() => void postInvite("link")}
             >
               Lier a un compte existant
@@ -496,7 +519,7 @@ export default function EmployeePortalAccessSection({
             <button
               type="button"
               className="tagora-dark-outline-action"
-              disabled={busy || !accessToken || !canResend}
+              disabled={busy || !canResend}
               onClick={() => void postInvite("resend")}
             >
               Renvoyer l invitation
@@ -504,7 +527,7 @@ export default function EmployeePortalAccessSection({
             <button
               type="button"
               className="tagora-dark-outline-action"
-              disabled={busy || !accessToken || !canDisable}
+              disabled={busy || !canDisable}
               onClick={() => void postInvite("disable_access")}
             >
               Desactiver l acces
@@ -512,7 +535,7 @@ export default function EmployeePortalAccessSection({
             <button
               type="button"
               className="tagora-dark-action"
-              disabled={busy || !accessToken || !canReactivate}
+              disabled={busy || !canReactivate}
               onClick={() => void postSecurityAction("reactivate_account")}
             >
               Reactiver l acces
