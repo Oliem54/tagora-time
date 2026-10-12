@@ -639,27 +639,17 @@ export default function EmployeeProfilePageClient({
         return;
       }
 
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      const token = session?.access_token;
-      if (!token) {
-        setMessage("Erreur sauvegarde : Session expirée. Reconnectez-vous.");
-        setMessageType("error");
-        return;
-      }
-
       const response = await fetch(
         `/api/direction/ressources/employes/${employeeId}`,
-        {
+        hororaNexusSessionRequestInit({
           method: "PATCH",
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
-          },
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
-        }
+        })
       );
+      if (redirectToNexusLoginIfUnauthenticated(response.status)) {
+        throw new Error("Authentification Nexus requise.");
+      }
 
       const json = (await response.json().catch(() => ({}))) as {
         success?: boolean;
