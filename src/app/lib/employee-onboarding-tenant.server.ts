@@ -10,6 +10,8 @@ import {
   PORTAL_ROLE_AUTHORITY_CONFLICT_MESSAGE,
   mergeAppMetadataOrganization,
   planAuthoritativePortalRoleCommit,
+  assessEmployeeCreateSession,
+  interpretChauffeurCreateWriteError,
   planChauffeurTenantStamp,
   planEmployeeMembership,
   planEmployeePortalAuthoritySave,
@@ -38,20 +40,17 @@ export async function resolveDirectionEmployeeOnboardingActor(req: NextRequest):
   | { ok: false; status: number; error: string }
 > {
   const strict = await getStrictDirectionRequestUser(req);
-  if (strict.mfaError) {
-    return { ok: false, status: 403, error: "MFA_AAL2_REQUIRED" };
-  }
-
   const auth = await getAuthenticatedRequestUser(req);
-  if (!auth.user || (auth.role !== "direction" && auth.role !== "admin")) {
-    return { ok: false, status: 403, error: "Acces refuse." };
-  }
-  if (!auth.organizationId) {
-    return {
-      ok: false,
-      status: 403,
-      error: "Membership organisation active requise.",
-    };
+  const decision = assessEmployeeCreateSession({
+    mfaBlocked: Boolean(strict.mfaError),
+    hasUser: Boolean(auth.user),
+    role: auth.role,
+    organizationId: auth.organizationId,
+  });
+  if (!decision.ok || !auth.user) {
+    return decision.ok
+      ? { ok: false, status: 403, error: "Acces refuse." }
+      : decision;
   }
 
   return {
@@ -59,8 +58,8 @@ export async function resolveDirectionEmployeeOnboardingActor(req: NextRequest):
     actor: {
       userId: auth.user.id,
       email: auth.user.email ?? null,
-      role: auth.role,
-      organizationId: auth.organizationId,
+      role: decision.role,
+      organizationId: decision.organizationId,
     },
   };
 }
@@ -737,12 +736,12 @@ export async function createTenantStampedChauffeur(input: {
     .single();
 
   if (error) {
-    const status = error.code === "23505" ? 409 : 500;
+    const interpreted = interpretChauffeurCreateWriteError(error.code);
     return {
       ok: false,
-      status,
+      status: interpreted.status,
       error: error.message,
-      code: error.code === "23505" ? "email_already_used" : "chauffeur_insert_failed",
+      code: interpreted.code,
     };
   }
 

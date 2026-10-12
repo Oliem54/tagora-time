@@ -1078,3 +1078,42 @@ export function applyEmployeePortalSaveFailureToForm(input: {
   }
   return input.currentFormRole;
 }
+
+export function assessEmployeeCreateSession(input: {
+  mfaBlocked: boolean;
+  hasUser: boolean;
+  role: string | null;
+  organizationId: string | null;
+}):
+  | { ok: true; role: "direction" | "admin"; organizationId: string }
+  | { ok: false; status: number; error: string } {
+  if (input.mfaBlocked) {
+    return { ok: false, status: 403, error: "MFA_AAL2_REQUIRED" };
+  }
+  if (!input.hasUser || (input.role !== "direction" && input.role !== "admin")) {
+    return { ok: false, status: 403, error: "Acces refuse." };
+  }
+  const organizationId = input.organizationId?.trim() || "";
+  if (!organizationId) {
+    return {
+      ok: false,
+      status: 403,
+      error: "Membership organisation active requise.",
+    };
+  }
+  return {
+    ok: true,
+    role: input.role,
+    organizationId,
+  };
+}
+
+export function interpretChauffeurCreateWriteError(code: string | undefined): {
+  status: number;
+  code: "email_already_used" | "chauffeur_insert_failed";
+} {
+  if (code === "23505") {
+    return { status: 409, code: "email_already_used" };
+  }
+  return { status: 500, code: "chauffeur_insert_failed" };
+}
