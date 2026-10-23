@@ -34,10 +34,13 @@ import {
 } from "@/app/lib/auth/horora-nexus-session.client";
 import { getCompanyLabel } from "@/app/lib/account-requests.shared";
 import {
+  countDirectionLivePresence,
   directionPresenceStatusLabel,
   directionPresenceStatusTone,
   isCurrentlyWorkingState,
   mapDirectionPresenceStatus,
+  matchesDirectionLiveFilter,
+  type DirectionLiveFilter,
 } from "@/app/lib/employee-punch-status.shared";
 import { normalizePhoneNumber } from "@/app/lib/timeclock-api.client";
 
@@ -121,7 +124,7 @@ type AlertConfig = {
   direction_sms_numbers: string[];
 };
 
-type LiveFilter = "tous" | "en_service" | "en_pause" | "au_diner" | "absent" | "attention";
+type LiveFilter = DirectionLiveFilter;
 
 type WeeklyProjectionPayload = {
   workedMinutes: number;
@@ -681,17 +684,19 @@ export default function DirectionHorodateurPage() {
   );
 
   const counts = useMemo(() => {
-    const active = board.filter((row) => getRowState(row) === "en_quart").length;
-    const onPause = board.filter((row) => getRowState(row) === "en_pause").length;
-    const onDinner = board.filter((row) => getRowState(row) === "en_diner").length;
-    const pending = exceptions.length;
+    const presence = countDirectionLivePresence(
+      board.map((row) => ({
+        state: getRowState(row),
+        needsAttention: liveRowNeedsAttention(row),
+      }))
+    );
 
     return {
-      employees: board.length,
-      active,
-      paused: onPause,
-      onDinner,
-      pending,
+      employees: presence.employees,
+      active: presence.active,
+      paused: presence.paused,
+      diner: presence.diner,
+      pending: exceptions.length,
     };
   }, [board, exceptions.length]);
 
@@ -743,23 +748,13 @@ export default function DirectionHorodateurPage() {
           return false;
         }
       }
-      const state = getRowState(row);
-      const attention = liveRowNeedsAttention(row);
-      const presence = mapDirectionPresenceStatus(state, { needsAttention: attention });
-      switch (liveFilter) {
-        case "en_service":
-          return presence === "en_service";
-        case "en_pause":
-          return presence === "en_pause";
-        case "au_diner":
-          return presence === "au_diner";
-        case "absent":
-          return presence === "absent";
-        case "attention":
-          return presence === "attention_requise" || attention;
-        default:
-          return true;
-      }
+      return matchesDirectionLiveFilter(
+        {
+          state: getRowState(row),
+          needsAttention: liveRowNeedsAttention(row),
+        },
+        liveFilter
+      );
     });
   }, [board, liveCompany, liveFilter, liveSearch]);
   const currentlyWorking = useMemo(
@@ -1616,8 +1611,8 @@ export default function DirectionHorodateurPage() {
             {[
               ["tous", `Tous (${board.length})`],
               ["en_service", `En service (${board.filter((row) => getRowState(row) === "en_quart").length})`],
-              ["en_pause", `En pause (${board.filter((row) => getRowState(row) === "en_pause").length})`],
-              ["au_diner", `Au dîner (${board.filter((row) => getRowState(row) === "en_diner").length})`],
+              ["en_pause", `En pause (${counts.paused})`],
+              ["au_diner", `Au dîner (${counts.diner})`],
               ["absent", `Absent (${board.filter((row) => !isCurrentlyWorkingState(getRowState(row)) && getRowState(row) !== "termine").length})`],
               ["attention", `Attention requise (${board.filter((row) => liveRowNeedsAttention(row)).length})`],
             ].map(([value, label]) => {
@@ -2155,7 +2150,12 @@ export default function DirectionHorodateurPage() {
           <AppCard tone="muted" className="ui-stack-xs">
             <span className="ui-eyebrow">En pause</span>
             <strong style={{ fontSize: 28 }}>{counts.paused}</strong>
-            <span className="ui-text-muted">Au dîner : {counts.onDinner}</span>
+            <span className="ui-text-muted">Pause en cours</span>
+          </AppCard>
+          <AppCard tone="muted" className="ui-stack-xs">
+            <span className="ui-eyebrow">Au dîner</span>
+            <strong style={{ fontSize: 28 }}>{counts.diner}</strong>
+            <span className="ui-text-muted">Dîner en cours</span>
           </AppCard>
           <AppCard tone="muted" className="ui-stack-xs">
             <span className="ui-eyebrow">Exceptions</span>

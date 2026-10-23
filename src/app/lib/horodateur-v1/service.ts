@@ -875,8 +875,9 @@ async function resolveEmployeeByIdForOrganization(
 }
 
 /**
- * Pause payée : aucun mouvement break_start / break_end (employé ni direction, flux normal).
- * Refus avant insert — pas d’exception, pas d’alerte, pas de recompute.
+ * Pause payée : break_start et break_end refusés (employé ni direction).
+ * Le recalcul ignore ces deux événements, donc une pause payée ne reste pas
+ * active et une fin acceptée ne fermerait aucun état. Refus avant insert.
  */
 function assertNoPaidBreakOperationalPunch(
   employee: HorodateurPhase1EmployeeProfile,

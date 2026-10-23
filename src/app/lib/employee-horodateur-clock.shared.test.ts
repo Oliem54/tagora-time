@@ -57,6 +57,10 @@ describe("employee horodateur clock", () => {
     const onBreak = viewFor("en_pause");
     expect(onBreak.statusLabel).toBe("En pause");
     expect(onBreak.primaryLabel).toBe("Reprendre le service");
+    const paidBreakStillShown = viewFor("en_pause", { pausePaid: true });
+    expect(paidBreakStillShown.primaryLabel).toBe("Pointer ma sortie");
+    expect(paidBreakStillShown.secondaryLabels).not.toContain("Reprendre le service");
+    expect(paidBreakStillShown.guidance).toContain("incluse dans le quart");
     expect(onBreak.cumulativeMinutes).toBe(120);
     expect(onBreak.cumulativeNote).toMatch(/pause/);
 

@@ -213,6 +213,19 @@ export function resolveEmployeePunchGuidance(input: {
     : null;
 
   if (state === "en_pause") {
+    if (input.pausePaid === true) {
+      return {
+        phase: "pause",
+        statusLabel: "En pause",
+        serviceSinceLabel,
+        guidance:
+          "Votre pause est payée et incluse dans le quart. Vous n'avez pas à la pointer. Pointez votre sortie à la fin du service.",
+        primary: { eventType: "punch_out", label: "Pointer ma sortie" },
+        secondary: [],
+        arrivalBlocked: true,
+        arrivalBlockedMessage: ARRIVAL_BLOCKED_MESSAGE,
+      };
+    }
     return {
       phase: "pause",
       statusLabel: "En pause",
