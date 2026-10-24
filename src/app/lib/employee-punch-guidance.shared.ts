@@ -126,6 +126,30 @@ function formatEnServiceDepuis(iso: string | null | undefined): string | null {
   return clock ? `En service depuis ${clock}` : null;
 }
 
+/**
+ * Le cumul affiché avance pendant le service.
+ * Un dîner payé reste dans les minutes du quart, même si l'état lu est
+ * encore `en_diner` : ce recalcul d'état conserve l'événement de dîner.
+ */
+export function shouldAccrueOpenShiftDisplay(input: {
+  currentState: string | null | undefined;
+  hasOpenShiftAccrual?: boolean;
+  pendingPunchBlocksAccrual?: boolean;
+  openShiftSafetyCapReached?: boolean;
+  lunchPaid?: boolean;
+}): boolean {
+  if (
+    input.hasOpenShiftAccrual !== true ||
+    input.pendingPunchBlocksAccrual === true ||
+    input.openShiftSafetyCapReached === true
+  ) {
+    return false;
+  }
+  const state = input.currentState ?? "hors_quart";
+  if (state === "en_quart") return true;
+  return state === "en_diner" && input.lunchPaid === true;
+}
+
 export function accrueOpenShiftDisplayMinutes(input: {
   baseMinutes: number;
   computedAt?: string | null;
@@ -240,6 +264,19 @@ export function resolveEmployeePunchGuidance(input: {
   }
 
   if (state === "en_diner") {
+    if (input.lunchPaid === true) {
+      return {
+        phase: "diner",
+        statusLabel: "Au dîner",
+        serviceSinceLabel,
+        guidance:
+          "Votre dîner est payé et inclus dans le quart. Vous n'avez pas à le pointer. Pointez votre sortie à la fin du service.",
+        primary: { eventType: "punch_out", label: "Pointer ma sortie" },
+        secondary: [],
+        arrivalBlocked: true,
+        arrivalBlockedMessage: ARRIVAL_BLOCKED_MESSAGE,
+      };
+    }
     return {
       phase: "diner",
       statusLabel: "Au dîner",

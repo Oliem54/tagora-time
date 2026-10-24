@@ -11,6 +11,7 @@ import type { EmployeePunchController } from "@/app/hooks/useEmployeePunchSnapsh
 import {
   accrueOpenShiftDisplayMinutes,
   resolveEmployeeShiftStatusLine,
+  shouldAccrueOpenShiftDisplay,
 } from "@/app/lib/employee-punch-guidance.shared";
 import {
   employeePunchStatusTone,
@@ -80,11 +81,13 @@ export default function HorodateurEmployeeCard({
     baseMinutes: baseDayMinutes,
     computedAt: liveDisplay?.computedAt,
     nowMs,
-    accrues:
-      liveDisplay?.hasOpenShiftAccrual === true &&
-      !liveDisplay.pendingPunchBlocksAccrual &&
-      !liveDisplay.openShiftSafetyCapReached &&
-      currentState === "en_quart",
+    accrues: shouldAccrueOpenShiftDisplay({
+      currentState,
+      hasOpenShiftAccrual: liveDisplay?.hasOpenShiftAccrual,
+      pendingPunchBlocksAccrual: liveDisplay?.pendingPunchBlocksAccrual,
+      openShiftSafetyCapReached: liveDisplay?.openShiftSafetyCapReached,
+      lunchPaid: snapshot?.employee.lunchPaid === true,
+    }),
   });
   const anomalyCount = snapshot?.shift?.anomalies_count ?? 0;
 

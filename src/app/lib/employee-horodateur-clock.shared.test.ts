@@ -71,6 +71,15 @@ describe("employee horodateur clock", () => {
     expect(atDinner.cumulativeMinutes).toBe(120);
     expect(atDinner.cumulativeNote).toMatch(/dîner/);
 
+    const paidDinner = viewFor("en_diner", { lunchPaid: true });
+    expect(paidDinner.primaryLabel).toBe("Pointer ma sortie");
+    expect(paidDinner.secondaryLabels).not.toContain("Terminer le dîner");
+    expect(paidDinner.guidance).toContain("inclus dans le quart");
+    expect(paidDinner.cumulativeMinutes).toBe(123);
+    expect(paidDinner.cumulativeLabel).toBe("Temps payé en cours");
+    expect(paidDinner.cumulativeNote).toMatch(/inclus/);
+    expect(paidBreakStillShown.cumulativeMinutes).toBe(120);
+
     const finished = viewFor("termine", { payableMinutes: 480, hasOpenShiftAccrual: false });
     expect(finished.statusLabel).toBe("Quart terminé");
     expect(finished.primaryLabel).toBe("Consulter le pointage");

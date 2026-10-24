@@ -115,6 +115,24 @@ describe("actions de pointage selon l'état", () => {
       false
     );
 
+    const paidDinner = resolveEmployeePunchGuidance({
+      currentState: "en_diner",
+      lunchPaid: true,
+    });
+    const paidDinnerActions = [paidDinner.primary, ...paidDinner.secondary];
+    expect(paidDinner.statusLabel).toBe("Au dîner");
+    expect(paidDinner.guidance).toContain("inclus dans le quart");
+    expect(paidDinner.guidance).toContain("n'avez pas à le pointer");
+    expect(paidDinner.primary).toEqual({
+      eventType: "punch_out",
+      label: "Pointer ma sortie",
+    });
+    expect(paidDinnerActions.some((action) => action?.eventType === "meal_end")).toBe(false);
+    expect(paidDinnerActions.some((action) => action?.eventType === "meal_start")).toBe(false);
+    expect(paidDinnerActions.some((action) => action?.label === "Terminer le dîner")).toBe(
+      false
+    );
+
     expect(explainEmployeePunchError("Pause payee : aucun pointage")).toContain(
       "début ni la fin de pause"
     );

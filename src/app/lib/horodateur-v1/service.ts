@@ -726,7 +726,9 @@ export function resolveExpectedPunchScheduleItems(options: {
       }
     }
 
-    if (day.lunch.enabled) {
+    // Dîner payé : pas de créneaux « dinner_debut / dinner_fin ».
+    // Le garde-fou refuse déjà ces pointages, employé et direction.
+    if (day.lunch.enabled && !options.employee.lunchPaid) {
       const dinnerStart = getScheduledStartMinutes(day.lunch.time);
       if (dinnerStart != null) {
         expected.push({

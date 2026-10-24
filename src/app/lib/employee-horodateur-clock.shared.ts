@@ -3,6 +3,7 @@ import {
   accrueOpenShiftDisplayMinutes,
   resolveEmployeePunchGuidance,
   resolveOpenShiftSafetyCapAlert,
+  shouldAccrueOpenShiftDisplay,
 } from "@/app/lib/employee-punch-guidance.shared";
 
 export const EMPLOYEE_CLOCK_NOT_A_PUNCH_NOTE =
@@ -56,7 +57,10 @@ function formatHorodateurInstant(
   return `${year}-${month}-${day}, ${clock}`;
 }
 
-function cumulativeCopy(state: string): { label: string; note: string } {
+function cumulativeCopy(
+  state: string,
+  lunchPaid: boolean | undefined
+): { label: string; note: string } {
   if (state === "en_quart") {
     return {
       label: "Temps payé en cours",
@@ -70,6 +74,12 @@ function cumulativeCopy(state: string): { label: string; note: string } {
     };
   }
   if (state === "en_diner") {
+    if (lunchPaid === true) {
+      return {
+        label: "Temps payé en cours",
+        note: "Votre dîner est payé et inclus dans le quart. Le temps payé continue pendant le dîner.",
+      };
+    }
     return {
       label: "Temps payé aujourd'hui",
       note: "Le temps payé ne progresse pas pendant le dîner.",
@@ -109,22 +119,25 @@ export function resolveEmployeeHorodateurClockView(input: {
     currentState: state,
     openShiftSafetyCapReached: input.openShiftSafetyCapReached === true,
   });
-  const accrues =
-    state === "en_quart" &&
-    input.hasOpenShiftAccrual === true &&
-    input.pendingPunchBlocksAccrual !== true &&
-    input.openShiftSafetyCapReached !== true;
+  const accrues = shouldAccrueOpenShiftDisplay({
+    currentState: state,
+    hasOpenShiftAccrual: input.hasOpenShiftAccrual,
+    pendingPunchBlocksAccrual: input.pendingPunchBlocksAccrual,
+    openShiftSafetyCapReached: input.openShiftSafetyCapReached,
+    lunchPaid: input.lunchPaid,
+  });
   const cumulativeMinutes = accrueOpenShiftDisplayMinutes({
     baseMinutes: input.payableMinutes,
     computedAt: input.computedAt,
     nowMs: input.nowMs,
     accrues,
   });
-  const copy = cumulativeCopy(state);
+  const copy = cumulativeCopy(state, input.lunchPaid);
+  const canAccrueThisState = state === "en_quart" || (state === "en_diner" && input.lunchPaid === true);
   const cumulativeNote =
-    state === "en_quart" && input.pendingPunchBlocksAccrual
+    canAccrueThisState && input.pendingPunchBlocksAccrual
       ? "Le temps payé est figé tant qu'un pointage attend une validation."
-      : state === "en_quart" && input.openShiftSafetyCapReached
+      : canAccrueThisState && input.openShiftSafetyCapReached
         ? "Le temps affiché ne progresse plus au-delà de la limite de sécurité."
         : copy.note;
   const lastPunch = input.lastEventAt
