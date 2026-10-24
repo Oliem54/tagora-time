@@ -28,6 +28,10 @@ import {
 } from "@/app/lib/horodateur-retro-correction.shared";
 import { MISSING_EXPECTED_PUNCH_PRIORITY_REASON_LABEL } from "@/app/lib/horodateur-expected-punch-missing.shared";
 import { resolveHorodateurPendingExceptionDisplay } from "@/app/lib/horodateur-exception-display.shared";
+import {
+  directionManualPunchOptions,
+  type DirectionManualPunchEventType,
+} from "@/app/lib/horodateur-v1/employee-punch-eligibility.shared";
 import { getLocalWorkDate } from "@/app/lib/horodateur-v1/rules";
 import {
   fetchHororaNexusSession,
@@ -49,6 +53,8 @@ type LiveRow = {
   employee_id?: number | null;
   fullName: string | null;
   email: string | null;
+  pausePaid?: boolean;
+  lunchPaid?: boolean;
   phone?: string | null;
   phoneNumber?: string | null;
   primaryCompany: "oliem_solutions" | "titan_produits_industriels" | null;
@@ -171,15 +177,6 @@ type DirectionMutationPayload = {
 
 const HORODATEUR_NOTIFICATION_CONFIG_MISSING_MESSAGE =
   "Configuration des notifications à compléter";
-
-const DIRECTION_EVENT_TYPES = [
-  "punch_in",
-  "break_start",
-  "break_end",
-  "meal_start",
-  "meal_end",
-  "punch_out",
-] as const;
 
 function formatDateTime(value: string | null | undefined) {
   if (!value) {
@@ -485,6 +482,8 @@ function normalizeLiveRow(raw: unknown): LiveRow {
     employee_id: employeeId || null,
     fullName: typeof row.fullName === "string" ? row.fullName : null,
     email: typeof row.email === "string" ? row.email : null,
+    pausePaid: row.pausePaid === true,
+    lunchPaid: row.lunchPaid === true,
     phone: typeof row.phone === "string" ? row.phone : typeof row.phoneNumber === "string" ? row.phoneNumber : null,
     phoneNumber:
       typeof row.phoneNumber === "string" ? row.phoneNumber : typeof row.phone === "string" ? row.phone : null,
@@ -638,7 +637,29 @@ export default function DirectionHorodateurPage() {
   const [exceptions, setExceptions] = useState<PendingException[]>([]);
   const [selectedEmployeeId, setSelectedEmployeeId] = useState("");
   const [selectedEventType, setSelectedEventType] =
-    useState<(typeof DIRECTION_EVENT_TYPES)[number]>("punch_in");
+    useState<DirectionManualPunchEventType>("punch_in");
+  const selectedLiveRow = useMemo(
+    () =>
+      board.find(
+        (row) =>
+          String(row.employeeId) === selectedEmployeeId ||
+          String(row.employee_id ?? "") === selectedEmployeeId
+      ) ?? null,
+    [board, selectedEmployeeId]
+  );
+  const manualPunchOptions = useMemo(
+    () =>
+      directionManualPunchOptions({
+        pausePaid: selectedLiveRow?.pausePaid === true,
+        lunchPaid: selectedLiveRow?.lunchPaid === true,
+      }),
+    [selectedLiveRow?.pausePaid, selectedLiveRow?.lunchPaid]
+  );
+  useEffect(() => {
+    if (!manualPunchOptions.includes(selectedEventType)) {
+      setSelectedEventType("punch_in");
+    }
+  }, [manualPunchOptions, selectedEventType]);
   const [note, setNote] = useState("");
   const [liveFilter, setLiveFilter] = useState<LiveFilter>("tous");
   const [liveSearch, setLiveSearch] = useState("");
@@ -1104,6 +1125,20 @@ export default function DirectionHorodateurPage() {
 
     if (!note.trim()) {
       setError("Une note est obligatoire pour un punch direction.");
+      return;
+    }
+
+    if (
+      !directionManualPunchOptions({
+        pausePaid: selectedLiveRow?.pausePaid === true,
+        lunchPaid: selectedLiveRow?.lunchPaid === true,
+      }).includes(selectedEventType)
+    ) {
+      setError(
+        selectedEventType === "break_start" || selectedEventType === "break_end"
+          ? "Cette pause est payée. Le début et la fin ne se pointent pas."
+          : "Ce dîner est payé. Le début et la fin ne se pointent pas."
+      );
       return;
     }
 
@@ -2013,11 +2048,11 @@ export default function DirectionHorodateurPage() {
                 value={selectedEventType}
                 onChange={(event) =>
                   setSelectedEventType(
-                    event.target.value as (typeof DIRECTION_EVENT_TYPES)[number]
+                    event.target.value as DirectionManualPunchEventType
                   )
                 }
               >
-                {DIRECTION_EVENT_TYPES.map((item) => (
+                {manualPunchOptions.map((item) => (
                   <option key={item} value={item}>
                     {item}
                   </option>

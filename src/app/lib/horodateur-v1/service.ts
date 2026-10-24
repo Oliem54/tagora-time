@@ -4485,6 +4485,8 @@ export async function listDirectionLiveBoard(options?: {
         employeeId: employee.employeeId,
         fullName: employee.fullName,
         email: employee.email,
+        pausePaid: employee.pausePaid,
+        lunchPaid: employee.lunchPaid,
         primaryCompany: employee.primaryCompany,
         currentState: resolvedCurrentState.current_state ?? "hors_quart",
         lastEventAt: resolvedCurrentState.last_event_at ?? null,
