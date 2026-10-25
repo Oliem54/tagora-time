@@ -1,7 +1,8 @@
 "use client";
 
+import { useEffect, useMemo } from "react";
 import {
-  STAFF_RETRO_FORGOTTEN_EVENT_TYPES,
+  staffRetroForgottenEventOptions,
   type StaffRetroForgottenEventType,
 } from "@/app/lib/horodateur-retro-correction.shared";
 
@@ -15,6 +16,8 @@ export type HorodateurRetroCorrectionModalProps = {
   eventType: StaffRetroForgottenEventType;
   time: string;
   reason: string;
+  pausePaid?: boolean;
+  lunchPaid?: boolean;
   title?: string;
   onClose: () => void;
   onEmployeeIdChange: (value: string) => void;
@@ -35,6 +38,8 @@ export default function HorodateurRetroCorrectionModal({
   eventType,
   time,
   reason,
+  pausePaid,
+  lunchPaid,
   title = "Corriger un oubli de punch",
   onClose,
   onEmployeeIdChange,
@@ -44,6 +49,18 @@ export default function HorodateurRetroCorrectionModal({
   onReasonChange,
   onSubmit,
 }: HorodateurRetroCorrectionModalProps) {
+  const eventOptions = useMemo(
+    () => staffRetroForgottenEventOptions({ pausePaid, lunchPaid }),
+    [lunchPaid, pausePaid]
+  );
+
+  useEffect(() => {
+    if (eventOptions.some((item) => item.value === eventType)) {
+      return;
+    }
+    onEventTypeChange("punch_in");
+  }, [eventOptions, eventType, onEventTypeChange]);
+
   if (!open) {
     return null;
   }
@@ -134,7 +151,7 @@ export default function HorodateurRetroCorrectionModal({
             }
             style={{ minHeight: 48, fontSize: 16 }}
           >
-            {STAFF_RETRO_FORGOTTEN_EVENT_TYPES.map((item) => (
+            {eventOptions.map((item) => (
               <option key={item.value} value={item.value}>
                 {item.label}
               </option>

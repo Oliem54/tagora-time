@@ -24,6 +24,7 @@ import StatusBadge from "@/app/components/ui/StatusBadge";
 import { useCurrentAccess } from "@/app/hooks/useCurrentAccess";
 import {
   isStaffRetroCorrectionException,
+  refusedStaffRetroForgottenEventMessage,
   type StaffRetroForgottenEventType,
 } from "@/app/lib/horodateur-retro-correction.shared";
 import { MISSING_EXPECTED_PUNCH_PRIORITY_REASON_LABEL } from "@/app/lib/horodateur-expected-punch-missing.shared";
@@ -703,6 +704,18 @@ export default function DirectionHorodateurPage() {
       })),
     [board]
   );
+  const retroPaidFlags = useMemo(() => {
+    const row =
+      board.find(
+        (item) =>
+          String(item.employeeId) === retroEmployeeId ||
+          String(item.employee_id ?? "") === retroEmployeeId
+      ) ?? null;
+    return {
+      pausePaid: row?.pausePaid === true,
+      lunchPaid: row?.lunchPaid === true,
+    };
+  }, [board, retroEmployeeId]);
 
   const counts = useMemo(() => {
     const presence = countDirectionLivePresence(
@@ -1294,6 +1307,12 @@ export default function DirectionHorodateurPage() {
   }
 
   async function handleRetroCorrectionSubmit() {
+    const refused = refusedStaffRetroForgottenEventMessage(retroEventType, retroPaidFlags);
+    if (refused) {
+      setRetroError(refused);
+      return;
+    }
+
     setRetroSaving(true);
     setRetroError(null);
     setMessage("");
@@ -2235,6 +2254,8 @@ export default function DirectionHorodateurPage() {
           eventType={retroEventType}
           time={retroTime}
           reason={retroReason}
+          pausePaid={retroPaidFlags.pausePaid}
+          lunchPaid={retroPaidFlags.lunchPaid}
           onClose={() => {
             if (!retroSaving) {
               setRetroModalOpen(false);
