@@ -275,6 +275,8 @@ export async function buildHorodateurPastShifts(options: {
       exceptionCount: dayExceptions.length,
       pendingApprovalCount: pendingCount,
       eventCount: dayEvents.length,
+      pausePaid: profile?.pausePaid === true,
+      lunchPaid: profile?.lunchPaid === true,
       flags,
     });
 
@@ -319,6 +321,8 @@ export async function buildHorodateurPastShifts(options: {
     employeeOptions: activeEmployeesAll.map((e) => ({
       id: e.employeeId,
       name: e.fullName,
+      pausePaid: e.pausePaid,
+      lunchPaid: e.lunchPaid,
     })),
     companyOptions: [
       { value: "all", label: "Toutes les compagnies" },

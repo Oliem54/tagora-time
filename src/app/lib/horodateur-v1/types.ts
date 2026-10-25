@@ -309,6 +309,8 @@ export type HorodateurPhase1DirectionLiveRow = {
   employeeId: number;
   fullName: string | null;
   email: string | null;
+  pausePaid: boolean;
+  lunchPaid: boolean;
   primaryCompany: AccountRequestCompany | null;
   currentState: HorodateurPhase1StateKind;
   lastEventAt: string | null;

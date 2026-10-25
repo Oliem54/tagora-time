@@ -120,6 +120,85 @@ export function directionPresenceStatusLabel(
   return DIRECTION_PRESENCE_LABEL[status];
 }
 
+export const DIRECTION_LIVE_FILTER = {
+  tous: "tous",
+  enService: "en_service",
+  enPause: "en_pause",
+  auDiner: "au_diner",
+  absent: "absent",
+  attention: "attention",
+} as const;
+
+export type DirectionLiveFilter =
+  (typeof DIRECTION_LIVE_FILTER)[keyof typeof DIRECTION_LIVE_FILTER];
+
+export type DirectionLivePresenceRow = {
+  state: string | null | undefined;
+  needsAttention?: boolean;
+};
+
+export type DirectionLivePresenceCounts = {
+  employees: number;
+  active: number;
+  paused: number;
+  diner: number;
+};
+
+export function countDirectionLivePresence(
+  rows: readonly DirectionLivePresenceRow[]
+): DirectionLivePresenceCounts {
+  let active = 0;
+  let paused = 0;
+  let diner = 0;
+
+  for (const row of rows) {
+    const presence = mapDirectionPresenceStatus(row.state, {
+      needsAttention: row.needsAttention,
+    });
+    if (presence === DIRECTION_PRESENCE_STATUS.enService) {
+      active += 1;
+    } else if (presence === DIRECTION_PRESENCE_STATUS.enPause) {
+      paused += 1;
+    } else if (presence === DIRECTION_PRESENCE_STATUS.auDiner) {
+      diner += 1;
+    }
+  }
+
+  return {
+    employees: rows.length,
+    active,
+    paused,
+    diner,
+  };
+}
+
+export function matchesDirectionLiveFilter(
+  row: DirectionLivePresenceRow,
+  filter: DirectionLiveFilter
+): boolean {
+  const presence = mapDirectionPresenceStatus(row.state, {
+    needsAttention: row.needsAttention,
+  });
+
+  switch (filter) {
+    case DIRECTION_LIVE_FILTER.enService:
+      return presence === DIRECTION_PRESENCE_STATUS.enService;
+    case DIRECTION_LIVE_FILTER.enPause:
+      return presence === DIRECTION_PRESENCE_STATUS.enPause;
+    case DIRECTION_LIVE_FILTER.auDiner:
+      return presence === DIRECTION_PRESENCE_STATUS.auDiner;
+    case DIRECTION_LIVE_FILTER.absent:
+      return presence === DIRECTION_PRESENCE_STATUS.absent;
+    case DIRECTION_LIVE_FILTER.attention:
+      return (
+        presence === DIRECTION_PRESENCE_STATUS.attentionRequise ||
+        row.needsAttention === true
+      );
+    default:
+      return true;
+  }
+}
+
 export function directionPresenceStatusTone(
   status: DirectionPresenceStatusId
 ): "default" | "info" | "success" | "warning" {

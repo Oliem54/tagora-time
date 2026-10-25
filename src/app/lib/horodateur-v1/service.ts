@@ -725,7 +725,9 @@ export function resolveExpectedPunchScheduleItems(options: {
       }
     }
 
-    if (day.lunch.enabled) {
+    // Dîner payé : pas de créneaux « dinner_debut / dinner_fin ».
+    // Le garde-fou refuse déjà ces pointages, employé et direction.
+    if (day.lunch.enabled && !options.employee.lunchPaid) {
       const dinnerStart = getScheduledStartMinutes(day.lunch.time);
       if (dinnerStart != null) {
         expected.push({
@@ -4415,6 +4417,8 @@ export async function listDirectionLiveBoard(options?: {
         employeeId: employee.employeeId,
         fullName: employee.fullName,
         email: employee.email,
+        pausePaid: employee.pausePaid,
+        lunchPaid: employee.lunchPaid,
         primaryCompany: employee.primaryCompany,
         currentState: resolvedCurrentState.current_state ?? "hors_quart",
         lastEventAt: resolvedCurrentState.last_event_at ?? null,

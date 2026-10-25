@@ -34,6 +34,8 @@ export type HorodateurPastShiftRow = {
   exceptionCount: number;
   pendingApprovalCount: number;
   eventCount: number;
+  pausePaid: boolean;
+  lunchPaid: boolean;
   flags: {
     complet: boolean;
     incomplet: boolean;
@@ -62,7 +64,12 @@ export type HorodateurPastShiftsPayload = {
   summary: HorodateurPastShiftsSummary;
   shifts: HorodateurPastShiftRow[];
   detailsByShiftId: Record<string, HorodateurPastShiftDetail>;
-  employeeOptions: Array<{ id: number; name: string | null }>;
+  employeeOptions: Array<{
+    id: number;
+    name: string | null;
+    pausePaid: boolean;
+    lunchPaid: boolean;
+  }>;
   companyOptions: Array<{ value: RegistreCompanyParam; label: string }>;
   phase: "read_only_v1";
 };

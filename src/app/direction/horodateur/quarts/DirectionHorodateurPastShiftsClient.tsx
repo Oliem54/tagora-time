@@ -26,6 +26,7 @@ import TagoraStatCard from "@/app/components/TagoraStatCard";
 import { useCurrentAccess } from "@/app/hooks/useCurrentAccess";
 import {
   parsePastShiftRetroSuggestionFromEvents,
+  refusedStaffRetroForgottenEventMessage,
   type StaffRetroForgottenEventType,
 } from "@/app/lib/horodateur-retro-correction.shared";
 import { getLocalWorkDate } from "@/app/lib/horodateur-v1/rules";
@@ -268,6 +269,20 @@ export default function DirectionHorodateurPastShiftsClient() {
       })),
     [data?.employeeOptions]
   );
+  const retroPaidFlags = useMemo(() => {
+    const listed = data?.employeeOptions.find((item) => String(item.id) === retroEmployeeId);
+    if (listed) {
+      return {
+        pausePaid: listed.pausePaid === true,
+        lunchPaid: listed.lunchPaid === true,
+      };
+    }
+    const shift = data?.shifts.find((item) => String(item.employeeId) === retroEmployeeId);
+    return {
+      pausePaid: shift?.pausePaid === true,
+      lunchPaid: shift?.lunchPaid === true,
+    };
+  }, [data?.employeeOptions, data?.shifts, retroEmployeeId]);
 
   const openRetroCorrectionModal = useCallback(() => {
     setRetroError(null);
@@ -291,7 +306,11 @@ export default function DirectionHorodateurPastShiftsClient() {
               canonicalType: event.canonicalType,
               eventType: event.eventType,
               status: event.status,
-            }))
+            })),
+            {
+              pausePaid: selectedRow.pausePaid === true,
+              lunchPaid: selectedRow.lunchPaid === true,
+            }
           )
         : null;
     const eventType = suggestedType ?? "punch_in";
@@ -306,6 +325,12 @@ export default function DirectionHorodateurPastShiftsClient() {
   }, [selectedDetail, selectedRow]);
 
   async function handleRetroCorrectionSubmit() {
+    const refused = refusedStaffRetroForgottenEventMessage(retroEventType, retroPaidFlags);
+    if (refused) {
+      setRetroError(refused);
+      return;
+    }
+
     setRetroSaving(true);
     setRetroError(null);
     setMessage(null);
@@ -824,6 +849,8 @@ export default function DirectionHorodateurPastShiftsClient() {
           eventType={retroEventType}
           time={retroTime}
           reason={retroReason}
+          pausePaid={retroPaidFlags.pausePaid}
+          lunchPaid={retroPaidFlags.lunchPaid}
           title="Corriger ce quart"
           onClose={() => {
             if (!retroSaving) {

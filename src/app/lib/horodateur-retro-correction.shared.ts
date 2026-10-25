@@ -1,3 +1,4 @@
+import { directionManualPunchOptions } from "@/app/lib/horodateur-v1/employee-punch-eligibility.shared";
 import { getLocalWorkDate } from "@/app/lib/horodateur-v1/rules";
 import { diffMinutes } from "@/app/lib/horodateur-v1/rules";
 export const STAFF_RETRO_CORRECTION_REASON_LABEL = "En attente admin";
@@ -58,6 +59,35 @@ export function buildStaffRetroOccurredAtIso(
   return `${workDate}T${hours}:${minutes}:00${offset}`;
 }
 
+/**
+ * Types d'oubli encore proposés.
+ * Une pause payée retire début et fin : le serveur les refuse.
+ * Un dîner payé retire début et fin pour la même raison.
+ */
+export function staffRetroForgottenEventOptions(input: {
+  pausePaid?: boolean;
+  lunchPaid?: boolean;
+}) {
+  const allowed = new Set<string>(directionManualPunchOptions(input));
+  return STAFF_RETRO_FORGOTTEN_EVENT_TYPES.filter((item) => allowed.has(item.value));
+}
+
+export function refusedStaffRetroForgottenEventMessage(
+  eventType: StaffRetroForgottenEventType,
+  input: { pausePaid?: boolean; lunchPaid?: boolean }
+): string | null {
+  if (staffRetroForgottenEventOptions(input).some((item) => item.value === eventType)) {
+    return null;
+  }
+  if (eventType === "break_start" || eventType === "break_end") {
+    return "Cette pause est payée. Le début et la fin ne se pointent pas.";
+  }
+  if (eventType === "meal_start" || eventType === "meal_end") {
+    return "Ce dîner est payé. Le début et la fin ne se pointent pas.";
+  }
+  return null;
+}
+
 export function staffRetroForgottenEventLabel(value: StaffRetroForgottenEventType) {
   return (
     STAFF_RETRO_FORGOTTEN_EVENT_TYPES.find((item) => item.value === value)?.label ??
@@ -113,7 +143,8 @@ export function formatStaffRetroCorrectionDetails(input: {
 }
 
 export function parsePastShiftRetroSuggestionFromEvents(
-  events: Array<{ canonicalType: string | null; eventType: string; status?: string }>
+  events: Array<{ canonicalType: string | null; eventType: string; status?: string }>,
+  flags?: { pausePaid?: boolean; lunchPaid?: boolean }
 ): StaffRetroForgottenEventType | null {
   const approved = events.filter(
     (ev) => !ev.status || ev.status === "normal" || ev.status === "approuve"
@@ -130,20 +161,23 @@ export function parsePastShiftRetroSuggestionFromEvents(
   const hasBreakEnd = types.has("break_end") || types.has("pause_fin");
   const hasMealStart = types.has("meal_start") || types.has("dinner_debut");
   const hasMealEnd = types.has("meal_end") || types.has("dinner_fin");
+  const allowed = new Set(
+    staffRetroForgottenEventOptions(flags ?? {}).map((item) => item.value)
+  );
 
-  if (!hasIn) {
+  if (!hasIn && allowed.has("punch_in")) {
     return "punch_in";
   }
-  if (hasBreakStart && !hasBreakEnd) {
+  if (hasBreakStart && !hasBreakEnd && allowed.has("break_end")) {
     return "break_end";
   }
-  if (hasMealStart && !hasMealEnd) {
+  if (hasMealStart && !hasMealEnd && allowed.has("meal_end")) {
     return "meal_end";
   }
-  if (!hasOut) {
+  if (!hasOut && allowed.has("punch_out")) {
     return "punch_out";
   }
-  if (hasIn && hasOut && !hasBreakStart) {
+  if (hasIn && hasOut && !hasBreakStart && allowed.has("break_start")) {
     return "break_start";
   }
   return null;

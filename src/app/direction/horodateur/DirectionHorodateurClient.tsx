@@ -24,20 +24,28 @@ import StatusBadge from "@/app/components/ui/StatusBadge";
 import { useCurrentAccess } from "@/app/hooks/useCurrentAccess";
 import {
   isStaffRetroCorrectionException,
+  refusedStaffRetroForgottenEventMessage,
   type StaffRetroForgottenEventType,
 } from "@/app/lib/horodateur-retro-correction.shared";
 import { MISSING_EXPECTED_PUNCH_PRIORITY_REASON_LABEL } from "@/app/lib/horodateur-expected-punch-missing.shared";
 import { resolveHorodateurPendingExceptionDisplay } from "@/app/lib/horodateur-exception-display.shared";
+import {
+  directionManualPunchOptions,
+  type DirectionManualPunchEventType,
+} from "@/app/lib/horodateur-v1/employee-punch-eligibility.shared";
 import { getLocalWorkDate } from "@/app/lib/horodateur-v1/rules";
 import {
   fetchHororaNexusSession,
 } from "@/app/lib/auth/horora-nexus-session.client";
 import { getCompanyLabel } from "@/app/lib/account-requests.shared";
 import {
+  countDirectionLivePresence,
   directionPresenceStatusLabel,
   directionPresenceStatusTone,
   isCurrentlyWorkingState,
   mapDirectionPresenceStatus,
+  matchesDirectionLiveFilter,
+  type DirectionLiveFilter,
 } from "@/app/lib/employee-punch-status.shared";
 import { normalizePhoneNumber } from "@/app/lib/timeclock-api.client";
 
@@ -46,6 +54,8 @@ type LiveRow = {
   employee_id?: number | null;
   fullName: string | null;
   email: string | null;
+  pausePaid?: boolean;
+  lunchPaid?: boolean;
   phone?: string | null;
   phoneNumber?: string | null;
   primaryCompany: "oliem_solutions" | "titan_produits_industriels" | null;
@@ -121,7 +131,7 @@ type AlertConfig = {
   direction_sms_numbers: string[];
 };
 
-type LiveFilter = "tous" | "en_service" | "en_pause" | "absent" | "attention";
+type LiveFilter = DirectionLiveFilter;
 
 type WeeklyProjectionPayload = {
   workedMinutes: number;
@@ -169,15 +179,6 @@ type DirectionMutationPayload = {
 const HORODATEUR_NOTIFICATION_CONFIG_MISSING_MESSAGE =
   "Configuration des notifications à compléter";
 
-const DIRECTION_EVENT_TYPES = [
-  "punch_in",
-  "break_start",
-  "break_end",
-  "meal_start",
-  "meal_end",
-  "punch_out",
-] as const;
-
 function formatDateTime(value: string | null | undefined) {
   if (!value) {
     return "-";
@@ -210,23 +211,29 @@ function formatShortDateTime(value: string | null | undefined) {
 function collectLiveShiftHints(row: LiveRow): string[] {
   const hints: string[] = [];
 
-  if (row.todayTimeDisplay?.pendingPunchBlocksAccrual) {
-    hints.push("Punch en attente");
-  }
   if (row.todayTimeDisplay?.openShiftSafetyCapReached) {
-    hints.push("Quart > 14 h — à approuver");
+    hints.push("Quart de plus de 14 h — la sortie doit être approuvée");
   }
   if (row.todayTimeDisplay?.openShiftWorkDateMismatch) {
-    hints.push(`Quart ouvert depuis ${row.todayTimeDisplay.openShiftWorkDate ?? "?"}`);
+    hints.push(
+      `Quart encore ouvert depuis le ${row.todayTimeDisplay.openShiftWorkDate ?? "jour précédent"}`
+    );
+  }
+  if (row.todayTimeDisplay?.pendingPunchBlocksAccrual) {
+    hints.push("Pointage en attente — le temps affiché est figé");
   }
   if (row.todayShift?.status === "en_attente") {
-    hints.push("Quart en attente");
+    hints.push("Quart en attente de validation");
   }
   if ((row.todayShift?.anomalies_count ?? 0) > 0) {
-    hints.push("Anomalie détectée");
+    hints.push("Pointage inhabituel à vérifier");
   }
 
   return hints;
+}
+
+function liveAttentionSummary(row: LiveRow): string | null {
+  return collectLiveShiftHints(row)[0] ?? (row.hasOpenException ? "Validation direction requise" : null);
 }
 
 function toIsoWithOptionalTime(
@@ -476,6 +483,8 @@ function normalizeLiveRow(raw: unknown): LiveRow {
     employee_id: employeeId || null,
     fullName: typeof row.fullName === "string" ? row.fullName : null,
     email: typeof row.email === "string" ? row.email : null,
+    pausePaid: row.pausePaid === true,
+    lunchPaid: row.lunchPaid === true,
     phone: typeof row.phone === "string" ? row.phone : typeof row.phoneNumber === "string" ? row.phoneNumber : null,
     phoneNumber:
       typeof row.phoneNumber === "string" ? row.phoneNumber : typeof row.phone === "string" ? row.phone : null,
@@ -629,7 +638,29 @@ export default function DirectionHorodateurPage() {
   const [exceptions, setExceptions] = useState<PendingException[]>([]);
   const [selectedEmployeeId, setSelectedEmployeeId] = useState("");
   const [selectedEventType, setSelectedEventType] =
-    useState<(typeof DIRECTION_EVENT_TYPES)[number]>("punch_in");
+    useState<DirectionManualPunchEventType>("punch_in");
+  const selectedLiveRow = useMemo(
+    () =>
+      board.find(
+        (row) =>
+          String(row.employeeId) === selectedEmployeeId ||
+          String(row.employee_id ?? "") === selectedEmployeeId
+      ) ?? null,
+    [board, selectedEmployeeId]
+  );
+  const manualPunchOptions = useMemo(
+    () =>
+      directionManualPunchOptions({
+        pausePaid: selectedLiveRow?.pausePaid === true,
+        lunchPaid: selectedLiveRow?.lunchPaid === true,
+      }),
+    [selectedLiveRow?.pausePaid, selectedLiveRow?.lunchPaid]
+  );
+  useEffect(() => {
+    if (!manualPunchOptions.includes(selectedEventType)) {
+      setSelectedEventType("punch_in");
+    }
+  }, [manualPunchOptions, selectedEventType]);
   const [note, setNote] = useState("");
   const [liveFilter, setLiveFilter] = useState<LiveFilter>("tous");
   const [liveSearch, setLiveSearch] = useState("");
@@ -673,19 +704,33 @@ export default function DirectionHorodateurPage() {
       })),
     [board]
   );
+  const retroPaidFlags = useMemo(() => {
+    const row =
+      board.find(
+        (item) =>
+          String(item.employeeId) === retroEmployeeId ||
+          String(item.employee_id ?? "") === retroEmployeeId
+      ) ?? null;
+    return {
+      pausePaid: row?.pausePaid === true,
+      lunchPaid: row?.lunchPaid === true,
+    };
+  }, [board, retroEmployeeId]);
 
   const counts = useMemo(() => {
-    const active = board.filter((row) => getRowState(row) === "en_quart").length;
-    const paused = board.filter(
-      (row) => getRowState(row) === "en_pause" || getRowState(row) === "en_diner"
-    ).length;
-    const pending = exceptions.length;
+    const presence = countDirectionLivePresence(
+      board.map((row) => ({
+        state: getRowState(row),
+        needsAttention: liveRowNeedsAttention(row),
+      }))
+    );
 
     return {
-      employees: board.length,
-      active,
-      paused,
-      pending,
+      employees: presence.employees,
+      active: presence.active,
+      paused: presence.paused,
+      diner: presence.diner,
+      pending: exceptions.length,
     };
   }, [board, exceptions.length]);
 
@@ -737,21 +782,13 @@ export default function DirectionHorodateurPage() {
           return false;
         }
       }
-      const state = getRowState(row);
-      const attention = liveRowNeedsAttention(row);
-      const presence = mapDirectionPresenceStatus(state, { needsAttention: attention });
-      switch (liveFilter) {
-        case "en_service":
-          return presence === "en_service";
-        case "en_pause":
-          return presence === "en_pause";
-        case "absent":
-          return presence === "absent";
-        case "attention":
-          return presence === "attention_requise" || attention;
-        default:
-          return true;
-      }
+      return matchesDirectionLiveFilter(
+        {
+          state: getRowState(row),
+          needsAttention: liveRowNeedsAttention(row),
+        },
+        liveFilter
+      );
     });
   }, [board, liveCompany, liveFilter, liveSearch]);
   const currentlyWorking = useMemo(
@@ -1104,6 +1141,20 @@ export default function DirectionHorodateurPage() {
       return;
     }
 
+    if (
+      !directionManualPunchOptions({
+        pausePaid: selectedLiveRow?.pausePaid === true,
+        lunchPaid: selectedLiveRow?.lunchPaid === true,
+      }).includes(selectedEventType)
+    ) {
+      setError(
+        selectedEventType === "break_start" || selectedEventType === "break_end"
+          ? "Cette pause est payée. Le début et la fin ne se pointent pas."
+          : "Ce dîner est payé. Le début et la fin ne se pointent pas."
+      );
+      return;
+    }
+
     setActiveActionKey("manual-punch");
     setMessage("");
     setError("");
@@ -1256,6 +1307,12 @@ export default function DirectionHorodateurPage() {
   }
 
   async function handleRetroCorrectionSubmit() {
+    const refused = refusedStaffRetroForgottenEventMessage(retroEventType, retroPaidFlags);
+    if (refused) {
+      setRetroError(refused);
+      return;
+    }
+
     setRetroSaving(true);
     setRetroError(null);
     setMessage("");
@@ -1540,7 +1597,7 @@ export default function DirectionHorodateurPage() {
                     ? ` · dernière sync Montréal ${formatShortDateTime(lastSyncedAt)}`
                     : ""
                 }`
-              : "Qui travaille maintenant, avec le dernier pointage."
+              : "Qui est en service, en pause ou au dîner, avec le dernier pointage."
           }
         >
           <div className="horodateur-live-now-block">
@@ -1560,15 +1617,16 @@ export default function DirectionHorodateurPage() {
                       entrée {formatShortDateTime(row.startedAt ?? row.lastEventAt)}
                     </span>
                     <span>{getCompanyLabel(row.primaryCompany)}</span>
-                    {liveRowNeedsAttention(row) ? (
-                      <span>Anomalie à vérifier</span>
-                    ) : null}
+                    {(() => {
+                      const attention = liveAttentionSummary(row);
+                      return attention ? <span>{attention}</span> : null;
+                    })()}
                   </button>
                 ))}
               </div>
             ) : (
               <p className="ui-text-muted horodateur-live-now-empty">
-                Personne n’est actuellement en service.
+                Personne n’est au travail en ce moment.
               </p>
             )}
           </div>
@@ -1607,7 +1665,8 @@ export default function DirectionHorodateurPage() {
             {[
               ["tous", `Tous (${board.length})`],
               ["en_service", `En service (${board.filter((row) => getRowState(row) === "en_quart").length})`],
-              ["en_pause", `En pause (${board.filter((row) => getRowState(row) === "en_pause" || getRowState(row) === "en_diner").length})`],
+              ["en_pause", `En pause (${counts.paused})`],
+              ["au_diner", `Au dîner (${counts.diner})`],
               ["absent", `Absent (${board.filter((row) => !isCurrentlyWorkingState(getRowState(row)) && getRowState(row) !== "termine").length})`],
               ["attention", `Attention requise (${board.filter((row) => liveRowNeedsAttention(row)).length})`],
             ].map(([value, label]) => {
@@ -1882,7 +1941,7 @@ export default function DirectionHorodateurPage() {
           {!hasEmployees ? (
             <AppCard tone="muted" className="ui-stack-sm">
               <p className="ui-text-muted" style={{ margin: 0 }}>
-                Aucun employe actif a afficher pour le moment.
+                Aucun employé actif à afficher pour le moment.
               </p>
             </AppCard>
           ) : null}
@@ -2008,11 +2067,11 @@ export default function DirectionHorodateurPage() {
                 value={selectedEventType}
                 onChange={(event) =>
                   setSelectedEventType(
-                    event.target.value as (typeof DIRECTION_EVENT_TYPES)[number]
+                    event.target.value as DirectionManualPunchEventType
                   )
                 }
               >
-                {DIRECTION_EVENT_TYPES.map((item) => (
+                {manualPunchOptions.map((item) => (
                   <option key={item} value={item}>
                     {item}
                   </option>
@@ -2105,7 +2164,7 @@ export default function DirectionHorodateurPage() {
           </AppCard>
 
           <AppCard tone="muted" className="ui-stack-xs">
-            <span className="ui-eyebrow">% employes en quart</span>
+            <span className="ui-eyebrow">Employés en service</span>
             <strong style={{ fontSize: 28 }}>{globalMetrics.inShiftPercent}%</strong>
             <span className="ui-text-muted">
               {globalMetrics.employeesInShift} / {board.length || 0} en quart
@@ -2115,7 +2174,7 @@ export default function DirectionHorodateurPage() {
           <AppCard tone="muted" className="ui-stack-xs">
             <span className="ui-eyebrow">Heures totales du jour</span>
             <strong style={{ fontSize: 28 }}>{formatMinutes(globalMetrics.totalTodayMinutes)}</strong>
-            <span className="ui-text-muted">Temps payable cumule</span>
+            <span className="ui-text-muted">Temps payable cumulé, y compris le temps en cours</span>
           </AppCard>
 
           <AppCard tone="muted" className="ui-stack-xs">
@@ -2143,9 +2202,14 @@ export default function DirectionHorodateurPage() {
             <span className="ui-text-muted">Punch principal actif</span>
           </AppCard>
           <AppCard tone="muted" className="ui-stack-xs">
-            <span className="ui-eyebrow">Pause / diner</span>
+            <span className="ui-eyebrow">En pause</span>
             <strong style={{ fontSize: 28 }}>{counts.paused}</strong>
-            <span className="ui-text-muted">Etat temporaire</span>
+            <span className="ui-text-muted">Pause en cours</span>
+          </AppCard>
+          <AppCard tone="muted" className="ui-stack-xs">
+            <span className="ui-eyebrow">Au dîner</span>
+            <strong style={{ fontSize: 28 }}>{counts.diner}</strong>
+            <span className="ui-text-muted">Dîner en cours</span>
           </AppCard>
           <AppCard tone="muted" className="ui-stack-xs">
             <span className="ui-eyebrow">Exceptions</span>
@@ -2190,6 +2254,8 @@ export default function DirectionHorodateurPage() {
           eventType={retroEventType}
           time={retroTime}
           reason={retroReason}
+          pausePaid={retroPaidFlags.pausePaid}
+          lunchPaid={retroPaidFlags.lunchPaid}
           onClose={() => {
             if (!retroSaving) {
               setRetroModalOpen(false);

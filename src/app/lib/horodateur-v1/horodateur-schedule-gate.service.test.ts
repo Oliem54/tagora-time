@@ -210,4 +210,49 @@ describe("horodateur schedule gate — cron jobs", () => {
     expect(result.processed).toEqual([]);
     expect(insertException).not.toHaveBeenCalled();
   });
+
+  it("does not expect a paid dinner punch, and still expects an unpaid one", async () => {
+    const { resolveExpectedPunchScheduleItems } = await import("./service");
+    const weekly = createEmptyWeeklyScheduleConfig("variable");
+    weekly.days.monday = {
+      ...weekly.days.monday,
+      active: true,
+      start: "07:00",
+      end: "15:30",
+      plannedHours: 8,
+      breakAm: { enabled: true, time: "09:30", minutes: 15, paid: false },
+      lunch: { enabled: true, time: "12:00", minutes: 30, paid: true },
+    };
+
+    const paidLunch = resolveExpectedPunchScheduleItems({
+      employee: {
+        ...martinEmployeeProfile(),
+        pausePaid: true,
+        lunchPaid: true,
+        weeklyScheduleConfig: weekly,
+      },
+      weekdayFr: "lundi",
+    }).map((item) => item.eventType);
+
+    expect(paidLunch).toEqual(["quart_debut", "quart_fin"]);
+
+    const unpaidLunch = resolveExpectedPunchScheduleItems({
+      employee: {
+        ...martinEmployeeProfile(),
+        pausePaid: false,
+        lunchPaid: false,
+        weeklyScheduleConfig: weekly,
+      },
+      weekdayFr: "lundi",
+    }).map((item) => item.eventType);
+
+    expect(unpaidLunch).toEqual([
+      "quart_debut",
+      "pause_debut",
+      "pause_fin",
+      "dinner_debut",
+      "dinner_fin",
+      "quart_fin",
+    ]);
+  });
 });

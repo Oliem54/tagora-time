@@ -181,6 +181,44 @@ export function paidOperationalPunchBlock(
   return null;
 }
 
+export const DIRECTION_MANUAL_PUNCH_EVENT_TYPES = [
+  "punch_in",
+  "break_start",
+  "break_end",
+  "meal_start",
+  "meal_end",
+  "punch_out",
+] as const;
+
+export type DirectionManualPunchEventType =
+  (typeof DIRECTION_MANUAL_PUNCH_EVENT_TYPES)[number];
+
+/**
+ * Options du sélecteur manuel Direction.
+ * Une pause payée n'est pas proposée : le serveur refuse break_start et break_end.
+ * Un dîner payé n'est pas proposé : le serveur refuse meal_start et meal_end.
+ */
+export function directionManualPunchOptions(input: {
+  pausePaid?: boolean;
+  lunchPaid?: boolean;
+}): DirectionManualPunchEventType[] {
+  return DIRECTION_MANUAL_PUNCH_EVENT_TYPES.filter((eventType) => {
+    if (
+      input.pausePaid === true &&
+      (eventType === "break_start" || eventType === "break_end")
+    ) {
+      return false;
+    }
+    if (
+      input.lunchPaid === true &&
+      (eventType === "meal_start" || eventType === "meal_end")
+    ) {
+      return false;
+    }
+    return true;
+  });
+}
+
 export function linkedAuthUserMatchesCaller(
   chauffeurAuthUserId: string | null | undefined,
   callerAuthUserId: string

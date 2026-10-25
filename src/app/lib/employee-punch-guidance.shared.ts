@@ -75,6 +75,36 @@ export function isOpenShiftState(state: string | null | undefined): boolean {
   return state === "en_quart" || state === "en_pause" || state === "en_diner";
 }
 
+const OPEN_SHIFT_SAFETY_CAP_ALERT =
+  "Ce quart est ouvert depuis plus de 14 h. Pointez votre sortie. La direction devra approuver cette fermeture.";
+
+/**
+ * Un employé non pointé ne doit pas voir une alerte de quart ouvert,
+ * même si un ancien pointage d'arrivée n'a jamais été fermé.
+ */
+export function resolveOpenShiftSafetyCapAlert(input: {
+  currentState: string | null | undefined;
+  openShiftSafetyCapReached: boolean;
+}): string | null {
+  if (!input.openShiftSafetyCapReached || !isOpenShiftState(input.currentState)) {
+    return null;
+  }
+  return OPEN_SHIFT_SAFETY_CAP_ALERT;
+}
+
+/** Le statut de fiche « ouvert » ne doit pas contredire un employé non pointé. */
+export function resolveEmployeeShiftStatusLine(input: {
+  currentState: string | null | undefined;
+  shiftStatus: string | null | undefined;
+}): string {
+  if (!isOpenShiftState(input.currentState)) {
+    if (!input.shiftStatus || input.shiftStatus === "ouvert") {
+      return "aucun quart en cours";
+    }
+  }
+  return input.shiftStatus ?? "ouvert";
+}
+
 function formatTorontoClock(iso: string | null | undefined): string | null {
   if (!iso) return null;
   const date = new Date(iso);
@@ -94,6 +124,30 @@ function formatTorontoClock(iso: string | null | undefined): string | null {
 function formatEnServiceDepuis(iso: string | null | undefined): string | null {
   const clock = formatTorontoClock(iso);
   return clock ? `En service depuis ${clock}` : null;
+}
+
+/**
+ * Le cumul affiché avance pendant le service.
+ * Un dîner payé reste dans les minutes du quart, même si l'état lu est
+ * encore `en_diner` : ce recalcul d'état conserve l'événement de dîner.
+ */
+export function shouldAccrueOpenShiftDisplay(input: {
+  currentState: string | null | undefined;
+  hasOpenShiftAccrual?: boolean;
+  pendingPunchBlocksAccrual?: boolean;
+  openShiftSafetyCapReached?: boolean;
+  lunchPaid?: boolean;
+}): boolean {
+  if (
+    input.hasOpenShiftAccrual !== true ||
+    input.pendingPunchBlocksAccrual === true ||
+    input.openShiftSafetyCapReached === true
+  ) {
+    return false;
+  }
+  const state = input.currentState ?? "hors_quart";
+  if (state === "en_quart") return true;
+  return state === "en_diner" && input.lunchPaid === true;
 }
 
 export function accrueOpenShiftDisplayMinutes(input: {
@@ -183,6 +237,19 @@ export function resolveEmployeePunchGuidance(input: {
     : null;
 
   if (state === "en_pause") {
+    if (input.pausePaid === true) {
+      return {
+        phase: "pause",
+        statusLabel: "En pause",
+        serviceSinceLabel,
+        guidance:
+          "Votre pause est payée et incluse dans le quart. Vous n'avez pas à la pointer. Pointez votre sortie à la fin du service.",
+        primary: { eventType: "punch_out", label: "Pointer ma sortie" },
+        secondary: [],
+        arrivalBlocked: true,
+        arrivalBlockedMessage: ARRIVAL_BLOCKED_MESSAGE,
+      };
+    }
     return {
       phase: "pause",
       statusLabel: "En pause",
@@ -197,6 +264,19 @@ export function resolveEmployeePunchGuidance(input: {
   }
 
   if (state === "en_diner") {
+    if (input.lunchPaid === true) {
+      return {
+        phase: "diner",
+        statusLabel: "Au dîner",
+        serviceSinceLabel,
+        guidance:
+          "Votre dîner est payé et inclus dans le quart. Vous n'avez pas à le pointer. Pointez votre sortie à la fin du service.",
+        primary: { eventType: "punch_out", label: "Pointer ma sortie" },
+        secondary: [],
+        arrivalBlocked: true,
+        arrivalBlockedMessage: ARRIVAL_BLOCKED_MESSAGE,
+      };
+    }
     return {
       phase: "diner",
       statusLabel: "Au dîner",
