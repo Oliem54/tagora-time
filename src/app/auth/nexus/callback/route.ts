@@ -9,8 +9,15 @@ import {
   nexusHandoffContinueResponse,
   nexusHandoffPrefetchSkippedResponse,
   renderNexusHandoffContinueDocument,
+  renderNexusOpaqueCodeContinueDocument,
   shouldSkipNexusHandoffConsumeOnGet,
 } from "@/app/lib/auth/nexus-callback-document.server";
+import { exchangeNexusOpaqueHandoffCode } from "@/app/lib/auth/horora-staging-nexus-module-client.server";
+import {
+  isHororaStagingOpaqueCallbackRequest,
+  selectOpaqueHandoffCode,
+  type OpaqueHandoffCodeResult,
+} from "@/app/lib/auth/horora-staging-nexus-module-client";
 import {
   evaluateNexusCallbackOrigin,
   nexusCallbackOriginLogFields,
@@ -26,39 +33,64 @@ export type NexusCallbackRouteDeps = {
   inspectHandoff?: typeof inspectNexusHandoff;
   completePhaseA?: typeof completeNexusCallbackPhaseA;
   isReplayConsumed?: typeof isNexusHandoffReplayConsumed;
+  exchangeOpaqueCode?: typeof exchangeNexusOpaqueHandoffCode;
 };
 
-async function readBody(request: Request): Promise<unknown> {
+async function readCallbackPayload(request: Request): Promise<{
+  body: unknown;
+  opaqueCode: string | null;
+}> {
   const contentType = request.headers.get("content-type") ?? "";
   const lower = contentType.toLowerCase();
   if (lower.includes("application/json")) {
     try {
-      return await request.json();
+      const parsed: unknown = await request.json();
+      const opaqueCode =
+        parsed &&
+        typeof parsed === "object" &&
+        !Array.isArray(parsed) &&
+        typeof (parsed as Record<string, unknown>).code === "string"
+          ? ((parsed as Record<string, unknown>).code as string)
+          : null;
+      return { body: parsed, opaqueCode };
     } catch {
-      return null;
+      return { body: null, opaqueCode: null };
     }
   }
   if (lower.includes("application/x-www-form-urlencoded")) {
     try {
       const text = await request.text();
       const params = new URLSearchParams(text);
-      const handoff = params.get("handoff");
-      return { handoff };
+      return { body: { handoff: params.get("handoff") }, opaqueCode: params.get("code") };
     } catch {
-      return null;
+      return { body: null, opaqueCode: null };
     }
   }
-  return null;
+  return { body: null, opaqueCode: null };
+}
+
+function stagingOpaqueCode(request: Request, bodyCode: string | null): OpaqueHandoffCodeResult {
+  if (!isHororaStagingOpaqueCallbackRequest(request)) {
+    return { ok: false, reason: "absent" };
+  }
+  let queryCode: string | null = null;
+  try {
+    queryCode = new URL(request.url).searchParams.get("code");
+  } catch {
+    return { ok: false, reason: "invalid_code" };
+  }
+  return selectOpaqueHandoffCode(queryCode, bodyCode);
 }
 
 async function mintBrokeredSessionResponse(
   request: Request,
   deps: NexusCallbackRouteDeps,
-  body: unknown
+  body: unknown,
+  searchParams: URLSearchParams = new URL(request.url).searchParams
 ): Promise<NextResponse> {
   const complete = deps.completePhaseA ?? completeNexusCallbackPhaseA;
   const result = await complete({
-    searchParams: new URL(request.url).searchParams,
+    searchParams,
     body,
   });
   if (!result.ok) {
@@ -81,6 +113,19 @@ async function handleNexusCallbackGet(
   if (shouldSkipNexusHandoffConsumeOnGet(request)) {
     console.info("[horora.nexus.callback]", { decision: "skip_non_document" });
     return nexusHandoffPrefetchSkippedResponse();
+  }
+
+  const opaque = stagingOpaqueCode(request, null);
+  if (!opaque.ok && (opaque.reason === "invalid_code" || opaque.reason === "code_mismatch")) {
+    console.info("[horora.nexus.callback]", { decision: "closed", reason: opaque.reason });
+    return redirectFailClosed(request.url, "handoff_refused");
+  }
+  if (opaque.ok) {
+    console.info("[horora.nexus.callback]", { decision: "opaque_code_continue" });
+    const publicOrigin = resolveCanonicalNexusCallbackOrigin(request);
+    return nexusHandoffContinueResponse(
+      renderNexusOpaqueCodeContinueDocument(opaque.code, { publicOrigin })
+    );
   }
 
   const inspect = deps.inspectHandoff ?? inspectNexusHandoff;
@@ -137,7 +182,45 @@ async function handleNexusCallbackPost(
       ...originFields,
     });
   }
-  return mintBrokeredSessionResponse(request, deps, await readBody(request));
+  const payload = await readCallbackPayload(request);
+  const opaque = stagingOpaqueCode(request, payload.opaqueCode);
+  if (!opaque.ok && (opaque.reason === "invalid_code" || opaque.reason === "code_mismatch")) {
+    console.info("[horora.nexus.callback]", { decision: "closed", reason: opaque.reason });
+    return redirectFailClosed(request.url, "handoff_refused");
+  }
+  if (opaque.ok) {
+    if (!isNexusCallbackFormPost(request)) {
+      const originDecision = evaluateNexusCallbackOrigin(request);
+      if (!originDecision.ok) {
+        console.info("[horora.nexus.callback]", {
+          decision: "closed",
+          reason: "cross_origin_post",
+          failed_origin_check: originDecision.failed_origin_check,
+        });
+        return redirectFailClosed(request.url, "cross_origin_post");
+      }
+    }
+    const exchange = deps.exchangeOpaqueCode ?? exchangeNexusOpaqueHandoffCode;
+    const exchanged = await exchange({ code: opaque.code });
+    if (!exchanged.ok) {
+      console.info("[horora.nexus.callback]", {
+        decision: "closed",
+        reason: exchanged.reason,
+      });
+      return redirectFailClosed(
+        request.url,
+        exchanged.reason === "assertion_missing" ? "handoff_missing" : "handoff_refused"
+      );
+    }
+    console.info("[horora.nexus.callback]", { decision: "opaque_code_exchanged" });
+    return mintBrokeredSessionResponse(
+      request,
+      deps,
+      { handoff: exchanged.assertion },
+      new URLSearchParams()
+    );
+  }
+  return mintBrokeredSessionResponse(request, deps, payload.body);
 }
 
 export async function handleNexusCallback(
