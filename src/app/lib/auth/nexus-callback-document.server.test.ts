@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   NEXUS_CALLBACK_CONTINUE_FORM_ID,
+  NEXUS_CALLBACK_OPAQUE_CODE_FORM_ID,
   escapeHtmlAttribute,
   renderNexusHandoffContinueDocument,
+  renderNexusOpaqueCodeContinueDocument,
   shouldSkipNexusHandoffConsumeOnGet,
 } from "@/app/lib/auth/nexus-callback-document.server";
 
@@ -17,6 +19,17 @@ describe("Nexus callback continue document", () => {
     expect(html).toContain('name="handoff" value="abc.def.ghi"');
     expect(html).toContain("form.submit()");
     expect(html).not.toMatch(/localStorage|sessionStorage/);
+  });
+
+  it("renders a Staging opaque-code continue form without a handoff assertion", () => {
+    const html = renderNexusOpaqueCodeContinueDocument("staging-opaque-code-1", {
+      publicOrigin: "https://time.staging.tagora.ca",
+    });
+    expect(html).toContain(NEXUS_CALLBACK_OPAQUE_CODE_FORM_ID);
+    expect(html).toContain('name="code" value="staging-opaque-code-1"');
+    expect(html).not.toContain('name="handoff"');
+    expect(html).not.toContain("assertion");
+    expect(html).toContain('action="https://time.staging.tagora.ca/auth/nexus/callback"');
   });
 
   it("escapes HTML attribute characters in the token", () => {
