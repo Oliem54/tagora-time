@@ -7,6 +7,7 @@ import { parseTrustedWebOrigin } from "@/app/lib/auth/nexus-callback-origin.serv
 
 export const NEXUS_CALLBACK_CONTINUE_PATH = "/auth/nexus/callback" as const;
 export const NEXUS_CALLBACK_CONTINUE_FORM_ID = "horora-nexus-handoff" as const;
+export const NEXUS_CALLBACK_OPAQUE_CODE_FORM_ID = "horora-nexus-opaque-code" as const;
 
 export {
   isSameOriginNexusCallbackPost,
@@ -72,6 +73,42 @@ export function renderNexusHandoffContinueDocument(
   <script>
     (function () {
       var form = document.getElementById(${JSON.stringify(NEXUS_CALLBACK_CONTINUE_FORM_ID)});
+      if (!form) return;
+      function submit() { form.submit(); }
+      if (document.prerendering) {
+        document.addEventListener("prerenderingchange", submit, { once: true });
+        return;
+      }
+      submit();
+    })();
+  </script>
+</body>
+</html>`;
+}
+
+export function renderNexusOpaqueCodeContinueDocument(
+  code: string,
+  options?: NexusHandoffContinueDocumentOptions
+): string {
+  const safeCode = escapeHtmlAttribute(code);
+  const action = escapeHtmlAttribute(nexusCallbackContinueFormAction(options?.publicOrigin));
+  return `<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="referrer" content="strict-origin" />
+  <meta http-equiv="Cache-Control" content="no-store" />
+  <title>HORORA</title>
+</head>
+<body>
+  <p>Ouverture de HORORA…</p>
+  <form id="${NEXUS_CALLBACK_OPAQUE_CODE_FORM_ID}" method="post" action="${action}" accept-charset="UTF-8" autocomplete="off">
+    <input type="hidden" name="code" value="${safeCode}" />
+    <noscript><button type="submit">Continuer</button></noscript>
+  </form>
+  <script>
+    (function () {
+      var form = document.getElementById(${JSON.stringify(NEXUS_CALLBACK_OPAQUE_CODE_FORM_ID)});
       if (!form) return;
       function submit() { form.submit(); }
       if (document.prerendering) {
