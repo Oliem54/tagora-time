@@ -336,6 +336,28 @@ describe("HORORA staging private_key_jwt", () => {
     })).toEqual({ ok: true, clientId: HORORA_STAGING_NEXUS_MODULE_CLIENT_ID });
   });
 
+  it("reads the private JWK from process.env when no env override is passed", async () => {
+    const material = await testMaterial();
+    const previous = process.env[HORORA_STAGING_NEXUS_MODULE_CLIENT_PRIVATE_JWK_ENV];
+    process.env[HORORA_STAGING_NEXUS_MODULE_CLIENT_PRIVATE_JWK_ENV] = JSON.stringify(
+      material.privateJwk
+    );
+    try {
+      const signed = await signHororaStagingModuleClientAssertion({
+        expectedPublicJwk: material.publicJwk,
+        nowSeconds: NOW,
+        jti: "jti-process-env",
+      });
+      expect(signed.ok).toBe(true);
+    } finally {
+      if (previous === undefined) {
+        delete process.env[HORORA_STAGING_NEXUS_MODULE_CLIENT_PRIVATE_JWK_ENV];
+      } else {
+        process.env[HORORA_STAGING_NEXUS_MODULE_CLIENT_PRIVATE_JWK_ENV] = previous;
+      }
+    }
+  });
+
   it("refuses a missing key, a public-only key, a foreign key, and Nexus handoff kids", async () => {
     const material = await testMaterial();
     expect(await readHororaStagingModuleClientPrivateKeyStatus({})).toEqual({

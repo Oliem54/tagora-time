@@ -195,7 +195,8 @@ export async function signHororaStagingModuleClientAssertion(options: {
   if (options.privateJwk !== undefined) {
     privateJwk = parsePrivateJwk(JSON.stringify(options.privateJwk));
   } else {
-    const raw = options.env?.[HORORA_STAGING_NEXUS_MODULE_CLIENT_PRIVATE_JWK_ENV];
+    const env = options.env ?? process.env;
+    const raw = env[HORORA_STAGING_NEXUS_MODULE_CLIENT_PRIVATE_JWK_ENV];
     if (typeof raw !== "string" || raw.trim() === "") {
       return { ok: false, reason: "missing_configuration" };
     }

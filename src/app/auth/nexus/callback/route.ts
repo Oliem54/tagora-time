@@ -204,7 +204,7 @@ async function handleNexusCallbackPost(
       }
     }
     const exchange = deps.exchangeOpaqueCode ?? exchangeNexusOpaqueHandoffCode;
-    const exchanged = await exchange({ code: opaque.code });
+    const exchanged = await exchange({ code: opaque.code, env: process.env });
     if (!exchanged.ok) {
       console.info("[horora.nexus.callback]", {
         decision: "closed",
