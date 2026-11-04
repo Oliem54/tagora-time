@@ -150,5 +150,11 @@ describe("resolveHororaRuntimeSupabaseUrl", () => {
         NEXT_PUBLIC_APP_URL: "http://localhost:3000",
       })
     ).toBe("https://example.supabase.co");
+    expect(
+      resolveHororaRuntimeSupabaseUrl("development", {
+        NODE_ENV: "test",
+        NEXT_PUBLIC_APP_URL: "http://localhost:3000",
+      })
+    ).toBe("development");
   });
 });

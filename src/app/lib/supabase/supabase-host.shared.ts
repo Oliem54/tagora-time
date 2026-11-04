@@ -134,15 +134,18 @@ export function resolveHororaRuntimeSupabaseUrl(
     throw new Error("Staging HORORA refused unknown Supabase host");
   }
 
-  if (!trimmed || !host) {
+  if (!trimmed) {
     throw new Error("Missing NEXT_PUBLIC_SUPABASE_URL");
   }
-  if (
-    host !== HORORA_STAGING_SUPABASE_HOST &&
-    host !== HORORA_PRODUCTION_SUPABASE_HOST &&
-    isVercelRuntime(env)
-  ) {
-    throw new Error("HORORA refused unknown Supabase host");
+  const knownHost =
+    host === HORORA_STAGING_SUPABASE_HOST ||
+    host === HORORA_PRODUCTION_SUPABASE_HOST;
+  if (!knownHost && isVercelRuntime(env)) {
+    throw new Error(
+      host
+        ? "HORORA refused unknown Supabase host"
+        : "Missing NEXT_PUBLIC_SUPABASE_URL"
+    );
   }
   return trimmed;
 }
