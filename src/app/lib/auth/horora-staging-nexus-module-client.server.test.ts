@@ -11,7 +11,7 @@ import {
   type CryptoKey,
 } from "jose";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { handleNexusCallback } from "@/app/auth/nexus/callback/route";
+import { handleNexusCallback } from "@/app/lib/auth/nexus-callback-route.server";
 import { NEXUS_CALLBACK_OPAQUE_CODE_FORM_ID } from "@/app/lib/auth/nexus-callback-document.server";
 import { completeNexusCallbackPhaseA } from "@/app/lib/auth/nexus-callback.server";
 import {
