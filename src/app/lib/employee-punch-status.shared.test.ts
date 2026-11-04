@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+  directionPresenceStatusLabel,
   employeePunchNextActionLabel,
   employeePunchStatusLabel,
   formatEmployeeDashboardDate,
   formatEmployeeWelcome,
+  mapDirectionPresenceStatus,
   mapEmployeePunchStatus,
   readSessionFullName,
   resolveEmployeeGivenName,
@@ -14,12 +16,18 @@ describe("employee punch status presentation", () => {
     expect(mapEmployeePunchStatus("hors_quart")).toBe("non_pointe");
     expect(mapEmployeePunchStatus("en_quart")).toBe("en_service");
     expect(mapEmployeePunchStatus("en_pause")).toBe("en_pause");
-    expect(mapEmployeePunchStatus("en_diner")).toBe("en_pause");
+    expect(mapEmployeePunchStatus("en_diner")).toBe("en_diner");
     expect(mapEmployeePunchStatus("termine")).toBe("quart_termine");
     expect(employeePunchStatusLabel("non_pointe")).toBe("Non pointé");
     expect(employeePunchStatusLabel("en_service")).toBe("En service");
     expect(employeePunchStatusLabel("en_pause")).toBe("En pause");
+    expect(employeePunchStatusLabel("en_diner")).toBe("Au dîner");
+    expect(employeePunchNextActionLabel("en_diner")).toBe("Terminer le dîner");
+    expect(employeePunchNextActionLabel("en_service")).toBe("Pointer ma sortie");
     expect(employeePunchStatusLabel("quart_termine")).toBe("Quart terminé");
+    expect(mapDirectionPresenceStatus("en_diner")).toBe("au_diner");
+    expect(directionPresenceStatusLabel("au_diner")).toBe("Au dîner");
+    expect(mapDirectionPresenceStatus("en_pause")).toBe("en_pause");
   });
 
   it("uses a neutral unavailable state instead of inventing data", () => {

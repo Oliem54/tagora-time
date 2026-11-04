@@ -7,7 +7,7 @@ import {
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { handleNexusCallback } from "@/app/auth/nexus/callback/route";
+import { handleNexusCallback } from "@/app/lib/auth/nexus-callback-route.server";
 import {
   completeNexusCallbackPhaseA,
   inspectNexusHandoff,
@@ -104,6 +104,7 @@ function lookups(role: string = "organization_admin", extra: Partial<NexusMappin
       return [
         {
           nexus_organization_id: "nexus-org-1",
+          nexus_tenant_id: "tenant-1",
           organization_id: ORG_ID,
           status: "active",
         },
@@ -379,6 +380,7 @@ describe("Nexus callback membership destinations", () => {
             binding: {
               nexusActorId: SUBJECT,
               nexusOrganizationId: "nexus-org-1",
+              nexusTenantId: "tenant-1",
               nexusMembershipId: "mem-1",
               authUserId: AUTH_USER,
               organizationId: ORG_ID,

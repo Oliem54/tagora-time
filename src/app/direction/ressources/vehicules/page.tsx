@@ -3,6 +3,10 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import HeaderTagora from "@/app/components/HeaderTagora";
+import {
+  hororaNexusSessionRequestInit,
+  redirectToNexusLoginIfUnauthenticated,
+} from "@/app/lib/auth/horora-nexus-session.client";
 import { supabase } from "@/app/lib/supabase/client";
 
 type ResourceKind = "vehicule" | "remorque";
@@ -133,16 +137,14 @@ export default function Page() {
   const fetchFleet = useCallback(async () => {
     setLoading(true);
     setMessage("");
-    const headers = await authHeaders();
-    if (!headers) {
-      setMessage("Session expirée : reconnectez-vous pour charger la flotte.");
+
+    const res = await fetch("/api/direction/ressources/fleet", hororaNexusSessionRequestInit());
+    if (redirectToNexusLoginIfUnauthenticated(res.status)) {
       setVehicules([]);
       setRemorques([]);
       setLoading(false);
       return;
     }
-
-    const res = await fetch("/api/direction/ressources/fleet", { headers });
     const payload = (await res.json().catch(() => ({}))) as {
       error?: string;
       vehicules?: FleetRow[];
@@ -160,7 +162,7 @@ export default function Page() {
     setVehicules(Array.isArray(payload.vehicules) ? payload.vehicules : []);
     setRemorques(Array.isArray(payload.remorques) ? payload.remorques : []);
     setLoading(false);
-  }, [authHeaders]);
+  }, []);
 
   useEffect(() => {
     void fetchFleet();

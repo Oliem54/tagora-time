@@ -5,6 +5,7 @@ import {
   buildHorodateurValidationErrorResponse,
   requireDirectionHorodateurAccess,
 } from "@/app/api/horodateur/_shared";
+import { hororaSupervisorHttpServerTarget } from "@/app/lib/auth/horora-supervisor-grant.shared";
 import { buildHorodateurRegistre } from "@/app/lib/horodateur-v1/registre-service.server";
 import type {
   RegistreCompanyParam,
@@ -56,7 +57,9 @@ function parseStatusParam(raw: string | null): RegistreStatusFilter {
 
 export async function GET(req: NextRequest) {
   try {
-    const auth = await requireDirectionHorodateurAccess(req);
+    const auth = await requireDirectionHorodateurAccess(req, "view_team", {
+      target: hororaSupervisorHttpServerTarget(),
+    });
     if (!auth.ok) {
       return auth.response;
     }

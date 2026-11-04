@@ -298,6 +298,21 @@ describe("TAGORA_HANDOFF_V1 verifier", () => {
     ).resolves.toEqual({ ok: false, reason: "invalid_signature" });
   });
 
+  it("denies module_business_role and time_permission claims", async () => {
+    const keys = await createEs256Bundle();
+    for (const claim of ["module_business_role", "time_permission"] as const) {
+      expect(FORBIDDEN_NEXUS_AUTHORITY_CLAIMS).toContain(claim);
+      const token = await signHandoff({
+        privateKey: keys.privateKey,
+        kid: keys.kid,
+        claims: { [claim]: "employe", jti: `jti-${claim}`, nonce: `nonce-${claim}` },
+      });
+      await expect(
+        verifyTagoraHandoffV1(token, { config: CONFIG, jwks: keys.jwks, nowSeconds: NOW })
+      ).resolves.toEqual({ ok: false, reason: "forbidden_authority_claim" });
+    }
+  });
+
   it("denies forbidden authority claims", async () => {
     const keys = await createEs256Bundle();
     for (const claim of FORBIDDEN_NEXUS_AUTHORITY_CLAIMS) {

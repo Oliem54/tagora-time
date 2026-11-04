@@ -11,6 +11,18 @@ import { bindEffectiveAppRole } from "@/app/lib/auth/permissions";
 import { NEXUS_BROKERED_SESSION_COOKIE_NAME } from "@/app/lib/auth/nexus-handoff-config";
 import { resolveBrokeredHororaSessionFromCookies } from "@/app/lib/auth/nexus-brokered-session";
 import {
+  HORORA_LOCAL_FIXTURE_MEMBERSHIP_ID,
+  HORORA_LOCAL_NEXUS_FIXTURE_ENV,
+  HORORA_LOCAL_FIXTURE_ORGANIZATION_ID,
+  HORORA_LOCAL_FIXTURE_ROLE_ENV,
+  HORORA_LOCAL_FIXTURE_SESSION_SOURCE,
+  HORORA_LOCAL_FIXTURE_USER_ID,
+  isHororaServingSessionSource,
+  isProcessLocalNexusFixtureEnabled,
+  readHororaLocalFixtureRole,
+  readHororaLocalFixtureTerrainPermissions,
+} from "@/app/lib/auth/horora-local-nexus-fixture";
+import {
   assessClientScope,
   resolveCompanyInOrganization,
   type CompanyDirectoryRow,
@@ -151,10 +163,10 @@ export async function resolveDirectionRequestUser(req: NextRequest) {
     req.cookies.get(NEXUS_BROKERED_SESSION_COOKIE_NAME)?.value
   );
   const directionConfirmed =
-    authenticated.sessionSource === "nexus_handoff" &&
+    isHororaServingSessionSource(authenticated.sessionSource) &&
     (authenticated.role === "direction" || authenticated.role === "admin");
 
-  if (!authenticated.user || authenticated.sessionSource !== "nexus_handoff") {
+  if (!authenticated.user || !isHororaServingSessionSource(authenticated.sessionSource)) {
     return {
       user: null,
       role: null,
@@ -223,7 +235,7 @@ export function getRequestIp(req: NextRequest) {
   return forwardedFor?.split(",")[0]?.trim() || realIp?.trim() || "unknown";
 }
 
-export type AuthenticatedSessionSource = "nexus_handoff" | null;
+export type AuthenticatedSessionSource = "nexus_handoff" | "local_nexus_fixture" | null;
 
 function unauthenticatedRequestUser(authSource: "bearer" | "cookie" | "none") {
   return {
@@ -238,9 +250,48 @@ function unauthenticatedRequestUser(authSource: "bearer" | "cookie" | "none") {
   };
 }
 
+function localFixtureMembershipRole(role: "employe" | "direction" | "admin") {
+  if (role === "admin") return "organization_admin" as const;
+  return role;
+}
+
+function localFixtureRequestUser(hostname: string) {
+  const role = readHororaLocalFixtureRole(process.env[HORORA_LOCAL_FIXTURE_ROLE_ENV]);
+  const permissions = readHororaLocalFixtureTerrainPermissions({
+    nodeEnv: process.env.NODE_ENV,
+    vercelEnv: process.env.VERCEL_ENV,
+    hostname,
+    flag: process.env[HORORA_LOCAL_NEXUS_FIXTURE_ENV],
+    supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL,
+  });
+  const user = {
+    id: HORORA_LOCAL_FIXTURE_USER_ID,
+    aud: "authenticated",
+    role: "authenticated",
+    email: "local-fixture@horora.invalid",
+    app_metadata: { role, permissions: [...permissions] },
+    user_metadata: {},
+    created_at: "2026-01-01T00:00:00.000Z",
+  } as User;
+  bindEffectiveAppRole(user, role);
+  return {
+    user,
+    role,
+    authSource: "cookie" as const,
+    organizationId: HORORA_LOCAL_FIXTURE_ORGANIZATION_ID,
+    membershipId: HORORA_LOCAL_FIXTURE_MEMBERSHIP_ID,
+    membershipRole: localFixtureMembershipRole(role),
+    authorizationSource: "membership" as const,
+    sessionSource: HORORA_LOCAL_FIXTURE_SESSION_SOURCE,
+  };
+}
+
 export async function getAuthenticatedRequestUser(req: NextRequest) {
   const brokeredCookie = req.cookies.get(NEXUS_BROKERED_SESSION_COOKIE_NAME)?.value ?? null;
   if (!brokeredCookie) {
+    if (isProcessLocalNexusFixtureEnabled(req.nextUrl.hostname)) {
+      return localFixtureRequestUser(req.nextUrl.hostname);
+    }
     return unauthenticatedRequestUser("none");
   }
 
@@ -250,6 +301,9 @@ export async function getAuthenticatedRequestUser(req: NextRequest) {
     },
   });
   if (!resolved.ok) {
+    if (isProcessLocalNexusFixtureEnabled(req.nextUrl.hostname)) {
+      return localFixtureRequestUser(req.nextUrl.hostname);
+    }
     return unauthenticatedRequestUser("cookie");
   }
 
@@ -326,7 +380,7 @@ export async function requireScopedDirectionAccountAccess(req: NextRequest) {
   const role = authenticated.role;
   if (
     !authenticated.user ||
-    authenticated.sessionSource !== "nexus_handoff" ||
+    !isHororaServingSessionSource(authenticated.sessionSource) ||
     (role !== "direction" && role !== "admin") ||
     !authenticated.organizationId
   ) {

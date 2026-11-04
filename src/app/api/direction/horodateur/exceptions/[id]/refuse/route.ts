@@ -10,6 +10,7 @@ import {
   normalizeNonEmptyString,
   requireDirectionHorodateurAccess,
 } from "@/app/api/horodateur/_shared";
+import { hororaSupervisorHttpServerTarget } from "@/app/lib/auth/horora-supervisor-grant.shared";
 import { getAuthenticatedRequestUser } from "@/app/lib/account-requests.server";
 
 export async function POST(
@@ -17,7 +18,9 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const auth = await requireDirectionHorodateurAccess(req);
+    const auth = await requireDirectionHorodateurAccess(req, "approve_anomalies", {
+      target: hororaSupervisorHttpServerTarget(),
+    });
 
     if (!auth.ok) {
       return auth.response;

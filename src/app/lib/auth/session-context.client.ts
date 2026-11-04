@@ -1,6 +1,10 @@
 "use client";
 
 import type { AppRole } from "@/app/lib/auth/roles";
+import {
+  sanitizeHororaSessionDisplayName,
+  sanitizeHororaSessionEmail,
+} from "@/app/lib/auth/horora-session-display.shared";
 import type { OrganizationMembershipRole } from "@/app/lib/saas/tenant-foundation.shared";
 
 export type SessionContextResponse = {
@@ -13,7 +17,9 @@ export type SessionContextResponse = {
   organizationId: string | null;
   membershipId: string | null;
   membershipRole: OrganizationMembershipRole | null;
-  source: "membership" | "nexus_handoff" | null;
+  source: "membership" | "nexus_handoff" | "local_nexus_fixture" | null;
+  displayName: string | null;
+  email: string | null;
 };
 
 export const SESSION_CONTEXT_TIMEOUT_MS = 12_000;
@@ -72,8 +78,14 @@ export async function fetchSessionAuthorizationContext(
       membershipId: null,
       membershipRole: null,
       source: null,
+      displayName: null,
+      email: null,
     };
   }
 
-  return body;
+  return {
+    ...body,
+    displayName: sanitizeHororaSessionDisplayName(body.displayName),
+    email: sanitizeHororaSessionEmail(body.email),
+  };
 }

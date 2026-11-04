@@ -5,6 +5,7 @@ import {
   buildHorodateurValidationErrorResponse,
   requireDirectionHorodateurAccess,
 } from "@/app/api/horodateur/_shared";
+import { hororaSupervisorHttpServerTarget } from "@/app/lib/auth/horora-supervisor-grant.shared";
 import { buildHorodateurRegistreEmployeeDetail } from "@/app/lib/horodateur-v1/registre-service.server";
 
 function isoDateStrict(value: string | null): { ok: true; value: string } | { ok: false } {
@@ -22,7 +23,9 @@ type RouteContext = { params: Promise<{ employeeId: string }> };
 
 export async function GET(req: NextRequest, context: RouteContext) {
   try {
-    const auth = await requireDirectionHorodateurAccess(req);
+    const auth = await requireDirectionHorodateurAccess(req, "view_team", {
+      target: hororaSupervisorHttpServerTarget(),
+    });
     if (!auth.ok) {
       return auth.response;
     }

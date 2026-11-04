@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthenticatedRequestUser } from "@/app/lib/account-requests.server";
+import { nexusHandoffEffectifsMutationResponse } from "@/app/api/direction/effectifs/effectifs-mutation-guard.server";
 import { createAdminSupabaseClient } from "@/app/lib/supabase/admin";
 import {
   EFFECTIFS_CALENDAR_EXCEPTION_TYPES,
@@ -71,10 +72,12 @@ function parseExceptionBody(body: unknown): {
 
 export async function POST(req: NextRequest) {
   try {
-    const { user, role } = await getAuthenticatedRequestUser(req);
+    const { user, role, sessionSource } = await getAuthenticatedRequestUser(req);
     if (!user || (role !== "direction" && role !== "admin")) {
       return NextResponse.json({ error: "Accès refusé." }, { status: 403 });
     }
+    const nexusMutationDenied = nexusHandoffEffectifsMutationResponse(sessionSource);
+    if (nexusMutationDenied) return nexusMutationDenied;
 
     const parsed = parseExceptionBody(await req.json().catch(() => null));
     if (!parsed.ok) {

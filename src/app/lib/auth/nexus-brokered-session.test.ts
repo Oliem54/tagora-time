@@ -19,6 +19,7 @@ import { getDashboardPathForRole } from "@/app/lib/auth/roles";
 const BINDING: NexusResolvedBinding = {
   nexusActorId: "actor-1",
   nexusOrganizationId: "nexus-org-1",
+  nexusTenantId: "tenant-1",
   nexusMembershipId: "mem-nexus-1",
   authUserId: "11111111-1111-4111-8111-111111111111",
   organizationId: "33333333-3333-4333-8333-333333333333",

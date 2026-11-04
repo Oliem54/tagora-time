@@ -1,13 +1,12 @@
 import "server-only";
 
 import type { User } from "@supabase/supabase-js";
+import { evaluateHororaPayrollCapability } from "@/app/lib/auth/horora-role-model.shared";
+import { mapOrganizationMembershipRoleToAppRole } from "@/app/lib/auth/organization-role-mapping.shared";
 import {
-  HORODATEUR_PAYROLL_MANAGE_PERMISSION,
-  HORODATEUR_PAYROLL_READ_PERMISSION,
   getAppMetadataPermissionsOnly,
   normalizePermissionList,
 } from "@/app/lib/auth/permissions";
-import type { OrganizationMembershipRole } from "@/app/lib/saas/tenant-foundation.shared";
 import { isOrganizationMembershipRole } from "@/app/lib/saas/tenant-foundation.shared";
 
 export type HorodateurPayrollAccessAction = "read" | "manage";
@@ -19,11 +18,6 @@ export type HorodateurPayrollAccessDecision = {
   source: "membership_admin" | "app_metadata" | "denied";
   reason: string;
 };
-
-const OWNER_ADMIN_ROLES = new Set<OrganizationMembershipRole>([
-  "organization_owner",
-  "organization_admin",
-]);
 
 function readAppMetadataPermissionList(value: unknown) {
   return normalizePermissionList(value);
@@ -66,51 +60,22 @@ export function evaluateHorodateurPayrollAccess(input: {
     };
   }
 
-  if (OWNER_ADMIN_ROLES.has(input.membershipRole)) {
-    return {
-      canRead: true,
-      canManage: true,
-      allowed: true,
-      source: "membership_admin",
-      reason: "organization_admin_implicit",
-    };
-  }
-
-  if (input.membershipRole === "employe") {
+  const portalRole = mapOrganizationMembershipRoleToAppRole(input.membershipRole);
+  if (!portalRole) {
     return {
       canRead: false,
       canManage: false,
       allowed: false,
       source: "denied",
-      reason: "employee_denied",
+      reason: "membership_absent",
     };
   }
 
-  const appMetadataPermissions = readAppMetadataPermissionList(
-    input.appMetadataPermissions
-  );
-  const canManage = appMetadataPermissions.includes(HORODATEUR_PAYROLL_MANAGE_PERMISSION);
-  const canRead =
-    canManage || appMetadataPermissions.includes(HORODATEUR_PAYROLL_READ_PERMISSION);
-
-  if (!canRead) {
-    return {
-      canRead: false,
-      canManage: false,
-      allowed: false,
-      source: "denied",
-      reason: "payroll_permission_missing",
-    };
-  }
-
-  const allowed = required === "manage" ? canManage : canRead;
-  return {
-    canRead,
-    canManage,
-    allowed,
-    source: allowed ? "app_metadata" : "denied",
-    reason: allowed ? "direction_app_metadata" : "payroll_manage_permission_missing",
-  };
+  return evaluateHororaPayrollCapability({
+    portalRole,
+    explicitPermissions: readAppMetadataPermissionList(input.appMetadataPermissions),
+    required,
+  });
 }
 
 export function evaluateHorodateurPayrollAccessForUser(

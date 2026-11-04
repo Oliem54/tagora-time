@@ -1,4 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
+import {
+  buildLocalPunchQaPayload,
+  HORORA_LOCAL_PUNCH_QA_COOKIE,
+  localPunchQaStateFromRequest,
+} from "@/app/lib/horodateur-v1/local-punch-qa-fixture.shared";
 import { getEmployeeHistoryByAuthUserId } from "@/app/lib/horodateur-v1/service";
 import {
   buildHorodateurErrorResponse,
@@ -9,7 +14,15 @@ import {
 
 export async function GET(req: NextRequest) {
   try {
-    const auth = await requireEmployeeHorodateurAccess(req);
+    const localQa = localPunchQaStateFromRequest({
+      hostname: req.nextUrl.hostname,
+      cookie: req.cookies.get(HORORA_LOCAL_PUNCH_QA_COOKIE)?.value,
+    });
+    if (localQa) {
+      return NextResponse.json(buildLocalPunchQaPayload(localQa, Date.now()).history);
+    }
+
+    const auth = await requireEmployeeHorodateurAccess(req, "view_own_hours");
 
     if (!auth.ok) {
       return auth.response;

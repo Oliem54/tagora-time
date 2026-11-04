@@ -21,6 +21,11 @@ import {
 import { getJwtAal, getJwtAppRole } from "@/app/lib/auth/jwt-access-token";
 import { shouldClearAppModuleCookieForSession } from "@/app/lib/auth/mfa-fresh-session.shared";
 import { fetchSessionAuthorizationContext } from "@/app/lib/auth/session-context.client";
+import { isBrowserLocalNexusFixture } from "@/app/lib/auth/horora-nexus-session.client";
+import {
+  HORORA_LOCAL_FIXTURE_SESSION_SOURCE,
+  readHororaLocalFixtureTerrainPermissions,
+} from "@/app/lib/auth/horora-local-nexus-fixture";
 import { devInfo } from "@/app/lib/logger";
 import {
   buildUserCompanyAccess,
@@ -33,6 +38,7 @@ type AccessState = {
   permissions: AppPermission[];
   companyAccess: UserCompanyAccess;
   organizationId: string | null;
+  displayName: string | null;
   loading: boolean;
 };
 
@@ -46,6 +52,7 @@ export function useCurrentAccess() {
     permissions: [],
     companyAccess: buildUserCompanyAccess(null),
     organizationId: null,
+    displayName: null,
     loading: true,
   });
 
@@ -132,16 +139,28 @@ export function useCurrentAccess() {
           const brokered = await fetchSessionAuthorizationContext();
           if (
             brokered.authorized &&
-            brokered.source === "nexus_handoff" &&
+            (brokered.source === "nexus_handoff" ||
+              brokered.source === "local_nexus_fixture") &&
             brokered.userId &&
             brokered.appRole
           ) {
             if (cancelled) return;
+            const localTerrainPermissions =
+              brokered.source === HORORA_LOCAL_FIXTURE_SESSION_SOURCE
+                ? readHororaLocalFixtureTerrainPermissions({
+                    nodeEnv: process.env.NODE_ENV,
+                    vercelEnv: process.env.VERCEL_ENV,
+                    hostname: window.location.hostname,
+                    flag: isBrowserLocalNexusFixture() ? "true" : undefined,
+                    supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL,
+                  })
+                : [];
             setState({
               user: {
                 id: brokered.userId,
                 aud: "authenticated",
-                app_metadata: {},
+                email: brokered.email ?? undefined,
+                app_metadata: { permissions: [...localTerrainPermissions] },
                 user_metadata: {},
                 created_at: new Date(0).toISOString(),
               } as User,
@@ -149,6 +168,7 @@ export function useCurrentAccess() {
               permissions: composePermissionsForEffectiveRole(brokered.appRole, []),
               companyAccess: buildUserCompanyAccess(null),
               organizationId: brokered.organizationId,
+              displayName: brokered.displayName,
               loading: false,
             });
             return;
@@ -201,6 +221,7 @@ export function useCurrentAccess() {
             ),
             companyAccess: buildUserCompanyAccess(user),
             organizationId,
+            displayName: null,
             loading: false,
           });
         });
@@ -218,6 +239,7 @@ export function useCurrentAccess() {
             permissions: [],
             companyAccess: buildUserCompanyAccess(null),
             organizationId: null,
+            displayName: null,
             loading: false,
           });
         }

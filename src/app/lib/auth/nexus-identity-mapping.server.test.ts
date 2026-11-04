@@ -65,6 +65,7 @@ function lookups(overrides: Partial<NexusMappingLookups> = {}): NexusMappingLook
       return [
         {
           nexus_organization_id: "nexus-org-1",
+          nexus_tenant_id: "tenant-1",
           organization_id: ORG_ID,
           status: "active",
         },
@@ -163,6 +164,7 @@ describe("Nexus HORORA identity mapping", () => {
           async findOrganizationMaps() {
             const row = {
               nexus_organization_id: "nexus-org-1",
+              nexus_tenant_id: "tenant-1",
               organization_id: ORG_ID,
               status: "active" as const,
             };
@@ -193,6 +195,67 @@ describe("Nexus HORORA identity mapping", () => {
         })
       )
     ).resolves.toEqual({ ok: false, reason: "cross_tenant" });
+  });
+
+  it("refuses a missing, blank, or different opaque Nexus tenant", async () => {
+    await expect(
+      resolveNexusHororaBinding(
+        { ...CLAIMS, tenant_id: "" },
+        lookups()
+      )
+    ).resolves.toEqual({ ok: false, reason: "tenant_mapping_absent" });
+
+    await expect(
+      resolveNexusHororaBinding(
+        CLAIMS,
+        lookups({
+          async findOrganizationMaps() {
+            return [
+              {
+                nexus_organization_id: "nexus-org-1",
+                nexus_tenant_id: null,
+                organization_id: ORG_ID,
+                status: "active",
+              },
+            ];
+          },
+        })
+      )
+    ).resolves.toEqual({ ok: false, reason: "tenant_mapping_absent" });
+
+    await expect(
+      resolveNexusHororaBinding(
+        CLAIMS,
+        lookups({
+          async findOrganizationMaps() {
+            return [
+              {
+                nexus_organization_id: "nexus-org-1",
+                nexus_tenant_id: "   ",
+                organization_id: ORG_ID,
+                status: "active",
+              },
+            ];
+          },
+        })
+      )
+    ).resolves.toEqual({ ok: false, reason: "tenant_mapping_absent" });
+
+    await expect(
+      resolveNexusHororaBinding(
+        { ...CLAIMS, tenant_id: "tenant-other" },
+        lookups()
+      )
+    ).resolves.toEqual({ ok: false, reason: "cross_tenant" });
+  });
+
+  it("stores only the verified handoff tenant when creating an organization map", async () => {
+    const source = await import("node:fs").then((fs) =>
+      fs.readFileSync("src/app/lib/auth/nexus-identity-mapping.server.ts", "utf8")
+    );
+    expect(source).toContain("nexus_tenant_id: nexusTenantId");
+    expect(source).not.toContain("organizationSlugToTenantKey");
+    expect(source).not.toContain("tenantKeyToOrganizationSlug");
   });
 
   it("denies ambiguous memberships in the mapped org", async () => {
@@ -256,8 +319,12 @@ describe("Nexus HORORA identity mapping", () => {
 
   it("inserts env-authorized maps only for an existing member", async () => {
     const identity: Array<{ nexus_actor_id: string; auth_user_id: string; disabled_at: null }> = [];
-    const orgs: Array<{ nexus_organization_id: string; organization_id: string; status: string }> =
-      [];
+    const orgs: Array<{
+      nexus_organization_id: string;
+      nexus_tenant_id: string;
+      organization_id: string;
+      status: string;
+    }> = [];
     const env = {
       HORORA_NEXUS_ACTOR_ID: "actor-1",
       HORORA_AUTH_USER_ID: AUTH_USER,
@@ -287,13 +354,24 @@ describe("Nexus HORORA identity mapping", () => {
     );
     expect(result.ok).toBe(true);
     expect(identity).toHaveLength(1);
-    expect(orgs).toHaveLength(1);
+    expect(orgs).toEqual([
+      {
+        nexus_organization_id: DEFAULT_HORORA_NEXUS_ORGANIZATION_ID,
+        nexus_tenant_id: claims.tenant_id,
+        organization_id: ORG_ID,
+        status: "active",
+      },
+    ]);
   });
 
   it("inserts env-authorized maps when only the existing HORORA user is configured", async () => {
     const identity: Array<{ nexus_actor_id: string; auth_user_id: string; disabled_at: null }> = [];
-    const orgs: Array<{ nexus_organization_id: string; organization_id: string; status: string }> =
-      [];
+    const orgs: Array<{
+      nexus_organization_id: string;
+      nexus_tenant_id: string;
+      organization_id: string;
+      status: string;
+    }> = [];
     const env = {
       HORORA_NEXUS_ACTOR_ID: CLAIMS.user_id,
       HORORA_AUTH_USER_ID: AUTH_USER,

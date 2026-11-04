@@ -7,6 +7,7 @@ import {
   normalizeNonEmptyString,
   requireDirectionHorodateurAccess,
 } from "@/app/api/horodateur/_shared";
+import { hororaSupervisorHttpServerTarget } from "@/app/lib/auth/horora-supervisor-grant.shared";
 import { getAuthenticatedRequestUser } from "@/app/lib/account-requests.server";
 import {
   buildStaffRetroOccurredAtIso,
@@ -17,7 +18,9 @@ import { createStaffRetroCorrectionRequest } from "@/app/lib/horodateur-v1/servi
 
 export async function POST(req: NextRequest) {
   try {
-    const auth = await requireDirectionHorodateurAccess(req);
+    const auth = await requireDirectionHorodateurAccess(req, "correct_time", {
+      target: hororaSupervisorHttpServerTarget(),
+    });
 
     if (!auth.ok) {
       return auth.response;

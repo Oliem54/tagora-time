@@ -121,7 +121,7 @@ type AlertConfig = {
   direction_sms_numbers: string[];
 };
 
-type LiveFilter = "tous" | "en_service" | "en_pause" | "absent" | "attention";
+type LiveFilter = "tous" | "en_service" | "en_pause" | "au_diner" | "absent" | "attention";
 
 type WeeklyProjectionPayload = {
   workedMinutes: number;
@@ -210,23 +210,29 @@ function formatShortDateTime(value: string | null | undefined) {
 function collectLiveShiftHints(row: LiveRow): string[] {
   const hints: string[] = [];
 
-  if (row.todayTimeDisplay?.pendingPunchBlocksAccrual) {
-    hints.push("Punch en attente");
-  }
   if (row.todayTimeDisplay?.openShiftSafetyCapReached) {
-    hints.push("Quart > 14 h — à approuver");
+    hints.push("Quart de plus de 14 h — la sortie doit être approuvée");
   }
   if (row.todayTimeDisplay?.openShiftWorkDateMismatch) {
-    hints.push(`Quart ouvert depuis ${row.todayTimeDisplay.openShiftWorkDate ?? "?"}`);
+    hints.push(
+      `Quart encore ouvert depuis le ${row.todayTimeDisplay.openShiftWorkDate ?? "jour précédent"}`
+    );
+  }
+  if (row.todayTimeDisplay?.pendingPunchBlocksAccrual) {
+    hints.push("Pointage en attente — le temps affiché est figé");
   }
   if (row.todayShift?.status === "en_attente") {
-    hints.push("Quart en attente");
+    hints.push("Quart en attente de validation");
   }
   if ((row.todayShift?.anomalies_count ?? 0) > 0) {
-    hints.push("Anomalie détectée");
+    hints.push("Pointage inhabituel à vérifier");
   }
 
   return hints;
+}
+
+function liveAttentionSummary(row: LiveRow): string | null {
+  return collectLiveShiftHints(row)[0] ?? (row.hasOpenException ? "Validation direction requise" : null);
 }
 
 function toIsoWithOptionalTime(
@@ -676,15 +682,15 @@ export default function DirectionHorodateurPage() {
 
   const counts = useMemo(() => {
     const active = board.filter((row) => getRowState(row) === "en_quart").length;
-    const paused = board.filter(
-      (row) => getRowState(row) === "en_pause" || getRowState(row) === "en_diner"
-    ).length;
+    const onPause = board.filter((row) => getRowState(row) === "en_pause").length;
+    const onDinner = board.filter((row) => getRowState(row) === "en_diner").length;
     const pending = exceptions.length;
 
     return {
       employees: board.length,
       active,
-      paused,
+      paused: onPause,
+      onDinner,
       pending,
     };
   }, [board, exceptions.length]);
@@ -745,6 +751,8 @@ export default function DirectionHorodateurPage() {
           return presence === "en_service";
         case "en_pause":
           return presence === "en_pause";
+        case "au_diner":
+          return presence === "au_diner";
         case "absent":
           return presence === "absent";
         case "attention":
@@ -1540,7 +1548,7 @@ export default function DirectionHorodateurPage() {
                     ? ` · dernière sync Montréal ${formatShortDateTime(lastSyncedAt)}`
                     : ""
                 }`
-              : "Qui travaille maintenant, avec le dernier pointage."
+              : "Qui est en service, en pause ou au dîner, avec le dernier pointage."
           }
         >
           <div className="horodateur-live-now-block">
@@ -1560,15 +1568,16 @@ export default function DirectionHorodateurPage() {
                       entrée {formatShortDateTime(row.startedAt ?? row.lastEventAt)}
                     </span>
                     <span>{getCompanyLabel(row.primaryCompany)}</span>
-                    {liveRowNeedsAttention(row) ? (
-                      <span>Anomalie à vérifier</span>
-                    ) : null}
+                    {(() => {
+                      const attention = liveAttentionSummary(row);
+                      return attention ? <span>{attention}</span> : null;
+                    })()}
                   </button>
                 ))}
               </div>
             ) : (
               <p className="ui-text-muted horodateur-live-now-empty">
-                Personne n’est actuellement en service.
+                Personne n’est au travail en ce moment.
               </p>
             )}
           </div>
@@ -1607,7 +1616,8 @@ export default function DirectionHorodateurPage() {
             {[
               ["tous", `Tous (${board.length})`],
               ["en_service", `En service (${board.filter((row) => getRowState(row) === "en_quart").length})`],
-              ["en_pause", `En pause (${board.filter((row) => getRowState(row) === "en_pause" || getRowState(row) === "en_diner").length})`],
+              ["en_pause", `En pause (${board.filter((row) => getRowState(row) === "en_pause").length})`],
+              ["au_diner", `Au dîner (${board.filter((row) => getRowState(row) === "en_diner").length})`],
               ["absent", `Absent (${board.filter((row) => !isCurrentlyWorkingState(getRowState(row)) && getRowState(row) !== "termine").length})`],
               ["attention", `Attention requise (${board.filter((row) => liveRowNeedsAttention(row)).length})`],
             ].map(([value, label]) => {
@@ -1882,7 +1892,7 @@ export default function DirectionHorodateurPage() {
           {!hasEmployees ? (
             <AppCard tone="muted" className="ui-stack-sm">
               <p className="ui-text-muted" style={{ margin: 0 }}>
-                Aucun employe actif a afficher pour le moment.
+                Aucun employé actif à afficher pour le moment.
               </p>
             </AppCard>
           ) : null}
@@ -2105,7 +2115,7 @@ export default function DirectionHorodateurPage() {
           </AppCard>
 
           <AppCard tone="muted" className="ui-stack-xs">
-            <span className="ui-eyebrow">% employes en quart</span>
+            <span className="ui-eyebrow">Employés en service</span>
             <strong style={{ fontSize: 28 }}>{globalMetrics.inShiftPercent}%</strong>
             <span className="ui-text-muted">
               {globalMetrics.employeesInShift} / {board.length || 0} en quart
@@ -2115,7 +2125,7 @@ export default function DirectionHorodateurPage() {
           <AppCard tone="muted" className="ui-stack-xs">
             <span className="ui-eyebrow">Heures totales du jour</span>
             <strong style={{ fontSize: 28 }}>{formatMinutes(globalMetrics.totalTodayMinutes)}</strong>
-            <span className="ui-text-muted">Temps payable cumule</span>
+            <span className="ui-text-muted">Temps payable cumulé, y compris le temps en cours</span>
           </AppCard>
 
           <AppCard tone="muted" className="ui-stack-xs">
@@ -2143,9 +2153,9 @@ export default function DirectionHorodateurPage() {
             <span className="ui-text-muted">Punch principal actif</span>
           </AppCard>
           <AppCard tone="muted" className="ui-stack-xs">
-            <span className="ui-eyebrow">Pause / diner</span>
+            <span className="ui-eyebrow">En pause</span>
             <strong style={{ fontSize: 28 }}>{counts.paused}</strong>
-            <span className="ui-text-muted">Etat temporaire</span>
+            <span className="ui-text-muted">Au dîner : {counts.onDinner}</span>
           </AppCard>
           <AppCard tone="muted" className="ui-stack-xs">
             <span className="ui-eyebrow">Exceptions</span>

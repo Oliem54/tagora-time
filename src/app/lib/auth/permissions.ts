@@ -4,6 +4,7 @@ import {
   hasAdminFinanceAccess,
   isAdminFinancePath,
 } from "@/app/lib/auth/admin-finance";
+import { evaluateHororaPayrollCapability } from "@/app/lib/auth/horora-role-model.shared";
 import type { AppRole } from "@/app/lib/auth/roles";
 import { getUserRole } from "@/app/lib/auth/roles";
 
@@ -176,25 +177,19 @@ function hasHorodateurPayrollPermission(
     role: AppRole | null | undefined;
   }
 ): boolean {
-  const appMetadataPermissions = getAppMetadataPermissionsOnly(user);
-
-  if (resolved.mode === "explicit" || resolved.mode === "bound") {
-    if (resolved.role === "admin") {
-      return true;
-    }
-    if (resolved.role !== "direction") {
-      return false;
-    }
-    if (permission === HORODATEUR_PAYROLL_MANAGE_PERMISSION) {
-      return appMetadataPermissions.includes(HORODATEUR_PAYROLL_MANAGE_PERMISSION);
-    }
-    return (
-      appMetadataPermissions.includes(HORODATEUR_PAYROLL_READ_PERMISSION) ||
-      appMetadataPermissions.includes(HORODATEUR_PAYROLL_MANAGE_PERMISSION)
-    );
+  if (resolved.mode !== "explicit" && resolved.mode !== "bound") {
+    return false;
+  }
+  if (resolved.role !== "admin" && resolved.role !== "direction" && resolved.role !== "employe") {
+    return false;
   }
 
-  return false;
+  return evaluateHororaPayrollCapability({
+    portalRole: resolved.role,
+    explicitPermissions: getAppMetadataPermissionsOnly(user),
+    required:
+      permission === HORODATEUR_PAYROLL_MANAGE_PERMISSION ? "manage" : "read",
+  }).allowed;
 }
 
 /** Request-scoped H4 AppRole bound to the User instance from getAuthenticatedRequestUser. */

@@ -14,7 +14,15 @@ import {
 } from "@/app/lib/account-requests.shared";
 import { hasAdminFinanceAccess } from "@/app/lib/auth/admin-finance";
 import type { AppRole } from "@/app/lib/auth/roles";
+import {
+  hororaNexusSessionRequestInit,
+  redirectToNexusLoginIfUnauthenticated,
+} from "@/app/lib/auth/horora-nexus-session.client";
 import { supabase } from "@/app/lib/supabase/client";
+import {
+  APP_METADATA_ROLE_ANNOUNCEMENT_FAILED,
+  APP_METADATA_ROLE_ANNOUNCEMENT_FAILED_MESSAGE,
+} from "@/app/lib/employee-role-audit-commit.shared";
 import AdminImprovementNotificationsAccountSection from "./AdminImprovementNotificationsAccountSection";
 import EmployeeLongLeaveSection from "./EmployeeLongLeaveSection";
 import { locationLabelFromKey } from "@/app/lib/effectifs-departments.shared";
@@ -195,23 +203,15 @@ export default function EmployeeProfilePageClient({
     setLoading(true);
 
     try {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      const token = session?.access_token;
-      if (!token) {
-        setMessage(EMPLOYEE_PROFILE_LOAD_ERROR_MESSAGE);
-        setMessageType("error");
+      const response = await fetch(
+        buildEmployeeProfileGetApiPath(targetId),
+        hororaNexusSessionRequestInit()
+      );
+      if (redirectToNexusLoginIfUnauthenticated(response.status)) {
         setOriginalProfile(null);
         setLoading(false);
         return;
       }
-
-      const response = await fetch(buildEmployeeProfileGetApiPath(targetId), {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
 
       const json = (await response.json().catch(() => ({}))) as {
         success?: boolean;
@@ -388,15 +388,60 @@ export default function EmployeeProfilePageClient({
           reason: portalRoleReason.trim() || null,
         }),
       });
-      const payload = (await response.json().catch(() => ({}))) as { error?: string };
+      const payload = (await response.json().catch(() => ({}))) as {
+        error?: string;
+        code?: string;
+        role?: AssignablePortalRole;
+        authoritativeRole?: AssignablePortalRole | null;
+        rolePersisted?: boolean;
+      };
+      const confirmedRole =
+        payload.authoritativeRole === "employe" ||
+        payload.authoritativeRole === "direction" ||
+        payload.authoritativeRole === "manager" ||
+        payload.authoritativeRole === "admin"
+          ? payload.authoritativeRole
+          : payload.role;
+      if (
+        payload.code === APP_METADATA_ROLE_ANNOUNCEMENT_FAILED &&
+        payload.rolePersisted === true
+      ) {
+        if (
+          confirmedRole === "employe" ||
+          confirmedRole === "direction" ||
+          confirmedRole === "manager" ||
+          confirmedRole === "admin"
+        ) {
+          setPortalRoleValue(confirmedRole);
+          setPortalAccount((current) =>
+            current
+              ? {
+                  ...current,
+                  portalRole: confirmedRole,
+                }
+              : current
+          );
+        }
+        setMessage(APP_METADATA_ROLE_ANNOUNCEMENT_FAILED_MESSAGE);
+        setMessageType("error");
+        return;
+      }
       if (!response.ok) {
         throw new Error(payload.error || "Modification de role refusee.");
+      }
+      if (
+        confirmedRole === "employe" ||
+        confirmedRole === "direction" ||
+        confirmedRole === "manager" ||
+        confirmedRole === "admin"
+      ) {
+        setPortalRoleValue(confirmedRole);
       }
       setPortalAccount((current) =>
         current
           ? {
               ...current,
-              portalRole: portalRoleValue,
+              portalRole: confirmedRole ?? current.portalRole,
             }
           : current
       );

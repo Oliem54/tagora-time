@@ -63,7 +63,7 @@ export default function HororaAppShell({
   logoAlt,
   children,
 }: HororaAppShellProps) {
-  const { user, role, companyAccess } = useCurrentAccess();
+  const { user, role, companyAccess, displayName } = useCurrentAccess();
   const [navOpen, setNavOpen] = useState(false);
   const heading = title ?? PAGE_CRUMB[active] ?? "HORORA";
   const crumb = PAGE_CRUMB[active] ?? heading;
@@ -84,6 +84,7 @@ export default function HororaAppShell({
         : role === "admin"
           ? "Admin"
           : "Rôle non défini";
+  const identityValue = displayName || user?.email || "";
 
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
@@ -171,9 +172,9 @@ export default function HororaAppShell({
                 <strong>{resolvedCompany}</strong>
               </p>
             ) : null}
-            {user?.email ? (
+            {identityValue ? (
               <UserIdentityBadge
-                value={user.email}
+                value={identityValue}
                 roleLabel={roleLabel}
                 role={role}
                 className="horora-direction-account"
