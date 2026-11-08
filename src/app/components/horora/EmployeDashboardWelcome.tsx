@@ -3,8 +3,6 @@
 import StatusBadge from "@/app/components/ui/StatusBadge";
 import PrimaryButton from "@/app/components/ui/PrimaryButton";
 import {
-  employeePunchNextActionLabel,
-  employeePunchStatusLabel,
   employeePunchStatusTone,
   formatEmployeeDashboardDate,
   formatEmployeeWelcome,
@@ -33,12 +31,8 @@ export default function EmployeDashboardWelcome({
   const status = mapEmployeePunchStatus(punch.currentState, {
     available: punch.enabled,
   });
-  const statusLabel = punch.loading
-    ? "Chargement du statut…"
-    : employeePunchStatusLabel(status);
-  const nextAction = punch.loading
-    ? "Chargement…"
-    : employeePunchNextActionLabel(status);
+  const statusLabel = punch.loading ? "Chargement du statut…" : punch.statusLabel;
+  const nextAction = punch.loading ? "Chargement…" : punch.principalAction.label;
   const canOpenPunch = punch.enabled;
 
   return (
@@ -64,6 +58,9 @@ export default function EmployeDashboardWelcome({
         <p className="employe-dashboard-welcome-next">
           Prochaine action : <strong>{nextAction}</strong>
         </p>
+        {punch.loading ? null : (
+          <p className="employe-dashboard-welcome-next">{punch.guidanceText}</p>
+        )}
         <PrimaryButton
           className="employe-dashboard-welcome-action"
           onClick={onPrimaryAction}
@@ -74,7 +71,7 @@ export default function EmployeDashboardWelcome({
             punch.loading
           }
         >
-          {punch.geolocationPending ? "Localisation en cours…" : "Pointer"}
+          {punch.geolocationPending ? "Localisation en cours…" : nextAction}
         </PrimaryButton>
       </div>
     </section>
