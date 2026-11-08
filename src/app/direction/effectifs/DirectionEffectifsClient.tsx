@@ -54,6 +54,10 @@ import type {
   EffectifsDepartmentKey,
   EffectifsEmployee,
 } from "@/app/lib/effectifs-payload.shared";
+import {
+  hororaNexusSessionRequestInit,
+  redirectToNexusLoginIfUnauthenticated,
+} from "@/app/lib/auth/horora-nexus-session.client";
 import { supabase } from "@/app/lib/supabase/client";
 import DirectionEffectifsMonthCalendar from "./DirectionEffectifsMonthCalendar";
 import DirectionEffectifsWeekCoverage from "./DirectionEffectifsWeekCoverage";
@@ -470,24 +474,15 @@ export default function DirectionEffectifsClient({
     setMessage("");
     setMessageType(null);
 
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
-    const token = session?.access_token;
-
-    if (!token) {
-      setMessage("Session expirée. Reconnectez-vous.");
-      setMessageType("error");
+    const res = await fetch(
+      `/api/direction/effectifs?company=${selectedCompany}`,
+      hororaNexusSessionRequestInit()
+    );
+    if (redirectToNexusLoginIfUnauthenticated(res.status)) {
       setPayload(null);
       setLoading(false);
       return;
     }
-
-    const res = await fetch(`/api/direction/effectifs?company=${selectedCompany}`, {
-      method: "GET",
-      headers: { Authorization: `Bearer ${token}` },
-      cache: "no-store",
-    });
 
     if (!res.ok) {
       const body = (await res.json().catch(() => null)) as { error?: string } | null;
@@ -1780,11 +1775,12 @@ export default function DirectionEffectifsClient({
           <FeedbackMessage message={message} type={messageType ?? "error"} />
         ) : null}
 
-        {loading || !payload ? (
+        {loading ? (
           <p className="ui-eyebrow" style={{ margin: 0 }}>
             Chargement des données effectifs…
           </p>
-        ) : (
+        ) : null}
+        {payload ? (
           <>
             <AppCard className="rounded-2xl ui-stack-sm" tone="muted">
               <p
@@ -4769,7 +4765,7 @@ export default function DirectionEffectifsClient({
               </div>
             ) : null}
           </>
-        )}
+        ) : null}
       </div>
     </main>
   );
