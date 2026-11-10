@@ -1845,7 +1845,7 @@ export default function EmployeHorodateurPage() {
             ) : null}
             {todayTimeDisplay?.pendingPunchBlocksAccrual ? (
               <p className="tagora-note" style={{ marginTop: 8, marginBottom: 0, lineHeight: 1.45 }}>
-                Un pointage attend l'approbation. Le temps affiché ne progresse plus jusqu'à la validation.
+                Un pointage attend l&apos;approbation. Le temps affiché ne progresse plus jusqu&apos;à la validation.
               </p>
             ) : null}
             {todayTimeDisplay?.openShiftWorkDateMismatch ? (
@@ -1872,7 +1872,7 @@ export default function EmployeHorodateurPage() {
             {todayTimeDisplay?.hasPendingOperationalPunchToday &&
             !todayTimeDisplay.pendingPunchBlocksAccrual ? (
               <p className="tagora-note" style={{ marginTop: 8, marginBottom: 0, lineHeight: 1.45 }}>
-                Un pointage est en attente d'approbation de la direction.
+                Un pointage est en attente d&apos;approbation de la direction.
               </p>
             ) : null}
             {(snapshot?.todayShift?.anomalies_count ?? 0) > 0 ? (
