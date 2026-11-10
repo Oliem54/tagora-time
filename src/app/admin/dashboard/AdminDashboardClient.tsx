@@ -17,6 +17,7 @@ import {
   Truck,
   Package,
   UsersRound,
+  UserCog,
   Bell,
   Waypoints,
   type LucideIcon,
@@ -127,6 +128,15 @@ const MODULES: ModuleDefinition[] = [
     description: "Acces et fiches employes.",
     group: "administration",
     icon: UsersRound,
+    tone: "purple",
+  },
+  {
+    id: "utilisateurs",
+    href: "/admin/utilisateurs",
+    label: "Utilisateurs et permissions",
+    description: "Annuaire préparé. Un rôle Nexus n'ouvre ni la finance ni la paie.",
+    group: "administration",
+    icon: UserCog,
     tone: "purple",
   },
   {

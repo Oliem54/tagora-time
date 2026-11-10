@@ -6,6 +6,7 @@ import {
   FileSpreadsheet,
   LayoutDashboard,
   Users,
+  UserCog,
   UserRound,
   Wallet,
 } from "lucide-react";
@@ -22,7 +23,8 @@ export type HororaNavId =
   | "paie"
   | "effectifs"
   | "comptes"
-  | "employes";
+  | "employes"
+  | "utilisateurs";
 
 export type HororaNavItem = {
   id: HororaNavId;
@@ -54,6 +56,7 @@ const ADMIN_NAV: HororaNavItem[] = [
   { id: "quarts", href: "/direction/horodateur/quarts", label: "Quarts passés", icon: CalendarRange },
   { id: "paie", href: "/direction/horodateur/rapport-comptable", label: "Rapport comptable", icon: Wallet },
   { id: "employes", href: "/direction/ressources/employes", label: "Employés", icon: Users },
+  { id: "utilisateurs", href: "/admin/utilisateurs", label: "Utilisateurs", icon: UserCog },
   { id: "comptes", href: "/direction/demandes-comptes", label: "Comptes", icon: UserRound },
 ];
 

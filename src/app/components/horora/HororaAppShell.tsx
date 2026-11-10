@@ -32,6 +32,7 @@ const PAGE_CRUMB: Partial<Record<HororaNavId, string>> = {
   effectifs: "Effectifs",
   comptes: "Comptes",
   employes: "Employés",
+  utilisateurs: "Utilisateurs",
 };
 
 type HororaAppShellProps = {
