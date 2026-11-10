@@ -74,6 +74,10 @@ describe("HORORA employee punch unblock", () => {
       ok: false,
       code: "GPS_REQUIRED",
     });
+    // High-accuracy position_unavailable must fall through to low-accuracy retries.
+    const geo = read("src/app/lib/employee-punch-geolocation.client.ts");
+    expect(geo).toContain('result.code === "position_unavailable"');
+    expect(geo).toContain('result.code === "timeout"');
   });
 
   it("reports a missing business permission distinctly from browser geolocation", () => {

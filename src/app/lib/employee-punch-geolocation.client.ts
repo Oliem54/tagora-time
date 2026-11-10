@@ -294,7 +294,10 @@ export async function readEmployeePunchGeolocation(options?: {
       attempts: attempt,
     };
 
-    const shouldRetry = result.code === "timeout" && attempt < MAX_ATTEMPTS;
+    // Retry position_unavailable so attempt 2+ (low accuracy) can still succeed.
+    const shouldRetry =
+      (result.code === "timeout" || result.code === "position_unavailable") &&
+      attempt < MAX_ATTEMPTS;
     if (!shouldRetry) {
       return lastFailure;
     }
