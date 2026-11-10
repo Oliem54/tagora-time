@@ -272,6 +272,9 @@ describe("HORORA Nexus session contract fail-closed", () => {
       resolveHororaRequestAccess({
         pathname: "/employe/dashboard",
         hasBrokeredSessionCookie: false,
+        hostname: "time.tagora.ca",
+        vercelEnv: "production",
+        vercelProjectId: "prj_VyucPe8kxHo8VMSfwiM75V4IX8du",
       })
     ).toEqual({ action: "redirect", location: NEXUS_PUBLIC_LOGIN_URL });
   });
@@ -296,12 +299,14 @@ describe("HORORA Nexus session contract fail-closed", () => {
       resolveHororaRequestAccess({
         pathname: "/employe/dashboard",
         hasBrokeredSessionCookie: false,
+        hostname: "time.tagora.ca",
       })
     ).toEqual({ action: "redirect", location: NEXUS_PUBLIC_LOGIN_URL });
     expect(
       resolveHororaRequestAccess({
         pathname: "/employe/dashboard",
         hasBrokeredSessionCookie: true,
+        hostname: "time.tagora.ca",
       })
     ).toEqual({ action: "next" });
   });
@@ -312,11 +317,12 @@ describe("HORORA Nexus session contract fail-closed", () => {
       resolveHororaRequestAccess({
         pathname: "/employe/login",
         hasBrokeredSessionCookie: false,
+        hostname: "time.tagora.ca",
       })
     ).toEqual({ action: "redirect", location: NEXUS_PUBLIC_LOGIN_URL });
-    expect(getLoginPathForRole("employe")).toBe(NEXUS_PUBLIC_LOGIN_URL);
+    expect(getLoginPathForRole("employe", "time.tagora.ca")).toBe(NEXUS_PUBLIC_LOGIN_URL);
     const page = readFileSync(join(process.cwd(), "src/app/employe/login/page.tsx"), "utf8");
-    expect(page).toContain("NEXUS_PUBLIC_LOGIN_URL");
+    expect(page).toContain("resolveCurrentHororaLoginUrl");
     expect(page).toContain("redirect");
     expect(page).not.toContain("signInWithPassword");
   });
@@ -329,12 +335,15 @@ describe("HORORA Nexus session contract fail-closed", () => {
       resolveHororaRequestAccess({
         pathname: "/direction/login",
         hasBrokeredSessionCookie: true,
+        hostname: "time.tagora.ca",
       })
     ).toEqual({ action: "redirect", location: NEXUS_PUBLIC_LOGIN_URL });
-    expect(getLoginPathForRole("direction")).toBe(NEXUS_PUBLIC_LOGIN_URL);
-    expect(loginPathForMissingMfaSession("/direction/dashboard")).toBe(NEXUS_PUBLIC_LOGIN_URL);
+    expect(getLoginPathForRole("direction", "time.tagora.ca")).toBe(NEXUS_PUBLIC_LOGIN_URL);
+    expect(loginPathForMissingMfaSession("/direction/dashboard", "time.tagora.ca")).toBe(
+      NEXUS_PUBLIC_LOGIN_URL
+    );
     const page = readFileSync(join(process.cwd(), "src/app/direction/login/page.tsx"), "utf8");
-    expect(page).toContain("NEXUS_PUBLIC_LOGIN_URL");
+    expect(page).toContain("resolveCurrentHororaLoginUrl");
     expect(page).not.toContain("signInWithPassword");
   });
 

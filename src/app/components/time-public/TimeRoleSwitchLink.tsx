@@ -1,16 +1,17 @@
 import Link from "next/link";
-import { NEXUS_PUBLIC_LOGIN_URL } from "@/app/lib/canonical-domains";
+import { resolveCurrentHororaLoginUrl } from "@/app/lib/auth/horora-login-redirect.server";
 
 type TimeRoleSwitchLinkProps = {
   target: "employe" | "direction";
 };
 
-export default function TimeRoleSwitchLink({ target }: TimeRoleSwitchLinkProps) {
+export default async function TimeRoleSwitchLink({ target }: TimeRoleSwitchLinkProps) {
+  const loginUrl = await resolveCurrentHororaLoginUrl();
   if (target === "direction") {
     return (
       <p className="time-public-role-switch">
         Accès direction ?{" "}
-        <Link href={NEXUS_PUBLIC_LOGIN_URL} className="time-public-inline-link">
+        <Link href={loginUrl} className="time-public-inline-link">
           Connexion direction
         </Link>
       </p>
@@ -20,7 +21,7 @@ export default function TimeRoleSwitchLink({ target }: TimeRoleSwitchLinkProps) 
   return (
     <p className="time-public-role-switch">
       Accès employé ?{" "}
-      <Link href={NEXUS_PUBLIC_LOGIN_URL} className="time-public-inline-link">
+      <Link href={loginUrl} className="time-public-inline-link">
         Connexion employé
       </Link>
     </p>

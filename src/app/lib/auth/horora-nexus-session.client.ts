@@ -3,7 +3,11 @@
  * Do not require a Supabase Auth JWT in the browser.
  */
 
-import { isLocalHostname, NEXUS_PUBLIC_LOGIN_URL } from "@/app/lib/canonical-domains";
+import {
+  HORORA_LOGIN_DENIED_PATH,
+  isLocalHostname,
+  resolveHororaNexusLoginTarget,
+} from "@/app/lib/canonical-domains";
 import { HORORA_LOCAL_FIXTURE_COOKIE_NAME } from "@/app/lib/auth/horora-local-nexus-fixture";
 
 export function hororaNexusSessionRequestInit(init: RequestInit = {}): RequestInit {
@@ -28,10 +32,13 @@ export function isBrowserLocalNexusFixture(): boolean {
   return document.cookie.split(";").some((part) => part.trim() === needle);
 }
 
-export function assignHororaModuleLogin(productionLoginUrl: string = NEXUS_PUBLIC_LOGIN_URL): void {
+export function assignHororaModuleLogin(_ignoredLoginUrl?: string): void {
   if (typeof window === "undefined") return;
   if (isBrowserLocalNexusFixture()) return;
-  window.location.assign(productionLoginUrl);
+  const decision = resolveHororaNexusLoginTarget({ hostname: window.location.hostname });
+  window.location.assign(
+    decision.action === "redirect" ? decision.location : HORORA_LOGIN_DENIED_PATH
+  );
 }
 
 export function redirectToNexusLoginIfUnauthenticated(status: number): boolean {
@@ -41,7 +48,7 @@ export function redirectToNexusLoginIfUnauthenticated(status: number): boolean {
   if (isBrowserLocalNexusFixture()) {
     return false;
   }
-  assignHororaModuleLogin(NEXUS_PUBLIC_LOGIN_URL);
+  assignHororaModuleLogin();
   return true;
 }
 

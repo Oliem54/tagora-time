@@ -22,9 +22,18 @@ export function middleware(request: NextRequest) {
       const gate = resolveHororaRequestAccess({
         pathname: path,
         hasBrokeredSessionCookie: Boolean(brokeredCookie),
+        hostname: request.nextUrl.hostname,
+        vercelEnv: process.env.VERCEL_ENV,
+        vercelProjectId: process.env.VERCEL_PROJECT_ID,
       });
       if (gate.action === "redirect") {
         return NextResponse.redirect(new URL(gate.location), 303);
+      }
+      if (gate.action === "deny") {
+        return new NextResponse("Hôte HORORA non autorisé.", {
+          status: 403,
+          headers: { "Cache-Control": "no-store" },
+        });
       }
     }
 

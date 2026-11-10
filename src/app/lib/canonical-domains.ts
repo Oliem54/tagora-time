@@ -19,6 +19,109 @@ export const NEXUS_PUBLIC_MODULES_PATH = "/modules" as const;
 export const NEXUS_PUBLIC_MODULES_URL =
   `${NEXUS_PUBLIC_ORIGIN}${NEXUS_PUBLIC_MODULES_PATH}` as const;
 
+/** Portail Nexus Staging. Jamais une cible de Production. */
+export const NEXUS_STAGING_PUBLIC_ORIGIN =
+  "https://tagora-nexus-staging.vercel.app" as const;
+export const NEXUS_STAGING_LOGIN_URL =
+  `${NEXUS_STAGING_PUBLIC_ORIGIN}${NEXUS_PUBLIC_LOGIN_PATH}` as const;
+
+/** Alias stable du projet Vercel tagora-time-staging. */
+export const HORORA_STAGING_VERCEL_HOSTNAME =
+  "tagora-time-staging.vercel.app" as const;
+export const HORORA_STAGING_VERCEL_PROJECT_ID =
+  "prj_61wz0EOK67aYgjXulY4Tfu1ejDeY" as const;
+export const HORORA_PRODUCTION_VERCEL_PROJECT_ID =
+  "prj_VyucPe8kxHo8VMSfwiM75V4IX8du" as const;
+/** Refus local. Aucune redirection vers le portail Production. */
+export const HORORA_LOGIN_DENIED_PATH = "/auth/nexus/denied" as const;
+
+export type HororaNexusLoginEnvironment = {
+  readonly hostname: string | null | undefined;
+  readonly vercelEnv?: string | null;
+  readonly vercelProjectId?: string | null;
+};
+
+export type HororaNexusLoginDecision =
+  | {
+      readonly action: "redirect";
+      readonly environment: "production";
+      readonly location: typeof NEXUS_PUBLIC_LOGIN_URL;
+    }
+  | {
+      readonly action: "redirect";
+      readonly environment: "staging";
+      readonly location: typeof NEXUS_STAGING_LOGIN_URL;
+    }
+  | {
+      readonly action: "deny";
+      readonly reason: "unknown_host" | "contradictory_environment";
+    };
+
+export function isHororaStagingProjectHostname(
+  hostname: string | null | undefined
+): boolean {
+  const host = normalizeHostname(hostname);
+  if (!host) return false;
+  if (host === HORORA_STAGING_VERCEL_HOSTNAME) return true;
+  return host.startsWith("tagora-time-staging-") && host.endsWith(".vercel.app");
+}
+
+/**
+ * Production reste sur app.tagora.ca.
+ * Le projet Staging et ses previews vont vers Nexus Staging.
+ * Un hôte inconnu ou une combinaison hôte/projet/environnement contradictoire est refusé.
+ */
+export function resolveHororaNexusLoginTarget(
+  input: HororaNexusLoginEnvironment
+): HororaNexusLoginDecision {
+  const host = normalizeHostname(input.hostname);
+  const projectId = input.vercelProjectId?.trim() || null;
+  const vercelEnv = input.vercelEnv?.trim().toLowerCase() || null;
+  if (!host) return { action: "deny", reason: "unknown_host" };
+
+  const productionHost = host === CANONICAL_PRODUCTION_HOSTNAME;
+  const stagingHost = isHororaStagingProjectHostname(host);
+  if (productionHost && stagingHost) {
+    return { action: "deny", reason: "contradictory_environment" };
+  }
+
+  if (productionHost) {
+    if (projectId && projectId !== HORORA_PRODUCTION_VERCEL_PROJECT_ID) {
+      return { action: "deny", reason: "contradictory_environment" };
+    }
+    if (vercelEnv && vercelEnv !== "production") {
+      return { action: "deny", reason: "contradictory_environment" };
+    }
+    return {
+      action: "redirect",
+      environment: "production",
+      location: NEXUS_PUBLIC_LOGIN_URL,
+    };
+  }
+
+  if (stagingHost) {
+    if (projectId && projectId !== HORORA_STAGING_VERCEL_PROJECT_ID) {
+      return { action: "deny", reason: "contradictory_environment" };
+    }
+    if (vercelEnv === "development") {
+      return { action: "deny", reason: "contradictory_environment" };
+    }
+    return {
+      action: "redirect",
+      environment: "staging",
+      location: NEXUS_STAGING_LOGIN_URL,
+    };
+  }
+
+  return { action: "deny", reason: "unknown_host" };
+}
+
+export function hororaLoginLocationForDecision(
+  decision: HororaNexusLoginDecision
+): string {
+  return decision.action === "redirect" ? decision.location : HORORA_LOGIN_DENIED_PATH;
+}
+
 /** Point d’entrée connexion standard DEC-015. */
 export const LOGIN_STANDARD_PATH = "/login" as const;
 

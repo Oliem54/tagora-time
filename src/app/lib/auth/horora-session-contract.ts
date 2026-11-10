@@ -4,7 +4,10 @@
  * assertion is accepted. Legacy Supabase cookies are refused.
  */
 
-import { NEXUS_PUBLIC_LOGIN_URL } from "@/app/lib/canonical-domains";
+import {
+  resolveHororaNexusLoginTarget,
+  type HororaNexusLoginDecision,
+} from "@/app/lib/canonical-domains";
 
 export const HORORA_SESSION_CONTRACT_VERSION = "HORORA_NEXUS_SESSION_V1" as const;
 export const HORORA_SESSION_CONTRACT_PREFIX =
@@ -39,7 +42,11 @@ export type HororaBrokeredCookieParse =
 
 export type HororaRequestAccessDecision =
   | { readonly action: "next" }
-  | { readonly action: "redirect"; readonly location: typeof NEXUS_PUBLIC_LOGIN_URL };
+  | {
+      readonly action: "redirect";
+      readonly location: Extract<HororaNexusLoginDecision, { action: "redirect" }>["location"];
+    }
+  | Extract<HororaNexusLoginDecision, { action: "deny" }>;
 
 export type SanitizedHororaSessionProvenance = {
   readonly source:
@@ -96,18 +103,26 @@ export function isHororaAppSessionRequiredPath(
 export function resolveHororaRequestAccess(input: {
   pathname: string;
   hasBrokeredSessionCookie: boolean;
+  hostname?: string | null;
+  vercelEnv?: string | null;
+  vercelProjectId?: string | null;
 }): HororaRequestAccessDecision {
   const pathname = normalizePathname(input.pathname);
   if (isNexusHandoffPath(pathname) || pathname.startsWith("/api/")) {
     return { action: "next" };
   }
-  if (isLegacyHororaLoginPath(pathname)) {
-    return { action: "redirect", location: NEXUS_PUBLIC_LOGIN_URL };
-  }
-  if (isHororaAppSessionRequiredPath(pathname) && !input.hasBrokeredSessionCookie) {
-    return { action: "redirect", location: NEXUS_PUBLIC_LOGIN_URL };
-  }
-  return { action: "next" };
+  const needsLogin =
+    isLegacyHororaLoginPath(pathname) ||
+    (isHororaAppSessionRequiredPath(pathname) && !input.hasBrokeredSessionCookie);
+  if (!needsLogin) return { action: "next" };
+
+  const target = resolveHororaNexusLoginTarget({
+    hostname: input.hostname,
+    vercelEnv: input.vercelEnv,
+    vercelProjectId: input.vercelProjectId,
+  });
+  if (target.action === "deny") return target;
+  return { action: "redirect", location: target.location };
 }
 
 export function looksLikeSupabaseJwt(value: string): boolean {

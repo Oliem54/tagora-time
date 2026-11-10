@@ -1,12 +1,13 @@
 import Link from "next/link";
 import TimePublicShell from "./TimePublicShell";
-import { NEXUS_PUBLIC_LOGIN_URL } from "@/app/lib/canonical-domains";
+import { resolveCurrentHororaLoginUrl } from "@/app/lib/auth/horora-login-redirect.server";
 import { isProcessLocalNexusFixtureEnabled } from "@/app/lib/auth/horora-local-nexus-fixture";
 
-export default function TimeEntryHub() {
+export default async function TimeEntryHub() {
   const localFixture = isProcessLocalNexusFixtureEnabled();
-  const employeeHref = localFixture ? "/employe/dashboard" : NEXUS_PUBLIC_LOGIN_URL;
-  const directionHref = localFixture ? "/direction/dashboard" : NEXUS_PUBLIC_LOGIN_URL;
+  const loginUrl = await resolveCurrentHororaLoginUrl();
+  const employeeHref = localFixture ? "/employe/dashboard" : loginUrl;
+  const directionHref = localFixture ? "/direction/dashboard" : loginUrl;
   return (
     <TimePublicShell brandSize="hub" showWordmark={false}>
       <section className="time-public-hub" aria-labelledby="time-public-hub-title">
