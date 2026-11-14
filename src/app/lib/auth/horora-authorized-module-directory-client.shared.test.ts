@@ -183,14 +183,14 @@ describe("AuthorizedModuleDirectory local client", () => {
     expect(view.rows[0].dossierId).toBe(3);
   });
 
-  it("prepares suspended and revoked states without enforcing them on existing users", () => {
-    expect(HORORA_DIRECTORY_REVOCATION_ENFORCED_ON_EXISTING_USERS).toBe(false);
+  it("enforces suspended and revoked states and keeps absence distinct", () => {
+    expect(HORORA_DIRECTORY_REVOCATION_ENFORCED_ON_EXISTING_USERS).toBe(true);
     for (const status of ["SUSPENDED", "REVOKED"] as const) {
       expect(evaluateHororaNexusAccessRevocation(status)).toMatchObject({
         moduleEntryAllowed: false,
-        revocationEnforced: false,
-        wiredToHandoff: false,
-        mutatesPunchSession: false,
+        revocationEnforced: true,
+        wiredToHandoff: true,
+        mutatesPunchSession: true,
       });
     }
     expect(evaluateHororaNexusAccessRevocation("ABSENT")).toMatchObject({
@@ -217,7 +217,15 @@ describe("AuthorizedModuleDirectory local client", () => {
       "REVOKED",
       "SUSPENDED",
     ]);
-    expect(view.rows.every((row) => row.revocationEnforced === false)).toBe(true);
+    expect(view.rows.find((row) => row.directoryStatus === "PENDING")?.revocationEnforced).toBe(
+      false
+    );
+    expect(view.rows.find((row) => row.directoryStatus === "REVOKED")?.revocationEnforced).toBe(
+      true
+    );
+    expect(view.rows.find((row) => row.directoryStatus === "SUSPENDED")?.revocationEnforced).toBe(
+      true
+    );
   });
 
   it("keeps local dossiers when the central service is unavailable", async () => {
@@ -257,11 +265,20 @@ describe("AuthorizedModuleDirectory local client", () => {
     expect(route).toContain("authorizeHororaDirectoryReader");
     expect(route).not.toContain(HORORA_FORBIDDEN_NEXUS_ADMIN_USERS_PATH);
     expect(route).not.toContain("fetch(");
+    expect(route).toContain("readLiveAuthorizedModuleDirectory");
     const client = readFileSync(
       join(root, "src/app/lib/auth/horora-authorized-module-directory-client.shared.ts"),
       "utf8"
     );
     expect(client).not.toContain("fetch(");
+    const server = readFileSync(
+      join(root, "src/app/lib/auth/horora-directory-nexus.server.ts"),
+      "utf8"
+    );
+    expect(server).toContain("?? fetch");
+    expect(server).toContain("HORORA_DIRECTORY_STAGING_PRIVATE_JWK");
+    expect(server).not.toContain("HORORA_STAGING_NEXUS_MODULE_CLIENT_PRIVATE_JWK");
+    expect(server).toContain("HORORA_PRODUCTION_VERCEL_PROJECT_ID");
     expect(client).toContain(HORORA_FORBIDDEN_NEXUS_ADMIN_USERS_PATH);
     const punch = readFileSync(
       join(root, "src/app/lib/employee-punch-status.shared.ts"),
@@ -307,6 +324,16 @@ describe("AuthorizedModuleDirectory local client", () => {
         {
           nexusUserId: "mailbox@example.test",
           authUserId: "auth-2",
+          organizationId: "org_nexus_a",
+        },
+        {
+          nexusUserId: "nuser_pi_titan",
+          authUserId: "info@pi-titan.com",
+          organizationId: "org_nexus_a",
+        },
+        {
+          nexusUserId: "nuser_apex_elite",
+          authUserId: "info@apexelitecredit.com",
           organizationId: "org_nexus_a",
         },
       ]).map((link) => link.nexusUserId)

@@ -9,7 +9,11 @@ import { APP_SESSION_COOKIE_NAME } from "@/app/lib/auth/session-cookie";
 import { getJwtAal } from "@/app/lib/auth/jwt-access-token";
 import { bindEffectiveAppRole } from "@/app/lib/auth/permissions";
 import { NEXUS_BROKERED_SESSION_COOKIE_NAME } from "@/app/lib/auth/nexus-handoff-config";
-import { resolveBrokeredHororaSessionFromCookies } from "@/app/lib/auth/nexus-brokered-session";
+import {
+  resolveBrokeredHororaSessionFromCookies,
+  revokeBrokeredHororaSessionFromCookies,
+} from "@/app/lib/auth/nexus-brokered-session";
+import { inspectLiveDirectorySession } from "@/app/lib/auth/horora-directory-nexus.server";
 import {
   HORORA_LOCAL_FIXTURE_MEMBERSHIP_ID,
   HORORA_LOCAL_NEXUS_FIXTURE_ENV,
@@ -317,6 +321,24 @@ export async function getAuthenticatedRequestUser(req: NextRequest) {
   const { data, error } = await admin.auth.admin.getUserById(resolved.principal.authUserId);
   if (error || !data.user || data.user.id !== resolved.principal.authUserId) {
     return unauthenticatedRequestUser("none");
+  }
+
+  try {
+    const inspection = await inspectLiveDirectorySession({
+      nexusActorId: resolved.principal.nexusActorId,
+      hororaOrganizationId: resolved.principal.organizationId,
+      nexusOrganizationId: resolved.principal.nexusOrganizationId,
+    });
+    if (inspection.action === "revoke") {
+      await revokeBrokeredHororaSessionFromCookies({
+        get(name: string) {
+          return req.cookies.get(name)?.value;
+        },
+      });
+      return unauthenticatedRequestUser("cookie");
+    }
+  } catch {
+    // A directory outage is not a revocation.
   }
 
   bindEffectiveAppRole(data.user, resolved.principal.role);

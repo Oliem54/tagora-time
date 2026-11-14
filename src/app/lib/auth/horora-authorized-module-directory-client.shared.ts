@@ -1,12 +1,11 @@
 /**
- * Local client for the future Nexus AuthorizedModuleDirectory read.
- * The remote call stays held. This module does not fetch, does not read
- * Nexus admin cookies, and does not call /api/nexus/admin/users.
+ * Query planning for AuthorizedModuleDirectory.
+ * The signed Nexus call lives in the server module. This file does not fetch,
+ * does not read a private key, and does not call /api/nexus/admin/users.
  */
 
 import {
   HORORA_AUTHORIZED_DIRECTORY_TECHNICAL_KEY,
-  HORORA_DIRECTORY_REVOCATION_ENFORCED_ON_EXISTING_USERS,
   isCanonicalNexusUserId,
   type AuthorizedModuleDirectory,
   type AuthorizedModuleDirectoryEntry,
@@ -22,6 +21,12 @@ export const HORORA_FORBIDDEN_NEXUS_ADMIN_USERS_PATH =
 
 export const HORORA_DIRECTORY_SERVICE_AUTHENTICATION = "private_key_jwt" as const;
 export const HORORA_DIRECTORY_SERVICE_ALGORITHM = "ES256" as const;
+export const HORORA_DIRECTORY_CLIENT_ID = "svc_horora_directory" as const;
+export const HORORA_DIRECTORY_AUDIENCE = "tagora:time:directory" as const;
+export const HORORA_DIRECTORY_ASSERTION_TTL_SECONDS = 60 as const;
+/** Private JWK for the staging directory client. Never the Nexus handoff key. */
+export const HORORA_DIRECTORY_STAGING_PRIVATE_JWK_ENV =
+  "HORORA_DIRECTORY_STAGING_PRIVATE_JWK" as const;
 
 export type HororaDirectoryServiceStatus =
   | "service_uncertified"
@@ -178,8 +183,8 @@ export async function readAuthorizedModuleDirectory(input: {
     }
 > {
   const held = {
-    revocationEnforced: HORORA_DIRECTORY_REVOCATION_ENFORCED_ON_EXISTING_USERS,
-  } as const;
+    revocationEnforced: false as const,
+  };
   const plan = planAuthorizedDirectoryRequest(input.query);
   if (!plan.ok) {
     return { ok: false, status: "query_rejected", directory: null, ...held };

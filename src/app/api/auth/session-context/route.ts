@@ -5,12 +5,28 @@ import { readReliableHororaSessionDisplay } from "@/app/lib/auth/horora-session-
 
 export const dynamic = "force-dynamic";
 
+let consolidatedProof: Promise<void> | null = null;
+
 /**
  * Returns organization authorization context for AuthGate.
  * Serving session is accepted only from a verified Nexus handoff.
+ * A preview-only flag records the consolidated directory proof in server logs.
  */
 export async function GET(req: NextRequest) {
   try {
+    if (process.env.HORORA_DIRECTORY_CONSOLIDATED_PROOF === "1" && !consolidatedProof) {
+      consolidatedProof = import("@/app/lib/auth/horora-directory-nexus.server")
+        .then(({ runConsolidatedDirectoryProof }) => runConsolidatedDirectoryProof())
+        .then((proof) => {
+          console.log(`HORORA_DIRECTORY_PROOF ${JSON.stringify(proof)}`);
+        })
+        .catch(() => {
+          console.log(
+            'HORORA_DIRECTORY_PROOF {"signedRequestSent":false,"failureDependency":"PROOF_FAILED"}'
+          );
+        });
+    }
+    if (consolidatedProof) await consolidatedProof;
     const authenticated = await getAuthenticatedRequestUser(req);
     const { user, sessionSource } = authenticated;
     if (

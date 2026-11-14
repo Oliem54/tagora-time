@@ -3,7 +3,6 @@ import { getAuthenticatedRequestUser } from "@/app/lib/account-requests.server";
 import {
   acceptCanonicalIdentityLinks,
   authorizeHororaDirectoryReader,
-  readAuthorizedModuleDirectory,
   resolveAuthorizedDirectoryQuery,
   type HororaDirectoryServiceStatus,
 } from "@/app/lib/auth/horora-authorized-module-directory-client.shared";
@@ -19,6 +18,7 @@ import {
   type HororaPreservedEmployeeDossier,
   type HororaPreservedMembership,
 } from "@/app/lib/auth/horora-authorized-module-directory.shared";
+import { readLiveAuthorizedModuleDirectory } from "@/app/lib/auth/horora-directory-nexus.server";
 import { isProcessLocalNexusFixtureEnabled } from "@/app/lib/auth/horora-local-nexus-fixture";
 import { normalizePermissionList } from "@/app/lib/auth/permissions";
 import { isOrganizationMembershipRole } from "@/app/lib/saas/tenant-foundation.shared";
@@ -47,7 +47,7 @@ function serviceMessage(status: HororaDirectoryServiceStatus): string {
     return "Filtre tenant, organisation ou module incomplet. Aucune lecture distante n'est envoyée.";
   }
   if (status === "ready") {
-    return "Annuaire lu localement pour ce tenant, cette organisation et tagora_time.";
+    return "Annuaire Nexus lu pour ce tenant, cette organisation et tagora_time. Une absence reste ABSENT. Une révocation ou une suspension révoque la session. Une indisponibilité n'est pas une révocation.";
   }
   return HORORA_AUTHORIZED_DIRECTORY_BLOCKER;
 }
@@ -55,7 +55,7 @@ function serviceMessage(status: HororaDirectoryServiceStatus): string {
 /**
  * Read-only preparation view.
  * Does not write dossiers, memberships, auth metadata, or Nexus tables.
- * The directory transport stays held until the Nexus contract is certified.
+ * Live on the isolated Staging preview. Production stays unread.
  */
 export async function GET(req: NextRequest) {
   try {
@@ -175,7 +175,7 @@ export async function GET(req: NextRequest) {
         serviceStatus = "query_rejected";
       } else {
         scope = resolved.query;
-        const read = await readAuthorizedModuleDirectory({ query: resolved.query });
+        const read = await readLiveAuthorizedModuleDirectory({ query: resolved.query });
         serviceStatus = read.status;
         if (read.ok) directory = read.directory;
         const identityResult = await supabase
@@ -216,7 +216,7 @@ export async function GET(req: NextRequest) {
       directoryConnected: view.directoryConnected,
       serviceStatus,
       serviceMessage: serviceMessage(serviceStatus),
-      revocationEnforced: false,
+      revocationEnforced: serviceStatus === "ready",
       refreshIntervalMs: HORORA_DIRECTORY_REFRESH_MS,
       persisted: false,
       productionUnchanged: true,

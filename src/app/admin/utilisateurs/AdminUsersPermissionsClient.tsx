@@ -35,6 +35,7 @@ export default function AdminUsersPermissionsClient() {
   const [loading, setLoading] = useState(true);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [scope, setScope] = useState<HororaDirectoryScope | null>(null);
+  const [serviceStatus, setServiceStatus] = useState<string | null>(null);
   const [page, setPage] = useState(1);
   const [refreshToken, setRefreshToken] = useState(0);
 
@@ -57,6 +58,7 @@ export default function AdminUsersPermissionsClient() {
         const nextRows = Array.isArray(json.rows) ? json.rows : [];
         setRows(nextRows);
         setScope(json.scope ?? null);
+        setServiceStatus(typeof json.serviceStatus === "string" ? json.serviceStatus : null);
         setError(null);
         const message =
           typeof json.serviceMessage === "string"
@@ -204,7 +206,9 @@ export default function AdminUsersPermissionsClient() {
               </button>
             </div>
 
-            {selected ? <PermissionPreview row={selected} scope={scope} /> : null}
+            {selected ? (
+              <PermissionPreview row={selected} scope={scope} serviceStatus={serviceStatus} />
+            ) : null}
           </div>
         )}
       </div>
@@ -212,20 +216,27 @@ export default function AdminUsersPermissionsClient() {
   );
 }
 
-function directoryStatusLabel(status: HororaDirectoryUserRow["directoryStatus"]) {
+function directoryStatusLabel(
+  status: HororaDirectoryUserRow["directoryStatus"],
+  serviceStatus: string | null
+) {
   if (status === "ACTIVE") return "autorisé dans Nexus";
   if (status === "PENDING") return "en attente dans Nexus";
   if (status === "SUSPENDED") return "suspendu dans Nexus";
   if (status === "REVOKED") return "révoqué dans Nexus";
+  if (serviceStatus === "service_unavailable") return "service Nexus indisponible";
+  if (serviceStatus === "ready") return "absent de l'annuaire Nexus";
   return "annuaire Nexus non branché";
 }
 
 function PermissionPreview({
   row,
   scope,
+  serviceStatus,
 }: {
   row: HororaDirectoryUserRow;
   scope: HororaDirectoryScope | null;
+  serviceStatus: string | null;
 }) {
   return (
     <section className="tagora-panel" style={{ padding: 16, borderRadius: 14 }}>
@@ -236,10 +247,14 @@ function PermissionPreview({
         {row.nexusUserId ?? "identité Nexus absente"} · organisation{" "}
         {scope?.organizationId ?? "non résolue"} · tenant {scope?.tenantId ?? "non résolu"} ·
         rôle {row.nexusRoleKey ?? row.membershipRole ?? "absent"} ·{" "}
-        {directoryStatusLabel(row.directoryStatus)}.
+        {directoryStatusLabel(row.directoryStatus, serviceStatus)}.
         {row.directoryStatus === "ABSENT"
           ? " Une absence d'annuaire reste ABSENT et n'est pas une révocation."
           : ""}
+        {serviceStatus === "service_unavailable"
+          ? " L'indisponibilité du service n'est pas une révocation."
+          : ""}
+        {row.revocationEnforced ? " La session HORORA est révoquée." : ""}
       </p>
       <div className="ui-stack-xs">
         {row.sections.map((section) => (

@@ -216,12 +216,13 @@ describe("AuthorizedModuleDirectory adaptation", () => {
     );
   });
 
-  it("prepares server revocation without treating a missing directory row as a revoke", () => {
+  it("revokes a session for REVOKED and SUSPENDED without treating absence as revocation", () => {
     expect(evaluateHororaNexusAccessRevocation("REVOKED")).toMatchObject({
       moduleEntryAllowed: false,
       reason: "directory_revoked",
-      wiredToHandoff: false,
-      mutatesPunchSession: false,
+      wiredToHandoff: true,
+      revocationEnforced: true,
+      mutatesPunchSession: true,
       mutatesGps: false,
       mutatesNexusIdentityMap: false,
       mutatesMembership: false,
@@ -274,6 +275,8 @@ describe("AuthorizedModuleDirectory adaptation", () => {
     expect(view.rows[0].dossierId).toBe(4);
     expect(view.rows[0].membershipId).toBe("mem-revoked");
     expect(view.rows[0].moduleEntryAllowed).toBe(false);
+    expect(view.rows[0].revocationEnforced).toBe(true);
+    expect(view.rows[0].revocationWiredToHandoff).toBe(true);
     expect(view.rows[0].sections.find((section) => section.id === "pointage")?.checked).toBe(
       true
     );
@@ -321,6 +324,134 @@ describe("AuthorizedModuleDirectory adaptation", () => {
     ).toEqual([1, 2]);
     expect(view.rows.find((row) => row.nexusUserId === "nuser_time_user")?.dossierId).toBeNull();
     expect(view.rows.find((row) => row.nexusUserId === "other-module")).toBeUndefined();
+  });
+
+  it("keeps info@pi-titan.com and info@apexelitecredit.com unlinked", () => {
+    const piEmail = "info@pi-titan.com";
+    const apexEmail = "info@apexelitecredit.com";
+    const view = adaptAuthorizedModuleDirectory({
+      directory: {
+        technicalKey: "tagora_time",
+        connected: true,
+        entries: [
+          directoryEntry({
+            userId: "nuser_pi_titan",
+            displayName: "PI Titan",
+            contactEmail: piEmail,
+            organizationId: "org_pi_titan",
+            tenantId: "tenant_pi_titan",
+          }),
+          directoryEntry({
+            userId: "nuser_apex_elite",
+            displayName: "Apex Elite Credit",
+            contactEmail: apexEmail,
+            organizationId: "org_apex_elite",
+            tenantId: "tenant_apex_elite",
+          }),
+        ],
+      },
+      dossiers: [
+        dossier({
+          dossierId: 11,
+          displayName: "PI Titan",
+          contactEmail: piEmail,
+          authUserId: "auth-pi-titan",
+        }),
+        dossier({
+          dossierId: 22,
+          displayName: "Apex Elite Credit",
+          contactEmail: apexEmail,
+          authUserId: "auth-apex-elite",
+        }),
+      ],
+      memberships: [
+        membership({
+          membershipId: "mem-pi",
+          authUserId: "auth-pi-titan",
+          role: "employe",
+        }),
+        membership({
+          membershipId: "mem-apex",
+          authUserId: "auth-apex-elite",
+          role: "organization_admin",
+        }),
+      ],
+    });
+
+    expect(view.rows).toHaveLength(4);
+    expect(view.rows.find((row) => row.nexusUserId === "nuser_pi_titan")).toMatchObject({
+      dossierId: null,
+      contactEmail: piEmail,
+      membershipId: null,
+    });
+    expect(view.rows.find((row) => row.nexusUserId === "nuser_apex_elite")).toMatchObject({
+      dossierId: null,
+      contactEmail: apexEmail,
+      membershipId: null,
+    });
+    expect(view.rows.find((row) => row.dossierId === 11)).toMatchObject({
+      nexusUserId: null,
+      contactEmail: piEmail,
+      membershipId: "mem-pi",
+    });
+    expect(view.rows.find((row) => row.dossierId === 22)).toMatchObject({
+      nexusUserId: null,
+      contactEmail: apexEmail,
+      membershipId: "mem-apex",
+    });
+
+    const scoped = adaptAuthorizedModuleDirectory({
+      directory: {
+        technicalKey: "tagora_time",
+        connected: true,
+        entries: [
+          directoryEntry({
+            userId: "nuser_pi_titan",
+            displayName: "PI Titan",
+            contactEmail: piEmail,
+            organizationId: "org_pi_titan",
+            tenantId: "tenant_pi_titan",
+          }),
+          directoryEntry({
+            userId: "nuser_apex_elite",
+            displayName: "Apex Elite Credit",
+            contactEmail: apexEmail,
+            organizationId: "org_apex_elite",
+            tenantId: "tenant_apex_elite",
+          }),
+        ],
+      },
+      dossiers: [
+        dossier({
+          dossierId: 11,
+          displayName: "PI Titan",
+          contactEmail: piEmail,
+          authUserId: "auth-pi-titan",
+        }),
+      ],
+      memberships: [
+        membership({
+          membershipId: "mem-pi",
+          authUserId: "auth-pi-titan",
+          role: "employe",
+        }),
+      ],
+      canonicalLinks: [
+        {
+          nexusUserId: "nuser_apex_elite",
+          authUserId: "auth-pi-titan",
+          organizationId: "org_pi_titan",
+        },
+      ],
+      scope: {
+        tenantId: "tenant_pi_titan",
+        organizationId: "org_pi_titan",
+        moduleKey: "tagora_time",
+      },
+    });
+    expect(scoped.rows.some((row) => row.contactEmail === apexEmail)).toBe(false);
+    expect(scoped.rows.some((row) => row.nexusUserId === "nuser_apex_elite")).toBe(false);
+    expect(scoped.rows.find((row) => row.dossierId === 11)?.nexusUserId).toBeNull();
   });
 
   it("stays out of punch, GPS, session, and Nexus mapping files", () => {
