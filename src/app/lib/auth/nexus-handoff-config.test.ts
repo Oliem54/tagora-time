@@ -98,6 +98,15 @@ describe("HORORA Nexus handoff config", () => {
     expect(publicNexusCallbackDenyReason("expired_token")).toBe("handoff_expired");
     expect(publicNexusCallbackDenyReason("missing_token")).toBe("handoff_missing");
     expect(publicNexusCallbackDenyReason("handoff_missing")).toBe("handoff_missing");
+    expect(publicNexusCallbackDenyReason("invalid_code")).toBe("handoff_missing");
+    expect(publicNexusCallbackDenyReason("assertion_missing")).toBe("handoff_missing");
+    expect(publicNexusCallbackDenyReason("EXCHANGE_CODE_REQUIRED")).toBe("handoff_missing");
+    expect(publicNexusCallbackDenyReason("JTI_UNKNOWN")).toBe("handoff_missing");
+    expect(publicNexusCallbackDenyReason("JTI_EXPIRED")).toBe("handoff_expired");
+    expect(publicNexusCallbackDenyReason("JTI_REPLAYED")).toBe("replay");
+    expect(publicNexusCallbackDenyReason("WRONG_TENANT")).toBe("cross_tenant");
+    expect(publicNexusCallbackDenyReason("WRONG_ORGANIZATION")).toBe("cross_tenant");
+    expect(publicNexusCallbackDenyReason("exchange_rejected")).toBe("handoff_refused");
     expect(publicNexusCallbackDenyReason("handoff_refused")).toBe("handoff_refused");
     expect(publicNexusCallbackDenyReason("mapping_unavailable")).toBe("mapping_unavailable");
     expect(publicNexusCallbackDenyReason("replay")).toBe("replay");
