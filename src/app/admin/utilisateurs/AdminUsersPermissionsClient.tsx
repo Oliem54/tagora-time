@@ -13,6 +13,12 @@ import {
   type HororaDirectoryUserRow,
   type HororaPermissionSectionState,
 } from "@/app/lib/auth/horora-authorized-module-directory.shared";
+import {
+  HORORA_CANONICAL_PERMISSION_DOMAINS,
+  HORORA_ROLE_AUTHORITY,
+  type HororaPremiumDashboard,
+  type HororaRoleAuditEntry,
+} from "@/app/lib/auth/horora-premium-user-central.shared";
 
 type DirectoryResponse = {
   success?: boolean;
@@ -21,6 +27,8 @@ type DirectoryResponse = {
   serviceStatus?: string;
   scope?: HororaDirectoryScope | null;
   rows?: HororaDirectoryUserRow[];
+  premium?: HororaPremiumDashboard;
+  roleAudit?: HororaRoleAuditEntry[] | null;
   error?: string;
 };
 
@@ -38,6 +46,10 @@ export default function AdminUsersPermissionsClient() {
   const [serviceStatus, setServiceStatus] = useState<string | null>(null);
   const [page, setPage] = useState(1);
   const [refreshToken, setRefreshToken] = useState(0);
+  const [premium, setPremium] = useState<HororaPremiumDashboard | null>(null);
+  const [roleAudit, setRoleAudit] = useState<HororaRoleAuditEntry[] | null>(null);
+  const [query, setQuery] = useState("");
+  const [actionMessage, setActionMessage] = useState<string | null>(null);
 
   useEffect(() => {
     const ac = new AbortController();
@@ -57,6 +69,8 @@ export default function AdminUsersPermissionsClient() {
         }
         const nextRows = Array.isArray(json.rows) ? json.rows : [];
         setRows(nextRows);
+        setPremium(json.premium ?? null);
+        setRoleAudit(json.roleAudit === null ? null : (json.roleAudit ?? []));
         setScope(json.scope ?? null);
         setServiceStatus(typeof json.serviceStatus === "string" ? json.serviceStatus : null);
         setError(null);
@@ -96,7 +110,16 @@ export default function AdminUsersPermissionsClient() {
     };
   }, [refreshToken]);
 
-  const paged = pageDirectoryRows(rows, page);
+  const visibleRows = rows.filter((row) => {
+    const needle = query.trim().toLowerCase();
+    if (!needle) return true;
+    return (
+      row.displayName.toLowerCase().includes(needle) ||
+      (row.membershipRole ?? "").includes(needle) ||
+      (row.nexusUserId ?? "").toLowerCase().includes(needle)
+    );
+  });
+  const paged = pageDirectoryRows(visibleRows, page);
   const selected = rows.find((row) => row.key === selectedKey) ?? null;
 
   return (
@@ -104,7 +127,7 @@ export default function AdminUsersPermissionsClient() {
       workspace="admin"
       active="utilisateurs"
       title="Utilisateurs et permissions"
-      subtitle="Préparation locale. Les dossiers et memberships existants restent en place. Aucune case n'est enregistrée."
+      subtitle="Console locale. Les rôles et permissions HORORA déjà enregistrés restent la seule autorité."
     >
       <div className="ui-stack-md">
         <p className="tagora-note" style={{ margin: 0, lineHeight: 1.55 }}>
@@ -128,12 +151,28 @@ export default function AdminUsersPermissionsClient() {
           </p>
         ) : null}
 
+        <PremiumDashboard
+          premium={premium}
+          serviceStatus={serviceStatus}
+          roleAudit={roleAudit}
+        />
+
         <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
           <p className="tagora-note" style={{ margin: 0 }}>
             {scope
               ? `Organisation ${scope.organizationId} · tenant ${scope.tenantId} · ${scope.moduleKey}`
               : "Organisation non résolue. Aucune lecture hors filtre."}
           </p>
+          <input
+            value={query}
+            onChange={(event) => {
+              setQuery(event.target.value);
+              setPage(1);
+            }}
+            placeholder="Rechercher un nom, un rôle ou une identité"
+            aria-label="Rechercher"
+            style={{ border: "1px solid #cbd5e1", borderRadius: 8, padding: "6px 10px", minWidth: 240 }}
+          />
           <button
             type="button"
             onClick={() => {
@@ -153,9 +192,11 @@ export default function AdminUsersPermissionsClient() {
         ) : (
           <div className="ui-stack-md">
             <div className="tagora-panel-muted" style={{ padding: 8, borderRadius: 14 }}>
-              {rows.length === 0 ? (
+              {visibleRows.length === 0 ? (
                 <p className="tagora-note" style={{ margin: 8 }}>
-                  Aucun dossier employé local.
+                  {rows.length === 0
+                    ? "Aucun dossier employé local."
+                    : "Aucun dossier ne correspond à cette recherche."}
                 </p>
               ) : (
                 paged.rows.map((row) => (
@@ -207,12 +248,85 @@ export default function AdminUsersPermissionsClient() {
             </div>
 
             {selected ? (
-              <PermissionPreview row={selected} scope={scope} serviceStatus={serviceStatus} />
+              <PermissionPreview
+                key={selected.key}
+                row={selected}
+                scope={scope}
+                serviceStatus={serviceStatus}
+                actionMessage={actionMessage}
+                onAssigned={(message, persisted) => {
+                  setActionMessage(message);
+                  if (!persisted) return;
+                  setLoading(true);
+                  setRefreshToken((current) => current + 1);
+                }}
+              />
             ) : null}
           </div>
         )}
       </div>
     </HororaAppShell>
+  );
+}
+
+function PremiumDashboard({
+  premium,
+  serviceStatus,
+  roleAudit,
+}: {
+  premium: HororaPremiumDashboard | null;
+  serviceStatus: string | null;
+  roleAudit: HororaRoleAuditEntry[] | null;
+}) {
+  const counts = premium?.roleCounts;
+  return (
+    <section className="tagora-panel" style={{ padding: 16, borderRadius: 14 }}>
+      <h2 className="section-title" style={{ marginTop: 0 }}>
+        Tableau de bord
+      </h2>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 10 }}>
+        <Metric label="Appartenances actives" value={premium?.activeMemberships ?? "—"} />
+        <Metric label="Suspendues" value={premium?.suspendedMemberships ?? "—"} />
+        <Metric label="Invitées" value={premium?.invitedMemberships ?? "—"} />
+        <Metric label="Invitations en attente" value={premium?.pendingInvitations ?? "—"} />
+      </div>
+      <p className="tagora-note" style={{ marginBottom: 0 }}>
+        Répartition active : propriétaire {counts?.organization_owner ?? "—"}, administration
+        d&apos;organisation {counts?.organization_admin ?? "—"}, direction {counts?.direction ?? "—"},
+        employé {counts?.employe ?? "—"}. Une seule organisation est dans le périmètre de cette
+        session. Aucune structure d&apos;équipe n&apos;existe encore. Connexion NEXUS :{" "}
+        {serviceStatus ?? "non lue"}, en lecture seule. Employé et Direction s&apos;attribuent par
+        la fonction auditée déjà préparée. La suspension, les rôles système et les cases de
+        permission ne sont pas enregistrés depuis cet écran.
+      </p>
+      <p className="tagora-note" style={{ marginBottom: 0 }}>
+        Activité des rôles :{" "}
+        {roleAudit === null
+          ? "journal indisponible."
+          : roleAudit.length === 0
+            ? "aucune entrée récente pour cette organisation."
+            : roleAudit
+                .map((entry) => `${entry.oldRole} → ${entry.newRole}`)
+                .join(" · ")}
+      </p>
+      <p className="tagora-note" style={{ marginBottom: 0 }}>
+        Domaines canoniques : {HORORA_CANONICAL_PERMISSION_DOMAINS.join(", ")}. Les rôles système{" "}
+        {Object.entries(HORORA_ROLE_AUTHORITY)
+          .filter(([, authority]) => authority.system)
+          .map(([role]) => role)
+          .join(" et ")}{" "}
+        restent protégés. L&apos;étiquette d&apos;écran admin ne crée aucune permission.
+      </p>
+    </section>
+  );
+}
+
+function Metric({ label, value }: { label: string; value: number | string }) {
+  return (
+    <div className="tagora-panel-muted" style={{ padding: 10, borderRadius: 10 }}>
+      <div className="tagora-note" style={{ margin: 0 }}>{label}</div>
+      <strong>{value}</strong>
+    </div>
   );
 }
 
@@ -233,11 +347,57 @@ function PermissionPreview({
   row,
   scope,
   serviceStatus,
+  actionMessage,
+  onAssigned,
 }: {
   row: HororaDirectoryUserRow;
   scope: HororaDirectoryScope | null;
   serviceStatus: string | null;
+  actionMessage: string | null;
+  onAssigned: (message: string, persisted: boolean) => void;
 }) {
+  const [nextRole, setNextRole] = useState<"employe" | "direction">(
+    row.membershipRole === "direction" ? "direction" : "employe"
+  );
+  const [saving, setSaving] = useState(false);
+  const mutable =
+    row.membershipId !== null &&
+    !row.membershipAmbiguous &&
+    (row.membershipRole === "employe" || row.membershipRole === "direction");
+
+  async function assignRole() {
+    if (!row.membershipId) return;
+    setSaving(true);
+    try {
+      const res = await fetch(
+        "/api/admin/utilisateurs/membership",
+        hororaNexusSessionRequestInit({
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ membershipId: row.membershipId, nextRole }),
+        })
+      );
+      const json = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        success?: boolean;
+        rolePersisted?: boolean;
+      };
+      const persisted = res.ok && json.success === true && json.rolePersisted === true;
+      onAssigned(
+        typeof json.error === "string"
+          ? json.error
+          : persisted
+            ? "Rôle enregistré et audité."
+            : "Le rôle n'a pas été changé.",
+        persisted
+      );
+    } catch {
+      onAssigned("Le rôle n'a pas été changé.", false);
+    } finally {
+      setSaving(false);
+    }
+  }
+
   return (
     <section className="tagora-panel" style={{ padding: 16, borderRadius: 14 }}>
       <h2 className="section-title" style={{ marginTop: 0 }}>
@@ -255,6 +415,37 @@ function PermissionPreview({
           ? " L'indisponibilité du service n'est pas une révocation."
           : ""}
         {row.revocationEnforced ? " La session HORORA est révoquée." : ""}
+      </p>
+      <p className="tagora-note">
+        Rôle local : {row.membershipRole ?? "absent"} · statut {row.membershipStatus ?? "absent"} ·
+        écran {row.portalRole ?? "absent"}. L&apos;écran admin n&apos;accorde aucune permission.
+      </p>
+      {mutable ? (
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          <select
+            aria-label="Rôle local"
+            value={nextRole}
+            onChange={(event) =>
+              setNextRole(event.target.value === "direction" ? "direction" : "employe")
+            }
+          >
+            <option value="employe">Employé</option>
+            <option value="direction">Direction</option>
+          </select>
+          <button type="button" disabled={saving} onClick={() => void assignRole()}>
+            Enregistrer le rôle
+          </button>
+        </div>
+      ) : (
+        <p className="tagora-note">
+          Ce rôle système n&apos;est pas modifiable ici. La suspension et la révocation locales
+          n&apos;ont pas d&apos;écrivain audité.
+        </p>
+      )}
+      {actionMessage ? <p className="tagora-note">{actionMessage}</p> : null}
+      <p className="tagora-note">
+        Matrice des six domaines. Une case cochée décrit la lecture actuelle. Elle n&apos;est pas
+        une permission enregistrée par cet écran.
       </p>
       <div className="ui-stack-xs">
         {row.sections.map((section) => (

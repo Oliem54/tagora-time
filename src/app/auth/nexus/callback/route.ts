@@ -3,8 +3,6 @@ import { handleNexusCallback } from "@/app/lib/auth/nexus-callback-route.server"
 
 export const runtime = "nodejs";
 
-export { handleNexusCallback };
-
 export async function GET(request: Request): Promise<Response> {
   return handleNexusCallback(request);
 }

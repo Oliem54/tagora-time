@@ -20,6 +20,10 @@ import {
 } from "@/app/lib/auth/horora-authorized-module-directory.shared";
 import { readLiveAuthorizedModuleDirectory } from "@/app/lib/auth/horora-directory-nexus.server";
 import { isProcessLocalNexusFixtureEnabled } from "@/app/lib/auth/horora-local-nexus-fixture";
+import {
+  summarizeHororaMemberships,
+  type HororaRoleAuditEntry,
+} from "@/app/lib/auth/horora-premium-user-central.shared";
 import { normalizePermissionList } from "@/app/lib/auth/permissions";
 import { isOrganizationMembershipRole } from "@/app/lib/saas/tenant-foundation.shared";
 import { createAdminSupabaseClient } from "@/app/lib/supabase/admin";
@@ -79,6 +83,8 @@ export async function GET(req: NextRequest) {
         scope: fixture.scope,
         blocker: fixture.view.blocker,
         rows: fixture.view.rows,
+        premium: summarizeHororaMemberships([], null),
+        roleAudit: [] as HororaRoleAuditEntry[],
       });
     }
     if (!authenticated.organizationId) {
@@ -198,6 +204,48 @@ export async function GET(req: NextRequest) {
       canonicalLinks = [];
     }
 
+    let pendingInvitations: number | null = null;
+    const invitationResult = await supabase
+      .from("organization_invitations")
+      .select("status")
+      .eq("organization_id", authenticated.organizationId);
+    if (!invitationResult.error) {
+      pendingInvitations = (invitationResult.data ?? []).filter(
+        (row) => row.status === "pending"
+      ).length;
+    }
+
+    const premium = summarizeHororaMemberships(
+      memberships.map((membership) => ({
+        id: membership.membershipId,
+        role: membership.role,
+        status: membership.status,
+      })),
+      pendingInvitations
+    );
+
+    let roleAudit: HororaRoleAuditEntry[] | null = [];
+    const auditUserIds = Array.from(new Set(memberships.map((membership) => membership.authUserId)));
+    if (auditUserIds.length > 0) {
+      const auditResult = await supabase
+        .from("user_role_audit_logs")
+        .select("id, old_role, new_role, reason, created_at")
+        .in("target_user_id", auditUserIds)
+        .order("created_at", { ascending: false })
+        .limit(8);
+      if (auditResult.error) {
+        roleAudit = null;
+      } else {
+        roleAudit = (auditResult.data ?? []).map((row) => ({
+          id: String(row.id),
+          oldRole: String(row.old_role ?? ""),
+          newRole: String(row.new_role ?? ""),
+          reason: typeof row.reason === "string" && row.reason.trim() ? row.reason.trim() : null,
+          createdAt: String(row.created_at ?? ""),
+        }));
+      }
+    }
+
     const view = adaptAuthorizedModuleDirectory({
       directory: directory ?? {
         technicalKey: HORORA_AUTHORIZED_DIRECTORY_TECHNICAL_KEY,
@@ -224,6 +272,8 @@ export async function GET(req: NextRequest) {
       scope,
       blocker: view.blocker,
       rows: view.rows,
+      premium,
+      roleAudit,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Chargement impossible.";
