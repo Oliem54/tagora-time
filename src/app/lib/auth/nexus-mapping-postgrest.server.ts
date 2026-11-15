@@ -20,7 +20,49 @@ export type MappingHttpStatusLog = {
   stage: "identity_mapping";
   error_kind: MappingErrorKind;
   http_status?: string;
+  postgrest_code?: string;
+  actor_id_present?: "yes" | "no";
+  actor_id_empty?: "yes" | "no";
+  actor_id_format?: "valid" | "invalid";
+  actor_id_origin?: "server_claim";
 };
+
+const NEXUS_ACTOR_ID_MAX_LENGTH = 128;
+const POSTGREST_SQLSTATE = /^[0-9A-Z]{5}$/;
+
+export function readPostgrestSqlState(bodyText: string): string | undefined {
+  const trimmed = bodyText.trim();
+  if (!trimmed || trimmed.startsWith("<")) return undefined;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(trimmed);
+  } catch {
+    return undefined;
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return undefined;
+  const code = (parsed as { code?: unknown }).code;
+  if (typeof code !== "string" || !POSTGREST_SQLSTATE.test(code)) return undefined;
+  return code;
+}
+
+export function diagnoseNexusActorIdFilter(value: unknown): Pick<
+  MappingHttpStatusLog,
+  "actor_id_present" | "actor_id_empty" | "actor_id_format" | "actor_id_origin"
+> {
+  const present = typeof value === "string";
+  const trimmed = present ? value.trim() : "";
+  const formatValid =
+    present &&
+    trimmed.length >= 1 &&
+    trimmed.length <= NEXUS_ACTOR_ID_MAX_LENGTH &&
+    !trimmed.includes("@");
+  return {
+    actor_id_present: present ? "yes" : "no",
+    actor_id_empty: trimmed.length === 0 ? "yes" : "no",
+    actor_id_format: formatValid ? "valid" : "invalid",
+    actor_id_origin: "server_claim",
+  };
+}
 
 export function createNexusMappingLookups(
   env: NodeJS.ProcessEnv = process.env,
@@ -57,14 +99,18 @@ export function createNexusMappingLookups(
     }
   }
 
-  async function selectRows<T>(table: string, query: Record<string, string>): Promise<T[]> {
+  async function selectRows<T>(
+    table: string,
+    query: Record<string, string>,
+    actorFilter?: ReturnType<typeof diagnoseNexusActorIdFilter>
+  ): Promise<T[]> {
     const url = new URL(`/rest/v1/${table}`, supabaseUrl);
     for (const [name, value] of Object.entries(query)) {
       url.searchParams.set(name, value);
     }
     const response = await send(url, "GET", headers);
     if (!isHttpOk(response.status)) {
-      throw reportHttpFailure(response.status, logHttpStatus);
+      throw reportHttpFailure(response.status, logHttpStatus, response.bodyText, actorFilter);
     }
     return parseJsonArray<T>(response.bodyText, response.status);
   }
@@ -82,16 +128,21 @@ export function createNexusMappingLookups(
     if (response.status === 409 || response.bodyText.includes("23505")) {
       return { duplicate: true };
     }
-    throw reportHttpFailure(response.status, logHttpStatus);
+    throw reportHttpFailure(response.status, logHttpStatus, response.bodyText);
   }
 
   return {
     async findIdentityMaps(nexusActorId) {
-      return selectRows<NexusIdentityMapRow>("horora_nexus_identity_map", {
-        select: "nexus_actor_id,auth_user_id,disabled_at",
-        nexus_actor_id: `eq.${nexusActorId}`,
-        disabled_at: "is.null",
-      });
+      const actorValue = typeof nexusActorId === "string" ? nexusActorId : "";
+      return selectRows<NexusIdentityMapRow>(
+        "horora_nexus_identity_map",
+        {
+          select: "nexus_actor_id,auth_user_id,disabled_at",
+          nexus_actor_id: `eq.${actorValue}`,
+          disabled_at: "is.null",
+        },
+        diagnoseNexusActorIdFilter(nexusActorId)
+      );
     },
     async authUserExists(authUserId) {
       const url = new URL(`/auth/v1/admin/users/${encodeURIComponent(authUserId)}`, supabaseUrl);
@@ -141,17 +192,27 @@ export function createNexusMappingLookups(
 
 function reportHttpFailure(
   status: number,
-  logHttpStatus?: (fields: MappingHttpStatusLog) => void
+  logHttpStatus?: (fields: MappingHttpStatusLog) => void,
+  bodyText?: string,
+  actorFilter?: ReturnType<typeof diagnoseNexusActorIdFilter>
 ): Error {
   const failure = mappingHttpStatusError(status);
-  reportMappingFailure(failure.errorKind, failure.httpStatus, logHttpStatus);
+  reportMappingFailure(
+    failure.errorKind,
+    failure.httpStatus,
+    logHttpStatus,
+    bodyText,
+    actorFilter
+  );
   return failure;
 }
 
 function reportMappingFailure(
   errorKind: MappingErrorKind,
   httpStatus: string | undefined,
-  logHttpStatus?: (fields: MappingHttpStatusLog) => void
+  logHttpStatus?: (fields: MappingHttpStatusLog) => void,
+  bodyText?: string,
+  actorFilter?: ReturnType<typeof diagnoseNexusActorIdFilter>
 ): void {
   const fields: MappingHttpStatusLog = {
     stage: "identity_mapping",
@@ -160,6 +221,9 @@ function reportMappingFailure(
   if (httpStatus && /^\d{3}$/.test(httpStatus)) {
     fields.http_status = httpStatus;
   }
+  const postgrestCode = bodyText ? readPostgrestSqlState(bodyText) : undefined;
+  if (postgrestCode) fields.postgrest_code = postgrestCode;
+  if (actorFilter) Object.assign(fields, actorFilter);
   if (logHttpStatus) {
     logHttpStatus(fields);
     return;

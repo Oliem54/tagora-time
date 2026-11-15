@@ -90,7 +90,15 @@ describe("Nexus mapping PostgREST client", () => {
     deny = true;
     await expect(lookups.findIdentityMaps(ACTOR)).rejects.toThrow(/^mapping_http_401$/);
     expect(httpLogs).toEqual([
-      { stage: "identity_mapping", error_kind: "mapping_http_401", http_status: "401" },
+      {
+        stage: "identity_mapping",
+        error_kind: "mapping_http_401",
+        http_status: "401",
+        actor_id_present: "yes",
+        actor_id_empty: "no",
+        actor_id_format: "valid",
+        actor_id_origin: "server_claim",
+      },
     ]);
     expect(JSON.stringify(httpLogs)).not.toMatch(
       /sb_secret_should_not_leak|Forbidden|eyJshould-not-leak/
@@ -212,9 +220,130 @@ describe("Nexus mapping PostgREST client", () => {
     });
     await expect(lookups.findIdentityMaps(ACTOR)).rejects.toThrow(/^mapping_http_error$/);
     expect(logs).toEqual([
-      { stage: "identity_mapping", error_kind: "mapping_http_error", http_status: "500" },
+      {
+        stage: "identity_mapping",
+        error_kind: "mapping_http_error",
+        http_status: "500",
+        actor_id_present: "yes",
+        actor_id_empty: "no",
+        actor_id_format: "valid",
+        actor_id_origin: "server_claim",
+      },
     ]);
     expect(JSON.stringify(logs)).not.toMatch(/sb_secret|eyJshould-not-leak|database unavailable/);
+    expect(JSON.stringify(logs)).not.toContain(ACTOR);
+  });
+
+  it("logs a five-character SQLSTATE and hides the PostgREST message", async () => {
+    const logs: MappingHttpStatusLog[] = [];
+    const dispatch: MappingDispatch = async () => ({
+      status: 400,
+      bodyText: JSON.stringify({
+        code: "42703",
+        message: `column secret ${ACTOR} martin@example.com sb_secret_should_not_leak`,
+        details: ACTOR,
+        hint: "eyJshould-not-leak",
+      }),
+    });
+    const lookups = createNexusMappingLookups(ENV, dispatch, (fields) => {
+      logs.push(fields);
+    });
+    await expect(lookups.findIdentityMaps(ACTOR)).rejects.toThrow(/^mapping_http_error$/);
+    expect(logs[0]?.postgrest_code).toBe("42703");
+    expect(logs[0]?.http_status).toBe("400");
+    expect(logs[0]?.stage).toBe("identity_mapping");
+    const serialized = JSON.stringify(logs);
+    expect(serialized).not.toMatch(/sb_secret|eyJshould-not-leak|martin@example.com|column secret/);
+    expect(serialized).not.toContain(ACTOR);
+  });
+
+  it("ignores a non-SQLSTATE code, HTML, and malformed JSON", async () => {
+    const bodies = [
+      JSON.stringify({ code: "PGRST204", message: `secret ${ACTOR}` }),
+      "<html>sb_secret_should_not_leak martin@example.com</html>",
+      "{not-json sb_secret_should_not_leak",
+    ];
+    for (const bodyText of bodies) {
+      const logs: MappingHttpStatusLog[] = [];
+      const dispatch: MappingDispatch = async () => ({ status: 400, bodyText });
+      const lookups = createNexusMappingLookups(ENV, dispatch, (fields) => {
+        logs.push(fields);
+      });
+      await expect(lookups.findIdentityMaps(ACTOR)).rejects.toThrow(/^mapping_http_error$/);
+      expect(logs[0]?.postgrest_code).toBeUndefined();
+      expect(JSON.stringify(logs)).not.toMatch(/PGRST204|sb_secret|martin@example.com|not-json/);
+      expect(JSON.stringify(logs)).not.toContain(ACTOR);
+    }
+  });
+
+  it("records an empty actor filter without substituting another identity", async () => {
+    let seenUrl = "";
+    const logs: MappingHttpStatusLog[] = [];
+    const dispatch: MappingDispatch = async (input) => {
+      seenUrl = input.url;
+      return {
+        status: 400,
+        bodyText: JSON.stringify({ code: "42703", message: ACTOR }),
+      };
+    };
+    const lookups = createNexusMappingLookups(ENV, dispatch, (fields) => {
+      logs.push(fields);
+    });
+    await expect(lookups.findIdentityMaps("")).rejects.toThrow(/^mapping_http_error$/);
+    expect(seenUrl).toContain("nexus_actor_id=eq.");
+    expect(seenUrl).not.toContain(ACTOR);
+    expect(logs[0]).toMatchObject({
+      postgrest_code: "42703",
+      actor_id_present: "yes",
+      actor_id_empty: "yes",
+      actor_id_format: "invalid",
+      actor_id_origin: "server_claim",
+    });
+    expect(JSON.stringify(logs)).not.toContain(ACTOR);
+  });
+
+  it("records a missing actor id without inventing one", async () => {
+    let seenUrl = "";
+    const logs: MappingHttpStatusLog[] = [];
+    const dispatch: MappingDispatch = async (input) => {
+      seenUrl = input.url;
+      return { status: 400, bodyText: JSON.stringify({ code: "42703" }) };
+    };
+    const lookups = createNexusMappingLookups(ENV, dispatch, (fields) => {
+      logs.push(fields);
+    });
+    await expect(
+      lookups.findIdentityMaps(undefined as unknown as string)
+    ).rejects.toThrow(/^mapping_http_error$/);
+    expect(seenUrl).toContain("nexus_actor_id=eq.");
+    expect(seenUrl).not.toContain("undefined");
+    expect(seenUrl).not.toContain(ACTOR);
+    expect(logs[0]).toMatchObject({
+      actor_id_present: "no",
+      actor_id_empty: "yes",
+      actor_id_format: "invalid",
+      actor_id_origin: "server_claim",
+    });
+  });
+
+  it("does not disclose a present actor id while recording that it is present", async () => {
+    const logs: MappingHttpStatusLog[] = [];
+    const dispatch: MappingDispatch = async () => ({
+      status: 400,
+      bodyText: JSON.stringify({ code: "22P02" }),
+    });
+    const lookups = createNexusMappingLookups(ENV, dispatch, (fields) => {
+      logs.push(fields);
+    });
+    await expect(lookups.findIdentityMaps(ACTOR)).rejects.toThrow(/^mapping_http_error$/);
+    expect(logs[0]).toMatchObject({
+      postgrest_code: "22P02",
+      actor_id_present: "yes",
+      actor_id_empty: "no",
+      actor_id_format: "valid",
+      actor_id_origin: "server_claim",
+    });
+    expect(JSON.stringify(logs)).not.toContain(ACTOR);
   });
 
   it("drops an inbound browser User-Agent and keeps sb_secret on apikey only", () => {
