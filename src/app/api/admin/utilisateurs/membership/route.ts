@@ -54,7 +54,11 @@ function jsonError(status: number, error: string, code: string) {
 export async function POST(req: NextRequest) {
   try {
     if (isProcessLocalNexusFixtureEnabled(req.nextUrl.hostname)) {
-      return jsonError(403, DENIAL_MESSAGE.writer_not_connected, "writer_not_connected");
+      return jsonError(
+        403,
+        "La fixture locale n'écrit aucun rôle. Rien n'a été modifié.",
+        "writer_not_connected"
+      );
     }
 
     const authenticated = await getAuthenticatedRequestUser(req);

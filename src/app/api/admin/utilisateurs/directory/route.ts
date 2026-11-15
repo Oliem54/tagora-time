@@ -83,7 +83,20 @@ export async function GET(req: NextRequest) {
         scope: fixture.scope,
         blocker: fixture.view.blocker,
         rows: fixture.view.rows,
-        premium: summarizeHororaMemberships([], null),
+        premium: summarizeHororaMemberships(
+          fixture.view.rows.flatMap((row) =>
+            row.membershipId && row.membershipRole && row.membershipStatus
+              ? [
+                  {
+                    id: row.membershipId,
+                    role: row.membershipRole,
+                    status: row.membershipStatus,
+                  },
+                ]
+              : []
+          ),
+          null
+        ),
         roleAudit: [] as HororaRoleAuditEntry[],
       });
     }
