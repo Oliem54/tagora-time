@@ -3,6 +3,8 @@ import { getAuthenticatedRequestUser } from "@/app/lib/account-requests.server";
 import { isProcessLocalNexusFixtureEnabled } from "@/app/lib/auth/horora-local-nexus-fixture";
 import {
   decideHororaMembershipChange,
+  describeAuthorityAfterMembershipRoleChange,
+  shouldRevokeTargetHororaSessions,
   type HororaMembershipChangeDenial,
   type HororaMembershipSnapshot,
 } from "@/app/lib/auth/horora-premium-user-central.shared";
@@ -167,17 +169,43 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    const revokeChangedTargetSessions = async () => {
+      if (
+        !shouldRevokeTargetHororaSessions({
+          roleCommitted: true,
+          unchanged: committed.unchanged,
+        })
+      ) {
+        return "not_required" as const;
+      }
+      const revoked = await supabase
+        .from("horora_nexus_sessions")
+        .update({ revoked_at: new Date().toISOString() })
+        .eq("auth_user_id", target.userId)
+        .eq("organization_id", authenticated.organizationId)
+        .is("revoked_at", null);
+      return revoked.error ? ("unavailable" as const) : ("revoked" as const);
+    };
+
     const { data: authData, error: readError } = await supabase.auth.admin.getUserById(target.userId);
     if (readError || !authData.user || authData.user.id !== target.userId) {
-      return NextResponse.json(recordedRoleSecondarySyncPending(nextRole), { status: 409 });
+      const sessionRevocation = await revokeChangedTargetSessions();
+      return NextResponse.json(
+        { ...recordedRoleSecondarySyncPending(nextRole), sessionRevocation },
+        { status: 409 }
+      );
     }
     const existing = (authData.user.app_metadata ?? {}) as Record<string, unknown>;
     const { error: updateError } = await supabase.auth.admin.updateUserById(target.userId, {
       app_metadata: { ...existing, role: nextRole },
     });
     if (updateError) {
+      const sessionRevocation = await revokeChangedTargetSessions();
       if (committed.audited && !committed.unchanged) {
-        return NextResponse.json(recordedRoleSecondarySyncPending(nextRole), { status: 409 });
+        return NextResponse.json(
+          { ...recordedRoleSecondarySyncPending(nextRole), sessionRevocation },
+          { status: 409 }
+        );
       }
       return NextResponse.json(
         {
@@ -187,10 +215,14 @@ export async function POST(req: NextRequest) {
           rolePersisted: true,
           audited: committed.audited,
           unchanged: committed.unchanged,
+          sessionRevocation,
         },
         { status: 409 }
       );
     }
+
+    const authority = describeAuthorityAfterMembershipRoleChange();
+    const sessionRevocation = await revokeChangedTargetSessions();
 
     return NextResponse.json({
       success: true,
@@ -199,6 +231,8 @@ export async function POST(req: NextRequest) {
       unchanged: committed.unchanged,
       role: committed.role,
       writer: decision.writer,
+      sessionRevocation,
+      jwtPermissions: authority.jwtPermissions,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Changement impossible.";

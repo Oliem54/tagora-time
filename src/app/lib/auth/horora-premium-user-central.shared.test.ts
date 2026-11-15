@@ -5,6 +5,8 @@ import {
   HORORA_CANONICAL_PERMISSION_DOMAINS,
   HORORA_ROLE_AUTHORITY,
   decideHororaMembershipChange,
+  describeAuthorityAfterMembershipRoleChange,
+  shouldRevokeTargetHororaSessions,
   effectivePermissionsFollowJwtMetadata,
   lastActiveOwnerWouldBeRemoved,
   shellRoleFromMembership,
@@ -148,9 +150,37 @@ describe("HORORA existing RBAC reuse", () => {
     expect(route.indexOf("local_fixture_writes_disabled")).toBeLessThan(
       route.indexOf("await commitAuditedOrganizationRole")
     );
-    expect(route).not.toContain(".update(");
+    expect(route).not.toMatch(/from\("organization_memberships"\)[\s\S]{0,120}\.update\(/);
+    expect(route).toContain('.from("horora_nexus_sessions")');
+    expect(describeAuthorityAfterMembershipRoleChange().jwtPermissions).toBe(
+      "unchanged_until_refresh"
+    );
+    expect(route.indexOf("rolePersisted: false")).toBeLessThan(
+      route.indexOf("horora_nexus_sessions")
+    );
+    expect(route).toContain('.eq("auth_user_id", target.userId)');
+    expect(route).toContain('.eq("organization_id", authenticated.organizationId)');
+    expect(route).toContain('.is("revoked_at", null)');
+    const session = readFileSync(
+      join(process.cwd(), "src/app/lib/auth/nexus-brokered-session.ts"),
+      "utf8"
+    );
+    expect(session).toContain('reason: "session_revoked"');
+    expect(session).toContain('membership.status !== "active"');
     expect(route).not.toContain(".insert(");
     expect(route).not.toContain("user_metadata");
     expect(route).toContain("app_metadata: { ...existing, role: nextRole }");
+  });
+
+  it("revokes sessions only after a real role commit", () => {
+    expect(shouldRevokeTargetHororaSessions({ roleCommitted: false, unchanged: false })).toBe(
+      false
+    );
+    expect(shouldRevokeTargetHororaSessions({ roleCommitted: true, unchanged: true })).toBe(
+      false
+    );
+    expect(shouldRevokeTargetHororaSessions({ roleCommitted: true, unchanged: false })).toBe(
+      true
+    );
   });
 });

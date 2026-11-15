@@ -381,13 +381,18 @@ function PermissionPreview({
         error?: string;
         success?: boolean;
         rolePersisted?: boolean;
+        jwtPermissions?: string;
       };
       const persisted = res.ok && json.success === true && json.rolePersisted === true;
+      const jwtNote =
+        json.jwtPermissions === "unchanged_until_refresh"
+          ? " Les permissions du jeton déjà émis restent jusqu'à son renouvellement."
+          : "";
       onAssigned(
         typeof json.error === "string"
           ? json.error
           : persisted
-            ? "Rôle enregistré et audité."
+            ? `Rôle enregistré et audité.${jwtNote}`
             : "Le rôle n'a pas été changé.",
         persisted
       );

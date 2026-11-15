@@ -241,3 +241,22 @@ export function decideHororaMembershipChange(input: {
 export function knownMembershipRoles(): readonly OrganizationMembershipRole[] {
   return ORGANIZATION_MEMBERSHIP_ROLES;
 }
+
+/** A refused or unchanged role commit must not revoke sessions. */
+export function shouldRevokeTargetHororaSessions(input: {
+  roleCommitted: boolean;
+  unchanged: boolean;
+}): boolean {
+  return input.roleCommitted && input.unchanged === false;
+}
+
+/** Existing JWT claims stay until that token is renewed. Membership is re-read sooner. */
+export function describeAuthorityAfterMembershipRoleChange() {
+  return {
+    membershipReread: "next_brokered_request",
+    jwtPermissions: "unchanged_until_refresh",
+    permissionEdits: "not_connected",
+    suspension: "not_connected",
+    teams: "absent",
+  } as const;
+}
