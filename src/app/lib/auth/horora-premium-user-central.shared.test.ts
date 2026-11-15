@@ -144,6 +144,10 @@ describe("HORORA existing RBAC reuse", () => {
     expect(route).toContain("decideHororaMembershipChange");
     expect(route).toContain("commitAuditedOrganizationRole");
     expect(route).toContain("requestedByNexusRole: false");
+    expect(route).toContain("local_fixture_writes_disabled");
+    expect(route.indexOf("local_fixture_writes_disabled")).toBeLessThan(
+      route.indexOf("await commitAuditedOrganizationRole")
+    );
     expect(route).not.toContain(".update(");
     expect(route).not.toContain(".insert(");
     expect(route).not.toContain("user_metadata");

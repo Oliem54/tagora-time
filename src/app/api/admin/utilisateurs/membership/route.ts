@@ -56,8 +56,8 @@ export async function POST(req: NextRequest) {
     if (isProcessLocalNexusFixtureEnabled(req.nextUrl.hostname)) {
       return jsonError(
         403,
-        "La fixture locale n'écrit aucun rôle. Rien n'a été modifié.",
-        "writer_not_connected"
+        "La fixture locale n'écrit aucun rôle. La fonction Staging n'est pas appelée.",
+        "local_fixture_writes_disabled"
       );
     }
 
