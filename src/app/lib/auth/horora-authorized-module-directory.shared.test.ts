@@ -494,6 +494,9 @@ describe("AuthorizedModuleDirectory adaptation", () => {
     const byStatus = Object.fromEntries(
       view.rows.map((row) => [row.directoryStatus, row.nexusUserId])
     );
+    const active = view.rows.find((row) => row.directoryStatus === "ACTIVE");
+    expect(active?.nexusUserId).toBe("nuser_local_panel_active");
+    expect(active?.membershipRole).toBe("employe");
     expect(byStatus.ACTIVE).toBe("nuser_local_panel_active");
     expect(byStatus.PENDING).toBe("nuser_local_panel_pending");
     expect(byStatus.SUSPENDED).toBe("nuser_local_panel_suspended");
