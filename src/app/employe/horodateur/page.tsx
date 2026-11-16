@@ -17,6 +17,7 @@ import { employeePunchRequestInit } from "@/app/lib/employee-punch-session.clien
 import {
   accrueOpenShiftDisplayMinutes,
   explainEmployeePunchError,
+  isOpenShiftState,
   resolveEmployeePunchGuidance,
   resolveEmployeHorodateurPunchOutControl,
 } from "@/app/lib/employee-punch-guidance.shared";
@@ -1848,14 +1849,16 @@ export default function EmployeHorodateurPage() {
                 Un pointage attend l&apos;approbation. Le temps affiché ne progresse plus jusqu&apos;à la validation.
               </p>
             ) : null}
-            {todayTimeDisplay?.openShiftWorkDateMismatch ? (
+            {todayTimeDisplay?.openShiftWorkDateMismatch &&
+            isOpenShiftState(currentStateValue) ? (
               <p className="tagora-note" style={{ marginTop: 8, marginBottom: 0, lineHeight: 1.45 }}>
                 Quart ouvert depuis{" "}
                 {todayTimeDisplay.openShiftWorkDate ?? "un jour précédent"}. Pointez votre sortie ou
                 contactez la direction.
               </p>
             ) : null}
-            {todayTimeDisplay?.openShiftSafetyCapReached ? (
+            {todayTimeDisplay?.openShiftSafetyCapReached &&
+            isOpenShiftState(currentStateValue) ? (
               <p
                 className="tagora-note"
                 style={{

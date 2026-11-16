@@ -75,6 +75,18 @@ export function isOpenShiftState(state: string | null | undefined): boolean {
   return state === "en_quart" || state === "en_pause" || state === "en_diner";
 }
 
+/**
+ * The live operational state is authoritative.
+ * An old unmatched punch is history, not an instruction to punch out.
+ * A shift the state still marks open keeps its safety-cap warning.
+ */
+export function resolveOpenShiftSafetyCapForDisplay(input: {
+  currentState: string | null | undefined;
+  historicalOpenShiftBeyondSafetyLimit: boolean;
+}): boolean {
+  return isOpenShiftState(input.currentState) && input.historicalOpenShiftBeyondSafetyLimit;
+}
+
 function formatTorontoClock(iso: string | null | undefined): string | null {
   if (!iso) return null;
   const date = new Date(iso);

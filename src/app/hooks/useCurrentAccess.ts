@@ -29,6 +29,7 @@ import {
 import { devInfo } from "@/app/lib/logger";
 import {
   buildUserCompanyAccess,
+  buildVerifiedOrganizationCompanyAccess,
   type UserCompanyAccess,
 } from "@/app/lib/account-requests.shared";
 
@@ -166,7 +167,7 @@ export function useCurrentAccess() {
               } as User,
               role: brokered.appRole,
               permissions: composePermissionsForEffectiveRole(brokered.appRole, []),
-              companyAccess: buildUserCompanyAccess(null),
+              companyAccess: buildVerifiedOrganizationCompanyAccess(brokered.company),
               organizationId: brokered.organizationId,
               displayName: brokered.displayName,
               loading: false,

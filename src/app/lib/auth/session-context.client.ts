@@ -1,6 +1,7 @@
 "use client";
 
 import type { AppRole } from "@/app/lib/auth/roles";
+import { normalizeCompany } from "@/app/lib/account-requests.shared";
 import {
   sanitizeHororaSessionDisplayName,
   sanitizeHororaSessionEmail,
@@ -20,6 +21,7 @@ export type SessionContextResponse = {
   source: "membership" | "nexus_handoff" | "local_nexus_fixture" | null;
   displayName: string | null;
   email: string | null;
+  company: string | null;
 };
 
 export const SESSION_CONTEXT_TIMEOUT_MS = 12_000;
@@ -80,6 +82,7 @@ export async function fetchSessionAuthorizationContext(
       source: null,
       displayName: null,
       email: null,
+      company: null,
     };
   }
 
@@ -87,5 +90,6 @@ export async function fetchSessionAuthorizationContext(
     ...body,
     displayName: sanitizeHororaSessionDisplayName(body.displayName),
     email: sanitizeHororaSessionEmail(body.email),
+    company: normalizeCompany(body.company),
   };
 }

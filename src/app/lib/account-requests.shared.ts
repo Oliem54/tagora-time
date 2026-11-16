@@ -254,6 +254,40 @@ export function getUserAllowedCompanies(user: User | null | undefined) {
   );
 }
 
+/**
+ * Company shown for a Nexus session. The browser supplies no organization.
+ * A fiche from another organization is not displayed.
+ */
+export function selectVerifiedEmployeeCompany(input: {
+  sessionOrganizationId: string | null | undefined;
+  employeeOrganizationId: string | null | undefined;
+  primaryCompany: string | null | undefined;
+}): AccountRequestCompany | null {
+  const sessionOrganizationId = input.sessionOrganizationId?.trim() || "";
+  const employeeOrganizationId = input.employeeOrganizationId?.trim() || "";
+  if (!sessionOrganizationId || sessionOrganizationId !== employeeOrganizationId) {
+    return null;
+  }
+  return normalizeCompany(input.primaryCompany);
+}
+
+export function buildVerifiedOrganizationCompanyAccess(
+  company: string | null | undefined
+): UserCompanyAccess {
+  const primaryCompany = normalizeCompany(company);
+  const allowedCompanies = primaryCompany ? [primaryCompany] : [];
+  return {
+    company: primaryCompany,
+    primaryCompany,
+    allowedCompanies,
+    canWorkForOliemSolutions: allowedCompanies.includes("oliem_solutions"),
+    canWorkForTitanProduitsIndustriels: allowedCompanies.includes(
+      "titan_produits_industriels"
+    ),
+    companyDirectoryContext: getCompanyDirectoryContext(primaryCompany),
+  };
+}
+
 export function buildUserCompanyAccess(
   user: User | null | undefined
 ): UserCompanyAccess {

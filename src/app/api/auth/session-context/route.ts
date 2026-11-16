@@ -1,11 +1,30 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthenticatedRequestUser } from "@/app/lib/account-requests.server";
+import { selectVerifiedEmployeeCompany } from "@/app/lib/account-requests.shared";
 import { HORORA_LOCAL_FIXTURE_SESSION_SOURCE } from "@/app/lib/auth/horora-local-nexus-fixture";
 import { readReliableHororaSessionDisplay } from "@/app/lib/auth/horora-session-display.shared";
+import { getEmployeeByAuthUserId } from "@/app/lib/horodateur-v1/repository";
 
 export const dynamic = "force-dynamic";
 
 let consolidatedProof: Promise<void> | null = null;
+
+async function readVerifiedSessionCompany(
+  authUserId: string,
+  organizationId: string | null
+): Promise<string | null> {
+  if (!organizationId) return null;
+  try {
+    const employee = await getEmployeeByAuthUserId(authUserId, { organizationId });
+    return selectVerifiedEmployeeCompany({
+      sessionOrganizationId: organizationId,
+      employeeOrganizationId: employee?.organizationId ?? null,
+      primaryCompany: employee?.primaryCompany ?? null,
+    });
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Returns organization authorization context for AuthGate.
@@ -44,6 +63,10 @@ export async function GET(req: NextRequest) {
     }
 
     const display = readReliableHororaSessionDisplay(user);
+    const company = await readVerifiedSessionCompany(
+      user.id,
+      authenticated.organizationId
+    );
 
     if (sessionSource === HORORA_LOCAL_FIXTURE_SESSION_SOURCE) {
       return NextResponse.json({
@@ -59,6 +82,7 @@ export async function GET(req: NextRequest) {
         source: "local_nexus_fixture",
         displayName: display.displayName,
         email: display.email,
+        company,
       });
     }
 
@@ -75,6 +99,7 @@ export async function GET(req: NextRequest) {
       source: "nexus_handoff",
       displayName: display.displayName,
       email: display.email,
+      company,
     });
   } catch {
     return NextResponse.json(
