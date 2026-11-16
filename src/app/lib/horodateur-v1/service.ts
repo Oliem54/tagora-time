@@ -11,6 +11,7 @@ import {
   recordDeliveriesFromHorodateurDirectionNotify,
 } from "@/app/lib/app-alerts-dual-write.server";
 import { getCompanyLabel, type AccountRequestCompany } from "@/app/lib/account-requests.shared";
+import { resolveOpenShiftSafetyCapForDisplay } from "@/app/lib/employee-punch-guidance.shared";
 import {
   notifyDirectionOfHorodateurException,
   notifyEmployeeExpectedPunchSms,
@@ -4075,9 +4076,13 @@ export function computeTodayLiveShiftDisplayMinutes(options: {
   const openShiftElapsedMinutes = openShiftStartAt
     ? computeOpenShiftElapsedMinutes(openShiftStartAt, nowIso)
     : 0;
-  const openShiftSafetyCapReached = openShiftStartAt
+  const historicalOpenShiftBeyondSafetyLimit = openShiftStartAt
     ? isOpenShiftBeyondSafetyLimit(openShiftStartAt, nowIso)
     : false;
+  const openShiftSafetyCapReached = resolveOpenShiftSafetyCapForDisplay({
+    currentState: resolvedState,
+    historicalOpenShiftBeyondSafetyLimit,
+  });
   const openShiftWorkDateMismatch =
     isQuarterActiveState(resolvedState) &&
     Boolean(openShiftWorkDate && openShiftWorkDate !== options.workDate);

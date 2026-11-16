@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import AuthenticatedPageHeader from "@/app/components/ui/AuthenticatedPageHeader";
 import TagoraLoadingScreen from "@/app/components/ui/TagoraLoadingScreen";
 import { useCurrentAccess } from "@/app/hooks/useCurrentAccess";
-import { supabase } from "@/app/lib/supabase/client";
+import { hororaNexusSessionRequestInit } from "@/app/lib/auth/horora-nexus-session.client";
 import type { MonHorairePayload } from "@/app/lib/employe-mon-horaire.types";
 import DirectionEffectifsClient from "@/app/direction/effectifs/DirectionEffectifsClient";
 import EmployeMonHorairePanel from "./EmployeMonHorairePanel";
@@ -31,18 +31,15 @@ export default function EmployeEffectifsShell() {
     setLoading(true);
     setLoadError(null);
     try {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      const token = session?.access_token;
-      if (!token) {
+      const res = await fetch(
+        "/api/employe/effectifs/mon-horaire",
+        hororaNexusSessionRequestInit()
+      );
+      if (res.status === 401) {
         setLoadError("Session expirée.");
         setPayload(null);
         return;
       }
-      const res = await fetch("/api/employe/effectifs/mon-horaire", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
       const json = (await res.json().catch(() => ({}))) as {
         error?: string;
       } & Partial<MonHorairePayload>;
