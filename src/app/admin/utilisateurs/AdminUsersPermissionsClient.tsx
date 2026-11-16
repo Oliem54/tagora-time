@@ -14,11 +14,20 @@ import {
   type HororaPermissionSectionState,
 } from "@/app/lib/auth/horora-authorized-module-directory.shared";
 import {
+  HORORA_BUSINESS_PERMISSION_DOMAINS,
+  HORORA_BUSINESS_PERMISSION_LABELS,
   HORORA_CANONICAL_PERMISSION_DOMAINS,
   HORORA_ROLE_AUTHORITY,
+  actorCanEditLocalPresetRoles,
+  businessPermissionGrantLabel,
+  decideNexusAuthorizedLocalBinding,
+  describeLocalRoleChange,
+  listHororaRolePresets,
+  nexusLocalBindingDenialMessage,
   type HororaPremiumDashboard,
   type HororaRoleAuditEntry,
 } from "@/app/lib/auth/horora-premium-user-central.shared";
+import type { OrganizationMembershipRole } from "@/app/lib/saas/tenant-foundation.shared";
 
 type DirectoryResponse = {
   success?: boolean;
@@ -29,6 +38,7 @@ type DirectoryResponse = {
   rows?: HororaDirectoryUserRow[];
   premium?: HororaPremiumDashboard;
   roleAudit?: HororaRoleAuditEntry[] | null;
+  actorMembershipRole?: OrganizationMembershipRole | null;
   error?: string;
 };
 
@@ -48,6 +58,8 @@ export default function AdminUsersPermissionsClient() {
   const [refreshToken, setRefreshToken] = useState(0);
   const [premium, setPremium] = useState<HororaPremiumDashboard | null>(null);
   const [roleAudit, setRoleAudit] = useState<HororaRoleAuditEntry[] | null>(null);
+  const [actorMembershipRole, setActorMembershipRole] =
+    useState<OrganizationMembershipRole | null>(null);
   const [query, setQuery] = useState("");
   const [actionMessage, setActionMessage] = useState<string | null>(null);
 
@@ -71,6 +83,7 @@ export default function AdminUsersPermissionsClient() {
         setRows(nextRows);
         setPremium(json.premium ?? null);
         setRoleAudit(json.roleAudit === null ? null : (json.roleAudit ?? []));
+        setActorMembershipRole(json.actorMembershipRole ?? null);
         setScope(json.scope ?? null);
         setServiceStatus(typeof json.serviceStatus === "string" ? json.serviceStatus : null);
         setError(null);
@@ -121,6 +134,8 @@ export default function AdminUsersPermissionsClient() {
   });
   const paged = pageDirectoryRows(visibleRows, page);
   const selected = rows.find((row) => row.key === selectedKey) ?? null;
+  const rosterConfirmed =
+    serviceStatus === "ready" || rows.some((row) => row.nexusUserId !== null);
 
   return (
     <HororaAppShell
@@ -131,9 +146,9 @@ export default function AdminUsersPermissionsClient() {
     >
       <div className="ui-stack-md">
         <p className="tagora-note" style={{ margin: 0, lineHeight: 1.55 }}>
-          Pointage, finance, paie, rémunération, commissions et administration restent des
-          cases distinctes. Un rôle Nexus ne coche aucune case sensible. La révocation
-          d&apos;accès Nexus est préparée côté serveur et n&apos;est pas branchée au handoff.
+          Sélectionnez un employé déjà autorisé dans NEXUS pour cette organisation. HORORA
+          attribue ensuite un rôle local existant. Aucun utilisateur central n&apos;est créé
+          ici, et un rôle NEXUS ne devient pas propriétaire HORORA.
         </p>
 
         {blocker ? (
@@ -156,6 +171,8 @@ export default function AdminUsersPermissionsClient() {
           serviceStatus={serviceStatus}
           roleAudit={roleAudit}
         />
+
+        <RolePresetCatalogue />
 
         <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
           <p className="tagora-note" style={{ margin: 0 }}>
@@ -203,7 +220,10 @@ export default function AdminUsersPermissionsClient() {
                   <button
                     key={row.key}
                     type="button"
-                    onClick={() => setSelectedKey(row.key)}
+                    onClick={() => {
+                      setSelectedKey(row.key);
+                      setActionMessage(null);
+                    }}
                     style={{
                       display: "block",
                       width: "100%",
@@ -253,6 +273,8 @@ export default function AdminUsersPermissionsClient() {
                 row={selected}
                 scope={scope}
                 serviceStatus={serviceStatus}
+                rosterConfirmed={rosterConfirmed}
+                actorMembershipRole={actorMembershipRole}
                 actionMessage={actionMessage}
                 onAssigned={(message, persisted) => {
                   setActionMessage(message);
@@ -295,9 +317,10 @@ function PremiumDashboard({
         d&apos;organisation {counts?.organization_admin ?? "—"}, direction {counts?.direction ?? "—"},
         employé {counts?.employe ?? "—"}. Une seule organisation est dans le périmètre de cette
         session. Aucune structure d&apos;équipe n&apos;existe encore. Connexion NEXUS :{" "}
-        {serviceStatus ?? "non lue"}, en lecture seule. Employé et Direction s&apos;attribuent par
-        la fonction auditée déjà préparée. La suspension, les rôles système et les cases de
-        permission ne sont pas enregistrés depuis cet écran.
+        {serviceStatus ?? "non lue"}, en lecture seule. Employé et Direction se modifient seulement
+        pour une identité NEXUS active de cette organisation, par la fonction auditée. La
+        suspension, les rôles système et les cases de permission ne sont pas enregistrés depuis
+        cet écran.
       </p>
       <p className="tagora-note" style={{ marginBottom: 0 }}>
         Activité des rôles :{" "}
@@ -310,13 +333,49 @@ function PremiumDashboard({
                 .join(" · ")}
       </p>
       <p className="tagora-note" style={{ marginBottom: 0 }}>
-        Domaines canoniques : {HORORA_CANONICAL_PERMISSION_DOMAINS.join(", ")}. Les rôles système{" "}
+        Droits métier conservés : {HORORA_BUSINESS_PERMISSION_DOMAINS.join(", ")}. Domaines
+        canoniques inchangés : {HORORA_CANONICAL_PERMISSION_DOMAINS.join(", ")}. Les rôles système{" "}
         {Object.entries(HORORA_ROLE_AUTHORITY)
           .filter(([, authority]) => authority.system)
           .map(([role]) => role)
           .join(" et ")}{" "}
         restent protégés. L&apos;étiquette d&apos;écran admin ne crée aucune permission.
       </p>
+    </section>
+  );
+}
+
+function RolePresetCatalogue() {
+  const presets = listHororaRolePresets();
+  return (
+    <section className="tagora-panel" style={{ padding: 16, borderRadius: 14 }}>
+      <h2 className="section-title" style={{ marginTop: 0 }}>
+        Rôles locaux
+      </h2>
+      <p className="tagora-note" style={{ marginTop: 0 }}>
+        Pointage, horaires, rapports et administration suivent la matrice déjà en place. Une
+        permission explicite reste séparée du rôle. Cet écran ne l&apos;enregistre pas.
+      </p>
+      <div style={{ display: "grid", gap: 10 }}>
+        {presets.map((preset) => (
+          <div key={preset.role} className="tagora-panel-muted" style={{ padding: 10, borderRadius: 10 }}>
+            <strong>{preset.label}</strong>
+            <span className="tagora-note">
+              {" "}
+              · {preset.assignableHere ? "attribuable ici" : "protégé"}
+            </span>
+            <div className="tagora-note" style={{ marginBottom: 0 }}>
+              {HORORA_BUSINESS_PERMISSION_DOMAINS.map((domain) => (
+                <span key={domain}>
+                  {HORORA_BUSINESS_PERMISSION_LABELS[domain]} :{" "}
+                  {businessPermissionGrantLabel(preset.domains[domain])}
+                  {domain === "administration" ? "" : " · "}
+                </span>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
     </section>
   );
 }
@@ -347,12 +406,16 @@ function PermissionPreview({
   row,
   scope,
   serviceStatus,
+  rosterConfirmed,
+  actorMembershipRole,
   actionMessage,
   onAssigned,
 }: {
   row: HororaDirectoryUserRow;
   scope: HororaDirectoryScope | null;
   serviceStatus: string | null;
+  rosterConfirmed: boolean;
+  actorMembershipRole: OrganizationMembershipRole | null;
   actionMessage: string | null;
   onAssigned: (message: string, persisted: boolean) => void;
 }) {
@@ -360,10 +423,27 @@ function PermissionPreview({
     row.membershipRole === "direction" ? "direction" : "employe"
   );
   const [saving, setSaving] = useState(false);
-  const mutable =
-    row.membershipId !== null &&
-    !row.membershipAmbiguous &&
+  const binding = decideNexusAuthorizedLocalBinding({
+    directoryReadable: rosterConfirmed,
+    identityLinkCount: row.nexusUserId ? 1 : 0,
+    nexusUserId: row.nexusUserId,
+    directoryStatus: row.directoryStatus,
+    entryOrganizationId: row.nexusUserId ? (scope?.organizationId ?? null) : null,
+    scopeOrganizationId: scope?.organizationId ?? null,
+    moduleKey: row.nexusUserId ? (scope?.moduleKey ?? null) : null,
+    membershipRole: row.membershipRole,
+    membershipStatus: row.membershipStatus,
+    membershipAmbiguous: row.membershipAmbiguous,
+  });
+  const canEdit =
+    binding.ok &&
+    actorCanEditLocalPresetRoles(actorMembershipRole) &&
     (row.membershipRole === "employe" || row.membershipRole === "direction");
+  const change =
+    row.membershipRole === "employe" || row.membershipRole === "direction"
+      ? describeLocalRoleChange({ currentRole: row.membershipRole, nextRole })
+      : "unchanged";
+  const nextPreset = listHororaRolePresets().find((preset) => preset.role === nextRole);
 
   async function assignRole() {
     if (!row.membershipId) return;
@@ -381,20 +461,32 @@ function PermissionPreview({
         error?: string;
         success?: boolean;
         rolePersisted?: boolean;
+        unchanged?: boolean;
         jwtPermissions?: string;
+        sessionRevocation?: string;
       };
       const persisted = res.ok && json.success === true && json.rolePersisted === true;
       const jwtNote =
         json.jwtPermissions === "unchanged_until_refresh"
           ? " Les permissions du jeton déjà émis restent jusqu'à son renouvellement."
           : "";
+      const sessionNote =
+        json.sessionRevocation === "revoked"
+          ? " Les sessions HORORA de cette organisation sont révoquées. Le prochain accès relit le rôle."
+          : json.sessionRevocation === "not_required"
+            ? " Les sessions restent en place."
+            : json.sessionRevocation === "unavailable"
+              ? " La révocation de session n'a pas abouti."
+              : "";
       onAssigned(
         typeof json.error === "string"
           ? json.error
           : persisted
-            ? `Rôle enregistré et audité.${jwtNote}`
+            ? json.unchanged
+              ? `Rôle inchangé.${sessionNote}`
+              : `Rôle enregistré et audité.${jwtNote}${sessionNote}`
             : "Le rôle n'a pas été changé.",
-        persisted
+        persisted && json.unchanged !== true
       );
     } catch {
       onAssigned("Le rôle n'a pas été changé.", false);
@@ -425,32 +517,50 @@ function PermissionPreview({
         Rôle local : {row.membershipRole ?? "absent"} · statut {row.membershipStatus ?? "absent"} ·
         écran {row.portalRole ?? "absent"}. L&apos;écran admin n&apos;accorde aucune permission.
       </p>
-      {mutable ? (
-        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-          <select
-            aria-label="Rôle local"
-            value={nextRole}
-            onChange={(event) =>
-              setNextRole(event.target.value === "direction" ? "direction" : "employe")
-            }
-          >
-            <option value="employe">Employé</option>
-            <option value="direction">Direction</option>
-          </select>
-          <button type="button" disabled={saving} onClick={() => void assignRole()}>
-            Enregistrer le rôle
-          </button>
+      {canEdit ? (
+        <div className="ui-stack-xs">
+          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+            <select
+              aria-label="Rôle local"
+              value={nextRole}
+              onChange={(event) =>
+                setNextRole(event.target.value === "direction" ? "direction" : "employe")
+              }
+            >
+              <option value="employe">Employé</option>
+              <option value="direction">Direction</option>
+            </select>
+            <button type="button" disabled={saving || change === "unchanged"} onClick={() => void assignRole()}>
+              {change === "remove_direction" ? "Retirer le rôle Direction" : "Enregistrer le rôle"}
+            </button>
+          </div>
+          <p className="tagora-note" style={{ margin: 0 }}>
+            {change === "remove_direction"
+              ? "Retirer Direction rend le rôle Employé. Le pointage et les horaires de l'employé restent ceux de ce rôle."
+              : "Le changement est refusé si NEXUS ne confirme pas cette organisation."}{" "}
+            Lorsqu&apos;il est enregistré, il est audité et les sessions HORORA de cet employé dans
+            cette organisation sont révoquées.
+          </p>
+          {nextPreset ? (
+            <p className="tagora-note" style={{ margin: 0 }}>
+              {nextPreset.label} :{" "}
+              {HORORA_BUSINESS_PERMISSION_DOMAINS.map(
+                (domain) =>
+                  `${HORORA_BUSINESS_PERMISSION_LABELS[domain]} ${businessPermissionGrantLabel(nextPreset.domains[domain])}`
+              ).join(" · ")}
+            </p>
+          ) : null}
         </div>
       ) : (
         <p className="tagora-note">
-          Ce rôle système n&apos;est pas modifiable ici. La suspension et la révocation locales
-          n&apos;ont pas d&apos;écrivain audité.
+          {binding.ok
+            ? "Cette session ne peut pas modifier les rôles locaux."
+            : nexusLocalBindingDenialMessage(binding.reason)}
         </p>
       )}
       {actionMessage ? <p className="tagora-note">{actionMessage}</p> : null}
       <p className="tagora-note">
-        Matrice des six domaines. Une case cochée décrit la lecture actuelle. Elle n&apos;est pas
-        une permission enregistrée par cet écran.
+        Lecture actuelle des cases déjà enregistrées. Le rôle local ne les réécrit pas.
       </p>
       <div className="ui-stack-xs">
         {row.sections.map((section) => (

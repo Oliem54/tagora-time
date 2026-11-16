@@ -1,11 +1,18 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { buildIsolatedDirectoryPanelFixture } from "@/app/lib/auth/horora-authorized-module-directory.shared";
 import {
   HORORA_CANONICAL_PERMISSION_DOMAINS,
   HORORA_ROLE_AUTHORITY,
+  actorCanEditLocalPresetRoles,
+  assessNexusLocalBinding,
   decideHororaMembershipChange,
+  decideNexusAuthorizedLocalBinding,
   describeAuthorityAfterMembershipRoleChange,
+  describeLocalRoleChange,
+  listHororaRolePresets,
+  nexusRoleBecomesHororaOwner,
   shouldRevokeTargetHororaSessions,
   effectivePermissionsFollowJwtMetadata,
   lastActiveOwnerWouldBeRemoved,
@@ -144,7 +151,14 @@ describe("HORORA existing RBAC reuse", () => {
       "utf8"
     );
     expect(route).toContain("decideHororaMembershipChange");
+    expect(route).toContain("assessNexusLocalBinding");
+    expect(route.indexOf("assessNexusLocalBinding")).toBeLessThan(
+      route.indexOf("await commitAuditedOrganizationRole")
+    );
     expect(route).toContain("commitAuditedOrganizationRole");
+    expect(route).not.toContain("createUser");
+    expect(route).not.toContain("inviteUserByEmail");
+    expect(route).not.toContain("organization_invitations");
     expect(route).toContain("requestedByNexusRole: false");
     expect(route).toContain("local_fixture_writes_disabled");
     expect(route.indexOf("local_fixture_writes_disabled")).toBeLessThan(
@@ -170,6 +184,192 @@ describe("HORORA existing RBAC reuse", () => {
     expect(route).not.toContain(".insert(");
     expect(route).not.toContain("user_metadata");
     expect(route).toContain("app_metadata: { ...existing, role: nextRole }");
+  });
+
+  it("shows the existing business permissions of each local role", () => {
+    const presets = Object.fromEntries(
+      listHororaRolePresets().map((preset) => [preset.role, preset])
+    );
+    expect(Object.keys(presets)).toEqual([
+      "organization_owner",
+      "organization_admin",
+      "direction",
+      "employe",
+    ]);
+    expect(presets.employe.domains).toEqual({
+      pointage: "role",
+      horaires: "role",
+      rapports: "deny",
+      administration: "deny",
+    });
+    expect(presets.direction.domains).toEqual({
+      pointage: "deny",
+      horaires: "role",
+      rapports: "role",
+      administration: "explicit",
+    });
+    expect(presets.organization_owner.domains).toMatchObject({
+      pointage: "deny",
+      horaires: "role",
+      rapports: "role",
+      administration: "role",
+    });
+    expect(presets.organization_owner.assignableHere).toBe(false);
+    expect(presets.employe.assignableHere).toBe(true);
+    expect(presets.direction.assignableHere).toBe(true);
+    expect(nexusRoleBecomesHororaOwner("organization_owner")).toBe(false);
+    expect(nexusRoleBecomesHororaOwner("owner")).toBe(false);
+    expect(actorCanEditLocalPresetRoles("organization_admin")).toBe(true);
+    expect(actorCanEditLocalPresetRoles("direction")).toBe(false);
+  });
+
+  it("removes Direction only through the audited employe assignment", () => {
+    expect(
+      describeLocalRoleChange({ currentRole: "direction", nextRole: "employe" })
+    ).toBe("remove_direction");
+    expect(
+      decideHororaMembershipChange({
+        actorMembershipId: "owner",
+        actorRole: "organization_owner",
+        actorOrganizationId: "org-a",
+        targetMembershipId: "lead",
+        targetOrganizationId: "org-a",
+        targetRole: "direction",
+        targetStatus: "active",
+        nextRole: "employe",
+        nextStatus: "active",
+        membershipsInOrganization: memberships,
+        requestedByNexusRole: false,
+      })
+    ).toEqual({ ok: true, writer: "commit_horora_membership_role_with_audit" });
+    expect(
+      decideHororaMembershipChange({
+        actorMembershipId: "other-direction",
+        actorRole: "direction",
+        actorOrganizationId: "org-a",
+        targetMembershipId: "lead",
+        targetOrganizationId: "org-a",
+        targetRole: "direction",
+        targetStatus: "active",
+        nextRole: "employe",
+        nextStatus: "active",
+        membershipsInOrganization: memberships,
+        requestedByNexusRole: false,
+      })
+    ).toEqual({ ok: false, reason: "direction_assignment_unauthorized" });
+  });
+
+  it("accepts only an existing employee who is active in this Nexus organization", () => {
+    const eligible = {
+      directoryReadable: true,
+      identityLinkCount: 1,
+      nexusUserId: "nuser_local_panel_active",
+      directoryStatus: "ACTIVE" as const,
+      entryOrganizationId: "org-a",
+      scopeOrganizationId: "org-a",
+      moduleKey: "tagora_time",
+      membershipRole: "employe" as const,
+      membershipStatus: "active" as const,
+      membershipAmbiguous: false,
+    };
+    expect(decideNexusAuthorizedLocalBinding(eligible)).toEqual({
+      ok: true,
+      assignableRoles: ["employe", "direction"],
+    });
+    expect(
+      decideNexusAuthorizedLocalBinding({ ...eligible, directoryReadable: false })
+    ).toMatchObject({ ok: false, reason: "nexus_authorization_unconfirmed" });
+    expect(
+      decideNexusAuthorizedLocalBinding({
+        ...eligible,
+        nexusUserId: null,
+        identityLinkCount: 0,
+        directoryStatus: "ABSENT",
+      })
+    ).toMatchObject({ ok: false, reason: "nexus_identity_absent" });
+    expect(
+      decideNexusAuthorizedLocalBinding({ ...eligible, directoryStatus: "REVOKED" })
+    ).toMatchObject({ ok: false, reason: "nexus_not_active" });
+    expect(
+      decideNexusAuthorizedLocalBinding({
+        ...eligible,
+        entryOrganizationId: "org-b",
+      })
+    ).toMatchObject({ ok: false, reason: "cross_organization_forbidden" });
+    expect(
+      decideNexusAuthorizedLocalBinding({ ...eligible, moduleKey: "tagora_stock" })
+    ).toMatchObject({ ok: false, reason: "module_not_horora" });
+    expect(
+      decideNexusAuthorizedLocalBinding({
+        ...eligible,
+        membershipRole: null,
+        membershipStatus: null,
+      })
+    ).toMatchObject({ ok: false, reason: "membership_absent" });
+    expect(
+      decideNexusAuthorizedLocalBinding({
+        ...eligible,
+        membershipRole: "organization_owner",
+      })
+    ).toMatchObject({ ok: false, reason: "system_role_protected" });
+    expect(nexusRoleBecomesHororaOwner("organization_owner")).toBe(false);
+  });
+
+  it("keeps the local fixture roster limited to the authorized employee", () => {
+    const { scope, view } = buildIsolatedDirectoryPanelFixture();
+    const decisions = view.rows.map((row) =>
+      decideNexusAuthorizedLocalBinding({
+        directoryReadable: true,
+        identityLinkCount: row.nexusUserId ? 1 : 0,
+        nexusUserId: row.nexusUserId,
+        directoryStatus: row.directoryStatus,
+        entryOrganizationId: row.nexusUserId ? scope.organizationId : null,
+        scopeOrganizationId: scope.organizationId,
+        moduleKey: row.nexusUserId ? scope.moduleKey : null,
+        membershipRole: row.membershipRole,
+        membershipStatus: row.membershipStatus,
+        membershipAmbiguous: row.membershipAmbiguous,
+      })
+    );
+    const eligible = decisions.filter((decision) => decision.ok);
+    expect(eligible).toHaveLength(1);
+    expect(view.rows.find((row) => row.directoryStatus === "ABSENT")?.nexusUserId).toBeNull();
+    expect(
+      assessNexusLocalBinding({
+        directoryReadable: true,
+        scopeOrganizationId: scope.organizationId,
+        authUserId: "00000000-0000-4000-8000-0000000000b1",
+        links: [
+          {
+            nexusUserId: "nuser_local_panel_active",
+            authUserId: "00000000-0000-4000-8000-0000000000b1",
+          },
+        ],
+        entries: [
+          {
+            userId: "nuser_local_panel_active",
+            organizationId: "org_other",
+            technicalKey: "tagora_time",
+            status: "ACTIVE",
+          },
+        ],
+        membershipRole: "employe",
+        membershipStatus: "active",
+        membershipAmbiguous: false,
+      })
+    ).toMatchObject({ ok: false, reason: "cross_organization_forbidden" });
+    expect(
+      assessNexusLocalBinding({
+        directoryReadable: false,
+        scopeOrganizationId: scope.organizationId,
+        authUserId: "00000000-0000-4000-8000-0000000000b1",
+        links: [],
+        entries: [],
+        membershipRole: "employe",
+        membershipStatus: "active",
+        membershipAmbiguous: false,
+      })
+    ).toMatchObject({ ok: false, reason: "nexus_authorization_unconfirmed" });
   });
 
   it("revokes sessions only after a real role commit", () => {

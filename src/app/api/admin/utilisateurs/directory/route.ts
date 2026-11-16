@@ -98,6 +98,9 @@ export async function GET(req: NextRequest) {
           null
         ),
         roleAudit: [] as HororaRoleAuditEntry[],
+        actorMembershipRole: isOrganizationMembershipRole(authenticated.membershipRole)
+          ? authenticated.membershipRole
+          : null,
       });
     }
     if (!authenticated.organizationId) {
@@ -287,6 +290,9 @@ export async function GET(req: NextRequest) {
       rows: view.rows,
       premium,
       roleAudit,
+      actorMembershipRole: isOrganizationMembershipRole(authenticated.membershipRole)
+        ? authenticated.membershipRole
+        : null,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Chargement impossible.";

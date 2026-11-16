@@ -1,19 +1,43 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthenticatedRequestUser } from "@/app/lib/account-requests.server";
+import {
+  acceptCanonicalIdentityLinks,
+  resolveAuthorizedDirectoryQuery,
+} from "@/app/lib/auth/horora-authorized-module-directory-client.shared";
+import { readLiveAuthorizedModuleDirectory } from "@/app/lib/auth/horora-directory-nexus.server";
 import { isProcessLocalNexusFixtureEnabled } from "@/app/lib/auth/horora-local-nexus-fixture";
 import {
+  assessNexusLocalBinding,
   decideHororaMembershipChange,
   describeAuthorityAfterMembershipRoleChange,
+  nexusLocalBindingDenialMessage,
   shouldRevokeTargetHororaSessions,
   type HororaMembershipChangeDenial,
   type HororaMembershipSnapshot,
+  type NexusLocalBindingDenial,
 } from "@/app/lib/auth/horora-premium-user-central.shared";
 import { recordedRoleSecondarySyncPending } from "@/app/lib/employee-role-audit-commit.shared";
 import { commitAuditedOrganizationRole } from "@/app/lib/employee-onboarding-tenant.server";
-import { isOrganizationMembershipRole } from "@/app/lib/saas/tenant-foundation.shared";
+import {
+  isOrganizationMembershipRole,
+  type OrganizationMembershipRole,
+} from "@/app/lib/saas/tenant-foundation.shared";
 import { createAdminSupabaseClient } from "@/app/lib/supabase/admin";
 
 export const dynamic = "force-dynamic";
+
+const BINDING_DENIAL_STATUS: Record<NexusLocalBindingDenial, number> = {
+  nexus_authorization_unconfirmed: 409,
+  nexus_identity_absent: 403,
+  nexus_identity_ambiguous: 409,
+  nexus_not_active: 403,
+  cross_organization_forbidden: 403,
+  module_not_horora: 403,
+  membership_absent: 409,
+  membership_ambiguous: 409,
+  system_role_protected: 403,
+  membership_not_active: 409,
+};
 
 const DENIAL_STATUS: Record<HororaMembershipChangeDenial, number> = {
   writer_not_connected: 409,
@@ -49,9 +73,76 @@ function jsonError(status: number, error: string, code: string) {
 }
 
 /**
- * Assigns employe or direction through the existing audited membership writer.
- * Does not create a role, does not edit the permission catalogue, and does not
- * treat a Nexus role as a HORORA administrator.
+ * Confirms the target is an existing NEXUS-active HORORA employee of this
+ * organization. A failed or foreign roster read refuses the write.
+ */
+async function confirmExistingNexusBinding(input: {
+  supabase: ReturnType<typeof createAdminSupabaseClient>;
+  hororaOrganizationId: string;
+  authUserId: string;
+  membershipRole: OrganizationMembershipRole;
+  membershipStatus: HororaMembershipSnapshot["status"];
+}) {
+  const refused = assessNexusLocalBinding({
+    directoryReadable: false,
+    scopeOrganizationId: null,
+    authUserId: input.authUserId,
+    links: [],
+    entries: [],
+    membershipRole: input.membershipRole,
+    membershipStatus: input.membershipStatus,
+    membershipAmbiguous: false,
+  });
+  try {
+    const mapResult = await input.supabase
+      .from("horora_nexus_organization_map")
+      .select("nexus_organization_id, nexus_tenant_id, organization_id, status")
+      .eq("organization_id", input.hororaOrganizationId);
+    if (mapResult.error) return refused;
+    const resolved = resolveAuthorizedDirectoryQuery({
+      hororaOrganizationId: input.hororaOrganizationId,
+      organizationMaps: (mapResult.data ?? []).map((row) => ({
+        nexusOrganizationId: String(row.nexus_organization_id ?? ""),
+        nexusTenantId: typeof row.nexus_tenant_id === "string" ? row.nexus_tenant_id : null,
+        organizationId: String(row.organization_id ?? ""),
+        status: String(row.status ?? ""),
+      })),
+    });
+    if (!resolved.ok) return refused;
+
+    const identityResult = await input.supabase
+      .from("horora_nexus_identity_map")
+      .select("nexus_actor_id, auth_user_id, disabled_at")
+      .eq("auth_user_id", input.authUserId);
+    if (identityResult.error) return refused;
+    const links = acceptCanonicalIdentityLinks(
+      (identityResult.data ?? []).map((row) => ({
+        nexusUserId: row.nexus_actor_id,
+        authUserId: row.auth_user_id,
+        organizationId: resolved.query.organizationId,
+        disabledAt: row.disabled_at,
+      }))
+    );
+
+    const read = await readLiveAuthorizedModuleDirectory({ query: resolved.query });
+    return assessNexusLocalBinding({
+      directoryReadable: read.ok,
+      scopeOrganizationId: resolved.query.organizationId,
+      authUserId: input.authUserId,
+      links,
+      entries: read.ok ? read.directory.entries : [],
+      membershipRole: input.membershipRole,
+      membershipStatus: input.membershipStatus,
+      membershipAmbiguous: false,
+    });
+  } catch {
+    return refused;
+  }
+}
+
+/**
+ * Assigns or removes employe and direction through the existing audited writer.
+ * Does not create a NEXUS user, an invitation, or a HORORA owner.
  */
 export async function POST(req: NextRequest) {
   try {
@@ -113,6 +204,24 @@ export async function POST(req: NextRequest) {
     }
     if (!target) {
       return jsonError(404, "Appartenance introuvable dans cette organisation.", "target_missing");
+    }
+
+    const binding = await confirmExistingNexusBinding({
+      supabase,
+      hororaOrganizationId: authenticated.organizationId,
+      authUserId: target.userId,
+      membershipRole: target.role,
+      membershipStatus: target.status,
+    });
+    if (!binding.ok) {
+      return jsonError(
+        BINDING_DENIAL_STATUS[binding.reason],
+        nexusLocalBindingDenialMessage(binding.reason),
+        binding.reason
+      );
+    }
+    if (!binding.assignableRoles.includes(nextRole)) {
+      return jsonError(400, "Rôle ou appartenance invalide.", "invalid_membership_change");
     }
 
     const decision = decideHororaMembershipChange({
