@@ -12,6 +12,10 @@ import {
   requireDirectionHorodateurAccess,
 } from "@/app/api/horodateur/_shared";
 import { hororaSupervisorHttpServerTarget } from "@/app/lib/auth/horora-supervisor-grant.shared";
+import {
+  enforceHororaManagerTimeHttpGuard,
+  hororaManagerTimeHttpDenialResponse,
+} from "@/app/lib/auth/horora-manager-perimeter.http.server";
 import { getAuthenticatedRequestUser } from "@/app/lib/account-requests.server";
 
 export async function POST(
@@ -28,6 +32,18 @@ export async function POST(
     }
 
     const { id } = await params;
+    const perimeter = await enforceHororaManagerTimeHttpGuard({
+      request: req,
+      action: "approve_time",
+      exceptionId: id,
+    });
+    if (!perimeter.ok) {
+      return hororaManagerTimeHttpDenialResponse(
+        perimeter,
+        "/api/direction/horodateur/exceptions/[id]/approve"
+      );
+    }
+
     const body = (await req.json().catch(() => ({}))) as {
       reviewNote?: unknown;
       approvedMinutes?: unknown;

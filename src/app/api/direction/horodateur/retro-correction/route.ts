@@ -8,6 +8,10 @@ import {
   requireDirectionHorodateurAccess,
 } from "@/app/api/horodateur/_shared";
 import { hororaSupervisorHttpServerTarget } from "@/app/lib/auth/horora-supervisor-grant.shared";
+import {
+  enforceHororaManagerTimeHttpGuard,
+  hororaManagerTimeHttpDenialResponse,
+} from "@/app/lib/auth/horora-manager-perimeter.http.server";
 import { getAuthenticatedRequestUser } from "@/app/lib/account-requests.server";
 import {
   buildStaffRetroOccurredAtIso,
@@ -45,6 +49,18 @@ export async function POST(req: NextRequest) {
         code: "invalid_employee_id",
         route: "/api/direction/horodateur/retro-correction",
       });
+    }
+
+    const perimeter = await enforceHororaManagerTimeHttpGuard({
+      request: req,
+      action: "correct_time",
+      targetEmployeeId: employeeId,
+    });
+    if (!perimeter.ok) {
+      return hororaManagerTimeHttpDenialResponse(
+        perimeter,
+        "/api/direction/horodateur/retro-correction"
+      );
     }
 
     const date = normalizeNonEmptyString(body.date);

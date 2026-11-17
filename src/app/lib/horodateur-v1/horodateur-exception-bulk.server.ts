@@ -223,6 +223,36 @@ export async function listExceptionBulkCompanies(organizationId: string) {
   return data ?? [];
 }
 
+export async function listExceptionBulkMutationEmployeeIds(input: {
+  organizationId: string;
+  selection: "page" | "all_filtered";
+  ids?: string[];
+  filter: ExceptionBulkFilter;
+  page?: number;
+  pageSize?: number;
+}): Promise<number[]> {
+  const organizationId = input.organizationId.trim();
+  const organizationCompanyId = input.filter.organizationCompanyId.trim();
+  if (!organizationId || !organizationCompanyId) {
+    throw new HorodateurPhase1Error("Organisation et compagnie obligatoires.", {
+      code: "organization_and_company_required",
+      status: 400,
+    });
+  }
+  if (input.filter.organizationId !== organizationId) {
+    throw new HorodateurPhase1Error("Filtre organisation incoherent.", {
+      code: "organization_scope_mismatch",
+      status: 403,
+    });
+  }
+  await assertCompanyInOrganization(organizationId, organizationCompanyId);
+  const filter = { ...input.filter, organizationId, organizationCompanyId };
+  const matched = await loadCandidates(filter);
+  const page = paginateMatched(matched, input.page ?? 1, input.pageSize ?? 25);
+  const targets = selectTargets(matched, input.selection, input.ids, page.page, page.pageSize);
+  return [...new Set(targets.map((row) => row.employeeId))];
+}
+
 export async function runExceptionBulkAction(input: {
   organizationId: string;
   actorUserId: string;

@@ -434,6 +434,20 @@ describe("quick-action tenant binding", () => {
     vi.doMock("@/app/lib/supabase/admin", () => ({
       createAdminSupabaseClient: vi.fn(() => ({})),
     }));
+    vi.doMock("@/app/lib/auth/horora-manager-perimeter.files.server", () => ({
+      readHororaExceptionEmployeeId: vi.fn().mockResolvedValue({
+        ok: true,
+        employeeId: 1,
+      }),
+      readHororaEmployeePerimeterFile: vi.fn().mockResolvedValue({
+        ok: true,
+        file: { organizationId: "org-a", departmentKey: "livreur" },
+      }),
+      readHororaActorDepartmentKeys: vi.fn().mockResolvedValue({
+        ok: true,
+        departmentKeys: ["livreur"],
+      }),
+    }));
 
     const { GET } = await import(
       "@/app/api/direction/horodateur/exceptions/quick-action/route"
@@ -453,6 +467,84 @@ describe("quick-action tenant binding", () => {
         exceptionId,
       })
     );
+  });
+
+  it("denies a same-tenant direction actor with no assigned department before approval", async () => {
+    const exceptionId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+    vi.doMock("@/app/lib/horodateur-exception-quick-action.server", () => ({
+      getHorodateurQuickActionActorUserId: () =>
+        "11111111-1111-4111-8111-111111111111",
+      hashHorodateurQuickActionToken: (t: string) => `hash:${t}`,
+    }));
+    const markQuickActionTokenUsed = vi.fn();
+    const approveHorodateurException = vi.fn();
+    vi.doMock("@/app/lib/horodateur-v1/repository", () => ({
+      findQuickActionTokenByHash: vi.fn().mockResolvedValue({
+        id: "tok-1",
+        exception_id: exceptionId,
+        action: "approve",
+        expires_at: new Date(Date.now() + 60_000).toISOString(),
+        used_at: null,
+      }),
+      getExceptionById: vi.fn().mockResolvedValue({
+        id: exceptionId,
+        organization_id: "org-a",
+        status: "en_attente",
+        employee_id: 1,
+        source_event_id: "evt-1",
+      }),
+      markQuickActionTokenUsed,
+    }));
+    vi.doMock("@/app/lib/horodateur-v1/service", () => ({
+      approveHorodateurException,
+      refuseHorodateurException: vi.fn(),
+    }));
+    vi.doMock("@/app/lib/saas/organization-membership.server", () => ({
+      resolveActiveOrganizationMembershipForUserId: vi.fn().mockResolvedValue({
+        ok: true,
+        organizationId: "org-a",
+        userId: "11111111-1111-4111-8111-111111111111",
+        membershipId: "m1",
+        membershipRole: "direction",
+        membershipStatus: "active",
+        organizationStatus: "active",
+        isDefault: true,
+        appRole: "direction",
+      }),
+    }));
+    vi.doMock("@/app/lib/app-alerts-dual-write.server", () => ({
+      markHorodateurExceptionAppAlertHandled: vi.fn(),
+    }));
+    vi.doMock("@/app/lib/supabase/admin", () => ({
+      createAdminSupabaseClient: vi.fn(() => ({})),
+    }));
+    vi.doMock("@/app/lib/auth/horora-manager-perimeter.files.server", () => ({
+      readHororaExceptionEmployeeId: vi.fn().mockResolvedValue({
+        ok: true,
+        employeeId: 1,
+      }),
+      readHororaEmployeePerimeterFile: vi.fn().mockResolvedValue({
+        ok: true,
+        file: { organizationId: "org-a", departmentKey: "livreur" },
+      }),
+      readHororaActorDepartmentKeys: vi.fn().mockResolvedValue({
+        ok: true,
+        departmentKeys: [],
+      }),
+    }));
+
+    const { GET } = await import(
+      "@/app/api/direction/horodateur/exceptions/quick-action/route"
+    );
+    const response = await GET({
+      nextUrl: new URL(
+        `https://example.test/api/direction/horodateur/exceptions/quick-action?exceptionId=${exceptionId}&action=approve&token=secret`
+      ),
+    } as never);
+
+    expect(response.status).toBe(403);
+    expect(approveHorodateurException).not.toHaveBeenCalled();
+    expect(markQuickActionTokenUsed).not.toHaveBeenCalled();
   });
 });
 
