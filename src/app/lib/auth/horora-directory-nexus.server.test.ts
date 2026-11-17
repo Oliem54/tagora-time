@@ -164,8 +164,47 @@ describe("HORORA staging directory client", () => {
       env: { VERCEL_ENV: "production", VERCEL_PROJECT_ID: HORORA_PRODUCTION_VERCEL_PROJECT_ID },
       fetchImpl,
     });
-    expect(held).toMatchObject({ ok: false, status: "service_uncertified" });
+    expect(held).toMatchObject({
+      ok: false,
+      status: "service_uncertified",
+      directory: null,
+      localCanonicalIdentityGrantsAccess: false,
+    });
     expect(fetchImpl).not.toHaveBeenCalled();
+    const { localCanonicalNexusUserIdForUncertifiedDirectory } = await import(
+      "@/app/lib/auth/horora-directory-nexus.server"
+    );
+    expect(
+      localCanonicalNexusUserIdForUncertifiedDirectory({
+        authUserId: "auth-martin",
+        scope,
+        links: [
+          {
+            nexusUserId: "nuser_5035cfcbd29a751e382fdf02f785d11f",
+            authUserId: "auth-martin",
+            organizationId: scope.organizationId,
+          },
+        ],
+      })
+    ).toBe("nuser_5035cfcbd29a751e382fdf02f785d11f");
+    expect(
+      localCanonicalNexusUserIdForUncertifiedDirectory({
+        authUserId: "auth-martin",
+        scope,
+        links: [
+          {
+            nexusUserId: "nuser_one",
+            authUserId: "auth-martin",
+            organizationId: scope.organizationId,
+          },
+          {
+            nexusUserId: "nuser_two",
+            authUserId: "auth-martin",
+            organizationId: scope.organizationId,
+          },
+        ],
+      })
+    ).toBeNull();
   });
 
   it("revokes REVOKED and SUSPENDED sessions and keeps ABSENT or an outage", async () => {

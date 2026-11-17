@@ -13,8 +13,10 @@ import {
   HORORA_AUTHORIZED_DIRECTORY_TECHNICAL_KEY,
   HORORA_DIRECTORY_REFRESH_MS,
   isCanonicalNexusUserId,
+  selectLocalCanonicalNexusUserId,
   type AuthorizedModuleDirectory,
   type AuthorizedModuleDirectoryEntry,
+  type HororaCanonicalIdentityLink,
   type HororaDirectoryAccessStatus,
   type HororaDirectoryScope,
 } from "@/app/lib/auth/horora-authorized-module-directory.shared";
@@ -369,6 +371,36 @@ async function readCachedDirectory(input: {
   return result;
 }
 
+/** Production keeps this result. A local nuser display is not a directory grant. */
+export function uncertifiedDirectoryRead(): {
+  ok: false;
+  status: "service_uncertified";
+  directory: null;
+  revocationEnforced: false;
+  localCanonicalIdentityGrantsAccess: false;
+} {
+  return {
+    ok: false,
+    status: "service_uncertified",
+    directory: null,
+    revocationEnforced: false,
+    localCanonicalIdentityGrantsAccess: false,
+  };
+}
+
+export function localCanonicalNexusUserIdForUncertifiedDirectory(input: {
+  authUserId: string | null;
+  links: readonly HororaCanonicalIdentityLink[];
+  scope: HororaDirectoryScope | null;
+}): string | null {
+  return selectLocalCanonicalNexusUserId({
+    authUserId: input.authUserId,
+    links: input.links,
+    scope: input.scope,
+    directoryConnected: false,
+  });
+}
+
 export async function readLiveAuthorizedModuleDirectory(input: {
   query: HororaDirectoryScope;
   env?: DirectoryEnv;
@@ -385,11 +417,12 @@ export async function readLiveAuthorizedModuleDirectory(input: {
       status: Exclude<HororaDirectoryServiceStatus, "ready">;
       directory: null;
       revocationEnforced: false;
+      localCanonicalIdentityGrantsAccess?: false;
     }
 > {
   const env = input.env ?? process.env;
   if (!isHororaStagingDirectoryRuntime(env)) {
-    return { ok: false, status: "service_uncertified", directory: null, revocationEnforced: false };
+    return uncertifiedDirectoryRead();
   }
   const fetched = await fetchHororaStagingDirectory({
     query: input.query,
