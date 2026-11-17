@@ -454,6 +454,282 @@ describe("AuthorizedModuleDirectory adaptation", () => {
     expect(scoped.rows.find((row) => row.dossierId === 11)?.nexusUserId).toBeNull();
   });
 
+  it("shows one validated local nuser while the directory stays uncertified", () => {
+    const view = adaptAuthorizedModuleDirectory({
+      directory: { technicalKey: "tagora_time", connected: false, entries: [] },
+      dossiers: [
+        dossier({
+          dossierId: 9,
+          displayName: "Martin ST-Gelais",
+          authUserId: "auth-martin",
+        }),
+      ],
+      memberships: [
+        membership({
+          membershipId: "mem-martin",
+          authUserId: "auth-martin",
+          role: "organization_owner",
+        }),
+      ],
+      canonicalLinks: [
+        {
+          nexusUserId: "nuser_5035cfcbd29a751e382fdf02f785d11f",
+          authUserId: "auth-martin",
+          organizationId: "org_tagora_internal",
+        },
+      ],
+      scope: {
+        tenantId: "tenant_tagora_internal",
+        organizationId: "org_tagora_internal",
+        moduleKey: "tagora_time",
+      },
+    });
+
+    expect(view.directoryConnected).toBe(false);
+    expect(view.rows).toHaveLength(1);
+    expect(view.rows[0]).toMatchObject({
+      dossierId: 9,
+      nexusUserId: "nuser_5035cfcbd29a751e382fdf02f785d11f",
+      nexusRoleKey: null,
+      directoryStatus: "ABSENT",
+      identityProjection: "local_link",
+      moduleEntryAllowed: false,
+      revocationEnforced: false,
+      membershipRole: "organization_owner",
+    });
+    const finance = view.rows[0].sections.find((section) => section.id === "finance");
+    expect(finance?.checked).toBe(true);
+    expect(finance?.grantedByNexusRole).toBe(false);
+    expect(finance?.source).toBe("validated_horora_admin_role");
+
+    const employee = adaptAuthorizedModuleDirectory({
+      directory: { technicalKey: "tagora_time", connected: false, entries: [] },
+      dossiers: [
+        dossier({
+          dossierId: 10,
+          displayName: "Employé lié",
+          authUserId: "auth-employee",
+        }),
+      ],
+      memberships: [
+        membership({
+          membershipId: "mem-employee",
+          authUserId: "auth-employee",
+          role: "employe",
+        }),
+      ],
+      canonicalLinks: [
+        {
+          nexusUserId: "nuser_employee_local",
+          authUserId: "auth-employee",
+          organizationId: "org_tagora_internal",
+        },
+      ],
+      scope: {
+        tenantId: "tenant_tagora_internal",
+        organizationId: "org_tagora_internal",
+        moduleKey: "tagora_time",
+      },
+    });
+    expect(employee.rows[0]).toMatchObject({
+      nexusUserId: "nuser_employee_local",
+      identityProjection: "local_link",
+      portalRole: "employe",
+      moduleEntryAllowed: false,
+    });
+    expect(employee.rows[0].sections.find((section) => section.id === "administration")?.checked).toBe(
+      false
+    );
+    expect(employee.rows[0].sections.every((section) => section.grantedByNexusRole === false)).toBe(
+      true
+    );
+  });
+
+  it("does not display an ambiguous, foreign, or invalid local nuser", () => {
+    const scope = {
+      tenantId: "tenant_tagora_internal",
+      organizationId: "org_tagora_internal",
+      moduleKey: "tagora_time" as const,
+    };
+    const base = {
+      directory: { technicalKey: "tagora_time" as const, connected: false, entries: [] },
+      dossiers: [
+        dossier({
+          dossierId: 9,
+          displayName: "Martin ST-Gelais",
+          authUserId: "auth-martin",
+        }),
+      ],
+      memberships: [
+        membership({
+          membershipId: "mem-martin",
+          authUserId: "auth-martin",
+          role: "organization_owner",
+        }),
+      ],
+      scope,
+    };
+    const ambiguous = adaptAuthorizedModuleDirectory({
+      ...base,
+      canonicalLinks: [
+        {
+          nexusUserId: "nuser_one",
+          authUserId: "auth-martin",
+          organizationId: "org_tagora_internal",
+        },
+        {
+          nexusUserId: "nuser_two",
+          authUserId: "auth-martin",
+          organizationId: "org_tagora_internal",
+        },
+      ],
+    });
+    const foreign = adaptAuthorizedModuleDirectory({
+      ...base,
+      canonicalLinks: [
+        {
+          nexusUserId: "nuser_foreign",
+          authUserId: "auth-martin",
+          organizationId: "org_other",
+        },
+      ],
+    });
+    const invalid = adaptAuthorizedModuleDirectory({
+      ...base,
+      canonicalLinks: [
+        {
+          nexusUserId: "martin@example.test",
+          authUserId: "auth-martin",
+          organizationId: "org_tagora_internal",
+        },
+      ],
+    });
+    const missing = adaptAuthorizedModuleDirectory({ ...base, canonicalLinks: [] });
+    const disabled = adaptAuthorizedModuleDirectory({
+      ...base,
+      canonicalLinks: [
+        {
+          nexusUserId: "nuser_5035cfcbd29a751e382fdf02f785d11f",
+          authUserId: "auth-other",
+          organizationId: "org_tagora_internal",
+          disabledAt: "2026-11-01T00:00:00.000Z",
+        },
+        {
+          nexusUserId: "nuser_5035cfcbd29a751e382fdf02f785d11f",
+          authUserId: "auth-martin",
+          organizationId: "org_tagora_internal",
+          disabledAt: "2026-11-01T00:00:00.000Z",
+        },
+      ],
+    });
+    const duplicateDossier = adaptAuthorizedModuleDirectory({
+      ...base,
+      dossiers: [
+        dossier({ dossierId: 9, displayName: "Martin ST-Gelais", authUserId: "auth-martin" }),
+        dossier({ dossierId: 19, displayName: "Doublon", authUserId: "auth-martin" }),
+      ],
+      canonicalLinks: [
+        {
+          nexusUserId: "nuser_5035cfcbd29a751e382fdf02f785d11f",
+          authUserId: "auth-martin",
+          organizationId: "org_tagora_internal",
+        },
+      ],
+    });
+    expect(ambiguous.rows[0]).toMatchObject({
+      nexusUserId: null,
+      identityProjection: "unlinked",
+      moduleEntryAllowed: false,
+    });
+    expect(foreign.rows[0].nexusUserId).toBeNull();
+    expect(invalid.rows[0].nexusUserId).toBeNull();
+    expect(missing.rows[0].nexusUserId).toBeNull();
+    expect(disabled.rows[0].nexusUserId).toBeNull();
+    expect(duplicateDossier.rows.every((row) => row.nexusUserId === null)).toBe(true);
+    expect(foreign.rows[0].directoryStatus).toBe("ABSENT");
+  });
+
+  it("keeps a certified denial or a certified absence ahead of the local link", () => {
+    const scope = {
+      tenantId: "tenant_tagora_internal",
+      organizationId: "org_tagora_internal",
+      moduleKey: "tagora_time" as const,
+    };
+    const link = {
+      nexusUserId: "nuser_5035cfcbd29a751e382fdf02f785d11f",
+      authUserId: "auth-martin",
+      organizationId: "org_tagora_internal",
+    };
+    const revoked = adaptAuthorizedModuleDirectory({
+      directory: {
+        technicalKey: "tagora_time",
+        connected: true,
+        entries: [
+          directoryEntry({
+            userId: "nuser_5035cfcbd29a751e382fdf02f785d11f",
+            displayName: "Martin ST-Gelais",
+            status: "REVOKED",
+            organizationId: "org_tagora_internal",
+            tenantId: "tenant_tagora_internal",
+          }),
+        ],
+      },
+      dossiers: [
+        dossier({ dossierId: 9, displayName: "Martin ST-Gelais", authUserId: "auth-martin" }),
+      ],
+      memberships: [
+        membership({
+          membershipId: "mem-martin",
+          authUserId: "auth-martin",
+          role: "organization_owner",
+        }),
+      ],
+      canonicalLinks: [link],
+      scope,
+    });
+    expect(revoked.rows).toHaveLength(1);
+    expect(revoked.rows[0]).toMatchObject({
+      nexusUserId: "nuser_5035cfcbd29a751e382fdf02f785d11f",
+      directoryStatus: "REVOKED",
+      identityProjection: "remote_denied",
+      moduleEntryAllowed: false,
+      revocationEnforced: true,
+    });
+
+    const absent = adaptAuthorizedModuleDirectory({
+      directory: { technicalKey: "tagora_time", connected: true, entries: [] },
+      dossiers: [
+        dossier({ dossierId: 9, displayName: "Martin ST-Gelais", authUserId: "auth-martin" }),
+      ],
+      memberships: [],
+      canonicalLinks: [link],
+      scope,
+    });
+    expect(absent.rows[0]).toMatchObject({
+      nexusUserId: null,
+      directoryStatus: "ABSENT",
+      identityProjection: "certified_absent",
+      moduleEntryAllowed: false,
+      revocationEnforced: false,
+    });
+
+    const unavailable = adaptAuthorizedModuleDirectory({
+      directory: null,
+      dossiers: [
+        dossier({ dossierId: 9, displayName: "Martin ST-Gelais", authUserId: "auth-martin" }),
+      ],
+      memberships: [],
+      canonicalLinks: [link],
+      scope,
+    });
+    expect(unavailable.rows[0]).toMatchObject({
+      nexusUserId: "nuser_5035cfcbd29a751e382fdf02f785d11f",
+      identityProjection: "local_link",
+      directoryStatus: "ABSENT",
+      moduleEntryAllowed: false,
+    });
+  });
+
   it("stays out of punch, GPS, session, and Nexus mapping files", () => {
     const route = readFileSync(
       join(root, "src/app/api/admin/utilisateurs/directory/route.ts"),
@@ -483,6 +759,12 @@ describe("AuthorizedModuleDirectory adaptation", () => {
         "horora-authorized-module-directory"
       );
     }
+    const projection = readFileSync(
+      join(root, "src/app/lib/auth/horora-authorized-module-directory.shared.ts"),
+      "utf8"
+    );
+    expect(projection).not.toContain("horora_nexus_sessions");
+    expect(projection).not.toContain("expiresAt");
   });
 
   it("shows isolated QA statuses without treating a missing directory row as revoked", () => {
