@@ -154,6 +154,15 @@ export type HororaDirectoryUserRow = {
   nexusUserId: string | null;
   nexusRoleKey: string | null;
   directoryStatus: HororaDirectoryAccessStatus;
+  /**
+   * Display only. A local link is not a Nexus directory status and grants nothing.
+   */
+  identityProjection:
+    | "local_link"
+    | "remote_directory"
+    | "certified_absent"
+    | "remote_denied"
+    | "unlinked";
   moduleEntryAllowed: boolean;
   revocationEnforced: boolean;
   revocationWiredToHandoff: boolean;
@@ -383,6 +392,32 @@ function directoryEntryAllowed(status: HororaDirectoryAccessStatus): boolean {
   return decision.moduleEntryAllowed;
 }
 
+/**
+ * A validated local link can be shown while the Nexus directory stays uncertified.
+ * It is not a directory entry and does not grant module access.
+ */
+export function selectLocalCanonicalNexusUserId(input: {
+  authUserId: string | null;
+  links: readonly HororaCanonicalIdentityLink[];
+  scope: HororaDirectoryScope | null;
+  directoryConnected: boolean;
+  dossiers?: readonly { authUserId: string | null }[];
+}): string | null {
+  if (input.directoryConnected || !input.scope || !input.authUserId) return null;
+  if (input.dossiers) {
+    const sameUser = input.dossiers.filter((row) => row.authUserId === input.authUserId);
+    if (sameUser.length !== 1) return null;
+  }
+  const matches = input.links.filter(
+    (link) =>
+      link.authUserId === input.authUserId &&
+      link.organizationId === input.scope?.organizationId &&
+      !link.disabledAt &&
+      isCanonicalNexusUserId(link.nexusUserId)
+  );
+  return matches.length === 1 ? matches[0].nexusUserId : null;
+}
+
 function dossierForCanonicalLink(
   entry: AuthorizedModuleDirectoryEntry,
   dossiers: readonly HororaPreservedEmployeeDossier[],
@@ -443,6 +478,10 @@ export function adaptAuthorizedModuleDirectory(input: {
         nexusUserId: entry.userId,
         nexusRoleKey: entry.nexusRoleKey,
         directoryStatus: entry.status,
+        identityProjection:
+          entry.status === "REVOKED" || entry.status === "SUSPENDED"
+            ? "remote_denied"
+            : "remote_directory",
         directoryLive: connected,
         displayName:
           entry.displayName.trim() || dossier?.displayName || "Utilisateur Nexus",
@@ -453,14 +492,26 @@ export function adaptAuthorizedModuleDirectory(input: {
 
   for (const dossier of dossiers) {
     if (consumedDossierIds.has(dossier.dossierId)) continue;
+    const localNexusUserId = selectLocalCanonicalNexusUserId({
+      authUserId: dossier.authUserId,
+      links,
+      scope,
+      directoryConnected: connected,
+      dossiers,
+    });
     rows.push(
       buildRow({
         dossier,
         memberships,
         permissionsByUser,
-        nexusUserId: null,
+        nexusUserId: localNexusUserId,
         nexusRoleKey: null,
         directoryStatus: "ABSENT",
+        identityProjection: localNexusUserId
+          ? "local_link"
+          : connected
+            ? "certified_absent"
+            : "unlinked",
         directoryLive: connected,
         displayName: dossier.displayName,
         contactEmail: normalizeEmail(dossier.contactEmail),
@@ -601,6 +652,7 @@ function buildRow(input: {
   nexusUserId: string | null;
   nexusRoleKey: string | null;
   directoryStatus: HororaDirectoryAccessStatus;
+  identityProjection: HororaDirectoryUserRow["identityProjection"];
   directoryLive: boolean;
   displayName: string;
   contactEmail: string | null;
@@ -639,6 +691,7 @@ function buildRow(input: {
     nexusUserId: input.nexusUserId,
     nexusRoleKey: input.nexusRoleKey,
     directoryStatus: input.directoryStatus,
+    identityProjection: input.identityProjection,
     moduleEntryAllowed:
       input.directoryStatus === "ABSENT"
         ? false

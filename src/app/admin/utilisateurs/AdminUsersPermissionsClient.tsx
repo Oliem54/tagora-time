@@ -135,7 +135,11 @@ export default function AdminUsersPermissionsClient() {
   const paged = pageDirectoryRows(visibleRows, page);
   const selected = rows.find((row) => row.key === selectedKey) ?? null;
   const rosterConfirmed =
-    serviceStatus === "ready" || rows.some((row) => row.nexusUserId !== null);
+    serviceStatus === "ready" ||
+    rows.some(
+      (row) =>
+        row.identityProjection === "remote_directory" && row.directoryStatus === "ACTIVE"
+    );
 
   return (
     <HororaAppShell
@@ -241,7 +245,7 @@ export default function AdminUsersPermissionsClient() {
                       {" · "}
                       {row.nexusRoleKey ?? row.membershipRole ?? "rôle absent"}
                       {" · "}
-                      {row.directoryStatus}
+                      {directoryStatusLabel(row.directoryStatus, serviceStatus, row.identityProjection)}
                     </div>
                   </button>
                 ))
@@ -391,8 +395,15 @@ function Metric({ label, value }: { label: string; value: number | string }) {
 
 function directoryStatusLabel(
   status: HororaDirectoryUserRow["directoryStatus"],
-  serviceStatus: string | null
+  serviceStatus: string | null,
+  projection: HororaDirectoryUserRow["identityProjection"]
 ) {
+  if (projection === "local_link") {
+    return "identité locale liée, annuaire distant non certifié";
+  }
+  if (projection === "certified_absent") return "absent de l'annuaire certifié";
+  if (projection === "remote_denied" && status === "SUSPENDED") return "suspendu dans Nexus";
+  if (projection === "remote_denied" && status === "REVOKED") return "révoqué dans Nexus";
   if (status === "ACTIVE") return "autorisé dans Nexus";
   if (status === "PENDING") return "en attente dans Nexus";
   if (status === "SUSPENDED") return "suspendu dans Nexus";
@@ -504,9 +515,12 @@ function PermissionPreview({
         {row.nexusUserId ?? "identité Nexus absente"} · organisation{" "}
         {scope?.organizationId ?? "non résolue"} · tenant {scope?.tenantId ?? "non résolu"} ·
         rôle {row.nexusRoleKey ?? row.membershipRole ?? "absent"} ·{" "}
-        {directoryStatusLabel(row.directoryStatus, serviceStatus)}.
-        {row.directoryStatus === "ABSENT"
-          ? " Une absence d'annuaire reste ABSENT et n'est pas une révocation."
+        {directoryStatusLabel(row.directoryStatus, serviceStatus, row.identityProjection)}.
+        {row.identityProjection === "local_link"
+          ? " Cette liaison n'accorde ni accès Nexus ni permission métier."
+          : ""}
+        {row.identityProjection === "certified_absent"
+          ? " Une absence d'annuaire certifié reste ABSENT et n'est pas une révocation."
           : ""}
         {serviceStatus === "service_unavailable"
           ? " L'indisponibilité du service n'est pas une révocation."
