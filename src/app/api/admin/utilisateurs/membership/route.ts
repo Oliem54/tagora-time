@@ -7,9 +7,11 @@ import {
 import { readLiveAuthorizedModuleDirectory } from "@/app/lib/auth/horora-directory-nexus.server";
 import { isProcessLocalNexusFixtureEnabled } from "@/app/lib/auth/horora-local-nexus-fixture";
 import {
+  actorCanEditLocalPresetRoles,
   assessNexusLocalBinding,
   decideHororaMembershipChange,
   describeAuthorityAfterMembershipRoleChange,
+  lastActiveOwnerWouldBeRemoved,
   nexusLocalBindingDenialMessage,
   shouldRevokeTargetHororaSessions,
   type HororaMembershipChangeDenial,
@@ -183,7 +185,7 @@ export async function POST(req: NextRequest) {
       return jsonError(500, "Chargement impossible.", "membership_read_failed");
     }
 
-    const memberships: HororaMembershipSnapshot[] = [];
+    const memberships: Array<HororaMembershipSnapshot & { userId: string }> = [];
     let target: { id: string; userId: string; role: HororaMembershipSnapshot["role"]; status: HororaMembershipSnapshot["status"] } | null =
       null;
     for (const row of membershipResult.data ?? []) {
@@ -197,13 +199,64 @@ export async function POST(req: NextRequest) {
       ) {
         continue;
       }
-      memberships.push({ id: row.id, role, status });
+      memberships.push({ id: row.id, userId: row.user_id, role, status });
       if (row.id === membershipId) {
         target = { id: row.id, userId: row.user_id, role, status };
       }
     }
+    const actorCandidates = memberships.filter(
+      (row) => row.userId === authenticated.user.id && row.status === "active"
+    );
+    const actor = actorCandidates.length === 1 ? actorCandidates[0] : null;
+    if (
+      !actor ||
+      actor.id !== authenticated.membershipId ||
+      actor.role !== authenticated.membershipRole
+    ) {
+      return jsonError(403, DENIAL_MESSAGE.actor_forbidden, "actor_forbidden");
+    }
     if (!target) {
+      const foreignResult = await supabase
+        .from("organization_memberships")
+        .select("id, organization_id")
+        .eq("id", membershipId)
+        .maybeSingle<{ id: string; organization_id: string | null }>();
+      if (foreignResult.error) {
+        return jsonError(500, "Chargement impossible.", "membership_read_failed");
+      }
+      if (
+        foreignResult.data &&
+        foreignResult.data.organization_id !== authenticated.organizationId
+      ) {
+        return jsonError(
+          403,
+          DENIAL_MESSAGE.cross_organization_forbidden,
+          "cross_organization_forbidden"
+        );
+      }
       return jsonError(404, "Appartenance introuvable dans cette organisation.", "target_missing");
+    }
+    if (actor.id === target.id || actor.userId === target.userId) {
+      return jsonError(403, DENIAL_MESSAGE.self_change_forbidden, "self_change_forbidden");
+    }
+    if (target.status !== "active") {
+      return jsonError(
+        409,
+        nexusLocalBindingDenialMessage("membership_not_active"),
+        "membership_not_active"
+      );
+    }
+    if (!actorCanEditLocalPresetRoles(actor.role)) {
+      const code =
+        actor.role === "direction" ? "direction_assignment_unauthorized" : "actor_forbidden";
+      return jsonError(403, DENIAL_MESSAGE[code], code);
+    }
+    if (lastActiveOwnerWouldBeRemoved(memberships, target.id, nextRole, "active")) {
+      return jsonError(
+        409,
+        DENIAL_MESSAGE.last_owner_protected,
+        "last_owner_protected"
+      );
     }
 
     const binding = await confirmExistingNexusBinding({
@@ -225,8 +278,8 @@ export async function POST(req: NextRequest) {
     }
 
     const decision = decideHororaMembershipChange({
-      actorMembershipId: authenticated.membershipId,
-      actorRole: authenticated.membershipRole,
+      actorMembershipId: actor.id,
+      actorRole: actor.role,
       actorOrganizationId: authenticated.organizationId,
       targetMembershipId: target.id,
       targetOrganizationId: authenticated.organizationId,
@@ -276,6 +329,9 @@ export async function POST(req: NextRequest) {
         },
         { status: committed.status }
       );
+    }
+    if (!committed.unchanged && committed.audited !== true) {
+      return jsonError(500, "L'audit du rôle n'a pas été écrit.", "audit_write_failed");
     }
 
     const revokeChangedTargetSessions = async () => {
