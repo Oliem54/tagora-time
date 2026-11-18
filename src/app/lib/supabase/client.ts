@@ -1,5 +1,24 @@
-import { createClient } from "@supabase/supabase-js";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { resolveHororaRuntimeSupabaseUrl } from "@/app/lib/supabase/supabase-host.shared";
+
+export const HORORA_SUPABASE_UNCONFIGURED = "supabase_unconfigured" as const;
+
+export type HororaSupabaseUnconfiguredError = {
+  message: "Service Supabase indisponible.";
+  code: typeof HORORA_SUPABASE_UNCONFIGURED;
+};
+
+const SUPABASE_UNAVAILABLE: HororaSupabaseUnconfiguredError = {
+  message: "Service Supabase indisponible.",
+  code: HORORA_SUPABASE_UNCONFIGURED,
+};
+
+export type BrowserSupabaseConfig = {
+  url: string;
+  anonKey: string;
+  publishableKey: string;
+  resolvedKey: string;
+};
 
 /** CRLF / espaces dans .env.local peuvent corrompre l’URL → Failed to fetch. */
 function trimEnv(value: string | undefined): string {
@@ -43,21 +62,157 @@ function installDevSupabaseRefreshTokenConsoleFilter() {
 
 installDevSupabaseRefreshTokenConsoleFilter();
 
-const supabaseUrl = resolveHororaRuntimeSupabaseUrl(
-  trimEnv(process.env.NEXT_PUBLIC_SUPABASE_URL)
-);
-const anonKey = trimEnv(process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY);
-const publishableKey = trimEnv(process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY);
-/** Priorité : ANON, sinon publishable (fallback). */
-const supabaseResolvedKey = anonKey || publishableKey;
+/**
+ * A configured browser client exists only when both the public URL and a
+ * public key are present. An empty build must not borrow the Production URL.
+ */
+export function readBrowserSupabaseConfig(
+  env: NodeJS.ProcessEnv = process.env
+): BrowserSupabaseConfig | null {
+  const rawUrl = trimEnv(env.NEXT_PUBLIC_SUPABASE_URL);
+  const anonKey = trimEnv(env.NEXT_PUBLIC_SUPABASE_ANON_KEY);
+  const publishableKey = trimEnv(env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY);
+  const resolvedKey = anonKey || publishableKey;
+  if (!rawUrl || !resolvedKey) return null;
 
-if (!supabaseUrl || !supabaseResolvedKey) {
-  throw new Error(
-    "Supabase navigateur : definir NEXT_PUBLIC_SUPABASE_URL et NEXT_PUBLIC_SUPABASE_ANON_KEY (ou NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY en secours) dans .env.local, puis redemarrer le serveur."
+  return {
+    url: resolveHororaRuntimeSupabaseUrl(rawUrl, env),
+    anonKey,
+    publishableKey,
+    resolvedKey,
+  };
+}
+
+type UnavailableQuery = Promise<{
+  data: null;
+  error: HororaSupabaseUnconfiguredError;
+  count: null;
+}>;
+
+function unavailableQuery(): UnavailableQuery {
+  const result = {
+    data: null,
+    error: SUPABASE_UNAVAILABLE,
+    count: null,
+  };
+  const promise = Promise.resolve(result);
+  let proxy: UnavailableQuery;
+  const builder = function unavailableBuilder() {
+    return proxy;
+  };
+  proxy = new Proxy(builder, {
+    get(_target, prop) {
+      if (prop === "then") return promise.then.bind(promise);
+      if (prop === "catch") return promise.catch.bind(promise);
+      if (prop === "finally") return promise.finally.bind(promise);
+      return () => proxy;
+    },
+    apply() {
+      return proxy;
+    },
+  }) as unknown as UnavailableQuery;
+  return proxy;
+}
+
+function unavailableNamespace(): unknown {
+  const call = () => unavailableQuery();
+  return new Proxy(call, {
+    get: () => unavailableNamespace(),
+    apply: () => unavailableQuery(),
+  });
+}
+
+function unavailableAuth() {
+  return {
+    getSession: async () => ({
+      data: { session: null },
+      error: SUPABASE_UNAVAILABLE,
+    }),
+    getUser: async () => ({
+      data: { user: null },
+      error: SUPABASE_UNAVAILABLE,
+    }),
+    signOut: async () => ({ error: null }),
+    signInWithPassword: async () => ({
+      data: { user: null, session: null },
+      error: SUPABASE_UNAVAILABLE,
+    }),
+    signInWithOtp: async () => ({
+      data: { user: null, session: null },
+      error: SUPABASE_UNAVAILABLE,
+    }),
+    resetPasswordForEmail: async () => ({
+      data: null,
+      error: SUPABASE_UNAVAILABLE,
+    }),
+    updateUser: async () => ({
+      data: { user: null },
+      error: SUPABASE_UNAVAILABLE,
+    }),
+    setSession: async () => ({
+      data: { session: null, user: null },
+      error: SUPABASE_UNAVAILABLE,
+    }),
+    onAuthStateChange: () => ({
+      data: { subscription: { unsubscribe() {} } },
+    }),
+    mfa: unavailableNamespace(),
+    admin: unavailableNamespace(),
+  };
+}
+
+/** Local refusal. It has no URL, no key, and no network access. */
+export function createUnavailableBrowserSupabase() {
+  return new Proxy(
+    {},
+    {
+      get(_target, prop) {
+        if (prop === "auth") return unavailableAuth();
+        if (prop === "from" || prop === "rpc" || prop === "schema") {
+          return () => unavailableQuery();
+        }
+        return unavailableNamespace();
+      },
+    }
   );
 }
 
-export const supabase = createClient(supabaseUrl, supabaseResolvedKey);
+let cachedClient: SupabaseClient | ReturnType<typeof createUnavailableBrowserSupabase> | null =
+  null;
+let cachedKey = "";
+
+function browserClientCacheKey(env: NodeJS.ProcessEnv): string {
+  return [
+    env.VERCEL_ENV ?? "",
+    env.NEXT_PUBLIC_SUPABASE_URL ?? "",
+    env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "",
+    env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ?? "",
+  ].join("\n");
+}
+
+export function getBrowserSupabaseClient(
+  env: NodeJS.ProcessEnv = process.env
+): SupabaseClient | ReturnType<typeof createUnavailableBrowserSupabase> {
+  const key = browserClientCacheKey(env);
+  if (cachedClient && cachedKey === key && env === process.env) return cachedClient;
+  const config = readBrowserSupabaseConfig(env);
+  const client = config
+    ? createClient(config.url, config.resolvedKey)
+    : createUnavailableBrowserSupabase();
+  if (env === process.env) {
+    cachedClient = client;
+    cachedKey = key;
+  }
+  return client;
+}
+
+export const supabase = new Proxy({} as SupabaseClient, {
+  get(_target, prop, receiver) {
+    const client = getBrowserSupabaseClient();
+    const value = Reflect.get(client as object, prop, receiver);
+    return typeof value === "function" ? value.bind(client) : value;
+  },
+}) as SupabaseClient;
 
 /**
  * supabase-js sérialise partiellement GoTrue, mais getUser / getSession en parallèle
@@ -110,23 +265,26 @@ export async function clearLocalAuthIfRefreshTokenDead(error: unknown): Promise<
 }
 
 /** Dev uniquement : pas de clé, uniquement indicateurs et host. */
-export function getSupabaseBrowserLoginDebug() {
+export function getSupabaseBrowserLoginDebug(
+  env: NodeJS.ProcessEnv = process.env
+) {
+  const config = readBrowserSupabaseConfig(env);
   let host: string | null = null;
   try {
-    host = new URL(supabaseUrl).host;
+    host = config ? new URL(config.url).host : null;
   } catch {
     host = null;
   }
 
-  const base = supabaseUrl.replace(/\/$/, "");
-  const passwordGrantUrl = supabaseUrl ? `${base}/auth/v1/token?grant_type=password` : null;
-  const settingsUrl = supabaseUrl ? `${base}/auth/v1/settings` : null;
+  const base = config?.url.replace(/\/$/, "") ?? "";
+  const passwordGrantUrl = config ? `${base}/auth/v1/token?grant_type=password` : null;
+  const settingsUrl = config ? `${base}/auth/v1/settings` : null;
 
   return {
-    hasUrl: Boolean(supabaseUrl),
-    hasAnonKey: Boolean(anonKey),
-    hasPublishableKey: Boolean(publishableKey),
-    hasResolvedKey: Boolean(supabaseResolvedKey),
+    hasUrl: Boolean(config?.url),
+    hasAnonKey: Boolean(config?.anonKey),
+    hasPublishableKey: Boolean(config?.publishableKey),
+    hasResolvedKey: Boolean(config?.resolvedKey),
     host,
     /** À comparer avec l’onglet Network (filtre : token ou grant_type=password). */
     passwordGrantUrl,
@@ -139,7 +297,9 @@ export function getSupabaseBrowserLoginDebug() {
  * Dev : vérifie que le navigateur peut joindre Supabase (TLS, DNS, extensions, etc.).
  * Utilise la même clé que createClient (jamais loguée).
  */
-export async function probeSupabaseAuthSettingsReachable(): Promise<{
+export async function probeSupabaseAuthSettingsReachable(
+  env: NodeJS.ProcessEnv = process.env
+): Promise<{
   url: string;
   ok: boolean;
   status?: number;
@@ -147,13 +307,17 @@ export async function probeSupabaseAuthSettingsReachable(): Promise<{
   fetchErrorName?: string;
   fetchErrorMessage?: string;
 }> {
-  const url = `${supabaseUrl.replace(/\/$/, "")}/auth/v1/settings`;
+  const config = readBrowserSupabaseConfig(env);
+  if (!config) {
+    return { url: "", ok: false, fetchErrorName: HORORA_SUPABASE_UNCONFIGURED };
+  }
+  const url = `${config.url.replace(/\/$/, "")}/auth/v1/settings`;
   try {
     const res = await fetch(url, {
       method: "GET",
       headers: {
-        apikey: supabaseResolvedKey,
-        Authorization: `Bearer ${supabaseResolvedKey}`,
+        apikey: config.resolvedKey,
+        Authorization: `Bearer ${config.resolvedKey}`,
       },
     });
 
