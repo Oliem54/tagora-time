@@ -65,6 +65,19 @@ export default function HororaPremium2027SyntheticDemoPage() {
             Dossier {demo.employee.otherDossier.dossierId} : {demo.employee.otherDossier.reason}
           </p>
         </section>
+        <section>
+          <h1>Simulations de sécurité</h1>
+          <p>{demo.security.simulationNotice}</p>
+          <p>{demo.security.crossOrganizationVisible.headline}</p>
+          <p>
+            Un utilisateur de {demo.security.crossOrganizationVisible.actorOrganization} tente de consulter le dossier {demo.security.crossOrganizationVisible.foreignDossierId} de {demo.security.crossOrganizationVisible.targetOrganization}. Le dossier étranger demeure inaccessible.
+          </p>
+          <p>{demo.security.inactiveMembership.headline}</p>
+          <p>
+            {demo.security.inactiveMembership.profile} : dossiers, fonctionnalités et permissions de gestion fermés.
+          </p>
+          <p>Session révoquée : éditeur fermé. Aucune écriture.</p>
+        </section>
       </div>
     </main>
   );

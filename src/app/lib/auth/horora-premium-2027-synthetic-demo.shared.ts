@@ -16,6 +16,15 @@ export const HORORA_PREMIUM_2027_DEMO_PATH = "/qa/premium-2027" as const;
 export const HORORA_PREMIUM_2027_DEMO_NOTICE =
   "Démonstration Premium 2027. Données fictives. Aucune session HORORA ou Nexus. Aucune écriture." as const;
 
+export const HORORA_PREMIUM_2027_CROSS_ORGANIZATION_DENIAL =
+  "ACCÈS REFUSÉ — ORGANISATION DIFFÉRENTE" as const;
+
+export const HORORA_PREMIUM_2027_INACTIVE_MEMBERSHIP_DENIAL =
+  "ACCÈS REFUSÉ — APPARTENANCE INACTIVE" as const;
+
+export const HORORA_PREMIUM_2027_SECURITY_SIMULATION_NOTICE =
+  "Simulation de sécurité. Aucune base ni API réelle n'a été consultée." as const;
+
 const DEMO_ORGANIZATION = "00000000-0000-4000-8000-0000000000a2";
 const OTHER_ORGANIZATION = "00000000-0000-4000-8000-0000000000c9";
 const ASSIGNED_DEPARTMENT = "livraison";
@@ -150,10 +159,24 @@ export function buildHororaPremium2027SyntheticDemo() {
       writeAttempt: refusedWrite("Le pointage fictif n'est pas enregistré."),
     },
     security: {
+      simulationNotice: HORORA_PREMIUM_2027_SECURITY_SIMULATION_NOTICE,
       crossOrganization: crossOrganization.allowed,
       crossOrganizationReason: crossOrganization.reason,
+      crossOrganizationVisible: {
+        headline: HORORA_PREMIUM_2027_CROSS_ORGANIZATION_DENIAL,
+        actorOrganization: "l'organisation fictive A",
+        targetOrganization: "l'organisation fictive B",
+        foreignDossierId: OTHER_DOSSIER,
+        foreignDossierAccessible: false as const,
+        realDataLoaded: false as const,
+      },
       inactiveMembership: {
         status: "inactive" as const,
+        headline: HORORA_PREMIUM_2027_INACTIVE_MEMBERSHIP_DENIAL,
+        profile: "Employé fictif inactif",
+        dossierAccess: false as const,
+        featureAccess: false as const,
+        managementAccess: false as const,
         editor: false,
         writeAttempt: refusedWrite("Appartenance inactive. Aucun rôle n'a été modifié."),
       },

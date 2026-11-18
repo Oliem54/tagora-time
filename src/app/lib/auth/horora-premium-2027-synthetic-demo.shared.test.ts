@@ -4,6 +4,8 @@ import { describe, expect, it } from "vitest";
 import { isHororaLocalNexusFixtureEnabled } from "@/app/lib/auth/horora-local-nexus-fixture";
 import {
   buildHororaPremium2027SyntheticDemo,
+  HORORA_PREMIUM_2027_CROSS_ORGANIZATION_DENIAL,
+  HORORA_PREMIUM_2027_INACTIVE_MEMBERSHIP_DENIAL,
   isHororaPremium2027SyntheticDemoEnabled,
   readHororaPremium2027SyntheticDemoContext,
 } from "@/app/lib/auth/horora-premium-2027-synthetic-demo.shared";
@@ -94,8 +96,21 @@ describe("HORORA Premium 2027 synthetic demo", () => {
     const demo = buildHororaPremium2027SyntheticDemo();
     expect(demo.security.crossOrganization).toBe(false);
     expect(demo.security.crossOrganizationReason).toBe("cross_organization_forbidden");
-    expect(demo.security.inactiveMembership.editor).toBe(false);
+    expect(demo.security.crossOrganizationVisible).toMatchObject({
+      headline: HORORA_PREMIUM_2027_CROSS_ORGANIZATION_DENIAL,
+      foreignDossierAccessible: false,
+      realDataLoaded: false,
+    });
+    expect(demo.security.inactiveMembership).toMatchObject({
+      headline: HORORA_PREMIUM_2027_INACTIVE_MEMBERSHIP_DENIAL,
+      status: "inactive",
+      dossierAccess: false,
+      featureAccess: false,
+      managementAccess: false,
+      editor: false,
+    });
     expect(demo.security.inactiveMembership.writeAttempt.roleAfterRefusal).toBe("employe");
+    expect(demo.security.simulationNotice).toContain("Aucune base ni API réelle");
     expect(demo.security.revokedSession.status).toBe("REVOKED");
     expect(demo.security.revokedSession.writeAttempt.persisted).toBe(false);
     expect(demo.security.writesAfterRefusal).toBe(0);
@@ -109,6 +124,10 @@ describe("HORORA Premium 2027 synthetic demo", () => {
     );
     expect(page).toContain("isHororaPremium2027SyntheticDemoEnabled");
     expect(page).toContain("notFound()");
+    expect(page).toContain("Simulations de sécurité");
+    expect(page).toContain("{demo.security.crossOrganizationVisible.headline}");
+    expect(page).toContain("{demo.security.inactiveMembership.headline}");
+    expect(page).toContain("Session révoquée");
     expect(page).not.toContain("@/app/lib/supabase/client");
     expect(page).not.toContain("HORORA_LOCAL_FIXTURE_COOKIE_NAME");
     const middleware = readFileSync(join(process.cwd(), "src/middleware.ts"), "utf8");
