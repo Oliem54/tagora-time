@@ -22,7 +22,7 @@ const LOCAL = {
   vercelEnv: undefined,
   hostname: "localhost",
   flag: "true",
-  supabaseUrl: `https://${HORORA_STAGING_SUPABASE_HOST}`,
+  supabaseUrl: "http://127.0.0.1:9",
 } as const;
 
 describe("HORORA local Nexus fixture", () => {
@@ -47,6 +47,31 @@ describe("HORORA local Nexus fixture", () => {
       isHororaLocalNexusFixtureEnabled({
         ...LOCAL,
         supabaseUrl: `https://${HORORA_PRODUCTION_SUPABASE_HOST}`,
+      })
+    ).toBe(false);
+    expect(
+      isHororaLocalNexusFixtureEnabled({
+        ...LOCAL,
+        supabaseUrl: `https://${HORORA_STAGING_SUPABASE_HOST}`,
+      })
+    ).toBe(false);
+    expect(
+      isHororaLocalNexusFixtureEnabled({
+        ...LOCAL,
+        flag: "true",
+        nodeEnv: "production",
+        vercelEnv: "production",
+        hostname: "time.tagora.ca",
+        supabaseUrl: `https://${HORORA_PRODUCTION_SUPABASE_HOST}`,
+      })
+    ).toBe(false);
+    expect(
+      isHororaLocalNexusFixtureEnabled({
+        ...LOCAL,
+        flag: "true",
+        vercelEnv: "preview",
+        hostname: "tagora-time-staging-abc.vercel.app",
+        supabaseUrl: `https://${HORORA_STAGING_SUPABASE_HOST}`,
       })
     ).toBe(false);
   });
@@ -84,6 +109,12 @@ describe("HORORA local Nexus fixture", () => {
       readHororaLocalFixtureTerrainPermissions({
         ...LOCAL,
         supabaseUrl: `https://${HORORA_PRODUCTION_SUPABASE_HOST}`,
+      })
+    ).toEqual([]);
+    expect(
+      readHororaLocalFixtureTerrainPermissions({
+        ...LOCAL,
+        supabaseUrl: `https://${HORORA_STAGING_SUPABASE_HOST}`,
       })
     ).toEqual([]);
 
@@ -126,6 +157,17 @@ describe("HORORA local Nexus fixture", () => {
     expect(middleware).toContain("resolveHororaRequestAccess");
     expect(session).toContain('source: "nexus_handoff"');
     expect(session).toContain('source: "local_nexus_fixture"');
+    expect(session.indexOf('source: "local_nexus_fixture"')).toBeLessThan(
+      session.indexOf("await readVerifiedSessionCompany")
+    );
+    const accountRequests = readFileSync(
+      join(process.cwd(), "src/app/lib/account-requests.server.ts"),
+      "utf8"
+    );
+    expect(accountRequests).not.toContain("HORORA_LOCAL_FIXTURE_COOKIE_NAME");
+    expect(accountRequests.indexOf("return localFixtureRequestUser")).toBeGreaterThan(
+      accountRequests.indexOf("isProcessLocalNexusFixtureEnabled")
+    );
     expect(
       readFileSync(join(process.cwd(), "src/app/lib/account-requests.server.ts"), "utf8")
     ).toContain("readHororaLocalFixtureTerrainPermissions");
