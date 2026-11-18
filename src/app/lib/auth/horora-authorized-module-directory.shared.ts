@@ -568,13 +568,24 @@ export function buildIsolatedDirectoryPanelFixture(): {
       technicalKey: HORORA_AUTHORIZED_DIRECTORY_TECHNICAL_KEY,
       connected: false,
       entries: [
-        entryFixture("nuser_local_panel_active", "ACTIVE", "employe"),
+        {
+          ...entryFixture("nuser_local_panel_active", "ACTIVE", "employe"),
+          displayName: "Employé local autorisé",
+          contactEmail: "employe.autorise@example.test",
+        },
         entryFixture("nuser_local_panel_pending", "PENDING", "employe"),
         entryFixture("nuser_local_panel_suspended", "SUSPENDED", "employe"),
         entryFixture("nuser_local_panel_revoked", "REVOKED", "employe"),
       ],
     },
     dossiers: [
+      {
+        dossierId: 900002,
+        displayName: "Employé local autorisé",
+        contactEmail: "employe.autorise@example.test",
+        active: true,
+        authUserId: "00000000-0000-4000-8000-0000000000b1",
+      },
       {
         dossierId: 900001,
         displayName: "Dossier local sans annuaire",
@@ -585,10 +596,23 @@ export function buildIsolatedDirectoryPanelFixture(): {
     ],
     memberships: [
       {
+        membershipId: "00000000-0000-4000-8000-0000000000b2",
+        authUserId: "00000000-0000-4000-8000-0000000000b1",
+        role: "employe",
+        status: "active",
+      },
+      {
         membershipId: "00000000-0000-4000-8000-0000000000aa",
         authUserId: "00000000-0000-4000-8000-0000000000a9",
         role: "employe",
         status: "active",
+      },
+    ],
+    canonicalLinks: [
+      {
+        nexusUserId: "nuser_local_panel_active",
+        authUserId: "00000000-0000-4000-8000-0000000000b1",
+        organizationId: HORORA_LOCAL_FIXTURE_ORGANIZATION_ID,
       },
     ],
     scope: {

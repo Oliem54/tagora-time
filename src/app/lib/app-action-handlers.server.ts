@@ -14,6 +14,7 @@ import {
   refuseHorodateurException,
 } from "@/app/lib/horodateur-v1/service";
 import { HorodateurPhase1Error } from "@/app/lib/horodateur-v1/types";
+import { enforceHororaManagerTimeHttpGuard } from "@/app/lib/auth/horora-manager-perimeter.http.server";
 import { resolveActiveOrganizationMembershipForUserId } from "@/app/lib/saas/organization-membership.server";
 import { createAdminSupabaseClient } from "@/app/lib/supabase/admin";
 
@@ -34,6 +35,7 @@ export type AppActionHandlerResult =
         | "already_handled"
         | "configuration_missing"
         | "tenant_mismatch"
+        | "perimeter_denied"
         | "handler_error";
       message: string;
     };
@@ -132,6 +134,19 @@ async function executeHorodateurExceptionReviewHandler(options: {
       ok: false,
       code: "tenant_mismatch",
       message: "Ce lien ne correspond pas au tenant de l'acteur configure.",
+    };
+  }
+
+  const perimeter = await enforceHororaManagerTimeHttpGuard({
+    serverActorUserId: actorId,
+    action: "approve_time",
+    exceptionId,
+  });
+  if (!perimeter.ok) {
+    return {
+      ok: false,
+      code: "perimeter_denied",
+      message: "Acces refuse.",
     };
   }
 

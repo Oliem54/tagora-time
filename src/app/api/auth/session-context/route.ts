@@ -63,10 +63,6 @@ export async function GET(req: NextRequest) {
     }
 
     const display = readReliableHororaSessionDisplay(user);
-    const company = await readVerifiedSessionCompany(
-      user.id,
-      authenticated.organizationId
-    );
 
     if (sessionSource === HORORA_LOCAL_FIXTURE_SESSION_SOURCE) {
       return NextResponse.json({
@@ -82,9 +78,14 @@ export async function GET(req: NextRequest) {
         source: "local_nexus_fixture",
         displayName: display.displayName,
         email: display.email,
-        company,
+        company: null,
       });
     }
+
+    const company = await readVerifiedSessionCompany(
+      user.id,
+      authenticated.organizationId
+    );
 
     return NextResponse.json({
       authenticated: true,

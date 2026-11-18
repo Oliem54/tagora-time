@@ -6,7 +6,7 @@ export const dynamic = "force-dynamic";
 export const metadata: Metadata = {
   title: "Utilisateurs et permissions",
   description:
-    "Préparation locale de l'annuaire HORORA. Aucun enregistrement et aucun accès Nexus en direct.",
+    "Console locale HORORA. Les rôles et permissions déjà enregistrés restent la seule autorité.",
 };
 
 export default function AdminUsersPermissionsPage() {

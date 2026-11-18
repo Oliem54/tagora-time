@@ -6,6 +6,7 @@ import {
 } from "@/app/lib/horodateur-exception-quick-action.server";
 import { markHorodateurExceptionAppAlertHandled } from "@/app/lib/app-alerts-dual-write.server";
 import { approveHorodateurException, refuseHorodateurException } from "@/app/lib/horodateur-v1/service";
+import { enforceHororaManagerTimeHttpGuard } from "@/app/lib/auth/horora-manager-perimeter.http.server";
 import {
   findQuickActionTokenByHash,
   getExceptionById,
@@ -268,6 +269,22 @@ export async function GET(req: NextRequest) {
         variant: "error",
       }),
       tenant.status
+    );
+  }
+
+  const perimeter = await enforceHororaManagerTimeHttpGuard({
+    serverActorUserId: actorId,
+    action: "approve_time",
+    exceptionId: row.exception_id,
+  });
+  if (!perimeter.ok) {
+    return respond(
+      quickActionHtmlPage({
+        title: "Accès refusé",
+        message: "Accès refusé.",
+        variant: "error",
+      }),
+      perimeter.status === 401 ? 401 : 403
     );
   }
 

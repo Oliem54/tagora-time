@@ -11,7 +11,12 @@ import {
   type ExceptionBulkFilter,
 } from "@/app/lib/horodateur-v1/horodateur-exception-bulk.shared";
 import {
+  enforceHororaManagerTimeHttpGuard,
+  hororaManagerTimeHttpDenialResponse,
+} from "@/app/lib/auth/horora-manager-perimeter.http.server";
+import {
   listExceptionBulkCompanies,
+  listExceptionBulkMutationEmployeeIds,
   runExceptionBulkAction,
 } from "@/app/lib/horodateur-v1/horodateur-exception-bulk.server";
 
@@ -77,6 +82,7 @@ export async function POST(req: NextRequest) {
     }
     const selection = body.selection === "all_filtered" ? "all_filtered" : "page";
     const filters = body.filters ?? {};
+    const ids = Array.isArray(body.ids) ? body.ids.filter((id) => typeof id === "string") : [];
     const filter: ExceptionBulkFilter = {
       organizationId: auth.organizationId,
       organizationCompanyId,
@@ -93,12 +99,35 @@ export async function POST(req: NextRequest) {
       archiveState: filters.archiveState ?? "active",
       includeDeleted: filters.includeDeleted === true,
     };
+    if (action === "approve" || action === "refuse") {
+      const employeeIds = await listExceptionBulkMutationEmployeeIds({
+        organizationId: auth.organizationId,
+        selection,
+        ids,
+        filter,
+        page: typeof body.page === "number" ? body.page : 1,
+        pageSize: typeof body.pageSize === "number" ? body.pageSize : 25,
+      });
+      for (const employeeId of employeeIds) {
+        const perimeter = await enforceHororaManagerTimeHttpGuard({
+          request: req,
+          action: "approve_time",
+          targetEmployeeId: employeeId,
+        });
+        if (!perimeter.ok) {
+          return hororaManagerTimeHttpDenialResponse(
+            perimeter,
+            "/api/direction/horodateur/exceptions/bulk"
+          );
+        }
+      }
+    }
     const result = await runExceptionBulkAction({
       organizationId: auth.organizationId,
       actorUserId: auth.user.id,
       action,
       selection,
-      ids: Array.isArray(body.ids) ? body.ids.filter((id) => typeof id === "string") : [],
+      ids,
       filter,
       page: typeof body.page === "number" ? body.page : 1,
       pageSize: typeof body.pageSize === "number" ? body.pageSize : 25,

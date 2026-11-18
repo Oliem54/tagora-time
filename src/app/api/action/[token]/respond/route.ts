@@ -114,7 +114,9 @@ export async function POST(
           ? 503
           : handlerResult.code === "target_not_found"
             ? 404
-            : 400;
+            : handlerResult.code === "perimeter_denied"
+              ? 403
+              : 400;
 
     return NextResponse.json(
       {

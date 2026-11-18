@@ -1,6 +1,7 @@
 /**
  * Local HORORA adapter for the Nexus access contract.
- * Active only in `next dev` on a loopback host, and never against Production Supabase.
+ * Active only in `next dev` on a loopback host, and never against the
+ * Production or Staging Supabase projects.
  * The fixture does not call Nexus and does not write Nexus tables.
  */
 
@@ -9,6 +10,7 @@ import { getDashboardPathForRole, type AppRole } from "@/app/lib/auth/roles";
 import { isLocalHostname, normalizeHostname } from "@/app/lib/canonical-domains";
 import {
   HORORA_PRODUCTION_SUPABASE_HOST,
+  HORORA_STAGING_SUPABASE_HOST,
   readSupabaseHostname,
 } from "@/app/lib/supabase/supabase-host.shared";
 
@@ -67,7 +69,12 @@ export function isHororaLocalNexusFixtureEnabled(
   if (host && !isLocalHostname(host)) return false;
 
   const supabaseHost = readSupabaseHostname(input.supabaseUrl);
-  if (supabaseHost === HORORA_PRODUCTION_SUPABASE_HOST) return false;
+  if (
+    supabaseHost === HORORA_PRODUCTION_SUPABASE_HOST ||
+    supabaseHost === HORORA_STAGING_SUPABASE_HOST
+  ) {
+    return false;
+  }
 
   return true;
 }
