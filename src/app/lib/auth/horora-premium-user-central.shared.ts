@@ -9,6 +9,7 @@ import {
   type HororaDirectoryAccessStatus,
 } from "@/app/lib/auth/horora-authorized-module-directory.shared";
 import {
+  HORORA_ACCESS_CAPABILITIES,
   hororaCapabilityGrant,
   type HororaAccessCapability,
 } from "@/app/lib/auth/horora-role-model.shared";
@@ -366,6 +367,101 @@ export function describeLocalRoleChange(input: {
     return "remove_direction";
   }
   return "assign_direction";
+}
+
+export const HORORA_ROLE_RIGHT_LABELS: Record<HororaAccessCapability, string> = {
+  punch_in_out: "Pointage",
+  punch_break_meal: "Pauses",
+  view_own_hours: "Ses heures",
+  request_own_correction: "Sa demande de correction",
+  view_team: "Vue d'équipe",
+  approve_anomalies: "Approbation",
+  correct_time: "Correction d'équipe",
+  view_reports: "Rapports",
+  read_payroll: "Lecture de la paie",
+  manage_payroll: "Gestion de la paie",
+  export_payroll: "Export de la paie",
+  manage_employees: "Gestion des employés",
+  manage_configuration: "Configuration",
+  admin_finance: "Finance",
+};
+
+export type HororaRoleRight = {
+  capability: HororaAccessCapability;
+  label: string;
+};
+
+export type HororaAssignableMembershipRole = "employe" | "direction";
+
+function roleGrantsCapability(
+  role: HororaAssignableMembershipRole,
+  capability: HororaAccessCapability
+): boolean {
+  return hororaCapabilityGrant(HORORA_ROLE_AUTHORITY[role].shellRole, capability) === "role";
+}
+
+/** Rights included by the membership role itself. Explicit payroll stays outside. */
+export function describeHororaEmployeeJourney(
+  role: HororaAssignableMembershipRole
+): {
+  role: HororaAssignableMembershipRole;
+  rights: readonly HororaRoleRight[];
+  canAdministerRoles: false;
+} {
+  return {
+    role,
+    rights: HORORA_ACCESS_CAPABILITIES.filter((capability) =>
+      roleGrantsCapability(role, capability)
+    ).map((capability) => ({
+      capability,
+      label: HORORA_ROLE_RIGHT_LABELS[capability],
+    })),
+    canAdministerRoles: false,
+  };
+}
+
+/**
+ * Compares the two assignable membership roles. A domain that stays
+ * "included" can still hide a lost employee right and a gained team right.
+ */
+export function describeHororaRoleRightsTransition(input: {
+  currentRole: HororaAssignableMembershipRole;
+  nextRole: HororaAssignableMembershipRole;
+}): {
+  change: "unchanged" | "assign_direction" | "remove_direction";
+  gained: readonly HororaRoleRight[];
+  lost: readonly HororaRoleRight[];
+  journeyBefore: ReturnType<typeof describeHororaEmployeeJourney>;
+  journeyAfter: ReturnType<typeof describeHororaEmployeeJourney>;
+} {
+  const gained: HororaRoleRight[] = [];
+  const lost: HororaRoleRight[] = [];
+  for (const capability of HORORA_ACCESS_CAPABILITIES) {
+    const before = roleGrantsCapability(input.currentRole, capability);
+    const after = roleGrantsCapability(input.nextRole, capability);
+    const right = { capability, label: HORORA_ROLE_RIGHT_LABELS[capability] };
+    if (!before && after) gained.push(right);
+    if (before && !after) lost.push(right);
+  }
+  return {
+    change: describeLocalRoleChange(input),
+    gained,
+    lost,
+    journeyBefore: describeHororaEmployeeJourney(input.currentRole),
+    journeyAfter: describeHororaEmployeeJourney(input.nextRole),
+  };
+}
+
+export function formatHororaRoleRightList(rights: readonly HororaRoleRight[]): string {
+  return rights.length === 0 ? "aucun" : rights.map((right) => right.label).join(", ");
+}
+
+export function formatHororaRoleAuditActivity(
+  entries: readonly { oldRole: string; newRole: string }[] | null
+): string {
+  if (entries === null) return "journal indisponible.";
+  if (entries.length === 0) return "aucune entrée récente pour cette organisation.";
+  return entries.map((entry) => `${entry.oldRole} → ${entry.newRole}`).join(" · ");
 }
 
 export type NexusLocalBindingDenial =

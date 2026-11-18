@@ -10,7 +10,11 @@ import {
   decideHororaMembershipChange,
   decideNexusAuthorizedLocalBinding,
   describeAuthorityAfterMembershipRoleChange,
+  describeHororaEmployeeJourney,
+  describeHororaRoleRightsTransition,
   describeLocalRoleChange,
+  formatHororaRoleAuditActivity,
+  formatHororaRoleRightList,
   listHororaRolePresets,
   nexusRoleBecomesHororaOwner,
   shouldRevokeTargetHororaSessions,
@@ -382,5 +386,74 @@ describe("HORORA existing RBAC reuse", () => {
     expect(shouldRevokeTargetHororaSessions({ roleCommitted: true, unchanged: false })).toBe(
       true
     );
+  });
+
+  it("shows the fictional employee rights gained and lost before a role change", () => {
+    const forward = describeHororaRoleRightsTransition({
+      currentRole: "employe",
+      nextRole: "direction",
+    });
+    const before = describeHororaEmployeeJourney("employe");
+    const after = describeHororaEmployeeJourney("direction");
+    expect(forward.change).toBe("assign_direction");
+    expect(forward.gained.map((right) => right.capability)).toEqual([
+      "view_team",
+      "approve_anomalies",
+      "correct_time",
+      "view_reports",
+    ]);
+    expect(forward.lost.map((right) => right.capability)).toEqual([
+      "punch_in_out",
+      "punch_break_meal",
+      "view_own_hours",
+      "request_own_correction",
+    ]);
+    expect(forward.gained.map((right) => right.capability)).not.toContain("read_payroll");
+    expect(forward.gained.map((right) => right.capability)).not.toContain("manage_employees");
+    expect(before.canAdministerRoles).toBe(false);
+    expect(after.canAdministerRoles).toBe(false);
+    expect(before.rights.map((right) => right.capability)).toEqual(
+      forward.lost.map((right) => right.capability)
+    );
+    expect(after.rights.map((right) => right.capability)).toEqual(
+      forward.gained.map((right) => right.capability)
+    );
+    expect(formatHororaRoleRightList(forward.gained)).toContain("Vue d'équipe");
+    expect(formatHororaRoleRightList(forward.lost)).toContain("Pointage");
+
+    const rollback = describeHororaRoleRightsTransition({
+      currentRole: "direction",
+      nextRole: "employe",
+    });
+    expect(rollback.change).toBe("remove_direction");
+    expect(rollback.gained).toEqual(forward.lost);
+    expect(rollback.lost).toEqual(forward.gained);
+    expect(rollback.journeyAfter).toEqual(before);
+    expect(
+      describeHororaRoleRightsTransition({ currentRole: "employe", nextRole: "employe" })
+    ).toMatchObject({ change: "unchanged", gained: [], lost: [] });
+
+    expect(
+      formatHororaRoleAuditActivity([
+        { oldRole: "employe", newRole: "direction" },
+        { oldRole: "direction", newRole: "employe" },
+      ])
+    ).toBe("employe → direction · direction → employe");
+    expect(formatHororaRoleAuditActivity([])).toBe(
+      "aucune entrée récente pour cette organisation."
+    );
+    expect(formatHororaRoleAuditActivity(null)).toBe("journal indisponible.");
+
+    const client = readFileSync(
+      join(process.cwd(), "src/app/admin/utilisateurs/AdminUsersPermissionsClient.tsx"),
+      "utf8"
+    );
+    expect(client).toContain("describeHororaRoleRightsTransition");
+    expect(client).toContain("Droits gagnés");
+    expect(client).toContain("Droits perdus");
+    expect(client).toContain("formatHororaRoleAuditActivity");
+    expect(actorCanEditLocalPresetRoles("organization_owner")).toBe(true);
+    expect(actorCanEditLocalPresetRoles("employe")).toBe(false);
+    expect(actorCanEditLocalPresetRoles("direction")).toBe(false);
   });
 });

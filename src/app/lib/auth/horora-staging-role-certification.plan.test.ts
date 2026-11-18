@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  HORORA_ISOLATED_PREVIEW_CANDIDATE,
   HORORA_ROLE_WRITER_ISOLATED_DELIVERY,
   HORORA_ROLE_WRITER_STAGING_PREFLIGHT,
   HORORA_STAGING_ROLE_CERTIFICATION_PLAN,
@@ -30,6 +31,17 @@ describe("HORORA staging role certification plan", () => {
       targetAttested: false,
       anonRpcVisible: false,
     });
+    expect(HORORA_ISOLATED_PREVIEW_CANDIDATE.deployed).toBe(false);
+    expect(HORORA_ISOLATED_PREVIEW_CANDIDATE.published).toBe(false);
+    expect(HORORA_ISOLATED_PREVIEW_CANDIDATE.requiredCommits).toContain(
+      HORORA_ISOLATED_PREVIEW_CANDIDATE.includesHttpGuards
+    );
+    expect(HORORA_ISOLATED_PREVIEW_CANDIDATE.requiredCommits).toContain(
+      HORORA_ISOLATED_PREVIEW_CANDIDATE.includesRoleWriter
+    );
+    expect(HORORA_ISOLATED_PREVIEW_CANDIDATE.requiredCommits).not.toContain(
+      HORORA_ISOLATED_PREVIEW_CANDIDATE.excludedCommit
+    );
     expect(HORORA_ROLE_WRITER_ISOLATED_DELIVERY.publishBranch).toBe(false);
     expect(HORORA_ROLE_WRITER_ISOLATED_DELIVERY.localCommitsAheadOfProductionBeforeThisChange).toBe(
       8

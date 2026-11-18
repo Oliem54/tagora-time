@@ -21,7 +21,10 @@ import {
   actorCanEditLocalPresetRoles,
   businessPermissionGrantLabel,
   decideNexusAuthorizedLocalBinding,
+  describeHororaRoleRightsTransition,
   describeLocalRoleChange,
+  formatHororaRoleAuditActivity,
+  formatHororaRoleRightList,
   listHororaRolePresets,
   nexusLocalBindingDenialMessage,
   type HororaPremiumDashboard,
@@ -327,14 +330,7 @@ function PremiumDashboard({
         cet écran.
       </p>
       <p className="tagora-note" style={{ marginBottom: 0 }}>
-        Activité des rôles :{" "}
-        {roleAudit === null
-          ? "journal indisponible."
-          : roleAudit.length === 0
-            ? "aucune entrée récente pour cette organisation."
-            : roleAudit
-                .map((entry) => `${entry.oldRole} → ${entry.newRole}`)
-                .join(" · ")}
+        Activité des rôles : {formatHororaRoleAuditActivity(roleAudit)}
       </p>
       <p className="tagora-note" style={{ marginBottom: 0 }}>
         Droits métier conservés : {HORORA_BUSINESS_PERMISSION_DOMAINS.join(", ")}. Domaines
@@ -454,6 +450,10 @@ function PermissionPreview({
     row.membershipRole === "employe" || row.membershipRole === "direction"
       ? describeLocalRoleChange({ currentRole: row.membershipRole, nextRole })
       : "unchanged";
+  const rights =
+    row.membershipRole === "employe" || row.membershipRole === "direction"
+      ? describeHororaRoleRightsTransition({ currentRole: row.membershipRole, nextRole })
+      : null;
   const nextPreset = listHororaRolePresets().find((preset) => preset.role === nextRole);
 
   async function assignRole() {
@@ -549,11 +549,16 @@ function PermissionPreview({
             </button>
           </div>
           <p className="tagora-note" style={{ margin: 0 }}>
-            {change === "remove_direction"
-              ? "Retirer Direction rend le rôle Employé. Le pointage et les horaires de l'employé restent ceux de ce rôle."
-              : "Le changement est refusé si NEXUS ne confirme pas cette organisation."}{" "}
-            Lorsqu&apos;il est enregistré, il est audité et les sessions HORORA de cet employé dans
-            cette organisation sont révoquées.
+            {rights && change !== "unchanged"
+              ? `Droits gagnés : ${formatHororaRoleRightList(rights.gained)}. Droits perdus : ${formatHororaRoleRightList(rights.lost)}.`
+              : "Aucun droit ne change."}{" "}
+            Le parcours avant est{" "}
+            {rights ? formatHororaRoleRightList(rights.journeyBefore.rights) : "absent"}. Le
+            parcours après est{" "}
+            {rights ? formatHororaRoleRightList(rights.journeyAfter.rights) : "absent"}. Ce rôle
+            n&apos;administre pas les rôles. Lorsqu&apos;il est enregistré, il est audité et les
+            sessions HORORA de cet employé dans cette organisation sont révoquées. Un refus ne
+            laisse aucune écriture.
           </p>
           {nextPreset ? (
             <p className="tagora-note" style={{ margin: 0 }}>

@@ -47,6 +47,32 @@ export const HORORA_ROLE_WRITER_STAGING_PREFLIGHT = {
   targetAttested: false,
 } as const;
 
+/**
+ * Local preview candidate only. It is not deployed and it is not pushed.
+ * Replay these commits onto the certified production base, and leave the
+ * employee clock commit out. The role-transition commit that records this
+ * list is replayed after the writer commit.
+ */
+export const HORORA_ISOLATED_PREVIEW_CANDIDATE = {
+  deployed: false,
+  published: false,
+  productionBase: "0c22a8a518bf5d41ed512da632caf0481e6998f4",
+  requiredCommits: [
+    "8a33fd78794699dc3f53c045712b484341a3258d",
+    "f6ea95ed73962fde0f8a51b4fbcdf323d798d047",
+    "a73964c30e9d1ac3769a8c3c231354447abab3d7",
+    "c49cd01aca9257dd737884110b3a1bf1965b2f45",
+    "de5ed5768298403a37b48b2bb3272a8fe5750618",
+    "8473d71f700811251f5d7fe7f7edc984b45d064b",
+    "3f0e414cd00bab63362cf46580d75fe91f08a416",
+    "045dda3c14b3d922b8cd9921904df4eb155bf52d",
+  ],
+  includesHttpGuards: "3f0e414cd00bab63362cf46580d75fe91f08a416",
+  includesRoleWriter: "045dda3c14b3d922b8cd9921904df4eb155bf52d",
+  excludedCommit: "e92431c67e8977ec684612f86e9f89e7bc25c770",
+  replayRoleTransitionCommit: true,
+} as const;
+
 export const HORORA_ROLE_WRITER_ISOLATED_DELIVERY = {
   productionBase: "0c22a8a518bf5d41ed512da632caf0481e6998f4",
   dependsOnLocalTip: "3f0e414cd00bab63362cf46580d75fe91f08a416",
