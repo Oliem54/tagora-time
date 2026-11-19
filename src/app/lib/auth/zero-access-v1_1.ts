@@ -15,8 +15,22 @@ export const USER_PROVISIONING_CONTRACT_APPROVAL = "APPROVED" as const;
 export const CONTRACT_RUNTIME_WIRED = false as const;
 export const MIGRATION_APPLIED = false as const;
 export const JWKS_FETCH_AUTHORIZED = false as const;
+export const NEXUS_V11_UNPUBLISHED = "UNPUBLISHED" as const;
 export const HORORA_AUDIENCE = "tagora:time" as const;
 export const HORORA_TECHNICAL_KEY = "tagora_time" as const;
+export const NEXUS_V11_CONTRACT_DEPENDENCY = {
+  canonicalIssuer: NEXUS_V11_UNPUBLISHED,
+  pinnedKid: NEXUS_V11_UNPUBLISHED,
+  publicJwk: NEXUS_V11_UNPUBLISHED,
+  audience: HORORA_AUDIENCE,
+  technicalKey: HORORA_TECHNICAL_KEY,
+  signature: "caller_pinned_es256",
+  versioning: "monotonic_identity_version",
+  revocation: "terminal_no_restore",
+  replay: "jti_idempotent_duplicate",
+  durableReceiver: CONTRACT_RUNTIME_WIRED,
+  jwksFetch: JWKS_FETCH_AUTHORIZED,
+} as const;
 export const HORORA_PRODUCT_NAME = "TAGORA HORORA" as const;
 export const HORORA_PIN_ENVIRONMENT = "local" as const;
 export const EVENT_TTL_SECONDS = 900 as const;

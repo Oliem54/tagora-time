@@ -21,6 +21,7 @@ import {
   USER_PROVISIONING_CONTRACT_VERSION,
   accessFromNuserRecognition,
   createHororaZeroAccessCentral,
+  NEXUS_V11_CONTRACT_DEPENDENCY,
   type PinnedProvisioningKey,
 } from "./zero-access-v1_1";
 
@@ -684,5 +685,33 @@ describe("HORORA zero-access identity contract V1.1", () => {
       return readFileSync(file, "utf8").includes("zero-access-v1_1");
     });
     expect(wired).toEqual([]);
+  });
+
+  it("keeps Martin and Yves at zero access when a technical shell arrives", () => {
+    expect(NEXUS_V11_CONTRACT_DEPENDENCY.canonicalIssuer).toBe("UNPUBLISHED");
+    expect(NEXUS_V11_CONTRACT_DEPENDENCY.pinnedKid).toBe("UNPUBLISHED");
+    expect(NEXUS_V11_CONTRACT_DEPENDENCY.publicJwk).toBe("UNPUBLISHED");
+    expect(NEXUS_V11_CONTRACT_DEPENDENCY.audience).toBe("tagora:time");
+    expect(NEXUS_V11_CONTRACT_DEPENDENCY.technicalKey).toBe("tagora_time");
+    expect(NEXUS_V11_CONTRACT_DEPENDENCY.durableReceiver).toBe(false);
+    expect(NEXUS_V11_CONTRACT_DEPENDENCY.jwksFetch).toBe(false);
+    const preserved = [
+      ["nuser_3e45dda035be43af16d14eca02bf8a5f", "evt_martin_000001", "jti_martin_000001", "corr_martin_000001"],
+      ["nuser_9bd5db2472140fc5944e1d8341d575c2", "evt_yves_00000001", "jti_yves_00000001", "corr_yves_00000001"],
+    ] as const;
+    for (const [nuserId, eventId, jti, correlationId] of preserved) {
+      expect(accessFromNuserRecognition(nuserId)).toBe(false);
+      const store = central();
+      const response = store.ingest(
+        token(event({ nuser_id: nuserId, event_id: eventId, jti, correlation_id: correlationId })),
+        NOW
+      );
+      expect(response.result).toBe("PROVISIONED_ZERO_ACCESS");
+      expect(response.effects.business_role).toBe("NONE");
+      expect(response.effects.module_admin).toBe(false);
+      expect(response.effects.module_access).toBe(false);
+      expect(store.snapshot(nuserId)?.storedBusinessRole).toBe("NONE");
+      expect(store.snapshot(nuserId)?.storedModuleAdmin).toBe(false);
+    }
   });
 });
