@@ -31,6 +31,22 @@ describe("resolveHororaRuntimeSupabaseUrl", () => {
     ).toBe(`https://${HORORA_STAGING_SUPABASE_HOST}`);
   });
 
+  it("does not rewrite a preview URL onto the production database", () => {
+    const placeholder = "https://preview-host-not-configured.example";
+    expect(
+      resolveHororaRuntimeSupabaseUrl(placeholder, runtimeEnv("preview"))
+    ).toBe(placeholder);
+    expect(
+      resolveHororaRuntimeSupabaseUrl(placeholder, runtimeEnv("preview"))
+    ).not.toBe(HORORA_PRODUCTION_SUPABASE_URL);
+    expect(() =>
+      resolveHororaRuntimeSupabaseUrl("", runtimeEnv("preview"))
+    ).toThrow("Missing NEXT_PUBLIC_SUPABASE_URL");
+    expect(() =>
+      resolveHororaRuntimeSupabaseUrl("   ", runtimeEnv("preview"))
+    ).toThrow("Missing NEXT_PUBLIC_SUPABASE_URL");
+  });
+
   it("refuses an unknown Production Supabase host", () => {
     expect(() =>
       resolveHororaRuntimeSupabaseUrl(
