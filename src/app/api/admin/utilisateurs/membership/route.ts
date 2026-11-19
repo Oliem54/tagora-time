@@ -50,6 +50,8 @@ const DENIAL_STATUS: Record<HororaMembershipChangeDenial, number> = {
   nexus_role_cannot_grant_admin: 403,
   actor_forbidden: 403,
   direction_assignment_unauthorized: 403,
+  privilege_escalation_forbidden: 403,
+  company_outside_organization: 403,
 };
 
 const DENIAL_MESSAGE: Record<HororaMembershipChangeDenial, string> = {
@@ -65,6 +67,10 @@ const DENIAL_MESSAGE: Record<HororaMembershipChangeDenial, string> = {
   actor_forbidden: "Cette appartenance ne peut pas changer un rôle.",
   direction_assignment_unauthorized:
     "L'attribution ou le retrait du rôle Direction exige un propriétaire ou un administrateur d'organisation.",
+  privilege_escalation_forbidden:
+    "Cette permission ne peut pas être accordée. Rien n'a été modifié.",
+  company_outside_organization:
+    "Cette compagnie est hors de votre organisation. Rien n'a été modifié.",
 };
 
 function jsonError(status: number, error: string, code: string) {

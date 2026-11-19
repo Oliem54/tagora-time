@@ -4,6 +4,8 @@ import {
   type HororaDirectionTimeCapability,
   type HororaEmployeeTimeCapability,
 } from "@/app/lib/auth/horora-role-model.shared";
+import { accessRemainsAfterOverride } from "@/app/lib/auth/horora-premium-user-central.shared";
+import { readExplicitCapabilityOverride } from "@/app/lib/auth/horora-permission-override.server";
 import {
   hororaSupervisorHttpSessionTarget,
   incompleteHororaSupervisorHttpTargetReason,
@@ -316,8 +318,20 @@ export async function requireEmployeeHorodateurAccess(
     hororaPortalRoleAllows(role, capability) &&
     (capability !== "punch_in_out" ||
       hororaPortalRoleAllows(role, "punch_break_meal"));
+  const override =
+    user && organizationId
+      ? await readExplicitCapabilityOverride({
+          organizationId,
+          userId: user.id,
+          capability,
+        })
+      : null;
 
-  if (!user || role !== "employe" || !clockAllowed) {
+  if (
+    !user ||
+    role !== "employe" ||
+    !accessRemainsAfterOverride({ roleAllows: clockAllowed, override })
+  ) {
     return {
       ok: false as const,
       response: buildHorodateurValidationErrorResponse({

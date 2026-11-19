@@ -6,8 +6,11 @@ import {
   HORORA_CANONICAL_PERMISSION_DOMAINS,
   HORORA_ROLE_AUTHORITY,
   actorCanEditLocalPresetRoles,
+  accessRemainsAfterOverride,
   assessNexusLocalBinding,
+  decideHororaDepartmentAdministration,
   decideHororaMembershipChange,
+  decideHororaPermissionOverride,
   decideNexusAuthorizedLocalBinding,
   describeAuthorityAfterMembershipRoleChange,
   describeHororaEmployeeJourney,
@@ -21,6 +24,7 @@ import {
   effectivePermissionsFollowJwtMetadata,
   lastActiveOwnerWouldBeRemoved,
   shellRoleFromMembership,
+  sessionSurvivesMembershipStatus,
   summarizeHororaMemberships,
 } from "@/app/lib/auth/horora-premium-user-central.shared";
 import type { HororaMembershipSnapshot } from "@/app/lib/auth/horora-premium-user-central.shared";
@@ -71,7 +75,7 @@ describe("HORORA existing RBAC reuse", () => {
     expect(summary.roleCounts.employe).toBe(1);
     expect(summary.pendingInvitations).toBe(2);
     expect(summary.writesEnabled).toBe(false);
-    expect(summary.teamStructure).toBe("absent");
+    expect(summary.teamStructure).toBe("effectifs_departments");
   });
 
   it("protects the last active owner", () => {
@@ -455,5 +459,112 @@ describe("HORORA existing RBAC reuse", () => {
     expect(actorCanEditLocalPresetRoles("organization_owner")).toBe(true);
     expect(actorCanEditLocalPresetRoles("employe")).toBe(false);
     expect(actorCanEditLocalPresetRoles("direction")).toBe(false);
+  });
+
+  it("suspends and reactivates an employee without granting a new role", () => {
+    const base = {
+      actorMembershipId: "owner",
+      actorRole: "organization_owner" as const,
+      actorOrganizationId: "org-a",
+      targetMembershipId: "driver",
+      targetOrganizationId: "org-a",
+      targetRole: "employe" as const,
+      targetStatus: "active" as const,
+      nextRole: "employe" as const,
+      nextStatus: "suspended" as const,
+      membershipsInOrganization: [
+        { id: "owner", role: "organization_owner" as const, status: "active" as const },
+        { id: "driver", role: "employe" as const, status: "active" as const },
+      ],
+      requestedByNexusRole: false,
+    };
+    expect(decideHororaMembershipChange(base)).toEqual({
+      ok: true,
+      writer: "commit_horora_membership_status_with_audit",
+    });
+    expect(
+      decideHororaMembershipChange({
+        ...base,
+        actorRole: "employe",
+        actorMembershipId: "other",
+      })
+    ).toEqual({ ok: false, reason: "actor_forbidden" });
+    expect(
+      decideHororaMembershipChange({
+        ...base,
+        targetStatus: "suspended",
+        nextStatus: "active",
+      })
+    ).toEqual({
+      ok: true,
+      writer: "commit_horora_membership_status_with_audit",
+    });
+    expect(sessionSurvivesMembershipStatus("suspended")).toBe(false);
+    expect(sessionSurvivesMembershipStatus("active")).toBe(true);
+    expect(accessRemainsAfterOverride({ roleAllows: true, override: "deny" })).toBe(false);
+    expect(accessRemainsAfterOverride({ roleAllows: true, override: null })).toBe(true);
+    expect(accessRemainsAfterOverride({ roleAllows: false, override: "allow" })).toBe(false);
+  });
+
+  it("refuses a permission checkbox that would escalate the role", () => {
+    const base = {
+      actorRole: "organization_owner" as const,
+      actorOrganizationId: "org-a",
+      targetOrganizationId: "org-a",
+      actorMembershipId: "owner",
+      targetMembershipId: "driver",
+      targetRole: "employe" as const,
+      capability: "manage_employees" as const,
+      nextEffect: "allow" as const,
+      requestedByNexusRole: false,
+    };
+    expect(decideHororaPermissionOverride(base)).toEqual({
+      ok: false,
+      reason: "privilege_escalation_forbidden",
+    });
+    expect(
+      decideHororaPermissionOverride({
+        ...base,
+        targetRole: "direction",
+        capability: "punch_in_out",
+      })
+    ).toEqual({ ok: false, reason: "privilege_escalation_forbidden" });
+    expect(
+      decideHororaPermissionOverride({
+        ...base,
+        capability: "punch_in_out",
+        nextEffect: "deny",
+      })
+    ).toEqual({ ok: true, writer: "commit_horora_permission_override_with_audit" });
+    expect(
+      decideHororaPermissionOverride({ ...base, requestedByNexusRole: true, nextEffect: "deny" })
+    ).toEqual({ ok: false, reason: "nexus_role_cannot_grant_admin" });
+    expect(
+      decideHororaDepartmentAdministration({
+        actorRole: "employe",
+        actorOrganizationId: "org-a",
+        companyKey: "oliem_solutions",
+        organizationCompanyCodes: ["oliem_solutions"],
+        action: "create",
+      })
+    ).toEqual({ ok: false, reason: "actor_forbidden" });
+    expect(
+      decideHororaDepartmentAdministration({
+        actorRole: "organization_owner",
+        actorOrganizationId: "org-a",
+        companyKey: "titan_produits_industriels",
+        organizationCompanyCodes: ["oliem_solutions"],
+        action: "create",
+      })
+    ).toEqual({ ok: false, reason: "company_outside_organization" });
+    expect(
+      decideHororaDepartmentAdministration({
+        actorRole: "organization_owner",
+        actorOrganizationId: "org-a",
+        companyKey: "oliem_solutions",
+        organizationCompanyCodes: ["oliem_solutions"],
+        action: "create",
+      }).ok
+    ).toBe(true);
   });
 });

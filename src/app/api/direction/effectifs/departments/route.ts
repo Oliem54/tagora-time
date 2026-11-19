@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthenticatedRequestUser } from "@/app/lib/account-requests.server";
 import { nexusHandoffEffectifsMutationResponse } from "@/app/api/direction/effectifs/effectifs-mutation-guard.server";
+import { decideHororaDepartmentAdministration } from "@/app/lib/auth/horora-premium-user-central.shared";
 import { createAdminSupabaseClient } from "@/app/lib/supabase/admin";
 import {
   EFFECTIFS_DEPARTMENT_ENTRIES,
@@ -9,6 +10,10 @@ import {
   normalizeEffectifsCompanyKey,
   type EffectifsDepartmentKey,
 } from "@/app/lib/effectifs-departments.shared";
+import {
+  isOrganizationMembershipRole,
+  type OrganizationMembershipRole,
+} from "@/app/lib/saas/tenant-foundation.shared";
 import type { EffectifsDepartment } from "@/app/lib/effectifs-payload.shared";
 
 export const dynamic = "force-dynamic";
@@ -63,11 +68,59 @@ function fallbackPayload(): DirectoryDepartmentPayload[] {
   }));
 }
 
+async function loadOrganizationCompanyCodes(
+  organizationId: string
+): Promise<string[] | null> {
+  const supabase = createAdminSupabaseClient();
+  const result = await supabase
+    .from("organization_companies")
+    .select("company_code")
+    .eq("organization_id", organizationId);
+  if (result.error) return null;
+  return (result.data ?? [])
+    .map((row) => (typeof row.company_code === "string" ? row.company_code : ""))
+    .filter((code) => code.length > 0);
+}
+
+function membershipRoleOrNull(
+  role: string | null | undefined
+): OrganizationMembershipRole | null {
+  if (typeof role !== "string" || !isOrganizationMembershipRole(role)) return null;
+  return role;
+}
+
+function scopeDepartments(
+  departments: DirectoryDepartmentPayload[],
+  organizationId: string,
+  actorRole: OrganizationMembershipRole,
+  companyCodes: string[] | null
+): DirectoryDepartmentPayload[] {
+  if (!companyCodes) return departments;
+  return departments.filter(
+    (department) =>
+      decideHororaDepartmentAdministration({
+        actorRole,
+        actorOrganizationId: organizationId,
+        companyKey: department.companyKey,
+        organizationCompanyCodes: companyCodes,
+        action: "read",
+      }).ok
+  );
+}
+
 export async function GET(req: NextRequest) {
   try {
-    const { user } = await getAuthenticatedRequestUser(req);
+    const { user, organizationId, membershipRole } = await getAuthenticatedRequestUser(req);
     if (!user) {
       return NextResponse.json({ error: "Non authentifié." }, { status: 401 });
+    }
+    const actorRole = membershipRoleOrNull(membershipRole);
+    if (!organizationId || !actorRole) {
+      return NextResponse.json({ error: "Accès refusé." }, { status: 403 });
+    }
+    const companyCodes = await loadOrganizationCompanyCodes(organizationId);
+    if (actorRole === "employe" && !companyCodes) {
+      return NextResponse.json({ error: "Accès refusé." }, { status: 403 });
     }
 
     const supabase = createAdminSupabaseClient();
@@ -79,7 +132,12 @@ export async function GET(req: NextRequest) {
     if (res.error) {
       if (isMissingDepartmentsTableError(res.error)) {
         return NextResponse.json({
-          departments: fallbackPayload(),
+          departments: scopeDepartments(
+            fallbackPayload(),
+            organizationId,
+            actorRole,
+            companyCodes
+          ),
           tablePresent: false,
         });
       }
@@ -87,13 +145,23 @@ export async function GET(req: NextRequest) {
     }
 
     const rows = (res.data ?? []) as Record<string, unknown>[];
-    const departments = rows
-      .map((r) => mapRow(r))
-      .filter((d): d is DirectoryDepartmentPayload => d != null);
+    const departments = scopeDepartments(
+      rows
+        .map((r) => mapRow(r))
+        .filter((d): d is DirectoryDepartmentPayload => d != null),
+      organizationId,
+      actorRole,
+      companyCodes
+    );
 
     if (departments.length === 0) {
       return NextResponse.json({
-        departments: fallbackPayload(),
+        departments: scopeDepartments(
+          fallbackPayload(),
+          organizationId,
+          actorRole,
+          companyCodes
+        ),
         tablePresent: true,
       });
     }
@@ -112,7 +180,8 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    const { user, role, sessionSource } = await getAuthenticatedRequestUser(req);
+    const { user, role, sessionSource, organizationId, membershipRole } =
+      await getAuthenticatedRequestUser(req);
     if (!user || (role !== "direction" && role !== "admin")) {
       return NextResponse.json({ error: "Accès refusé." }, { status: 403 });
     }
@@ -148,6 +217,29 @@ export async function POST(req: NextRequest) {
     }
 
     const companyKey = normalizeEffectifsCompanyKey(body?.company_key);
+    const actorRole = membershipRoleOrNull(membershipRole);
+    const companyCodes = organizationId
+      ? await loadOrganizationCompanyCodes(organizationId)
+      : null;
+    if (!organizationId || !actorRole || !companyCodes) {
+      return NextResponse.json(
+        { error: "Accès refusé. Rien n'a été créé." },
+        { status: 403 }
+      );
+    }
+    const departmentDecision = decideHororaDepartmentAdministration({
+      actorRole,
+      actorOrganizationId: organizationId,
+      companyKey,
+      organizationCompanyCodes: companyCodes,
+      action: "create",
+    });
+    if (!departmentDecision.ok) {
+      return NextResponse.json(
+        { error: "Cette compagnie est hors de votre organisation. Rien n'a été créé." },
+        { status: 403 }
+      );
+    }
     const locationKey =
       typeof body?.location_key === "string" && body.location_key.trim()
         ? body.location_key.trim()

@@ -82,10 +82,11 @@ export const HORORA_ROLE_WRITER_ISOLATED_DELIVERY = {
 } as const;
 
 export const HORORA_PREMIUM_REMAINING = {
-  permissionEdits: "not_connected",
-  localSuspension: "not_connected",
-  teams: "local_decision_unpersisted",
+  permissionEdits: "local_writer_prepared",
+  localSuspension: "local_writer_prepared",
+  teams: "company_scope_enforced",
   jwtClaimsUntilRefresh: "membership_reread_does_not_refresh_existing_jwt",
+  remoteApply: "requires_distinct_go",
 } as const;
 
 export function assertStagingRoleCertificationStaysUnexecuted(): void {

@@ -20,6 +20,7 @@ import {
   HORORA_ROLE_AUTHORITY,
   actorCanEditLocalPresetRoles,
   businessPermissionGrantLabel,
+  capabilityForPermissionSection,
   decideNexusAuthorizedLocalBinding,
   describeHororaRoleRightsTransition,
   describeLocalRoleChange,
@@ -323,11 +324,13 @@ function PremiumDashboard({
         Répartition active : propriétaire {counts?.organization_owner ?? "—"}, administration
         d&apos;organisation {counts?.organization_admin ?? "—"}, direction {counts?.direction ?? "—"},
         employé {counts?.employe ?? "—"}. Une seule organisation est dans le périmètre de cette
-        session. Aucune structure d&apos;équipe n&apos;existe encore. Connexion NEXUS :{" "}
+        session. Les départements suivent les compagnies de cette organisation. Connexion NEXUS :{" "}
         {serviceStatus ?? "non lue"}, en lecture seule. Employé et Direction se modifient seulement
         pour une identité NEXUS active de cette organisation, par la fonction auditée. La
-        suspension, les rôles système et les cases de permission ne sont pas enregistrés depuis
-        cet écran.
+        suspension et la réactivation d&apos;un employé ou d&apos;une direction sont confirmées,
+        auditées, et coupent les sessions de cette organisation. Les cases de paie et
+        d&apos;administration s&apos;enregistrent par la fonction de permission. Un rôle système
+        reste protégé. L&apos;étiquette d&apos;écran admin ne crée aucune permission.
       </p>
       <p className="tagora-note" style={{ marginBottom: 0 }}>
         Activité des rôles : {formatHororaRoleAuditActivity(roleAudit)}
@@ -477,30 +480,100 @@ function PermissionPreview({
         sessionRevocation?: string;
       };
       const persisted = res.ok && json.success === true && json.rolePersisted === true;
-      const jwtNote =
-        json.jwtPermissions === "unchanged_until_refresh"
-          ? " Les permissions du jeton déjà émis restent jusqu'à son renouvellement."
-          : "";
-      const sessionNote =
-        json.sessionRevocation === "revoked"
-          ? " Les sessions HORORA de cette organisation sont révoquées. Le prochain accès relit le rôle."
-          : json.sessionRevocation === "not_required"
-            ? " Les sessions restent en place."
-            : json.sessionRevocation === "unavailable"
-              ? " La révocation de session n'a pas abouti."
-              : "";
       onAssigned(
-        typeof json.error === "string"
-          ? json.error
-          : persisted
-            ? json.unchanged
-              ? `Rôle inchangé.${sessionNote}`
-              : `Rôle enregistré et audité.${jwtNote}${sessionNote}`
-            : "Le rôle n'a pas été changé.",
-        persisted && json.unchanged !== true
+        persisted
+          ? json.unchanged
+            ? "Rôle inchangé."
+            : `Rôle enregistré et audité.${json.sessionRevocation === "revoked" ? " Sessions révoquées." : ""}`
+          : (json.error ?? "Le rôle n'a pas été modifié."),
+        persisted
       );
-    } catch {
-      onAssigned("Le rôle n'a pas été changé.", false);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function changeStatus(nextStatus: "active" | "suspended") {
+    if (!row.membershipId) return;
+    const confirmed =
+      typeof window !== "undefined" &&
+      window.confirm(
+        nextStatus === "suspended"
+          ? "Suspendre cet accès ? Les sessions HORORA de cette organisation seront révoquées."
+          : "Réactiver cet accès avec le même rôle local ? Les anciennes sessions restent fermées."
+      );
+    if (!confirmed) return;
+    setSaving(true);
+    try {
+      const res = await fetch(
+        "/api/admin/utilisateurs/membership-status",
+        hororaNexusSessionRequestInit({
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            membershipId: row.membershipId,
+            nextStatus,
+            confirmed: true,
+          }),
+        })
+      );
+      const json = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        success?: boolean;
+        statusPersisted?: boolean;
+      };
+      const persisted = res.ok && json.success === true && json.statusPersisted === true;
+      onAssigned(
+        persisted
+          ? nextStatus === "suspended"
+            ? "Accès suspendu et audité. Les sessions de cette organisation sont révoquées."
+            : "Accès réactivé et audité. Une nouvelle session est requise."
+          : (json.error ?? "Le statut n'a pas été modifié."),
+        persisted
+      );
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function changePermission(sectionId: string, checked: boolean, sensitive: boolean) {
+    if (!row.membershipId || !capabilityForPermissionSection(sectionId)) return;
+    const confirmed =
+      !sensitive ||
+      (typeof window !== "undefined" &&
+        window.confirm(
+          checked
+            ? "Accorder cette permission sensible pour cette organisation seulement ?"
+            : "Retirer cette permission ? L'accès précédent échouera après révocation des sessions."
+        ));
+    if (!confirmed) return;
+    setSaving(true);
+    try {
+      const res = await fetch(
+        "/api/admin/utilisateurs/permissions",
+        hororaNexusSessionRequestInit({
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            membershipId: row.membershipId,
+            sectionId,
+            effect: checked ? "allow" : "deny",
+            confirmed: true,
+          }),
+        })
+      );
+      const json = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        success?: boolean;
+        permissionPersisted?: boolean;
+      };
+      const persisted = res.ok && json.success === true && json.permissionPersisted === true;
+      onAssigned(
+        persisted
+          ? "Permission enregistrée et auditée. Les sessions de cette organisation sont révoquées."
+          : (json.error ?? "La permission n'a pas été modifiée."),
+        persisted
+      );
     } finally {
       setSaving(false);
     }
@@ -577,29 +650,55 @@ function PermissionPreview({
             : nexusLocalBindingDenialMessage(binding.reason)}
         </p>
       )}
+      {actorCanEditLocalPresetRoles(actorMembershipRole) &&
+      (row.membershipRole === "employe" || row.membershipRole === "direction") ? (
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <button
+            type="button"
+            disabled={saving || row.membershipStatus === "suspended"}
+            onClick={() => void changeStatus("suspended")}
+          >
+            Suspendre l&apos;accès
+          </button>
+          <button
+            type="button"
+            disabled={saving || row.membershipStatus !== "suspended"}
+            onClick={() => void changeStatus("active")}
+          >
+            Réactiver l&apos;accès
+          </button>
+        </div>
+      ) : null}
       {actionMessage ? <p className="tagora-note">{actionMessage}</p> : null}
       <p className="tagora-note">
-        Lecture actuelle des cases déjà enregistrées. Le rôle local ne les réécrit pas.
+        Les cases de paie et d&apos;administration s&apos;enregistrent après confirmation. Les
+        autres cases restent en lecture. Un refus du serveur n&apos;écrit rien.
       </p>
       <div className="ui-stack-xs">
-        {row.sections.map((section) => (
-          <label
-            key={section.id}
-            style={{ display: "flex", gap: 10, alignItems: "center" }}
-          >
-            <input
-              type="checkbox"
-              checked={section.checked}
-              disabled
-              onChange={() => undefined}
-              aria-label={section.label}
-            />
-            <span>
-              {section.label}
-              {section.sensitive ? " · sensible" : ""} · {sectionMark(section)}
-            </span>
-          </label>
-        ))}
+        {row.sections.map((section) => {
+          const capability = capabilityForPermissionSection(section.id);
+          return (
+            <label
+              key={section.id}
+              style={{ display: "flex", gap: 10, alignItems: "center" }}
+            >
+              <input
+                type="checkbox"
+                checked={section.checked}
+                disabled={!canEdit || !capability || saving}
+                onChange={(event) =>
+                  void changePermission(section.id, event.target.checked, section.sensitive)
+                }
+                aria-label={section.label}
+              />
+              <span>
+                {section.label}
+                {section.sensitive ? " · sensible" : ""} · {sectionMark(section)}
+                {capability ? "" : " · lecture seule"}
+              </span>
+            </label>
+          );
+        })}
       </div>
     </section>
   );

@@ -73,7 +73,7 @@ export type HororaPremiumDashboard = {
   roleCounts: Record<OrganizationMembershipRole, number>;
   organizationsInScope: 1;
   permissionDomains: readonly HororaCanonicalPermissionDomain[];
-  teamStructure: "absent";
+  teamStructure: "effectifs_departments";
   nexusConnection: "read_only";
   writesEnabled: false;
 };
@@ -109,7 +109,7 @@ export function summarizeHororaMemberships(
     roleCounts,
     organizationsInScope: 1,
     permissionDomains: HORORA_CANONICAL_PERMISSION_DOMAINS,
-    teamStructure: "absent",
+    teamStructure: "effectifs_departments",
     nexusConnection: "read_only",
     writesEnabled: false,
   };
@@ -170,6 +170,11 @@ export type HororaRoleAuditEntry = {
   createdAt: string;
 };
 
+export const HORORA_MEMBERSHIP_STATUS_AUDIT_RPC =
+  "commit_horora_membership_status_with_audit" as const;
+export const HORORA_PERMISSION_OVERRIDE_AUDIT_RPC =
+  "commit_horora_permission_override_with_audit" as const;
+
 export type HororaMembershipChangeDenial =
   | "writer_not_connected"
   | "system_role_protected"
@@ -178,7 +183,9 @@ export type HororaMembershipChangeDenial =
   | "cross_organization_forbidden"
   | "nexus_role_cannot_grant_admin"
   | "actor_forbidden"
-  | "direction_assignment_unauthorized";
+  | "direction_assignment_unauthorized"
+  | "privilege_escalation_forbidden"
+  | "company_outside_organization";
 
 const AUDITED_ASSIGNABLE_ROLES = ["employe", "direction"] as const;
 
@@ -195,7 +202,12 @@ export function decideHororaMembershipChange(input: {
   membershipsInOrganization: readonly HororaMembershipSnapshot[];
   requestedByNexusRole: boolean;
 }):
-  | { ok: true; writer: "commit_horora_membership_role_with_audit" }
+  | {
+      ok: true;
+      writer:
+        | "commit_horora_membership_role_with_audit"
+        | typeof HORORA_MEMBERSHIP_STATUS_AUDIT_RPC;
+    }
   | { ok: false; reason: HororaMembershipChangeDenial } {
   if (input.requestedByNexusRole) {
     return { ok: false, reason: "nexus_role_cannot_grant_admin" };
@@ -221,6 +233,33 @@ export function decideHororaMembershipChange(input: {
     )
   ) {
     return { ok: false, reason: "last_owner_protected" };
+  }
+  const statusChange =
+    input.nextStatus !== "active" || input.targetStatus !== "active";
+  if (statusChange) {
+    if (input.nextStatus !== "suspended" && input.nextStatus !== "active") {
+      return { ok: false, reason: "writer_not_connected" };
+    }
+    if (input.nextRole !== input.targetRole) {
+      return { ok: false, reason: "writer_not_connected" };
+    }
+    if (input.targetRole !== "employe" && input.targetRole !== "direction") {
+      return { ok: false, reason: "writer_not_connected" };
+    }
+    if (
+      input.actorRole !== "organization_owner" &&
+      input.actorRole !== "organization_admin"
+    ) {
+      return { ok: false, reason: "actor_forbidden" };
+    }
+    const suspends =
+      input.targetStatus === "active" && input.nextStatus === "suspended";
+    const reactivates =
+      input.targetStatus === "suspended" && input.nextStatus === "active";
+    if (!suspends && !reactivates) {
+      return { ok: false, reason: "writer_not_connected" };
+    }
+    return { ok: true, writer: HORORA_MEMBERSHIP_STATUS_AUDIT_RPC };
   }
   if (input.nextStatus !== "active") {
     return { ok: false, reason: "writer_not_connected" };
@@ -642,8 +681,99 @@ export function describeAuthorityAfterMembershipRoleChange() {
   return {
     membershipReread: "next_brokered_request",
     jwtPermissions: "unchanged_until_refresh",
-    permissionEdits: "not_connected",
-    suspension: "not_connected",
-    teams: "absent",
+    permissionEdits: HORORA_PERMISSION_OVERRIDE_AUDIT_RPC,
+    suspension: HORORA_MEMBERSHIP_STATUS_AUDIT_RPC,
+    teams: "effectifs_departments",
   } as const;
+}
+
+export function sessionSurvivesMembershipStatus(
+  status: HororaMembershipSnapshot["status"]
+): boolean {
+  return status === "active";
+}
+
+export function accessRemainsAfterOverride(input: {
+  roleAllows: boolean;
+  override: "allow" | "deny" | null;
+}): boolean {
+  if (input.override === "deny") return false;
+  return input.roleAllows;
+}
+
+export function capabilityForPermissionSection(
+  sectionId: string
+): HororaAccessCapability | null {
+  if (sectionId === "paie_lecture") return "read_payroll";
+  if (sectionId === "paie_gestion") return "manage_payroll";
+  if (sectionId === "administration") return "manage_employees";
+  return null;
+}
+
+export function decideHororaPermissionOverride(input: {
+  actorRole: OrganizationMembershipRole;
+  actorOrganizationId: string;
+  targetOrganizationId: string;
+  actorMembershipId: string;
+  targetMembershipId: string;
+  targetRole: OrganizationMembershipRole;
+  capability: HororaAccessCapability;
+  nextEffect: "allow" | "deny";
+  requestedByNexusRole: boolean;
+}):
+  | { ok: true; writer: typeof HORORA_PERMISSION_OVERRIDE_AUDIT_RPC }
+  | { ok: false; reason: HororaMembershipChangeDenial } {
+  if (input.requestedByNexusRole) {
+    return { ok: false, reason: "nexus_role_cannot_grant_admin" };
+  }
+  if (input.actorOrganizationId !== input.targetOrganizationId) {
+    return { ok: false, reason: "cross_organization_forbidden" };
+  }
+  if (input.actorMembershipId === input.targetMembershipId) {
+    return { ok: false, reason: "self_change_forbidden" };
+  }
+  if (
+    input.actorRole !== "organization_owner" &&
+    input.actorRole !== "organization_admin"
+  ) {
+    return { ok: false, reason: "actor_forbidden" };
+  }
+  if (input.targetRole !== "employe" && input.targetRole !== "direction") {
+    return { ok: false, reason: "system_role_protected" };
+  }
+  const baseline = hororaCapabilityGrant(
+    shellRoleFromMembership(input.targetRole),
+    input.capability
+  );
+  if (input.nextEffect === "allow" && baseline === "deny") {
+    return { ok: false, reason: "privilege_escalation_forbidden" };
+  }
+  return { ok: true, writer: HORORA_PERMISSION_OVERRIDE_AUDIT_RPC };
+}
+
+export function decideHororaDepartmentAdministration(input: {
+  actorRole: OrganizationMembershipRole | null;
+  actorOrganizationId: string | null;
+  companyKey: string;
+  organizationCompanyCodes: readonly string[];
+  action: "read" | "create" | "update";
+}):
+  | { ok: true }
+  | { ok: false; reason: HororaMembershipChangeDenial } {
+  if (!input.actorOrganizationId || !input.actorRole) {
+    return { ok: false, reason: "actor_forbidden" };
+  }
+  const companyKnown = input.organizationCompanyCodes.includes(input.companyKey);
+  if (!companyKnown) {
+    return { ok: false, reason: "company_outside_organization" };
+  }
+  if (input.action === "read") return { ok: true };
+  if (
+    input.actorRole !== "organization_owner" &&
+    input.actorRole !== "organization_admin" &&
+    input.actorRole !== "direction"
+  ) {
+    return { ok: false, reason: "actor_forbidden" };
+  }
+  return { ok: true };
 }

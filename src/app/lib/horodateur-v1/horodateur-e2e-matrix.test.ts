@@ -4,9 +4,12 @@ import {
   getLocalWorkDate,
   getWeekStartDate,
   isAllowedTransition,
+  isOpenShiftBeyondSafetyLimit,
   resolvePayableWorkSegmentStartAt,
   diffMinutes,
 } from "@/app/lib/horodateur-v1/rules";
+import { accessRemainsAfterOverride } from "@/app/lib/auth/horora-premium-user-central.shared";
+import { hororaPortalRoleAllows } from "@/app/lib/auth/horora-role-model.shared";
 import { resolveOperationalWorkDate } from "@/app/lib/horodateur-v1/operational-state.shared";
 import type { HorodateurPhase1EventRecord } from "@/app/lib/horodateur-v1/types";
 
@@ -180,5 +183,32 @@ describe("tenant isolation markers (contract)", () => {
     expect(orgA).not.toBe(orgB);
     // Direction APIs must pass organizationId from membership, never from client body alone.
     expect(true).toBe(true);
+  });
+});
+
+describe("local punch safety gaps", () => {
+  it("walks arrival, break, meal and departure, and refuses a repeated arrival", () => {
+    const steps: Array<[Parameters<typeof isAllowedTransition>[0], Parameters<typeof isAllowedTransition>[1]]> = [
+      ["hors_quart", "punch_in"],
+      ["en_quart", "break_start"],
+      ["en_pause", "break_end"],
+      ["en_quart", "meal_start"],
+      ["en_diner", "meal_end"],
+      ["en_quart", "punch_out"],
+    ];
+    for (const [state, eventType] of steps) {
+      expect(isAllowedTransition(state, eventType)).toBe(true);
+    }
+    expect(isAllowedTransition("en_quart", "punch_in")).toBe(false);
+    expect(isAllowedTransition("en_pause", "meal_start")).toBe(false);
+    expect(isOpenShiftBeyondSafetyLimit("2026-11-19T12:00:00.000Z", "2026-11-20T04:00:00.000Z")).toBe(
+      true
+    );
+    expect(isOpenShiftBeyondSafetyLimit("2026-11-19T12:00:00.000Z", "2026-11-19T20:00:00.000Z")).toBe(
+      false
+    );
+    expect(hororaPortalRoleAllows("employe", "manage_payroll")).toBe(false);
+    expect(hororaPortalRoleAllows("admin", "punch_in_out")).toBe(false);
+    expect(accessRemainsAfterOverride({ roleAllows: true, override: "deny" })).toBe(false);
   });
 });
