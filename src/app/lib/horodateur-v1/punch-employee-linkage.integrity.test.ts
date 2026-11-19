@@ -13,9 +13,11 @@ import {
 } from "@/app/lib/horodateur-v1/registre-aggregations.shared";
 import { resolveOperationalWorkDate } from "@/app/lib/horodateur-v1/operational-state.shared";
 import {
+  addDaysToIsoDate,
   classifyEventPhase1,
   diffMinutes,
   getLocalWorkDate,
+  isAllowedTransition,
   isContinuableOpenShift,
 } from "@/app/lib/horodateur-v1/rules";
 import type {
@@ -257,6 +259,102 @@ describe("punch employee linkage integrity", () => {
     });
     expect(classification.status).toBe("normal");
     expect(classification.requiresApproval).toBe(false);
+  });
+
+  it("keeps a new arrival allowed when open rows have no start, are older than the next day, or exceed 14 h", () => {
+    const occurredAt = "2026-11-19T12:00:00-05:00";
+    const calendarWorkDate = getLocalWorkDate(occurredAt);
+    const previousDay = addDaysToIsoDate(calendarWorkDate, -1);
+    const olderThanNextDay = addDaysToIsoDate(calendarWorkDate, -2);
+    const beyondSafetyStart = new Date(
+      Date.parse(occurredAt) - 15 * 60 * 60 * 1000
+    ).toISOString();
+    const withinSafetyStart = new Date(
+      Date.parse(occurredAt) - 10 * 60 * 60 * 1000
+    ).toISOString();
+
+    for (let index = 0; index < 6; index += 1) {
+      expect(
+        isContinuableOpenShift({
+          openWorkDate: null,
+          calendarWorkDate,
+          openShiftStartAt: null,
+          occurredAt,
+        }),
+        `open row ${index + 1} has no start`
+      ).toBe(false);
+    }
+
+    expect(
+      isContinuableOpenShift({
+        openWorkDate: olderThanNextDay,
+        calendarWorkDate,
+        openShiftStartAt: `${olderThanNextDay}T15:00:00.000Z`,
+        occurredAt,
+      })
+    ).toBe(false);
+    expect(
+      isContinuableOpenShift({
+        openWorkDate: previousDay,
+        calendarWorkDate,
+        openShiftStartAt: beyondSafetyStart,
+        occurredAt,
+      })
+    ).toBe(false);
+    expect(
+      isContinuableOpenShift({
+        openWorkDate: previousDay,
+        calendarWorkDate,
+        openShiftStartAt: withinSafetyStart,
+        occurredAt,
+      })
+    ).toBe(true);
+    expect(isAllowedTransition("hors_quart", "punch_in")).toBe(true);
+    expect(isAllowedTransition("en_quart", "punch_in")).toBe(false);
+
+    const shapes = [
+      [] as ReturnType<typeof event>[],
+      [
+        event({
+          id: "historical-start",
+          event_type: "quart_debut",
+          occurred_at: `${olderThanNextDay}T15:00:00.000Z`,
+          work_date: olderThanNextDay,
+          status: "approuve",
+        }),
+      ],
+      [
+        event({
+          id: "stale-start",
+          event_type: "quart_debut",
+          occurred_at: beyondSafetyStart,
+          work_date: previousDay,
+          status: "approuve",
+        }),
+      ],
+    ];
+
+    for (const approvedEvents of shapes) {
+      const classification = classifyEventPhase1({
+        employee: profile({ employeeId: 10 }),
+        currentState: {
+          employee_id: 10,
+          current_state: "en_quart",
+          last_event_type: "quart_debut",
+          last_event_at: approvedEvents.at(-1)?.occurred_at ?? null,
+          has_open_exception: false,
+          company_context: "oliem_solutions",
+        },
+        latestApprovedEvents: approvedEvents,
+        allApprovedEvents: approvedEvents,
+        eventType: "quart_debut",
+        occurredAt,
+        actorRole: "employe",
+      });
+      expect(classification.exceptionType).not.toBe("invalid_sequence");
+      expect(classification.status).toBe("normal");
+      expect(classification.requiresApproval).toBe(false);
+    }
   });
 
   it("attributes a same-day closed punch pair to the calendar date, not a stale open shift", () => {
