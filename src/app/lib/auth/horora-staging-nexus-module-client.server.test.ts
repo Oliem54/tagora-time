@@ -15,6 +15,11 @@ import { handleNexusCallback } from "@/app/lib/auth/nexus-callback-route.server"
 import { NEXUS_CALLBACK_OPAQUE_CODE_FORM_ID } from "@/app/lib/auth/nexus-callback-document.server";
 import { completeNexusCallbackPhaseA } from "@/app/lib/auth/nexus-callback.server";
 import {
+  HORORA_PRODUCTION_VERCEL_PROJECT_ID,
+  HORORA_STAGING_VERCEL_PROJECT_ID,
+} from "@/app/lib/canonical-domains";
+import { HORORA_PRODUCTION_SUPABASE_HOST } from "@/app/lib/supabase/supabase-host.shared";
+import {
   NEXUS_HANDOFF_AUDIENCE,
   NEXUS_HANDOFF_VERSION,
   NEXUS_TECHNICAL_MODULE_KEY,
@@ -34,7 +39,9 @@ import {
   HORORA_STAGING_NEXUS_MODULE_CLIENT_PRIVATE_KEY_OWNER,
   HORORA_STAGING_NEXUS_MODULE_CLIENT_PUBLIC_JWK,
   HORORA_STAGING_NEXUS_MODULE_CLIENT_PUBLIC_KEY_CONSUMER,
+  isHororaStagingCallbackHostname,
   isHororaStagingOpaqueCallbackRequest,
+  type HororaStagingCallbackRuntime,
   looksLikeCompactJwt,
   selectOpaqueHandoffCode,
   toHororaStagingModuleClientPublicJwk,
@@ -610,6 +617,72 @@ describe("HORORA staging opaque callback", () => {
     expect(exchange).not.toHaveBeenCalled();
     expect(inspect).not.toHaveBeenCalled();
     expect(response.headers.get("set-cookie")).toBeNull();
+  });
+
+  it("accepts only the current preview deployment as a staging callback", () => {
+    const previewHost = "tagora-time-staging-859dtp019-oliem54s-projects.vercel.app";
+    const previewRuntime: HororaStagingCallbackRuntime = {
+      VERCEL_ENV: "preview",
+      VERCEL_PROJECT_ID: HORORA_STAGING_VERCEL_PROJECT_ID,
+      VERCEL_URL: previewHost,
+    };
+    const emptyRuntime: HororaStagingCallbackRuntime = {};
+
+    expect(isHororaStagingCallbackHostname("time.staging.tagora.ca", emptyRuntime)).toBe(true);
+    expect(isHororaStagingCallbackHostname("tagora-time-staging.vercel.app", emptyRuntime)).toBe(
+      true
+    );
+    expect(isHororaStagingCallbackHostname(previewHost, previewRuntime)).toBe(true);
+    expect(
+      isHororaStagingOpaqueCallbackRequest(
+        new Request(`https://${previewHost}/auth/nexus/callback?code=${CODE}`),
+        previewRuntime
+      )
+    ).toBe(true);
+
+    expect(
+      isHororaStagingCallbackHostname(previewHost, { ...previewRuntime, VERCEL_ENV: "production" })
+    ).toBe(false);
+    expect(
+      isHororaStagingCallbackHostname(previewHost, {
+        ...previewRuntime,
+        VERCEL_PROJECT_ID: HORORA_PRODUCTION_VERCEL_PROJECT_ID,
+      })
+    ).toBe(false);
+    expect(
+      isHororaStagingCallbackHostname(previewHost, {
+        ...previewRuntime,
+        VERCEL_PROJECT_ID: undefined,
+      })
+    ).toBe(false);
+    expect(
+      isHororaStagingCallbackHostname(previewHost, {
+        ...previewRuntime,
+        VERCEL_URL: "tagora-time-staging-other-oliem54s-projects.vercel.app",
+      })
+    ).toBe(false);
+    expect(
+      isHororaStagingCallbackHostname(previewHost, {
+        ...previewRuntime,
+        VERCEL_URL: "*.vercel.app",
+      })
+    ).toBe(false);
+    expect(
+      isHororaStagingCallbackHostname(previewHost, {
+        ...previewRuntime,
+        VERCEL_URL: "tagora-time-staging-*.vercel.app",
+      })
+    ).toBe(false);
+    expect(isHororaStagingCallbackHostname("*.vercel.app", { ...previewRuntime, VERCEL_URL: "*.vercel.app" })).toBe(
+      false
+    );
+
+    for (const host of ["time.tagora.ca", "app.tagora.ca", HORORA_PRODUCTION_SUPABASE_HOST]) {
+      expect(
+        isHororaStagingCallbackHostname(host, { ...previewRuntime, VERCEL_URL: host })
+      ).toBe(false);
+    }
+    expect(isHororaStagingCallbackHostname("evil.example", previewRuntime)).toBe(false);
   });
 
   it("does not require a browser assertion on the staging vercel host", () => {

@@ -4,9 +4,13 @@
  */
 
 import {
+  HORORA_STAGING_VERCEL_PROJECT_ID,
+  NEXUS_PUBLIC_HOSTNAME,
   isCanonicalProductionHostname,
   isCanonicalStagingHostname,
+  normalizeHostname,
 } from "@/app/lib/canonical-domains";
+import { HORORA_PRODUCTION_SUPABASE_HOST } from "@/app/lib/supabase/supabase-host.shared";
 
 export const HORORA_STAGING_NEXUS_MODULE_CLIENT_ID = "horora_staging_nexus_client" as const;
 export const HORORA_STAGING_NEXUS_EXCHANGE_URL =
@@ -118,11 +122,74 @@ export function looksLikeCompactJwt(value: string | null | undefined): boolean {
   return parts.length === 3 && parts.every((part) => part.length > 0);
 }
 
-export function isHororaStagingCallbackHostname(hostname: string | null | undefined): boolean {
-  const host = hostname?.trim().toLowerCase() ?? "";
-  if (!host || isCanonicalProductionHostname(host)) return false;
+export type HororaStagingCallbackRuntime = {
+  readonly VERCEL_ENV?: string | null;
+  readonly VERCEL_PROJECT_ID?: string | null;
+  readonly VERCEL_URL?: string | null;
+};
+
+const DENIED_PRODUCTION_CALLBACK_HOSTS = new Set<string>([
+  NEXUS_PUBLIC_HOSTNAME,
+  HORORA_PRODUCTION_SUPABASE_HOST,
+]);
+
+function callbackRuntime(
+  runtime?: HororaStagingCallbackRuntime
+): HororaStagingCallbackRuntime {
+  if (runtime) return runtime;
+  return {
+    VERCEL_ENV: process.env.VERCEL_ENV,
+    VERCEL_PROJECT_ID: process.env.VERCEL_PROJECT_ID,
+    VERCEL_URL: process.env.VERCEL_URL,
+  };
+}
+
+function isDeniedProductionCallbackHost(hostname: string | null | undefined): boolean {
+  const host = normalizeHostname(hostname);
+  if (!host) return false;
+  return isCanonicalProductionHostname(host) || DENIED_PRODUCTION_CALLBACK_HOSTS.has(host);
+}
+
+/** VERCEL_URL is one deployment hostname. A pattern is never a hostname. */
+function exactVercelDeploymentHostname(value: string | null | undefined): string | null {
+  const raw = value?.trim() ?? "";
+  if (!raw || raw.includes("*") || /\s/.test(raw)) return null;
+  let candidate = raw;
+  if (raw.includes("://")) {
+    try {
+      candidate = new URL(raw).hostname;
+    } catch {
+      return null;
+    }
+  } else {
+    candidate = raw.split("/")[0] ?? "";
+  }
+  const host = normalizeHostname(candidate);
+  if (!host || host.includes("*")) return null;
+  return host;
+}
+
+function currentPreviewDeploymentHostname(
+  runtime: HororaStagingCallbackRuntime
+): string | null {
+  if (runtime.VERCEL_ENV?.trim() !== "preview") return null;
+  const projectId = runtime.VERCEL_PROJECT_ID?.trim() ?? "";
+  if (!projectId || projectId !== HORORA_STAGING_VERCEL_PROJECT_ID) return null;
+  const host = exactVercelDeploymentHostname(runtime.VERCEL_URL);
+  if (!host || isDeniedProductionCallbackHost(host)) return null;
+  return host;
+}
+
+export function isHororaStagingCallbackHostname(
+  hostname: string | null | undefined,
+  runtime?: HororaStagingCallbackRuntime
+): boolean {
+  const host = normalizeHostname(hostname);
+  if (!host || host.includes("*") || isDeniedProductionCallbackHost(host)) return false;
   if (isCanonicalStagingHostname(host)) return true;
-  return host === HORORA_STAGING_NEXUS_CALLBACK_VERCEL_HOST;
+  if (host === HORORA_STAGING_NEXUS_CALLBACK_VERCEL_HOST) return true;
+  const current = currentPreviewDeploymentHostname(callbackRuntime(runtime));
+  return current !== null && host === current;
 }
 
 function firstHost(value: string | null): string | null {
@@ -130,7 +197,10 @@ function firstHost(value: string | null): string | null {
   return host || null;
 }
 
-export function isHororaStagingOpaqueCallbackRequest(request: Request): boolean {
+export function isHororaStagingOpaqueCallbackRequest(
+  request: Request,
+  runtime?: HororaStagingCallbackRuntime
+): boolean {
   let urlHost: string | null = null;
   try {
     urlHost = new URL(request.url).hostname.toLowerCase();
@@ -140,8 +210,8 @@ export function isHororaStagingOpaqueCallbackRequest(request: Request): boolean 
   const forwarded = firstHost(request.headers.get("x-forwarded-host"));
   const hostHeader = firstHost(request.headers.get("host"));
   const hosts = [urlHost, forwarded, hostHeader].filter((host): host is string => Boolean(host));
-  if (hosts.some((host) => isCanonicalProductionHostname(host))) return false;
-  return hosts.some((host) => isHororaStagingCallbackHostname(host));
+  if (hosts.some((host) => isDeniedProductionCallbackHost(host))) return false;
+  return hosts.some((host) => isHororaStagingCallbackHostname(host, runtime));
 }
 
 export function selectOpaqueHandoffCode(
