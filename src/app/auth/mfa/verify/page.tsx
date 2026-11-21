@@ -12,13 +12,13 @@ import {
   challengePhoneMfa,
   listMfaFactorsForUi,
   persistVerifiedMfaSession,
-  pickPreferredVerifiedMfaFactor,
   postMfaAuditEvent,
   resetMfaVerifyFailureTracking,
   trackMfaVerifyFailureForAlerts,
   verifyMfaWithChallenge,
 } from "@/app/lib/auth/mfa.client";
 import { describeSupabaseMfaPhoneError } from "@/app/lib/auth/mfa-phone.shared";
+import { resolveLoginMfaFactorMode } from "@/app/lib/auth/mfa-totp-migration.shared";
 import {
   isSafeInternalReturnPath,
   loginPathForMissingMfaSession,
@@ -33,7 +33,7 @@ export default function MfaVerifyPage() {
   const reason = searchParams.get("reason");
 
   const [loading, setLoading] = useState(true);
-  const [mode, setMode] = useState<"phone" | "totp">("phone");
+  const [mode, setMode] = useState<"choose" | "phone" | "totp">("choose");
   const [phoneFactorId, setPhoneFactorId] = useState<string | null>(null);
   const [totpFactorId, setTotpFactorId] = useState<string | null>(null);
 
@@ -92,23 +92,23 @@ export default function MfaVerifyPage() {
         return;
       }
 
-      const preferred = await pickPreferredVerifiedMfaFactor();
-      if (cancelled) return;
-      if (!preferred) {
-        router.replace("/auth/mfa/setup?required=1");
-        return;
-      }
-
       const listed = await listMfaFactorsForUi();
       if (cancelled) return;
 
       const phone = listed.find((f) => f.factor_type === "phone" && f.status === "verified");
       const totp = listed.find((f) => f.factor_type === "totp" && f.status === "verified");
+      const nextMode = resolveLoginMfaFactorMode({
+        hasVerifiedPhone: Boolean(phone),
+        hasVerifiedTotp: Boolean(totp),
+      });
+      if (nextMode === "setup") {
+        router.replace("/auth/mfa/setup?required=1");
+        return;
+      }
 
-      const usePhone = preferred.kind === "phone" && Boolean(phone);
       setPhoneFactorId(phone?.id ?? null);
       setTotpFactorId(totp?.id ?? null);
-      setMode(usePhone ? "phone" : "totp");
+      setMode(nextMode);
 
       setLoading(false);
     })();
@@ -143,9 +143,11 @@ export default function MfaVerifyPage() {
   const pageSubtitle =
     reason === "password"
       ? "Confirmez votre identité pour modifier votre mot de passe."
-      : mode === "phone"
-        ? "Confirmez votre identité avec un code envoyé par texto."
-        : "Entrez le code affiché dans votre application Authenticator.";
+      : mode === "choose"
+        ? "Choisissez le facteur à utiliser pour cette connexion."
+        : mode === "phone"
+          ? "Confirmez votre identité avec un code envoyé par texto."
+          : "Entrez le code affiché dans votre application Authenticator.";
 
   async function sendPhoneChallenge() {
     if (!phoneFactorId) return;
@@ -280,6 +282,23 @@ export default function MfaVerifyPage() {
       <div className="ui-auth-content ui-stack-lg">
         <PageHeader title="Vérification en deux étapes" subtitle={pageSubtitle} compact />
 
+        {mode === "choose" && phoneFactorId && totpFactorId ? (
+          <SectionCard title="Choisir le facteur">
+            <div className="ui-stack-md">
+              <p style={{ margin: 0, fontSize: 14, color: "#334155", lineHeight: 1.5 }}>
+                Le texto et l’application Authenticator sont tous les deux vérifiés. Aucun code
+                n’est envoyé tant que vous n’avez pas choisi.
+              </p>
+              <PrimaryButton type="button" disabled={busy} onClick={() => setMode("totp")}>
+                Utiliser l’application Authenticator
+              </PrimaryButton>
+              <SecondaryButton type="button" disabled={busy} onClick={() => setMode("phone")}>
+                Recevoir un code par texto
+              </SecondaryButton>
+            </div>
+          </SectionCard>
+        ) : null}
+
         {mode === "phone" && phoneFactorId ? (
           <SectionCard title="Code par texto">
             <div className="ui-stack-md">
@@ -304,12 +323,34 @@ export default function MfaVerifyPage() {
         {mode === "totp" && totpFactorId ? (
           <SectionCard title="Application Authenticator">
             <p style={{ margin: 0, fontSize: 14, color: "#475569", lineHeight: 1.5 }}>
-              Option avancée : ce flux utilise une application Authenticator, pas le pointage QR
-              horodateur.
+              Entrez le code à 6 chiffres de l’application Authenticator. Ce n’est pas le QR de
+              pointage horodateur.
             </p>
           </SectionCard>
         ) : null}
 
+        {mode === "phone" && phoneFactorId && !totpFactorId ? (
+          <p style={{ margin: 0, fontSize: 13 }}>
+            <button
+              type="button"
+              className="ui-link-button"
+              style={{
+                background: "none",
+                border: "none",
+                padding: 0,
+                cursor: "pointer",
+                color: "var(--ui-color-link, #2563eb)",
+                textDecoration: "underline",
+                font: "inherit",
+              }}
+              onClick={() => router.push("/auth/mfa/setup?method=totp")}
+            >
+              Ajouter une application Authenticator sans retirer le texto
+            </button>
+          </p>
+        ) : null}
+
+        {mode === "choose" ? null : (
         <SectionCard title="Saisie du code">
           <form className="ui-stack-md mfa-otp-code-form" onSubmit={(e) => void onSubmit(e)}>
             <div className="mfa-otp-code-field">
@@ -342,6 +383,7 @@ export default function MfaVerifyPage() {
             </div>
           </form>
         </SectionCard>
+        )}
 
         {canSwitchToTotp && mode === "phone" ? (
           <p style={{ margin: 0, fontSize: 13 }}>

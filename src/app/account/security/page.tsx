@@ -16,6 +16,7 @@ import {
   unenrollMfaFactor,
 } from "@/app/lib/auth/mfa.client";
 import { roleRequiresMandatoryMfa } from "@/app/lib/auth/mfa.shared";
+import { canRemovePhoneFactor } from "@/app/lib/auth/mfa-totp-migration.shared";
 import { getHomePathForRole } from "@/app/lib/auth/roles";
 import { supabase } from "@/app/lib/supabase/client";
 import {
@@ -81,8 +82,21 @@ export default function AccountSecurityPage() {
     await refreshCookieFromSession();
   }
 
-  async function handleUnenroll(factorId: string) {
-    if (!window.confirm("Désactiver ce facteur de vérification pour ce compte ?")) {
+  async function handleUnenroll(factorId: string, factorType: string) {
+    const hasVerifiedTotp = factors.some(
+      (f) => f.factor_type === "totp" && f.status === "verified"
+    );
+    const removal = canRemovePhoneFactor({ factorType, hasVerifiedTotp });
+    if (!removal.allowed) {
+      setMessage(removal.reason ?? "Retrait impossible.");
+      setMessageType("error");
+      return;
+    }
+    const confirmText =
+      factorType === "phone"
+        ? "Retirer le facteur texto ? L’application Authenticator reste le second facteur."
+        : "Désactiver ce facteur de vérification pour ce compte ?";
+    if (!window.confirm(confirmText)) {
       return;
     }
     setBusyId(factorId);
@@ -101,7 +115,11 @@ export default function AccountSecurityPage() {
       await refreshSessionAfterLocal();
       await refreshFactors();
       void postMfaAuditEvent("mfa_disabled", session?.access_token ?? null);
-      setMessage("Vérification en deux étapes désactivée.");
+      setMessage(
+        factorType === "phone"
+          ? "Facteur texto retiré. L’application Authenticator reste active."
+          : "Vérification en deux étapes désactivée."
+      );
       setMessageType("success");
     } finally {
       setBusyId(null);
@@ -138,15 +156,16 @@ export default function AccountSecurityPage() {
             subtitle="La direction et les administrateurs doivent maintenir une authentification forte."
           >
             <p style={{ fontSize: 14, color: "#475569", margin: 0 }}>
-              Sans facteur TOTP vérifié, l’accès aux espaces direction et admin est bloqué après
-              connexion.
+              L’accès direction et admin exige toujours une session AAL2. Le texto reste valide
+              tant qu’il n’est pas retiré. L’application Authenticator s’ajoute à côté, sans le
+              remplacer.
             </p>
           </SectionCard>
         ) : null}
 
         <SectionCard
           title="Vérification en deux étapes"
-          subtitle="Par défaut : code SMS. Option avancée : Authenticator."
+          subtitle="Texto conservé. Application Authenticator ajoutée à côté."
         >
           <div className="ui-stack-md">
             <AppCard tone="muted">
@@ -162,8 +181,11 @@ export default function AccountSecurityPage() {
             </AppCard>
 
             <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--ui-space-3)" }}>
-              <PrimaryButton type="button" onClick={() => router.push("/auth/mfa/setup")}>
-                {hasVerifiedMfa ? "Ajouter ou remplacer (assistant)" : "Activer"}
+              <PrimaryButton
+                type="button"
+                onClick={() => router.push("/auth/mfa/setup?method=totp")}
+              >
+                Ajouter une application Authenticator
               </PrimaryButton>
               <SecondaryButton type="button" onClick={() => void refreshFactors()}>
                 Actualiser
@@ -174,7 +196,16 @@ export default function AccountSecurityPage() {
               <div className="ui-stack-sm">
                 <h3 style={{ fontSize: 15, margin: 0 }}>Facteurs enregistrés</h3>
                 <ul style={{ margin: 0, paddingLeft: 18 }}>
-                  {factors.map((f) => (
+                  {factors.map((f) => {
+                    const hasVerifiedTotp = factors.some(
+                      (row) => row.factor_type === "totp" && row.status === "verified"
+                    );
+                    const removal = canRemovePhoneFactor({
+                      factorType: f.factor_type,
+                      hasVerifiedTotp,
+                    });
+                    const canUnenroll = f.status === "verified" && removal.allowed;
+                    return (
                     <li key={f.id} style={{ marginBottom: 8 }}>
                       <span style={{ fontFamily: "monospace", fontSize: 13 }}>{f.id.slice(0, 8)}…</span>
                       {" · "}
@@ -184,7 +215,7 @@ export default function AccountSecurityPage() {
                           ? (f.friendly_name ?? "Authenticator")
                           : (f.friendly_name ?? f.factor_type)}{" · "}
                       <strong>{f.status}</strong>
-                      {f.status === "verified" ? (
+                      {canUnenroll ? (
                         <>
                           {" · "}
                           <button
@@ -200,14 +231,20 @@ export default function AccountSecurityPage() {
                               font: "inherit",
                             }}
                             disabled={Boolean(busyId)}
-                            onClick={() => void handleUnenroll(f.id)}
+                            onClick={() => void handleUnenroll(f.id, f.factor_type)}
                           >
-                            Désactiver
+                            {f.factor_type === "phone" ? "Retirer le texto" : "Désactiver"}
                           </button>
                         </>
                       ) : null}
+                      {f.factor_type === "phone" && f.status === "verified" && !removal.allowed ? (
+                        <span style={{ display: "block", color: "#64748b", fontSize: 13 }}>
+                          {removal.reason}
+                        </span>
+                      ) : null}
                     </li>
-                  ))}
+                    );
+                  })}
                 </ul>
               </div>
             ) : null}
