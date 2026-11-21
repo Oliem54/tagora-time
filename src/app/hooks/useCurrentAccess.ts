@@ -20,7 +20,10 @@ import {
 } from "@/app/lib/auth/session-cookie";
 import { getJwtAal, getJwtAppRole } from "@/app/lib/auth/jwt-access-token";
 import { shouldClearAppModuleCookieForSession } from "@/app/lib/auth/mfa-fresh-session.shared";
-import { fetchSessionAuthorizationContext } from "@/app/lib/auth/session-context.client";
+import {
+  fetchSessionAuthorizationContext,
+  type SessionContextResponse,
+} from "@/app/lib/auth/session-context.client";
 import { isBrowserLocalNexusFixture } from "@/app/lib/auth/horora-nexus-session.client";
 import {
   HORORA_LOCAL_FIXTURE_SESSION_SOURCE,
@@ -36,6 +39,8 @@ import {
 type AccessState = {
   user: User | null;
   role: AppRole | null;
+  membershipRole: SessionContextResponse["membershipRole"];
+  sessionSource: SessionContextResponse["source"];
   permissions: AppPermission[];
   companyAccess: UserCompanyAccess;
   organizationId: string | null;
@@ -50,6 +55,8 @@ export function useCurrentAccess() {
   const [state, setState] = useState<AccessState>({
     user: null,
     role: null,
+    membershipRole: null,
+    sessionSource: null,
     permissions: [],
     companyAccess: buildUserCompanyAccess(null),
     organizationId: null,
@@ -166,6 +173,8 @@ export function useCurrentAccess() {
                 created_at: new Date(0).toISOString(),
               } as User,
               role: brokered.appRole,
+              membershipRole: brokered.membershipRole,
+              sessionSource: brokered.source,
               permissions: composePermissionsForEffectiveRole(brokered.appRole, []),
               companyAccess: buildVerifiedOrganizationCompanyAccess(brokered.company),
               organizationId: brokered.organizationId,
@@ -191,6 +200,8 @@ export function useCurrentAccess() {
 
           let role: AppRole | null = null;
           let organizationId: string | null = null;
+          let membershipRole: SessionContextResponse["membershipRole"] = null;
+          let sessionSource: SessionContextResponse["source"] = null;
 
           if (user) {
             const {
@@ -203,6 +214,8 @@ export function useCurrentAccess() {
                 // H4 membership is the effective role source for permissions.
                 role = ctx.appRole;
                 organizationId = ctx.organizationId;
+                membershipRole = ctx.membershipRole;
+                sessionSource = ctx.source;
               } else {
                 // Non-member / inactive / unauthorized: no organizational elevation.
                 role = null;
@@ -216,6 +229,8 @@ export function useCurrentAccess() {
           setState({
             user,
             role,
+            membershipRole,
+            sessionSource,
             permissions: composePermissionsForEffectiveRole(
               role,
               getUserPermissions(user)
@@ -237,6 +252,8 @@ export function useCurrentAccess() {
           setState({
             user: null,
             role: null,
+            membershipRole: null,
+            sessionSource: null,
             permissions: [],
             companyAccess: buildUserCompanyAccess(null),
             organizationId: null,

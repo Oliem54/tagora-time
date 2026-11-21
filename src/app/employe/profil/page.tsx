@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import PasswordUpdateSection from "@/app/components/auth/PasswordUpdateSection";
 import { useCurrentAccess } from "@/app/hooks/useCurrentAccess";
 import { getCompanyLabel } from "@/app/lib/account-requests.shared";
+import { describeHororaEmployeeJourney } from "@/app/lib/auth/horora-premium-user-central.shared";
 import { signOutToSwitchAccount } from "@/app/lib/auth/password-mfa.client";
 import AuthenticatedPageHeader from "@/app/components/ui/AuthenticatedPageHeader";
 import SectionCard from "@/app/components/ui/SectionCard";
@@ -13,9 +14,28 @@ import AppCard from "@/app/components/ui/AppCard";
 import InfoRow from "@/app/components/ui/InfoRow";
 import SecondaryButton from "@/app/components/ui/SecondaryButton";
 
+const PROFILE_ROLE_LABEL = {
+  employe: "Employé",
+  direction: "Direction",
+  organization_admin: "Administration d'organisation",
+  organization_owner: "Propriétaire",
+  admin: "Administration",
+} as const;
+
 export default function EmployeProfilPage() {
   const router = useRouter();
-  const { user, loading, companyAccess } = useCurrentAccess();
+  const { user, role, membershipRole, sessionSource, organizationId, loading, companyAccess } =
+    useCurrentAccess();
+  const brokeredSession =
+    sessionSource === "nexus_handoff" || sessionSource === "local_nexus_fixture";
+  const journeyRole =
+    membershipRole === "employe" || membershipRole === "direction" ? membershipRole : null;
+  const journey = journeyRole ? describeHororaEmployeeJourney(journeyRole) : null;
+  const roleLabel = membershipRole
+    ? PROFILE_ROLE_LABEL[membershipRole]
+    : role
+      ? PROFILE_ROLE_LABEL[role]
+      : "Rôle non résolu";
 
   useEffect(() => {
     if (!loading && !user) {
@@ -54,15 +74,31 @@ export default function EmployeProfilPage() {
           }
         />
 
-        <SectionCard title="Compte" subtitle="Informations principales.">
+        <SectionCard title="Compte" subtitle="Session limitée à une organisation.">
           <div className="ui-grid-2">
             <AppCard tone="muted">
-              <InfoRow label="Role" value="Employe" />
+              <InfoRow label="Rôle" value={roleLabel} />
+            </AppCard>
+            <AppCard tone="muted">
+              <InfoRow
+                label="Organisation"
+                value={organizationId ?? "Organisation non résolue"}
+              />
             </AppCard>
             <AppCard tone="muted">
               <InfoRow
                 label="Compagnie d appartenance"
                 value={getCompanyLabel(companyAccess.primaryCompany ?? companyAccess.company)}
+              />
+            </AppCard>
+            <AppCard tone="muted">
+              <InfoRow
+                label="Droits du rôle"
+                value={
+                  journey
+                    ? journey.rights.map((right) => right.label).join(", ")
+                    : "Les droits d'administration restent dans Utilisateurs et permissions."
+                }
               />
             </AppCard>
           </div>
@@ -77,21 +113,32 @@ export default function EmployeProfilPage() {
           </SecondaryButton>
         </SectionCard>
 
-        <SectionCard
-          title="Securite du compte"
-          subtitle="Verification en deux etapes optionnelle pour les employes."
-        >
-          <Link className="ui-button ui-button-secondary" href="/account/security">
-            Gerer la securite du compte
-          </Link>
-        </SectionCard>
+        {brokeredSession ? (
+          <SectionCard
+            title="Identité"
+            subtitle="Le mot de passe local reste inchangé."
+          >
+            <InfoRow label="Session" value="Session HORORA" />
+          </SectionCard>
+        ) : (
+          <>
+            <SectionCard
+              title="Securite du compte"
+              subtitle="Verification en deux etapes optionnelle pour les employes."
+            >
+              <Link className="ui-button ui-button-secondary" href="/account/security">
+                Gerer la securite du compte
+              </Link>
+            </SectionCard>
 
-        <PasswordUpdateSection
-          title="Securite"
-          subtitle="Mot de passe."
-          submitLabel="Modifier le mot de passe"
-          successMessage="Mot de passe modifie."
-        />
+            <PasswordUpdateSection
+              title="Securite"
+              subtitle="Mot de passe."
+              submitLabel="Modifier le mot de passe"
+              successMessage="Mot de passe modifie."
+            />
+          </>
+        )}
       </div>
     </main>
   );

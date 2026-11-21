@@ -15,12 +15,15 @@ export async function PATCH(
   ctx: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { user, role } = await getAuthenticatedRequestUser(req);
+    const { user, role, organizationId } = await getAuthenticatedRequestUser(req);
     if (!user) {
       return jsonError(401, "Non authentifié.");
     }
     if (role !== "direction" && role !== "admin") {
       return jsonError(403, "Accès refusé.");
+    }
+    if (!organizationId) {
+      return jsonError(403, "Membership organisation active requise.");
     }
 
     const { id: idParam } = await ctx.params;
@@ -55,12 +58,13 @@ export async function PATCH(
       .from("chauffeurs")
       .update(patch)
       .eq("id", employeeId)
+      .eq("organization_id", organizationId)
       .select("*")
       .maybeSingle();
 
     if (error) {
       const msg = error.message?.includes("schedule_active")
-        ? await tryUpdateWithoutScheduleActive(supabase, employeeId, action)
+        ? await tryUpdateWithoutScheduleActive(supabase, employeeId, organizationId, action)
         : null;
       if (msg) {
         return NextResponse.json(msg);
@@ -97,6 +101,7 @@ export async function PATCH(
 async function tryUpdateWithoutScheduleActive(
   supabase: ReturnType<typeof createAdminSupabaseClient>,
   employeeId: number,
+  organizationId: string,
   action: Action
 ) {
   const patch: Record<string, unknown> = action === "activate" ? { actif: true } : { actif: false };
@@ -104,6 +109,7 @@ async function tryUpdateWithoutScheduleActive(
     .from("chauffeurs")
     .update(patch)
     .eq("id", employeeId)
+    .eq("organization_id", organizationId)
     .select("*")
     .maybeSingle();
 

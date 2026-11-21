@@ -172,12 +172,13 @@ async function findAuthUserByEmail(email: string) {
   }
 }
 
-async function loadEmployee(id: number) {
+async function loadEmployee(id: number, organizationId: string) {
   const supabase = createAdminSupabaseClient();
   const { data, error } = await supabase
     .from("chauffeurs")
     .select("id, auth_user_id, nom, courriel, primary_company")
     .eq("id", id)
+    .eq("organization_id", organizationId)
     .maybeSingle<EmployeeRow>();
 
   if (error) {
@@ -421,7 +422,12 @@ export async function GET(
       );
     }
 
-    const employee = await loadEmployee(employeeId);
+    const authenticated = await getAuthenticatedRequestUser(req);
+    if (!authenticated.organizationId) {
+      return NextResponse.json({ error: "Membership organisation active requise." }, { status: 403 });
+    }
+
+    const employee = await loadEmployee(employeeId, authenticated.organizationId);
 
     if (!employee) {
       return NextResponse.json({ error: "Employe introuvable." }, { status: 404 });
@@ -438,8 +444,7 @@ export async function GET(
     }
 
     const security = buildAccountSecuritySnapshot(employee, authUser);
-    const authenticated = await getAuthenticatedRequestUser(req);
-    if (authenticated.organizationId && authUser) {
+    if (authUser) {
       const memberships = await loadOnboardingMembershipsForAuthUser(authUser.id);
       if (!memberships.ok) {
         return NextResponse.json({ error: memberships.error, code: memberships.code }, { status: memberships.status });
@@ -500,7 +505,12 @@ export async function POST(
       return NextResponse.json({ error: "Action invalide." }, { status: 400 });
     }
 
-    const employee = await loadEmployee(employeeId);
+    const authenticated = await getAuthenticatedRequestUser(req);
+    if (!authenticated.organizationId) {
+      return NextResponse.json({ error: "Membership organisation active requise." }, { status: 403 });
+    }
+
+    const employee = await loadEmployee(employeeId, authenticated.organizationId);
 
     if (!employee) {
       return NextResponse.json({ error: "Employe introuvable." }, { status: 404 });

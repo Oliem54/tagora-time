@@ -14,6 +14,20 @@ import { createAdminSupabaseClient } from "@/app/lib/supabase/admin";
 
 export const dynamic = "force-dynamic";
 
+async function assertEmployeeInOrganization(employeeId: number, organizationId: string) {
+  const supabase = createAdminSupabaseClient();
+  const { data, error } = await supabase
+    .from("chauffeurs")
+    .select("id")
+    .eq("id", employeeId)
+    .eq("organization_id", organizationId)
+    .maybeSingle();
+  if (error) {
+    return { ok: false as const, status: 500, error: error.message ?? "Erreur chargement." };
+  }
+  if (!data) return { ok: false as const, status: 404, error: "Employé introuvable." };
+  return { ok: true as const };
+}
 function jsonError(status: number, error: string) {
   return NextResponse.json({ success: false, error }, { status });
 }
@@ -22,15 +36,21 @@ export async function GET(
   req: NextRequest,
   context: { params: Promise<{ id: string }> }
 ) {
-  const { user, role } = await getAuthenticatedRequestUser(req);
+  const { user, role, organizationId } = await getAuthenticatedRequestUser(req);
   if (!user) return jsonError(401, "Non authentifié.");
   if (role !== "direction" && role !== "admin") {
     return jsonError(403, "Accès refusé.");
+  }
+  if (!organizationId) {
+    return jsonError(403, "Membership organisation active requise.");
   }
 
   const { id } = await context.params;
   const employeeId = Number(id);
   if (!Number.isFinite(employeeId)) return jsonError(400, "ID invalide.");
+
+  const scope = await assertEmployeeInOrganization(employeeId, organizationId);
+  if (!scope.ok) return jsonError(scope.status, scope.error);
 
   const supabase = createAdminSupabaseClient();
   const { data, error } = await supabase
@@ -62,15 +82,21 @@ export async function POST(
   req: NextRequest,
   context: { params: Promise<{ id: string }> }
 ) {
-  const { user, role } = await getAuthenticatedRequestUser(req);
+  const { user, role, organizationId } = await getAuthenticatedRequestUser(req);
   if (!user) return jsonError(401, "Non authentifié.");
   if (role !== "direction" && role !== "admin") {
     return jsonError(403, "Accès refusé.");
+  }
+  if (!organizationId) {
+    return jsonError(403, "Membership organisation active requise.");
   }
 
   const { id } = await context.params;
   const employeeId = Number(id);
   if (!Number.isFinite(employeeId)) return jsonError(400, "ID invalide.");
+
+  const scope = await assertEmployeeInOrganization(employeeId, organizationId);
+  if (!scope.ok) return jsonError(scope.status, scope.error);
 
   let body: PostBody;
   try {

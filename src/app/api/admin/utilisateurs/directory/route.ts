@@ -26,6 +26,7 @@ import {
 } from "@/app/lib/auth/horora-premium-user-central.shared";
 import { normalizePermissionList } from "@/app/lib/auth/permissions";
 import { isOrganizationMembershipRole } from "@/app/lib/saas/tenant-foundation.shared";
+import { retainIdentityLinksForOrganizationAuthUsers } from "@/app/lib/employee-organization-scope.shared";
 import { createAdminSupabaseClient } from "@/app/lib/supabase/admin";
 
 export const dynamic = "force-dynamic";
@@ -204,13 +205,22 @@ export async function GET(req: NextRequest) {
           .from("horora_nexus_identity_map")
           .select("nexus_actor_id, auth_user_id, disabled_at");
         if (!identityResult.error) {
+          const organizationAuthUserIds = new Set<string>([
+            ...dossiers
+              .map((row) => row.authUserId)
+              .filter((id): id is string => typeof id === "string" && id.length > 0),
+            ...memberships.map((row) => row.authUserId),
+          ]);
           canonicalLinks = acceptCanonicalIdentityLinks(
-            (identityResult.data ?? []).map((row) => ({
-              nexusUserId: row.nexus_actor_id,
-              authUserId: row.auth_user_id,
-              organizationId: resolved.query.organizationId,
-              disabledAt: row.disabled_at,
-            }))
+            retainIdentityLinksForOrganizationAuthUsers(
+              (identityResult.data ?? []).map((row) => ({
+                nexusUserId: row.nexus_actor_id,
+                authUserId: row.auth_user_id,
+                organizationId: resolved.query.organizationId,
+                disabledAt: row.disabled_at,
+              })),
+              organizationAuthUserIds
+            )
           );
         }
       }

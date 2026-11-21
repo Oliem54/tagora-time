@@ -6,6 +6,7 @@ import {
   stripConfidentialFinanceFields,
 } from "@/app/direction/ressources/employes/employee-profile-shared";
 import { isValidEmail, normalizeEmail } from "@/app/lib/account-requests.shared";
+import { stripClientOrganizationFields } from "@/app/lib/employee-organization-scope.shared";
 import { createAdminSupabaseClient } from "@/app/lib/supabase/admin";
 import {
   countEmployeeLinkedHistory,
@@ -190,12 +191,15 @@ export async function GET(
   ctx: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { user, role } = await getAuthenticatedRequestUser(req);
+    const { user, role, organizationId } = await getAuthenticatedRequestUser(req);
     if (!user) {
       return jsonError(401, "Non authentifié.");
     }
     if (role !== "direction" && role !== "admin") {
       return jsonError(403, "Accès refusé.");
+    }
+    if (!organizationId) {
+      return jsonError(403, "Membership organisation active requise.");
     }
 
     const { id: idParam } = await ctx.params;
@@ -209,6 +213,7 @@ export async function GET(
       .from("chauffeurs")
       .select("*")
       .eq("id", employeeId)
+      .eq("organization_id", organizationId)
       .maybeSingle();
 
     if (error) {
@@ -255,12 +260,15 @@ export async function PATCH(
   let payloadForLog: Record<string, unknown> | null = null;
 
   try {
-    const { user, role } = await getAuthenticatedRequestUser(req);
+    const { user, role, organizationId } = await getAuthenticatedRequestUser(req);
     if (!user) {
       return jsonError(401, "Non authentifié.");
     }
     if (role !== "direction" && role !== "admin") {
       return jsonError(403, "Accès refusé.");
+    }
+    if (!organizationId) {
+      return jsonError(403, "Membership organisation active requise.");
     }
 
     const { id: idParam } = await ctx.params;
@@ -322,7 +330,7 @@ export async function PATCH(
       return jsonError(400, err.message, { code: err.code });
     }
 
-    let updatePayload = stripReadOnlyKeys(body);
+    let updatePayload = stripClientOrganizationFields(stripReadOnlyKeys(body));
     const canManageConfidentialFinance = hasAdminFinanceAccess(user, role);
     if (!canManageConfidentialFinance) {
       updatePayload = stripConfidentialFinanceFields(updatePayload);
@@ -333,6 +341,7 @@ export async function PATCH(
       .from("chauffeurs")
       .select("*")
       .eq("id", employeeId)
+      .eq("organization_id", organizationId)
       .maybeSingle();
 
     if (!beforeRow) {
@@ -362,6 +371,7 @@ export async function PATCH(
           .from("chauffeurs")
           .select("id")
           .eq("courriel", nextNorm)
+          .eq("organization_id", organizationId)
           .neq("id", employeeId)
           .limit(1);
 
@@ -402,6 +412,7 @@ export async function PATCH(
         .from("chauffeurs")
         .update(updatePayload)
         .eq("id", employeeId)
+        .eq("organization_id", organizationId)
         .select("*")
         .single();
 
@@ -472,7 +483,8 @@ export async function PATCH(
             await supabase
               .from("chauffeurs")
               .update({ courriel: previousCourrielSnapshot })
-              .eq("id", employeeId);
+              .eq("id", employeeId)
+              .eq("organization_id", organizationId);
             logEmployeeProfileSave("auth_email_sync_failed", employeeId, { newCourrielNorm, authUid }, authEmailErr);
             return jsonError(
               500,
@@ -561,12 +573,15 @@ export async function DELETE(
   ctx: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { user, role } = await getAuthenticatedRequestUser(req);
+    const { user, role, organizationId } = await getAuthenticatedRequestUser(req);
     if (!user) {
       return jsonError(401, "Non authentifié.");
     }
     if (role !== "direction" && role !== "admin") {
       return jsonError(403, "Accès refusé.");
+    }
+    if (!organizationId) {
+      return jsonError(403, "Membership organisation active requise.");
     }
 
     const { id: idParam } = await ctx.params;
@@ -581,6 +596,7 @@ export async function DELETE(
       .from("chauffeurs")
       .select("id")
       .eq("id", employeeId)
+      .eq("organization_id", organizationId)
       .maybeSingle();
 
     if (!row) {
@@ -593,9 +609,14 @@ export async function DELETE(
       let { error } = await supabase
         .from("chauffeurs")
         .update({ actif: false, schedule_active: false })
-        .eq("id", employeeId);
+        .eq("id", employeeId)
+        .eq("organization_id", organizationId);
       if (error?.message?.includes("schedule_active")) {
-        ({ error } = await supabase.from("chauffeurs").update({ actif: false }).eq("id", employeeId));
+        ({ error } = await supabase
+          .from("chauffeurs")
+          .update({ actif: false })
+          .eq("id", employeeId)
+          .eq("organization_id", organizationId));
       }
       if (error) {
         return { ok: false, error: error.message };
@@ -617,7 +638,11 @@ export async function DELETE(
       });
     }
 
-    const { error: delErr } = await supabase.from("chauffeurs").delete().eq("id", employeeId);
+    const { error: delErr } = await supabase
+      .from("chauffeurs")
+      .delete()
+      .eq("id", employeeId)
+      .eq("organization_id", organizationId);
 
     if (delErr) {
       if (delErr.code === "23503") {

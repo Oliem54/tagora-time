@@ -9,6 +9,7 @@ import {
   accessRemainsAfterOverride,
   assessNexusLocalBinding,
   decideHororaDepartmentAdministration,
+  describeHororaAuthenticatedBrowserJourney,
   decideHororaMembershipChange,
   decideHororaPermissionOverride,
   decideNexusAuthorizedLocalBinding,
@@ -566,5 +567,50 @@ describe("HORORA existing RBAC reuse", () => {
         action: "create",
       }).ok
     ).toBe(true);
+  });
+
+  it("prepares the authenticated browser journey without a punch or a Nexus write", () => {
+    const journey = describeHororaAuthenticatedBrowserJourney();
+    expect(journey).toMatchObject({
+      status: "PREPARED_HOLD",
+      hold: "writer_central_not_integrated",
+      organizationsInScope: 1,
+      crossOrganization: "forbidden",
+      punchPost: "forbidden",
+      nexusFiles: "unchanged",
+      entra: "unchanged",
+      alias: "unchanged",
+    });
+    expect(journey.stops.map((stop) => stop.path)).toEqual([
+      "/employe/profil",
+      "/admin/utilisateurs",
+      "/direction/ressources/employes",
+      "/api/admin/utilisateurs/permissions",
+    ]);
+    expect(journey.stops.some((stop) => stop.path.includes("punch"))).toBe(false);
+
+    const profile = readFileSync(
+      join(process.cwd(), "src/app/employe/profil/page.tsx"),
+      "utf8"
+    );
+    expect(profile).toContain("describeHororaEmployeeJourney");
+    expect(profile).toContain("organizationId");
+    expect(profile).toContain("Le mot de passe local reste inchangé.");
+    expect(profile).toContain('sessionSource === "nexus_handoff"');
+    expect(profile).not.toContain("submitPunch");
+
+    const employees = readFileSync(
+      join(process.cwd(), "src/app/api/direction/ressources/employes/route.ts"),
+      "utf8"
+    );
+    const profileRoute = readFileSync(
+      join(
+        process.cwd(),
+        "src/app/api/direction/ressources/employes/[id]/route.ts"
+      ),
+      "utf8"
+    );
+    expect(employees).toContain('.eq("organization_id", organizationId)');
+    expect(profileRoute).toContain('.eq("organization_id", organizationId)');
   });
 });

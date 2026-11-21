@@ -24,12 +24,15 @@ function jsonError(status: number, error: string) {
  */
 export async function GET(req: NextRequest) {
   try {
-    const { user, role } = await getAuthenticatedRequestUser(req);
+    const { user, role, organizationId } = await getAuthenticatedRequestUser(req);
     if (!user) {
       return jsonError(401, "Non authentifié.");
     }
     if (role !== "direction" && role !== "admin") {
       return jsonError(403, "Accès refusé.");
+    }
+    if (!organizationId) {
+      return jsonError(403, "Membership organisation active requise.");
     }
 
     const { searchParams } = new URL(req.url);
@@ -48,6 +51,7 @@ export async function GET(req: NextRequest) {
       .select(
         "id, nom, courriel, telephone, actif, auth_user_id, primary_company, fonctions, fonction_autre, can_deliver"
       )
+      .eq("organization_id", organizationId)
       .order("id", { ascending: true });
 
     if (status === "active") {
@@ -63,7 +67,12 @@ export async function GET(req: NextRequest) {
       return jsonError(500, error.message ?? "Chargement impossible.");
     }
 
-    let rows = data ?? [];
+    const organizationRows = data ?? [];
+    const organizationEmployeeIds = organizationRows
+      .map((row) => Number(row.id))
+      .filter((id) => Number.isFinite(id));
+
+    let rows = organizationRows;
     if (q.length > 0) {
       const lower = q.toLowerCase();
       rows = rows.filter((r) => {
@@ -76,9 +85,15 @@ export async function GET(req: NextRequest) {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const todayIso = formatIsoDateLocal(today);
-
     const leaveByEmployee = new Map<number, EmployeeLeavePeriodRow>();
-    const leaveRes = await supabase.from("employee_leave_periods").select("*").eq("status", "active");
+    const leaveRes =
+      organizationEmployeeIds.length === 0
+        ? { data: [], error: null }
+        : await supabase
+            .from("employee_leave_periods")
+            .select("*")
+            .eq("status", "active")
+            .in("employee_id", organizationEmployeeIds);
     if (!leaveRes.error && leaveRes.data) {
       for (const raw of leaveRes.data as Record<string, unknown>[]) {
         const empId = Number(raw.employee_id);

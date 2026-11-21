@@ -19,6 +19,7 @@ import {
   shouldRequirePasswordChangeForPortal,
   syncEmployeeAuthLink,
 } from "@/app/lib/employee-portal-invite.server";
+import { employeeBelongsToActorOrganization } from "@/app/lib/employee-organization-scope.shared";
 import { createAdminSupabaseClient } from "@/app/lib/supabase/admin";
 import {
   applyEmployeePortalMembershipAndChauffeurLink,
@@ -220,7 +221,10 @@ export async function POST(
   const permissions = normalizePermissionList(body.permissions) as AppPermission[];
 
   const row = await loadEmployeeRow(employeeId);
-  if (!row) {
+  if (!row || !employeeBelongsToActorOrganization({
+    actorOrganizationId,
+    employeeOrganizationId: row.organization_id,
+  })) {
     return jsonErr(404, "Employe introuvable.");
   }
 

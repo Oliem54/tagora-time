@@ -751,6 +751,44 @@ export function decideHororaPermissionOverride(input: {
   return { ok: true, writer: HORORA_PERMISSION_OVERRIDE_AUDIT_RPC };
 }
 
+export const HORORA_AUTHENTICATED_BROWSER_JOURNEY_HOLD =
+  "writer_central_not_integrated" as const;
+
+/**
+ * Final authenticated browser path. It stays prepared until the central
+ * writer is integrated. It does not open Nexus, Entra, or a punch.
+ */
+export function describeHororaAuthenticatedBrowserJourney() {
+  return {
+    status: "PREPARED_HOLD" as const,
+    hold: HORORA_AUTHENTICATED_BROWSER_JOURNEY_HOLD,
+    organizationsInScope: 1 as const,
+    crossOrganization: "forbidden" as const,
+    punchPost: "forbidden" as const,
+    nexusFiles: "unchanged" as const,
+    entra: "unchanged" as const,
+    alias: "unchanged" as const,
+    stops: [
+      { id: "profile", path: "/employe/profil", mode: "read_session" as const },
+      {
+        id: "user_central",
+        path: "/admin/utilisateurs",
+        mode: "same_organization" as const,
+      },
+      {
+        id: "employees",
+        path: "/direction/ressources/employes",
+        mode: "same_organization" as const,
+      },
+      {
+        id: "permissions",
+        path: "/api/admin/utilisateurs/permissions",
+        mode: "same_organization" as const,
+      },
+    ],
+  };
+}
+
 export function decideHororaDepartmentAdministration(input: {
   actorRole: OrganizationMembershipRole | null;
   actorOrganizationId: string | null;
