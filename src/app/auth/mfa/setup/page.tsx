@@ -40,6 +40,7 @@ export default function MfaSetupPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const required = searchParams.get("required") === "1";
+  const preferTotp = searchParams.get("method") === "totp";
 
   const [checkingUser, setCheckingUser] = useState(true);
 
@@ -54,7 +55,8 @@ export default function MfaSetupPage() {
   const [smsMessageType, setSmsMessageType] = useState<"success" | "error" | null>(null);
   const [smsBlockedByMismatch, setSmsBlockedByMismatch] = useState(false);
 
-  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [advancedOpen, setAdvancedOpen] = useState(preferTotp);
+  const [verifiedPhoneKept, setVerifiedPhoneKept] = useState(false);
   const [totpFactorId, setTotpFactorId] = useState<string | null>(null);
   const [qrCode, setQrCode] = useState<string | null>(null);
   const [secret, setSecret] = useState<string | null>(null);
@@ -86,12 +88,25 @@ export default function MfaSetupPage() {
         setPhoneInput(prefill);
       }
 
+      const listed = await listMfaFactorsForUi();
+      if (!cancelled) {
+        setVerifiedPhoneKept(
+          listed.some((f) => f.factor_type === "phone" && f.status === "verified")
+        );
+      }
+
       setCheckingUser(false);
     })();
     return () => {
       cancelled = true;
     };
   }, [router]);
+
+  useEffect(() => {
+    if (preferTotp) {
+      setAdvancedOpen(true);
+    }
+  }, [preferTotp]);
 
   useEffect(() => {
     if (checkingUser || !phoneInput.trim()) {
@@ -407,7 +422,11 @@ export default function MfaSetupPage() {
 
       const { data: userData } = await supabase.auth.getUser();
       const role = getUserRole(userData.user);
-      setTotpMessage("Vérification en deux étapes activée.");
+      setTotpMessage(
+        verifiedPhoneKept
+          ? "Application Authenticator vérifiée. Le facteur texto reste actif."
+          : "Vérification en deux étapes activée."
+      );
       setTotpMessageType("success");
       router.replace(role ? getHomePathForRole(role) : "/direction/dashboard");
     } finally {
@@ -430,7 +449,11 @@ export default function MfaSetupPage() {
       <div className="ui-auth-content ui-stack-lg">
         <PageHeader
           title="Vérification en deux étapes"
-          subtitle="Protégez votre compte avec un code reçu par texto."
+          subtitle={
+            preferTotp
+              ? "Ajoutez une application Authenticator. Le texto déjà vérifié reste en place."
+              : "Protégez votre compte avec un code reçu par texto."
+          }
           compact
         />
 
@@ -555,11 +578,23 @@ export default function MfaSetupPage() {
           </div>
         </SectionCard>
 
-        <SectionCard title="Option avancée">
+        {preferTotp && verifiedPhoneKept ? (
+          <SectionCard title="Texto conservé">
+            <p style={{ margin: 0, fontSize: 14, color: "#334155", lineHeight: 1.5 }}>
+              Votre facteur texto vérifié n’est pas retiré par cet ajout. Après vérification de
+              l’Authenticator, les deux facteurs restent disponibles à la connexion.
+            </p>
+          </SectionCard>
+        ) : null}
+
+        <SectionCard title={preferTotp ? "Application Authenticator" : "Option avancée"}>
           <div className="ui-stack-md">
             <p style={{ margin: 0, fontSize: 14, color: "#475569", lineHeight: 1.55 }}>
               <strong>Utiliser une application Authenticator</strong> (Google Authenticator,
-              Microsoft Authenticator, etc.) — option secondaire seulement.
+              Microsoft Authenticator, etc.)
+              {preferTotp
+                ? " — cet ajout ne retire pas le texto."
+                : " — option secondaire seulement."}
             </p>
             <p style={{ margin: 0, fontSize: 13, color: "#64748b", lineHeight: 1.55 }}>
               Les codes QR dans TAGORA Time sont réservés au pointage horodateur sur place : le QR
