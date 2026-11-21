@@ -32,6 +32,13 @@ import {
   buildMfaPhoneFactorMismatchLog,
   resolveEnsureUnverifiedPhoneFactor,
 } from "@/app/lib/auth/mfa-setup.shared";
+import {
+  describeTotpEnrollError,
+  phoneVerificationBeforeTotpEnrollPath,
+  resolveTotpEnrollmentGate,
+  TOTP_ENROLL_REQUIRES_PHONE_AAL2,
+  type TotpEnrollmentGate,
+} from "@/app/lib/auth/mfa-totp-migration.shared";
 import { signOutToSwitchAccount } from "@/app/lib/auth/password-mfa.client";
 import { getHomePathForRole, getUserRole } from "@/app/lib/auth/roles";
 import { supabase } from "@/app/lib/supabase/client";
@@ -57,6 +64,7 @@ export default function MfaSetupPage() {
 
   const [advancedOpen, setAdvancedOpen] = useState(preferTotp);
   const [verifiedPhoneKept, setVerifiedPhoneKept] = useState(false);
+  const [totpGate, setTotpGate] = useState<TotpEnrollmentGate | null>(null);
   const [totpFactorId, setTotpFactorId] = useState<string | null>(null);
   const [qrCode, setQrCode] = useState<string | null>(null);
   const [secret, setSecret] = useState<string | null>(null);
@@ -89,9 +97,24 @@ export default function MfaSetupPage() {
       }
 
       const listed = await listMfaFactorsForUi();
+      const { data: aalData, error: aalError } =
+        await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
       if (!cancelled) {
-        setVerifiedPhoneKept(
-          listed.some((f) => f.factor_type === "phone" && f.status === "verified")
+        const level = aalData?.currentLevel;
+        const currentAal =
+          !aalError && (level === "aal1" || level === "aal2") ? level : null;
+        const hasVerifiedPhone = listed.some(
+          (f) => f.factor_type === "phone" && f.status === "verified"
+        );
+        setVerifiedPhoneKept(hasVerifiedPhone);
+        setTotpGate(
+          resolveTotpEnrollmentGate({
+            hasVerifiedPhone,
+            hasVerifiedTotp: listed.some(
+              (f) => f.factor_type === "totp" && f.status === "verified"
+            ),
+            currentAal,
+          })
         );
       }
 
@@ -334,15 +357,52 @@ export default function MfaSetupPage() {
     }
   }
 
+  async function readTotpEnrollmentGate(): Promise<TotpEnrollmentGate> {
+    const listed = await listMfaFactorsForUi();
+    const { data: aalData, error: aalError } =
+      await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+    const level = aalData?.currentLevel;
+    const currentAal = !aalError && (level === "aal1" || level === "aal2") ? level : null;
+    const hasVerifiedPhone = listed.some(
+      (f) => f.factor_type === "phone" && f.status === "verified"
+    );
+    const gate = resolveTotpEnrollmentGate({
+      hasVerifiedPhone,
+      hasVerifiedTotp: listed.some((f) => f.factor_type === "totp" && f.status === "verified"),
+      currentAal,
+    });
+    setVerifiedPhoneKept(hasVerifiedPhone);
+    setTotpGate(gate);
+    return gate;
+  }
+
   async function startTotpEnroll() {
     setTotpBusy(true);
     setTotpMessage("");
     setTotpMessageType(null);
     try {
+      const gate = await readTotpEnrollmentGate();
+      if (gate.action === "verify_phone_first") {
+        setTotpMessage(TOTP_ENROLL_REQUIRES_PHONE_AAL2);
+        setTotpMessageType("error");
+        return;
+      }
       const { data, error } = await enrollTotpFactor();
       if (error || !data) {
-        setTotpMessage(error?.message ?? "Impossible de démarrer l’application Authenticator.");
+        const code = readErrCode(error);
+        setTotpMessage(
+          describeTotpEnrollError(
+            code,
+            error?.message ?? "Impossible de démarrer l’application Authenticator.",
+            error?.message
+          )
+        );
         setTotpMessageType("error");
+        if (
+          describeTotpEnrollError(code, "", error?.message) === TOTP_ENROLL_REQUIRES_PHONE_AAL2
+        ) {
+          setTotpGate({ action: "verify_phone_first" });
+        }
         return;
       }
       const payload = data as {
@@ -589,6 +649,22 @@ export default function MfaSetupPage() {
 
         <SectionCard title={preferTotp ? "Application Authenticator" : "Option avancée"}>
           <div className="ui-stack-md">
+            {totpGate?.action === "verify_phone_first" ? (
+              <div className="ui-stack-md">
+                <p style={{ margin: 0, fontSize: 14, color: "#334155", lineHeight: 1.5 }}>
+                  {TOTP_ENROLL_REQUIRES_PHONE_AAL2}
+                </p>
+                <PrimaryButton
+                  type="button"
+                  onClick={() => router.push(phoneVerificationBeforeTotpEnrollPath())}
+                >
+                  Vérifier le texto d’abord
+                </PrimaryButton>
+                <FeedbackMessage message={totpMessage} type={totpMessageType} />
+              </div>
+            ) : null}
+            {totpGate?.action === "verify_phone_first" ? null : (
+            <>
             <p style={{ margin: 0, fontSize: 14, color: "#475569", lineHeight: 1.55 }}>
               <strong>Utiliser une application Authenticator</strong> (Google Authenticator,
               Microsoft Authenticator, etc.)
@@ -662,6 +738,8 @@ export default function MfaSetupPage() {
                 <FeedbackMessage message={totpMessage} type={totpMessageType} />
               </div>
             ) : null}
+            </>
+            )}
           </div>
         </SectionCard>
       </div>
