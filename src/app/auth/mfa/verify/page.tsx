@@ -18,7 +18,11 @@ import {
   verifyMfaWithChallenge,
 } from "@/app/lib/auth/mfa.client";
 import { describeSupabaseMfaPhoneError } from "@/app/lib/auth/mfa-phone.shared";
-import { resolveLoginMfaFactorMode } from "@/app/lib/auth/mfa-totp-migration.shared";
+import {
+  resolveLoginMfaFactorMode,
+  resolveTotpEnrollmentGate,
+  TOTP_SETUP_PATH,
+} from "@/app/lib/auth/mfa-totp-migration.shared";
 import {
   isSafeInternalReturnPath,
   loginPathForMissingMfaSession,
@@ -42,6 +46,7 @@ export default function MfaVerifyPage() {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [messageType, setMessageType] = useState<"success" | "error" | null>(null);
+  const [authenticatorOfferHref, setAuthenticatorOfferHref] = useState<string | null>(null);
   const autoSmsAttemptedRef = useRef(false);
   const busyRef = useRef(false);
 
@@ -257,7 +262,30 @@ export default function MfaVerifyPage() {
         return;
       }
       const role = getUserRole(userData.user);
-      router.replace(resolveNextHref(role));
+      const continueHref = resolveNextHref(role);
+      const returningToTotpSetup =
+        isSafeInternalReturnPath(nextPathRaw) && nextPathRaw.startsWith("/auth/mfa/setup");
+      if (mode === "phone" && !totpFactorId && !returningToTotpSetup) {
+        const { data: aalData, error: aalError } =
+          await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+        const level = aalData?.currentLevel;
+        const currentAal =
+          !aalError && (level === "aal1" || level === "aal2") ? level : null;
+        const gate = resolveTotpEnrollmentGate({
+          hasVerifiedPhone: true,
+          hasVerifiedTotp: false,
+          currentAal,
+        });
+        if (gate.action === "enroll_keep_phone") {
+          setAuthenticatorOfferHref(continueHref);
+          setMessage(
+            "Texto vérifié. Vous pouvez ajouter une application Authenticator sans le retirer, ou continuer."
+          );
+          setMessageType("success");
+          return;
+        }
+      }
+      router.replace(continueHref);
     } finally {
       setBusy(false);
     }
@@ -282,7 +310,24 @@ export default function MfaVerifyPage() {
       <div className="ui-auth-content ui-stack-lg">
         <PageHeader title="Vérification en deux étapes" subtitle={pageSubtitle} compact />
 
-        {mode === "choose" && phoneFactorId && totpFactorId ? (
+        {authenticatorOfferHref ? (
+          <SectionCard title="Texto vérifié">
+            <div className="ui-stack-md">
+              <p style={{ margin: 0, fontSize: 14, color: "#334155", lineHeight: 1.5 }}>
+                Le code texto est accepté. La session est maintenant renforcée. L’ajout d’une
+                application Authenticator est possible sans retirer le texto.
+              </p>
+              <PrimaryButton type="button" onClick={() => router.replace(authenticatorOfferHref)}>
+                Continuer
+              </PrimaryButton>
+              <SecondaryButton type="button" onClick={() => router.push(TOTP_SETUP_PATH)}>
+                Ajouter une application Authenticator sans retirer le texto
+              </SecondaryButton>
+            </div>
+          </SectionCard>
+        ) : null}
+
+        {authenticatorOfferHref ? null : mode === "choose" && phoneFactorId && totpFactorId ? (
           <SectionCard title="Choisir le facteur">
             <div className="ui-stack-md">
               <p style={{ margin: 0, fontSize: 14, color: "#334155", lineHeight: 1.5 }}>
@@ -299,7 +344,7 @@ export default function MfaVerifyPage() {
           </SectionCard>
         ) : null}
 
-        {mode === "phone" && phoneFactorId ? (
+        {!authenticatorOfferHref && mode === "phone" && phoneFactorId ? (
           <SectionCard title="Code par texto">
             <div className="ui-stack-md">
               <PrimaryButton type="button" disabled={busy} onClick={() => void sendPhoneChallenge()}>
@@ -320,7 +365,7 @@ export default function MfaVerifyPage() {
           </SectionCard>
         ) : null}
 
-        {mode === "totp" && totpFactorId ? (
+        {!authenticatorOfferHref && mode === "totp" && totpFactorId ? (
           <SectionCard title="Application Authenticator">
             <p style={{ margin: 0, fontSize: 14, color: "#475569", lineHeight: 1.5 }}>
               Entrez le code à 6 chiffres de l’application Authenticator. Ce n’est pas le QR de
@@ -329,28 +374,7 @@ export default function MfaVerifyPage() {
           </SectionCard>
         ) : null}
 
-        {mode === "phone" && phoneFactorId && !totpFactorId ? (
-          <p style={{ margin: 0, fontSize: 13 }}>
-            <button
-              type="button"
-              className="ui-link-button"
-              style={{
-                background: "none",
-                border: "none",
-                padding: 0,
-                cursor: "pointer",
-                color: "var(--ui-color-link, #2563eb)",
-                textDecoration: "underline",
-                font: "inherit",
-              }}
-              onClick={() => router.push("/auth/mfa/setup?method=totp")}
-            >
-              Ajouter une application Authenticator sans retirer le texto
-            </button>
-          </p>
-        ) : null}
-
-        {mode === "choose" ? null : (
+        {authenticatorOfferHref || mode === "choose" ? null : (
         <SectionCard title="Saisie du code">
           <form className="ui-stack-md mfa-otp-code-form" onSubmit={(e) => void onSubmit(e)}>
             <div className="mfa-otp-code-field">
@@ -385,7 +409,7 @@ export default function MfaVerifyPage() {
         </SectionCard>
         )}
 
-        {canSwitchToTotp && mode === "phone" ? (
+        {!authenticatorOfferHref && canSwitchToTotp && mode === "phone" ? (
           <p style={{ margin: 0, fontSize: 13 }}>
             <button
               type="button"
@@ -412,7 +436,7 @@ export default function MfaVerifyPage() {
           </p>
         ) : null}
 
-        {canSwitchToPhone && mode === "totp" ? (
+        {!authenticatorOfferHref && canSwitchToPhone && mode === "totp" ? (
           <p style={{ margin: 0, fontSize: 13 }}>
             <button
               type="button"
