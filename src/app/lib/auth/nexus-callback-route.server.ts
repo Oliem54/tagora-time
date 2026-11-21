@@ -10,6 +10,7 @@ import {
   nexusHandoffPrefetchSkippedResponse,
   renderNexusHandoffContinueDocument,
   renderNexusOpaqueCodeContinueDocument,
+  resolveNexusCallbackFormPublicOrigin,
   shouldSkipNexusHandoffConsumeOnGet,
 } from "@/app/lib/auth/nexus-callback-document.server";
 import { exchangeNexusOpaqueHandoffCode } from "@/app/lib/auth/horora-staging-nexus-module-client.server";
@@ -21,7 +22,6 @@ import {
 import {
   evaluateNexusCallbackOrigin,
   nexusCallbackOriginLogFields,
-  resolveCanonicalNexusCallbackOrigin,
 } from "@/app/lib/auth/nexus-callback-origin.server";
 import {
   isNexusPasswordLoginPath,
@@ -123,7 +123,7 @@ async function handleNexusCallbackGet(
   }
   if (opaque.ok) {
     console.info("[horora.nexus.callback]", { decision: "opaque_code_continue" });
-    const publicOrigin = resolveCanonicalNexusCallbackOrigin(request);
+    const publicOrigin = resolveNexusCallbackFormPublicOrigin(request);
     return nexusHandoffContinueResponse(
       renderNexusOpaqueCodeContinueDocument(opaque.code, { publicOrigin })
     );
@@ -156,7 +156,7 @@ async function handleNexusCallbackGet(
   }
 
   console.info("[horora.nexus.callback]", { decision: "handoff_continue_document" });
-  const publicOrigin = resolveCanonicalNexusCallbackOrigin(request);
+  const publicOrigin = resolveNexusCallbackFormPublicOrigin(request);
   return nexusHandoffContinueResponse(
     renderNexusHandoffContinueDocument(inspected.token, { publicOrigin })
   );

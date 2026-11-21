@@ -1,4 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  HORORA_PRODUCTION_VERCEL_PROJECT_ID,
+  HORORA_STAGING_VERCEL_PROJECT_ID,
+} from "@/app/lib/canonical-domains";
 import { handleNexusCallback } from "@/app/lib/auth/nexus-callback-route.server";
 import {
   NEXUS_CALLBACK_CONTINUE_FORM_ID,
@@ -150,7 +154,8 @@ describe("Nexus callback trusted external origin", () => {
       }
     );
     const html = await response.text();
-    expect(html).toContain(`action="${PUBLIC_ORIGIN}${CALLBACK_PATH}"`);
+    expect(html).toContain(`action="${CALLBACK_PATH}"`);
+    expect(html).not.toContain("tagora-time-staging.vercel.app");
     expect(html).toContain("<title>HORORA</title>");
   });
 
@@ -231,5 +236,105 @@ describe("Nexus callback trusted external origin", () => {
     expect(new URL(response.headers.get("location") ?? "").pathname).toBe("/auth/nexus/denied");
     expect(response.headers.get("set-cookie")).toBeNull();
     expect(consumed).toEqual([]);
+  });
+});
+
+const PREVIEW_HOST = "tagora-time-staging-j3e7ik52l-oliem54s-projects.vercel.app";
+const ALIAS_ORIGIN = "https://tagora-time-staging.vercel.app";
+const PRODUCTION_ORIGIN = "https://time.tagora.ca";
+
+async function continueDocument(url: string, headers: Record<string, string> = {}): Promise<string> {
+  const response = await handleNexusCallback(
+    new Request(url, {
+      headers: { "sec-fetch-dest": "document", ...headers },
+    }),
+    {
+      ...inspectOk(),
+      async isReplayConsumed() {
+        return { ok: true, consumed: false };
+      },
+    }
+  );
+  expect(response.status).toBe(200);
+  return response.text();
+}
+
+describe("callback continue form stays on the accepted GET host", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("posts the exact preview host back to itself", async () => {
+    vi.stubEnv(NEXUS_CALLBACK_PUBLIC_ORIGIN_ENV, ALIAS_ORIGIN);
+    vi.stubEnv("VERCEL_ENV", "preview");
+    vi.stubEnv("VERCEL_PROJECT_ID", HORORA_STAGING_VERCEL_PROJECT_ID);
+    vi.stubEnv("VERCEL_URL", PREVIEW_HOST);
+    const html = await continueDocument(
+      `https://${PREVIEW_HOST}${CALLBACK_PATH}?handoff=fresh&next=https://evil.example`,
+      {
+        host: "evil.example",
+        origin: "https://evil.example",
+        "x-forwarded-host": "tagora-time-staging.vercel.app",
+        "x-forwarded-proto": "https",
+      }
+    );
+    expect(html).toContain(`action="${CALLBACK_PATH}"`);
+    expect(html).not.toContain(ALIAS_ORIGIN);
+    expect(html).not.toContain("evil.example");
+    expect(html).not.toContain(PREVIEW_HOST);
+  });
+
+  it("keeps a canonical staging callback on its own host", async () => {
+    vi.stubEnv(NEXUS_CALLBACK_PUBLIC_ORIGIN_ENV, ALIAS_ORIGIN);
+    const staging = await continueDocument(`${PUBLIC_ORIGIN}${CALLBACK_PATH}?handoff=fresh`, {
+      host: PREVIEW_HOST,
+      origin: `https://${PREVIEW_HOST}`,
+      "x-forwarded-host": PREVIEW_HOST,
+    });
+    expect(staging).toContain(`action="${CALLBACK_PATH}"`);
+    expect(staging).not.toContain(ALIAS_ORIGIN);
+    expect(staging).not.toContain(PREVIEW_HOST);
+
+    const alias = await continueDocument(`${ALIAS_ORIGIN}${CALLBACK_PATH}?handoff=fresh`, {
+      "x-forwarded-host": "time.tagora.ca",
+      origin: PRODUCTION_ORIGIN,
+    });
+    expect(alias).toContain(`action="${CALLBACK_PATH}"`);
+    expect(alias).not.toContain(PRODUCTION_ORIGIN);
+    expect(alias).not.toContain(PUBLIC_ORIGIN);
+  });
+
+  it("does not send production or another project to the preview host", async () => {
+    vi.stubEnv(NEXUS_CALLBACK_PUBLIC_ORIGIN_ENV, PRODUCTION_ORIGIN);
+    vi.stubEnv("VERCEL_ENV", "production");
+    vi.stubEnv("VERCEL_PROJECT_ID", HORORA_PRODUCTION_VERCEL_PROJECT_ID);
+    vi.stubEnv("VERCEL_URL", PREVIEW_HOST);
+    const production = await continueDocument(
+      `${PRODUCTION_ORIGIN}${CALLBACK_PATH}?handoff=fresh`,
+      {
+        host: PREVIEW_HOST,
+        origin: `https://${PREVIEW_HOST}`,
+        "x-forwarded-host": PREVIEW_HOST,
+        "x-forwarded-proto": "https",
+      }
+    );
+    expect(production).toContain(`action="${PRODUCTION_ORIGIN}${CALLBACK_PATH}"`);
+    expect(production).not.toContain(PREVIEW_HOST);
+
+    vi.stubEnv(NEXUS_CALLBACK_PUBLIC_ORIGIN_ENV, ALIAS_ORIGIN);
+    vi.stubEnv("VERCEL_ENV", "preview");
+    vi.stubEnv("VERCEL_PROJECT_ID", HORORA_PRODUCTION_VERCEL_PROJECT_ID);
+    vi.stubEnv("VERCEL_URL", "tagora-time-other-project.vercel.app");
+    const otherProject = await continueDocument(
+      `https://${PREVIEW_HOST}${CALLBACK_PATH}?handoff=fresh`,
+      {
+        host: "tagora-time-other-project.vercel.app",
+        origin: "https://tagora-time-other-project.vercel.app",
+        "x-forwarded-host": PREVIEW_HOST,
+      }
+    );
+    expect(otherProject).toContain(`action="${ALIAS_ORIGIN}${CALLBACK_PATH}"`);
+    expect(otherProject).not.toContain(`action="https://${PREVIEW_HOST}${CALLBACK_PATH}"`);
+    expect(otherProject).not.toContain("tagora-time-other-project.vercel.app");
   });
 });

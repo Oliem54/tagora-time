@@ -613,7 +613,8 @@ describe("HORORA staging opaque callback", () => {
     expect(html).toContain(`value="${CODE}"`);
     expect(html).not.toContain('name="handoff"');
     expect(html).not.toMatch(/eyJ/);
-    expect(html).toContain('action="https://time.staging.tagora.ca/auth/nexus/callback"');
+    expect(html).toContain('action="/auth/nexus/callback"');
+    expect(html).not.toContain("tagora-time-staging.vercel.app");
     expect(exchange).not.toHaveBeenCalled();
     expect(inspect).not.toHaveBeenCalled();
     expect(response.headers.get("set-cookie")).toBeNull();

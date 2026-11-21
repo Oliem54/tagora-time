@@ -3,7 +3,14 @@
  * GET never consumes or mints. POST consume+mint stays fail-closed.
  */
 
-import { parseTrustedWebOrigin } from "@/app/lib/auth/nexus-callback-origin.server";
+import {
+  isHororaStagingCallbackHostname,
+  type HororaStagingCallbackRuntime,
+} from "@/app/lib/auth/horora-staging-nexus-module-client";
+import {
+  parseTrustedWebOrigin,
+  resolveCanonicalNexusCallbackOrigin,
+} from "@/app/lib/auth/nexus-callback-origin.server";
 
 export const NEXUS_CALLBACK_CONTINUE_PATH = "/auth/nexus/callback" as const;
 export const NEXUS_CALLBACK_CONTINUE_FORM_ID = "horora-nexus-handoff" as const;
@@ -22,6 +29,27 @@ export type NexusHandoffContinueDocumentOptions = {
 export function nexusCallbackContinueFormAction(publicOrigin?: string | null): string {
   const origin = publicOrigin ? parseTrustedWebOrigin(publicOrigin) : null;
   return origin ? `${origin}${NEXUS_CALLBACK_CONTINUE_PATH}` : NEXUS_CALLBACK_CONTINUE_PATH;
+}
+
+/**
+ * The continue form posts to the host that already served the GET.
+ * A relative action ignores NEXT_PUBLIC_APP_URL, Host, and X-Forwarded-Host.
+ * An unaccepted host keeps the configured canonical origin.
+ */
+export function resolveNexusCallbackFormPublicOrigin(
+  request: Request,
+  runtime?: HororaStagingCallbackRuntime
+): string | null {
+  let hostname: string | null = null;
+  try {
+    hostname = new URL(request.url).hostname;
+  } catch {
+    hostname = null;
+  }
+  if (hostname && isHororaStagingCallbackHostname(hostname, runtime)) {
+    return null;
+  }
+  return resolveCanonicalNexusCallbackOrigin(request);
 }
 
 export function shouldSkipNexusHandoffConsumeOnGet(request: Request): boolean {
