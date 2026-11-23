@@ -13,11 +13,12 @@ import { useEmployeeGpsReporting } from "@/app/hooks/useEmployeeGpsReporting";
 import { getCompanyLabel } from "@/app/lib/account-requests.shared";
 import { NEXUS_PUBLIC_LOGIN_URL } from "@/app/lib/canonical-domains";
 import { employeePunchRequestInit } from "@/app/lib/employee-punch-session.client";
-import { resolveEmployeHorodateurPunchOutControl } from "@/app/lib/employee-punch-guidance.shared";
 import {
-  employeePunchStatusLabel,
-  mapEmployeePunchStatus,
-} from "@/app/lib/employee-punch-status.shared";
+  accrueOpenShiftDisplayMinutes,
+  explainEmployeePunchError,
+  resolveEmployeePunchGuidance,
+  resolveEmployeHorodateurPunchOutControl,
+} from "@/app/lib/employee-punch-guidance.shared";
 import {
   employeePunchSuccessMessage,
   isPunchConfirmedByServerReread,
@@ -44,6 +45,8 @@ type EmployeeSnapshot = {
     primaryCompany: "oliem_solutions" | "titan_produits_industriels" | null;
     /** Pause payée : aucun pointage pause requis (défaut true si absent). */
     pausePaid?: boolean;
+    /** Dîner payé : aucun pointage dîner requis. */
+    lunchPaid?: boolean;
   };
   currentState: {
     current_state?: string | null;
@@ -67,6 +70,7 @@ type EmployeeSnapshot = {
     approved_exception_minutes: number;
     anomalies_count: number;
     status: string;
+    shift_start_at?: string | null;
   } | null;
   weeklyProjection: {
     workedMinutes: number;
@@ -416,13 +420,13 @@ const PUNCH_GPS_PUNCH_NOT_COMPLETED_MESSAGE =
   "Position obtenue, mais le pointage n'a pas pu être complété. Vérifiez le message ci-dessus et réessayez.";
 
 const PUNCH_OUT_PENDING_APPROVAL_MESSAGE =
-  "Sortie soumise. Votre quart est ferme cote horodateur; la paie reste en attente de validation direction.";
+  "Sortie soumise. Votre quart est fermé dans l'horodateur. La paie reste en attente de validation par la direction.";
 
 const PUNCH_OUT_ALREADY_SUBMITTED_FALLBACK =
-  "Votre sortie a deja ete soumise et attend la validation de la direction.";
+  "Votre sortie a déjà été soumise et attend la validation de la direction.";
 
 const OPEN_SHIFT_SAFETY_CAP_MESSAGE =
-  "Quart ouvert depuis plus de 14 h — veuillez poinçonner votre sortie. La fermeture nécessitera une approbation.";
+  "Ce quart est ouvert depuis plus de 14 h. Pointez votre sortie. La direction devra approuver cette fermeture.";
 
 const PUNCH_FETCH_TIMEOUT_MS = 60_000;
 const PUNCH_GPS_DEADLINE_MS = EMPLOYEE_PUNCH_GEOLOCATION_MAX_DURATION_MS;
@@ -537,7 +541,13 @@ function formatHorodateurApiError(
     typeof payload.details === "string" && payload.details.trim()
       ? payload.details.trim()
       : null;
-  return details ? `${error} (${details})` : error;
+  return explainEmployeePunchError(details ? `${error} (${details})` : error);
+}
+
+function isCataloguedEmployeePunch(eventType: string) {
+  return [...PRIMARY_PUNCH_ACTIONS, ...SECONDARY_PUNCH_ACTIONS].some(
+    (action) => action.eventType === eventType
+  );
 }
 
 function HorodateurEmployeChrome({ children }: { children: ReactNode }) {
@@ -668,6 +678,7 @@ function normalizeSnapshotPayload(payload: unknown): EmployeeSnapshot | null {
           ? employee.primaryCompany
           : null,
       pausePaid: typeof employee.pausePaid === "boolean" ? employee.pausePaid : true,
+      lunchPaid: typeof employee.lunchPaid === "boolean" ? employee.lunchPaid : undefined,
     },
     currentState: {
       current_state:
@@ -754,6 +765,10 @@ function normalizeSnapshotPayload(payload: unknown): EmployeeSnapshot | null {
             typeof todayShiftSource.anomalies_count === "number"
               ? todayShiftSource.anomalies_count
               : 0,
+          shift_start_at:
+            typeof todayShiftSource.shift_start_at === "string"
+              ? todayShiftSource.shift_start_at
+              : null,
           status: typeof todayShiftSource.status === "string" ? todayShiftSource.status : "en_attente",
         }
       : null,
@@ -880,6 +895,7 @@ export default function EmployeHorodateurPage() {
   const [loadBlockingError, setLoadBlockingError] = useState<string | null>(null);
   const [accessStalled, setAccessStalled] = useState(false);
   const [loadingStalled, setLoadingStalled] = useState(false);
+  const [displayNowMs, setDisplayNowMs] = useState(() => Date.now());
   const lastDataLoadAtRef = useRef(0);
   const lastRereadEventIdRef = useRef<string | null>(null);
 
@@ -890,25 +906,37 @@ export default function EmployeHorodateurPage() {
     continuousTracking: false,
   });
 
-  const currentStateLabel = useMemo(() => {
-    const value =
-      snapshot?.currentState.current_state ??
-      snapshot?.currentState.status ??
-      "hors_quart";
-    return employeePunchStatusLabel(mapEmployeePunchStatus(value));
-  }, [snapshot?.currentState.current_state, snapshot?.currentState.status]);
+  const punchGuidance = useMemo(
+    () =>
+      resolveEmployeePunchGuidance({
+        currentState:
+          snapshot?.currentState.current_state ??
+          snapshot?.currentState.status ??
+          "hors_quart",
+        pausePaid: snapshot?.employee.pausePaid !== false,
+        lunchPaid: snapshot?.employee.lunchPaid === true,
+        shiftStatus: snapshot?.todayShift?.status,
+        pendingValidation:
+          snapshot?.currentState.has_open_exception === true ||
+          snapshot?.todayShift?.status === "en_attente",
+        arrivalAt:
+          snapshot?.currentState.startedAt ?? snapshot?.todayShift?.shift_start_at ?? null,
+      }),
+    [snapshot]
+  );
+  const currentStateLabel = punchGuidance.statusLabel;
 
   const todayTimeDisplay = snapshot?.todayTimeDisplay ?? null;
   const officialPayableMinutesToday =
     todayTimeDisplay?.officialPayableMinutes ??
     snapshot?.todayShift?.payable_minutes ??
     0;
-  const displayedPayableMinutesToday = todayTimeDisplay?.hasOpenShiftAccrual
+  const snapshotPayableMinutesToday = todayTimeDisplay?.hasOpenShiftAccrual
     ? todayTimeDisplay.livePayableMinutes
     : officialPayableMinutesToday;
   const todayTimeLabel = todayTimeDisplay?.hasOpenShiftAccrual
-    ? "Temps en cours aujourd hui"
-    : "Temps paye aujourd hui";
+    ? "Temps en cours aujourd'hui"
+    : "Temps payé aujourd'hui";
 
   const loadData = useCallback(async (options?: {
     preserveMessage?: boolean;
@@ -1015,7 +1043,9 @@ export default function EmployeHorodateurPage() {
       lastRereadEventIdRef.current = normalized?.currentState.last_event_id ?? null;
       return true;
     } catch (error) {
-      const msg = error instanceof Error ? error.message : "Erreur de chargement.";
+      const msg = explainEmployeePunchError(
+        error instanceof Error ? error.message : "Erreur de chargement."
+      );
       if (background && options?.preserveMessage) {
         setMessage((current) => current || msg);
       } else {
@@ -1096,11 +1126,15 @@ export default function EmployeHorodateurPage() {
       refreshDataIfStale();
     };
 
+    const displayTimerId = window.setInterval(() => {
+      setDisplayNowMs(Date.now());
+    }, 15_000);
     window.addEventListener("focus", handleWindowFocus);
     document.addEventListener("visibilitychange", handleVisibilityChange);
 
     return () => {
       window.clearInterval(intervalId);
+      window.clearInterval(displayTimerId);
       window.removeEventListener("focus", handleWindowFocus);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
@@ -1113,6 +1147,16 @@ export default function EmployeHorodateurPage() {
     snapshot?.currentState.current_state ??
     snapshot?.currentState.status ??
     "hors_quart";
+  const displayedPayableMinutesToday = accrueOpenShiftDisplayMinutes({
+    baseMinutes: snapshotPayableMinutesToday,
+    computedAt: todayTimeDisplay?.computedAt,
+    nowMs: displayNowMs,
+    accrues:
+      todayTimeDisplay?.hasOpenShiftAccrual === true &&
+      !todayTimeDisplay.pendingPunchBlocksAccrual &&
+      !todayTimeDisplay.openShiftSafetyCapReached &&
+      currentStateValue === "en_quart",
+  });
   const isHorsQuart = currentStateValue === "hors_quart";
   const isShiftCompleted = currentStateValue === "termine";
   const pendingPunchOut = snapshot?.pendingPunchOut ?? null;
@@ -1127,14 +1171,14 @@ export default function EmployeHorodateurPage() {
         return null;
       }
       if ((snapshot?.pendingExceptions.length ?? 0) > 0) {
-        return "Une demande de correction est deja en attente pour aujourd hui. Attendez la decision de la direction ou contactez-la.";
+        return "Une demande de correction est déjà en attente pour aujourd'hui. Attendez la décision de la direction ou contactez-la.";
       }
       if (isHorsQuart && latenessContext && !latenessContext.isWithinScheduleWindow) {
-        return "Vous etes hors fenetre horaire prevue. Utilisez « Demander une correction » si vous devez enregistrer une entree.";
+        return "Vous êtes hors de la fenêtre horaire prévue. Utilisez « Demander une correction » si vous devez enregistrer une arrivée.";
       }
-      return "Entree indisponible pour le moment. Utilisez « Demander une correction » ou contactez la direction.";
+      return "L'arrivée n'est pas disponible pour le moment. Utilisez « Demander une correction » ou contactez la direction.";
     }
-    return "Vous etes deja en quart. Utilisez Sortie ou les actions de pause.";
+    return "Vous êtes déjà en service. Utilisez le bouton principal pour la prochaine action.";
   }, [
     canStartShiftPunch,
     isHorsQuart,
@@ -1144,7 +1188,12 @@ export default function EmployeHorodateurPage() {
   ]);
   const canPunchInNow = !punchInBlockedReason;
   const canPunchOutNow = punchOutControl.canPunchOut;
-  const canTestPunchLocation = canPunchInNow || canPunchOutNow;
+  const guidedPrimaryEvent = punchGuidance.primary?.eventType ?? null;
+  const guidedActionsNeedGps = [punchGuidance.primary, ...punchGuidance.secondary].some(
+    (action) => action?.eventType === "punch_in" || action?.eventType === "punch_out"
+  );
+  const canTestPunchLocation =
+    guidedActionsNeedGps && (canPunchInNow || canPunchOutNow);
   const showPunchGpsPanel =
     canTestPunchLocation || punchGpsUi.phase !== "idle";
 
@@ -1203,9 +1252,10 @@ export default function EmployeHorodateurPage() {
       reportCorrectionCancellation();
       return;
     }
-    setMessage(msg);
+    const readable = explainEmployeePunchError(msg);
+    setMessage(readable);
     if (options?.retroactive) {
-      setCorrectionModalError(msg);
+      setCorrectionModalError(readable);
     }
     if (options?.requireGps) {
       setPunchGpsUi((prev) =>
@@ -1588,7 +1638,7 @@ export default function EmployeHorodateurPage() {
       snapshot?.todayShift?.work_date
     );
     if (!template) {
-      const msg = "Impossible de determiner la date de travail pour la demande.";
+      const msg = "Impossible de déterminer la date de travail pour la demande.";
       setCorrectionModalError(msg);
       setMessage(msg);
       return;
@@ -1758,8 +1808,8 @@ export default function EmployeHorodateurPage() {
                 ? punchGpsUi.message ||
                   "Impossible d'obtenir la localisation. Réessayez."
                 : gpsReport.status === "unsupported"
-                  ? "La geolocalisation n est pas disponible sur cet appareil."
-                  : "La localisation est demandee uniquement lors d un pointage ou d une demande de correction."
+                  ? "La géolocalisation n'est pas disponible sur cet appareil."
+                  : "La localisation est demandée seulement quand vous pointez une arrivée, une sortie ou une correction."
           }
         />
       ) : null}
@@ -1767,8 +1817,13 @@ export default function EmployeHorodateurPage() {
       <section className="tagora-panel" style={{ marginTop: 24 }}>
         <div className={styles.kpiGrid}>
           <div className="tagora-panel-muted">
-            <div className="tagora-label">Etat actuel</div>
+            <div className="tagora-label">État du quart</div>
             <div style={{ marginTop: 8, fontSize: 24, fontWeight: 800 }}>{currentStateLabel}</div>
+            {punchGuidance.serviceSinceLabel ? (
+              <p className="tagora-note" style={{ marginTop: 8, marginBottom: 0 }}>
+                {punchGuidance.serviceSinceLabel}
+              </p>
+            ) : null}
           </div>
           <div className="tagora-panel-muted">
             <div className="tagora-label">Compagnie</div>
@@ -1783,19 +1838,19 @@ export default function EmployeHorodateurPage() {
             </div>
             {todayTimeDisplay?.hasOpenShiftAccrual ? (
               <p className="tagora-note" style={{ marginTop: 8, marginBottom: 0, lineHeight: 1.45 }}>
-                Temps officiel (quart ouvert) : {formatMinutes(officialPayableMinutesToday)} — finalise
-                a la sortie.
+                Temps officiel (quart ouvert) : {formatMinutes(officialPayableMinutesToday)} — finalisé
+                à la sortie. Le temps en cours avance pendant que vous êtes en service.
               </p>
             ) : null}
             {todayTimeDisplay?.pendingPunchBlocksAccrual ? (
               <p className="tagora-note" style={{ marginTop: 8, marginBottom: 0, lineHeight: 1.45 }}>
-                Punch en attente d approbation — le temps affiche ne progresse plus jusqu a validation.
+                Un pointage attend l'approbation. Le temps affiché ne progresse plus jusqu'à la validation.
               </p>
             ) : null}
             {todayTimeDisplay?.openShiftWorkDateMismatch ? (
               <p className="tagora-note" style={{ marginTop: 8, marginBottom: 0, lineHeight: 1.45 }}>
                 Quart ouvert depuis{" "}
-                {todayTimeDisplay.openShiftWorkDate ?? "un jour precedent"}. Pointez votre sortie ou
+                {todayTimeDisplay.openShiftWorkDate ?? "un jour précédent"}. Pointez votre sortie ou
                 contactez la direction.
               </p>
             ) : null}
@@ -1816,7 +1871,12 @@ export default function EmployeHorodateurPage() {
             {todayTimeDisplay?.hasPendingOperationalPunchToday &&
             !todayTimeDisplay.pendingPunchBlocksAccrual ? (
               <p className="tagora-note" style={{ marginTop: 8, marginBottom: 0, lineHeight: 1.45 }}>
-                Un pointage est en attente d approbation direction.
+                Un pointage est en attente d'approbation de la direction.
+              </p>
+            ) : null}
+            {(snapshot?.todayShift?.anomalies_count ?? 0) > 0 ? (
+              <p className="tagora-note" style={{ marginTop: 8, marginBottom: 0, lineHeight: 1.45 }}>
+                Un pointage de ce quart doit être vérifié par la direction. Le temps peut changer après validation.
               </p>
             ) : null}
           </div>
@@ -1833,7 +1893,7 @@ export default function EmployeHorodateurPage() {
             </div>
           </div>
           <div className="tagora-panel-muted">
-            <div className="tagora-label">Depassement projete</div>
+            <div className="tagora-label">Dépassement projeté</div>
             <div style={{ marginTop: 8, fontSize: 24, fontWeight: 800 }}>
               {formatMinutes(snapshot?.weeklyProjection.projectedOverflowMinutes ?? 0)}
             </div>
@@ -1843,53 +1903,65 @@ export default function EmployeHorodateurPage() {
 
       <section className="tagora-panel" style={{ marginTop: 24 }}>
         <h2 className="section-title" style={{ marginBottom: 8 }}>
-          Pointage
+          Prochaine action
         </h2>
         <p className="tagora-note" style={{ marginTop: 0, marginBottom: 20, lineHeight: 1.55 }}>
-          Pointez votre temps ou demandez une correction si une heure est incorrecte.
+          {punchGuidance.guidance}
         </p>
-
-        <label className="tagora-field" style={{ marginBottom: 20 }}>
-          <span className="tagora-label">Note optionnelle</span>
-          <textarea
-            className="tagora-textarea"
-            value={note}
-            onChange={(event) => setNote(event.target.value)}
-            placeholder="Ajoutez une note si necessaire"
-          />
-        </label>
 
         <div style={{ display: "grid", gap: 18 }}>
           <div className={styles.ctaPrimaryGrid}>
-            {PRIMARY_PUNCH_ACTIONS.map((action) => {
-              const isPunchInBlocked =
-                action.eventType === "punch_in" && Boolean(punchInBlockedReason);
-              const isPunchOutBlocked =
-                action.eventType === "punch_out" && punchOutControl.primaryDisabled;
+            {(() => {
+              const action = punchGuidance.primary;
+              if (!action) return null;
+              const eventType = action.eventType;
+              const isPunchInBlocked = eventType === "punch_in" && Boolean(punchInBlockedReason);
+              const isPunchOutBlocked = eventType === "punch_out" && punchOutControl.primaryDisabled;
               const actionLabel =
-                action.eventType === "punch_out" && punchOutControl.primaryDisabled
+                eventType === "punch_out" && punchOutControl.primaryDisabled
                   ? punchOutControl.primaryLabel
                   : action.label;
+              const blockedReason = isPunchInBlocked
+                ? punchInBlockedReason
+                : isPunchOutBlocked
+                  ? punchOutBlockedReason
+                  : null;
+              if (!eventType) {
+                return (
+                  <a
+                    href="#historique-du-jour"
+                    className="tagora-dark-action"
+                    style={{ ...punchPrimaryButtonStyle, textAlign: "center", textDecoration: "none" }}
+                  >
+                    {actionLabel}
+                  </a>
+                );
+              }
               return (
-              <button
-                key={action.eventType}
-                type="button"
-                className="tagora-dark-action"
-                style={punchPrimaryButtonStyle}
-                disabled={saving || isPunchInBlocked || isPunchOutBlocked}
-                title={
-                  isPunchInBlocked
-                    ? punchInBlockedReason ?? undefined
-                    : isPunchOutBlocked
-                      ? punchOutBlockedReason ?? undefined
-                      : undefined
-                }
-                onClick={() => void handlePrimaryPunch(action.eventType)}
-              >
-                {actionLabel}
-              </button>
-            );
-            })}
+                <>
+                  <button
+                    type="button"
+                    className="tagora-dark-action"
+                    style={punchPrimaryButtonStyle}
+                    disabled={
+                      saving ||
+                      isPunchInBlocked ||
+                      isPunchOutBlocked ||
+                      !isCataloguedEmployeePunch(eventType)
+                    }
+                    title={blockedReason ?? undefined}
+                    onClick={() => void handlePrimaryPunch(eventType)}
+                  >
+                    {actionLabel}
+                  </button>
+                  {blockedReason ? (
+                    <p className="tagora-note" style={{ margin: 0, lineHeight: 1.5 }}>
+                      {blockedReason}
+                    </p>
+                  ) : null}
+                </>
+              );
+            })()}
           </div>
 
           {showPunchGpsPanel ? (
@@ -1952,25 +2024,39 @@ export default function EmployeHorodateurPage() {
             </div>
           ) : null}
 
-          <div className={styles.ctaSecondaryGrid}>
-            {SECONDARY_PUNCH_ACTIONS.map((action) => {
-              const pausePaid = snapshot?.employee.pausePaid !== false;
-              const isPauseAction =
-                action.eventType === "break_start" || action.eventType === "break_end";
-              return (
-                <button
-                  key={action.eventType}
-                  type="button"
-                  className="tagora-dark-outline-action"
-                  style={punchActionButtonStyle}
-                  onClick={() => void handlePunch(action.eventType)}
-                  disabled={saving || (pausePaid && isPauseAction)}
-                >
-                  {action.label}
-                </button>
-              );
-            })}
-          </div>
+          {punchGuidance.secondary.length > 0 ? (
+            <div className={styles.ctaSecondaryGrid}>
+              {punchGuidance.secondary.map((action) => {
+                if (!action.eventType || !isCataloguedEmployeePunch(action.eventType)) {
+                  return null;
+                }
+                const isPunchOutBlocked =
+                  action.eventType === "punch_out" && punchOutControl.primaryDisabled;
+                return (
+                  <button
+                    key={action.eventType}
+                    type="button"
+                    className="tagora-dark-outline-action"
+                    style={punchActionButtonStyle}
+                    onClick={() => void handlePrimaryPunch(action.eventType as string)}
+                    disabled={saving || isPunchOutBlocked}
+                  >
+                    {isPunchOutBlocked ? punchOutControl.primaryLabel : action.label}
+                  </button>
+                );
+              })}
+            </div>
+          ) : null}
+
+          <label className="tagora-field" style={{ marginBottom: 0 }}>
+            <span className="tagora-label">Note optionnelle</span>
+            <textarea
+              className="tagora-textarea"
+              value={note}
+              onChange={(event) => setNote(event.target.value)}
+              placeholder="Ajoutez une note si nécessaire"
+            />
+          </label>
 
           <div
             style={{
@@ -1984,7 +2070,7 @@ export default function EmployeHorodateurPage() {
             }}
           >
             <p className="tagora-note" style={{ margin: 0, lineHeight: 1.55 }}>
-              Oubli de pointage ou heure incorrecte? Envoyez une demande a la direction.
+              Oubli de pointage ou heure incorrecte? Envoyez une demande à la direction.
             </p>
             <button
               type="button"
@@ -2095,7 +2181,9 @@ export default function EmployeHorodateurPage() {
       </section>
 
       <section className="tagora-panel" style={{ marginTop: 24 }}>
-        <h2 className="section-title" style={{ marginBottom: 12 }}>Historique du jour</h2>
+        <h2 id="historique-du-jour" className="section-title" style={{ marginBottom: 12 }}>
+          Historique du jour
+        </h2>
         {history?.events.length ? (
           <div className={styles.tableWrap}>
             <table className={styles.historyTable}>

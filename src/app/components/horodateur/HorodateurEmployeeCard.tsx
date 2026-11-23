@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { Clock3, PauseCircle, PlayCircle, UtensilsCrossed } from "lucide-react";
 import { getCompanyLabel } from "@/app/lib/account-requests.shared";
 import AppCard from "@/app/components/ui/AppCard";
@@ -7,14 +8,15 @@ import PrimaryButton from "@/app/components/ui/PrimaryButton";
 import SecondaryButton from "@/app/components/ui/SecondaryButton";
 import StatusBadge from "@/app/components/ui/StatusBadge";
 import type { EmployeePunchController } from "@/app/hooks/useEmployeePunchSnapshot";
+import { accrueOpenShiftDisplayMinutes } from "@/app/lib/employee-punch-guidance.shared";
 import {
-  employeePunchStatusLabel,
   employeePunchStatusTone,
   mapEmployeePunchStatus,
 } from "@/app/lib/employee-punch-status.shared";
 
 type HorodateurEmployeeCardProps = {
   punch: EmployeePunchController;
+  onOpenHorodateur?: () => void;
 };
 
 function formatMinutes(totalMinutes: number) {
@@ -32,8 +34,16 @@ function formatDateTime(value: string | null | undefined) {
   return new Date(value).toLocaleString("fr-CA");
 }
 
+function secondaryIcon(eventType: string | null) {
+  if (eventType === "meal_start") return UtensilsCrossed;
+  if (eventType === "break_start") return PauseCircle;
+  if (eventType === "break_end" || eventType === "meal_end") return PlayCircle;
+  return Clock3;
+}
+
 export default function HorodateurEmployeeCard({
   punch,
+  onOpenHorodateur,
 }: HorodateurEmployeeCardProps) {
   const {
     enabled,
@@ -45,12 +55,35 @@ export default function HorodateurEmployeeCard({
     snapshot,
     currentState,
     principalAction,
-    actionDisabled,
+    secondaryActions,
+    guidanceText,
+    serviceSinceLabel,
+    statusLabel,
     submitPunch,
   } = punch;
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  useEffect(() => {
+    const timerId = window.setInterval(() => setNowMs(Date.now()), 15_000);
+    return () => window.clearInterval(timerId);
+  }, []);
   const punchStatus = mapEmployeePunchStatus(currentState, {
     available: enabled,
   });
+  const liveDisplay = snapshot?.todayTimeDisplay;
+  const baseDayMinutes = liveDisplay?.hasOpenShiftAccrual
+    ? liveDisplay.livePayableMinutes
+    : (snapshot?.shift?.payable_minutes ?? 0);
+  const dayMinutes = accrueOpenShiftDisplayMinutes({
+    baseMinutes: baseDayMinutes,
+    computedAt: liveDisplay?.computedAt,
+    nowMs,
+    accrues:
+      liveDisplay?.hasOpenShiftAccrual === true &&
+      !liveDisplay.pendingPunchBlocksAccrual &&
+      !liveDisplay.openShiftSafetyCapReached &&
+      currentState === "en_quart",
+  });
+  const anomalyCount = snapshot?.shift?.anomalies_count ?? 0;
 
   if (!enabled) {
     return (
@@ -102,19 +135,26 @@ export default function HorodateurEmployeeCard({
         <AppCard tone="muted" className="ui-stack-xs">
           <span className="ui-eyebrow">État actuel</span>
           <div className="employe-dashboard-punch-stat-row">
-            <strong>{employeePunchStatusLabel(punchStatus)}</strong>
+            <strong>{statusLabel}</strong>
             <StatusBadge
-              label={employeePunchStatusLabel(punchStatus)}
+              label={statusLabel}
               tone={employeePunchStatusTone(punchStatus)}
             />
           </div>
+          {serviceSinceLabel ? (
+            <span className="ui-text-muted">{serviceSinceLabel}</span>
+          ) : null}
         </AppCard>
 
         <AppCard tone="muted" className="ui-stack-xs">
-          <span className="ui-eyebrow">Quart du jour</span>
-          <strong>{formatMinutes(snapshot?.shift?.payable_minutes ?? 0)}</strong>
+          <span className="ui-eyebrow">
+            {liveDisplay?.hasOpenShiftAccrual ? "Temps en cours" : "Quart du jour"}
+          </span>
+          <strong>{formatMinutes(dayMinutes)}</strong>
           <span className="ui-text-muted">
-            Travaillé: {formatMinutes(snapshot?.shift?.worked_minutes ?? 0)}
+            {liveDisplay?.hasOpenShiftAccrual
+              ? "Avance pendant que vous êtes en service."
+              : `Travaillé : ${formatMinutes(snapshot?.shift?.worked_minutes ?? 0)}`}
           </span>
         </AppCard>
 
@@ -143,6 +183,9 @@ export default function HorodateurEmployeeCard({
             <span className="ui-eyebrow">Action principale</span>
             <h3>Horodateur / Pointage</h3>
             <p className="ui-text-muted" style={{ margin: 0 }}>
+              {guidanceText}
+            </p>
+            <p className="ui-text-muted" style={{ margin: 0 }}>
               {snapshot?.shift?.work_date ?? "-"} ·{" "}
               {getCompanyLabel(snapshot?.employee.primaryCompany ?? null)}
             </p>
@@ -170,7 +213,9 @@ export default function HorodateurEmployeeCard({
               {formatMinutes(snapshot?.shift?.pending_exception_minutes ?? 0)}
             </span>
             <span className="ui-text-muted">
-              Anomalies: {snapshot?.shift?.anomalies_count ?? 0}
+              {anomalyCount > 0
+                ? "Pointage à faire vérifier par la direction."
+                : "Aucune anomalie à vérifier."}
             </span>
           </AppCard>
 
@@ -193,8 +238,18 @@ export default function HorodateurEmployeeCard({
 
         <div className="employe-dashboard-punch-actions">
           <PrimaryButton
-            onClick={() => void submitPunch(principalAction.eventType)}
-            disabled={submitting || geolocationPending}
+            onClick={() => {
+              if (!principalAction.submitsPunch) {
+                onOpenHorodateur?.();
+                return;
+              }
+              void submitPunch(principalAction.eventType);
+            }}
+            disabled={
+              submitting ||
+              geolocationPending ||
+              (!principalAction.submitsPunch && !onOpenHorodateur)
+            }
             className="employe-dashboard-punch-actions-primary"
           >
             <span>
@@ -203,37 +258,20 @@ export default function HorodateurEmployeeCard({
             <Clock3 size={16} aria-hidden />
           </PrimaryButton>
 
-          <SecondaryButton
-            onClick={() => void submitPunch("break_start")}
-            disabled={submitting || actionDisabled.pauseStart}
-          >
-            <span>Début pause</span>
-            <PauseCircle size={16} aria-hidden />
-          </SecondaryButton>
-
-          <SecondaryButton
-            onClick={() => void submitPunch("break_end")}
-            disabled={submitting || actionDisabled.pauseEnd}
-          >
-            <span>Fin pause</span>
-            <PlayCircle size={16} aria-hidden />
-          </SecondaryButton>
-
-          <SecondaryButton
-            onClick={() => void submitPunch("meal_start")}
-            disabled={submitting || actionDisabled.dinnerStart}
-          >
-            <span>Début dîner</span>
-            <UtensilsCrossed size={16} aria-hidden />
-          </SecondaryButton>
-
-          <SecondaryButton
-            onClick={() => void submitPunch("meal_end")}
-            disabled={submitting || actionDisabled.dinnerEnd}
-          >
-            <span>Fin dîner</span>
-            <PlayCircle size={16} aria-hidden />
-          </SecondaryButton>
+          {secondaryActions.map((action) => {
+            if (!action.eventType) return null;
+            const Icon = secondaryIcon(action.eventType);
+            return (
+              <SecondaryButton
+                key={action.eventType}
+                onClick={() => void submitPunch(action.eventType as string)}
+                disabled={submitting}
+              >
+                <span>{action.label}</span>
+                <Icon size={16} aria-hidden />
+              </SecondaryButton>
+            );
+          })}
         </div>
 
         {snapshot?.pendingExceptions.length ? (

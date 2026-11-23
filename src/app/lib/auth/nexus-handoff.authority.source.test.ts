@@ -22,6 +22,7 @@ const HANDOFF_FILES = [
   "src/app/lib/auth/nexus-callback.server.ts",
   "src/app/lib/auth/nexus-brokered-session.ts",
   "src/app/auth/nexus/callback/route.ts",
+  "src/app/lib/auth/nexus-callback-handler.server.ts",
   "src/app/auth/nexus/denied/page.tsx",
   "src/app/components/AuthGate.tsx",
   "src/app/api/auth/session-context/route.ts",

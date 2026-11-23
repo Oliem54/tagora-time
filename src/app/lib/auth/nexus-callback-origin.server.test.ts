@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { handleNexusCallback } from "@/app/auth/nexus/callback/route";
+import { handleNexusCallback } from "@/app/lib/auth/nexus-callback-handler.server";
 import {
   NEXUS_CALLBACK_CONTINUE_FORM_ID,
   isSameOriginNexusCallbackPost,

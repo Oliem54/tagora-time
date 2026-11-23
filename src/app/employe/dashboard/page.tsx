@@ -318,6 +318,10 @@ export default function EmployeDashboardPage() {
           user={user}
           punch={punch}
           onPrimaryAction={() => {
+            if (!punch.principalAction.submitsPunch) {
+              router.push("/employe/horodateur");
+              return;
+            }
             void punch.submitPunch(punch.principalAction.eventType);
           }}
         />
@@ -335,7 +339,10 @@ export default function EmployeDashboardPage() {
           title="Horodateur"
           subtitle="Action principale : pointer, suivre le quart et consulter la progression."
         >
-          <HorodateurEmployeeCard punch={punch} />
+          <HorodateurEmployeeCard
+            punch={punch}
+            onOpenHorodateur={() => router.push("/employe/horodateur")}
+          />
         </SectionCard>
 
         <SectionCard title="Accès" subtitle="Ouvrir vos outils de travail." className="tagora-dashboard-access-section">
@@ -343,13 +350,13 @@ export default function EmployeDashboardPage() {
             <ModuleTile
               eyebrow={null}
               title="Horodateur"
-              description="Ouvrir la page complète de pointage."
+              description="Arrivée, pause, dîner et sortie selon votre état."
               icon={<Clock3 size={24} strokeWidth={2.1} />}
               tone="orange"
               className="employe-dashboard-module-card--primary"
               action={
                 <ModuleAction
-                  label="Pointer"
+                  label="Ouvrir le pointage"
                   primary
                   onClick={() => router.push("/employe/horodateur")}
                 />
