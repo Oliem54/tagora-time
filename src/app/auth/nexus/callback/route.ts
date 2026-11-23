@@ -3,7 +3,9 @@ import {
   completeNexusCallbackPhaseA,
   inspectNexusHandoff,
   redirectFailClosed,
+  type NexusCallbackDependencies,
 } from "@/app/lib/auth/nexus-callback.server";
+import { classifyNexusOpaqueCredential } from "@/app/lib/auth/nexus-opaque-exchange.server";
 import {
   isNexusCallbackFormPost,
   nexusHandoffContinueResponse,
@@ -26,6 +28,7 @@ export type NexusCallbackRouteDeps = {
   inspectHandoff?: typeof inspectNexusHandoff;
   completePhaseA?: typeof completeNexusCallbackPhaseA;
   isReplayConsumed?: typeof isNexusHandoffReplayConsumed;
+  callbackDeps?: NexusCallbackDependencies;
 };
 
 async function readBody(request: Request): Promise<unknown> {
@@ -43,7 +46,8 @@ async function readBody(request: Request): Promise<unknown> {
       const text = await request.text();
       const params = new URLSearchParams(text);
       const handoff = params.get("handoff");
-      return { handoff };
+      const code = params.get("code");
+      return code ? { handoff, code } : { handoff };
     } catch {
       return null;
     }
@@ -57,10 +61,13 @@ async function mintBrokeredSessionResponse(
   body: unknown
 ): Promise<NextResponse> {
   const complete = deps.completePhaseA ?? completeNexusCallbackPhaseA;
-  const result = await complete({
-    searchParams: new URL(request.url).searchParams,
-    body,
-  });
+  const result = await complete(
+    {
+      searchParams: new URL(request.url).searchParams,
+      body,
+    },
+    deps.callbackDeps
+  );
   if (!result.ok) {
     return redirectFailClosed(request.url, result.reason);
   }
@@ -83,11 +90,28 @@ async function handleNexusCallbackGet(
     return nexusHandoffPrefetchSkippedResponse();
   }
 
-  const inspect = deps.inspectHandoff ?? inspectNexusHandoff;
-  const inspected = await inspect({
-    searchParams: new URL(request.url).searchParams,
+  const searchParams = new URL(request.url).searchParams;
+  const credential = classifyNexusOpaqueCredential({
+    searchParams,
     body: null,
+    env: deps.callbackDeps?.verifyOptions?.env ?? process.env,
   });
+  if (
+    credential.kind === "opaque_code" ||
+    credential.kind === "rejected_code" ||
+    credential.kind === "contradictory"
+  ) {
+    return mintBrokeredSessionResponse(request, deps, null);
+  }
+
+  const inspect = deps.inspectHandoff ?? inspectNexusHandoff;
+  const inspected = await inspect(
+    {
+      searchParams,
+      body: null,
+    },
+    deps.callbackDeps
+  );
   if (!inspected.ok) {
     return redirectFailClosed(request.url, inspected.reason);
   }

@@ -153,8 +153,8 @@ export type HororaDirectoryUserRow = {
   nexusRoleKey: string | null;
   directoryStatus: HororaDirectoryAccessStatus;
   moduleEntryAllowed: boolean;
-  revocationEnforced: false;
-  revocationWiredToHandoff: false;
+  revocationEnforced: boolean;
+  revocationWiredToHandoff: boolean;
   sections: HororaPermissionSectionState[];
 };
 
@@ -208,7 +208,8 @@ export function nexusRoleGrantsSensitiveAccess(
 }
 
 export function evaluateHororaNexusAccessRevocation(
-  status: HororaDirectoryAccessStatus
+  status: HororaDirectoryAccessStatus,
+  enforceRemoteRevocation = false
 ): {
   moduleEntryAllowed: boolean;
   reason:
@@ -218,8 +219,8 @@ export function evaluateHororaNexusAccessRevocation(
     | "directory_revoked"
     | "absence_is_not_revocation";
   serverPrepared: true;
-  wiredToHandoff: false;
-  revocationEnforced: false;
+  wiredToHandoff: boolean;
+  revocationEnforced: boolean;
   absenceProvesRevocation: false;
   absenceProvesActiveAccess: false;
   mutatesPunchSession: false;
@@ -227,10 +228,11 @@ export function evaluateHororaNexusAccessRevocation(
   mutatesNexusIdentityMap: false;
   mutatesMembership: false;
 } {
+  const remoteDenial = status === "REVOKED" || status === "SUSPENDED";
   const held = {
     serverPrepared: true as const,
-    wiredToHandoff: false as const,
-    revocationEnforced: false as const,
+    wiredToHandoff: enforceRemoteRevocation && remoteDenial,
+    revocationEnforced: enforceRemoteRevocation && remoteDenial,
     absenceProvesRevocation: false as const,
     absenceProvesActiveAccess: false as const,
     mutatesPunchSession: false as const,
@@ -403,6 +405,7 @@ export function adaptAuthorizedModuleDirectory(input: {
   validatedPermissionsByAuthUserId?: Readonly<Record<string, readonly string[]>>;
   canonicalLinks?: readonly HororaCanonicalIdentityLink[];
   scope?: HororaDirectoryScope | null;
+  enforceRemoteRevocation?: boolean;
 }): HororaAuthorizedDirectoryView {
   const dossiers = input.dossiers.map((row) => ({ ...row }));
   const memberships = input.memberships.map((row) => ({ ...row }));
@@ -438,6 +441,7 @@ export function adaptAuthorizedModuleDirectory(input: {
         displayName:
           entry.displayName.trim() || dossier?.displayName || "Utilisateur Nexus",
         contactEmail: email ?? normalizeEmail(dossier?.contactEmail),
+        enforceRemoteRevocation: input.enforceRemoteRevocation === true,
       })
     );
   }
@@ -454,6 +458,7 @@ export function adaptAuthorizedModuleDirectory(input: {
         directoryStatus: "ABSENT",
         displayName: dossier.displayName,
         contactEmail: normalizeEmail(dossier.contactEmail),
+        enforceRemoteRevocation: input.enforceRemoteRevocation === true,
       })
     );
   }
@@ -569,6 +574,7 @@ function buildRow(input: {
   directoryStatus: HororaDirectoryAccessStatus;
   displayName: string;
   contactEmail: string | null;
+  enforceRemoteRevocation?: boolean;
 }): HororaDirectoryUserRow {
   const related = input.dossier?.authUserId
     ? input.memberships.filter(
@@ -583,7 +589,10 @@ function buildRow(input: {
     input.dossier?.authUserId && !selected.ambiguous
       ? (input.permissionsByUser[input.dossier.authUserId] ?? [])
       : [];
-  const revocation = evaluateHororaNexusAccessRevocation(input.directoryStatus);
+  const revocation = evaluateHororaNexusAccessRevocation(
+    input.directoryStatus,
+    input.enforceRemoteRevocation === true
+  );
 
   return {
     key: input.dossier
@@ -608,8 +617,8 @@ function buildRow(input: {
         ? false
         : directoryEntryAllowed(input.directoryStatus) &&
           revocation.reason !== "absence_is_not_revocation",
-    revocationEnforced: false,
-    revocationWiredToHandoff: false,
+    revocationEnforced: revocation.revocationEnforced,
+    revocationWiredToHandoff: revocation.wiredToHandoff,
     sections: buildHororaPermissionSections({
       portalRole,
       validatedPermissions: validated,

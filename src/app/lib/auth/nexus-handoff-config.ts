@@ -73,10 +73,14 @@ export function publicNexusCallbackDenyReason(
     case "expired_token":
     case "handoff_expired":
     case "ttl_exceeded":
+    case "exchange_expired":
       return "handoff_expired";
     case "replay":
+    case "exchange_replay":
       return "replay";
     case "cross_tenant":
+    case "wrong_tenant":
+    case "wrong_organization":
       return "cross_tenant";
     case "missing_token":
     case "missing_claim":

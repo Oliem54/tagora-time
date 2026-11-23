@@ -1,5 +1,6 @@
 export type NexusCallbackStage =
   | "extract_token"
+  | "exchange"
   | "verify_config"
   | "verify_jwks"
   | "verify_signature"

@@ -203,17 +203,26 @@ function resolveRemoteJwks(
   return resolver;
 }
 
+function readCredentialField(
+  searchParams: URLSearchParams | null | undefined,
+  body: unknown,
+  key: "handoff" | "code"
+): string {
+  const fromQuery = searchParams?.get(key)?.trim() ?? "";
+  if (fromQuery) return fromQuery;
+  if (!body || typeof body !== "object" || Array.isArray(body)) return "";
+  const value = (body as Record<string, unknown>)[key];
+  return typeof value === "string" ? value.trim() : "";
+}
+
 export function extractNexusHandoffToken(input: {
   searchParams?: URLSearchParams | null;
   body?: unknown;
 }): string | null {
-  const fromQuery = input.searchParams?.get("handoff")?.trim() ?? "";
-  if (fromQuery) return fromQuery;
-  if (input.body && typeof input.body === "object" && !Array.isArray(input.body)) {
-    const handoff = (input.body as Record<string, unknown>).handoff;
-    if (typeof handoff === "string" && handoff.trim()) return handoff.trim();
-  }
-  return null;
+  const code = readCredentialField(input.searchParams, input.body, "code");
+  const handoff = readCredentialField(input.searchParams, input.body, "handoff");
+  if (code && handoff) return null;
+  return handoff || null;
 }
 
 export async function verifyTagoraHandoffV1(

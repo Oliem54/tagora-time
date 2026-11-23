@@ -279,6 +279,61 @@ describe("AuthorizedModuleDirectory adaptation", () => {
     );
   });
 
+  it("enforces a certified remote revocation without treating absence as one", () => {
+    const view = adaptAuthorizedModuleDirectory({
+      directory: {
+        technicalKey: "tagora_time",
+        connected: true,
+        entries: [
+          directoryEntry({
+            userId: "nuser_revoked",
+            displayName: "Revoked",
+            status: "REVOKED",
+            contactEmail: "revoked@example.test",
+          }),
+        ],
+      },
+      dossiers: [
+        dossier({
+          dossierId: 4,
+          displayName: "Revoked",
+          contactEmail: "revoked@example.test",
+          authUserId: "auth-revoked",
+        }),
+        dossier({ dossierId: 5, displayName: "Absent", authUserId: "auth-absent" }),
+      ],
+      canonicalLinks: [
+        {
+          nexusUserId: "nuser_revoked",
+          authUserId: "auth-revoked",
+          organizationId: "org-horora",
+        },
+      ],
+      memberships: [
+        membership({
+          membershipId: "mem-revoked",
+          authUserId: "auth-revoked",
+          role: "employe",
+        }),
+      ],
+      enforceRemoteRevocation: true,
+    });
+    const revoked = view.rows.find((row) => row.nexusUserId === "nuser_revoked");
+    const absent = view.rows.find((row) => row.dossierId === 5);
+    expect(revoked).toMatchObject({
+      directoryStatus: "REVOKED",
+      revocationEnforced: true,
+      revocationWiredToHandoff: true,
+      moduleEntryAllowed: false,
+      membershipId: "mem-revoked",
+    });
+    expect(absent).toMatchObject({
+      directoryStatus: "ABSENT",
+      revocationEnforced: false,
+      revocationWiredToHandoff: false,
+    });
+  });
+
   it("ignores another module and does not merge duplicate emails", () => {
     const view = adaptAuthorizedModuleDirectory({
       directory: {

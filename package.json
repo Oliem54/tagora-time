@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "next dev",
     "dev:webpack": "next dev --webpack",
-    "build": "next build",
+    "build": "node scripts/horora-directory-live-probe.mjs && next build",
     "start": "next start",
     "lint": "eslint",
     "test": "vitest",

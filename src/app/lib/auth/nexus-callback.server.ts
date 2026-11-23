@@ -5,11 +5,15 @@
 
 import { NextResponse } from "next/server";
 import {
-  extractNexusHandoffToken,
   verifyTagoraHandoffV1,
   type NexusHandoffClaims,
   type NexusHandoffVerifyOptions,
 } from "@/app/lib/auth/nexus-handoff";
+import {
+  classifyNexusOpaqueCredential,
+  exchangeHororaOpaqueHandoffCode,
+  type HororaOpaqueExchangeResult,
+} from "@/app/lib/auth/nexus-opaque-exchange.server";
 import {
   resolveNexusHororaBinding,
   type NexusMappingLookups,
@@ -56,6 +60,10 @@ export type NexusCallbackDependencies = {
   mintOptions?: NexusSessionMintOptions;
   logger?: (message: string, fields: Record<string, string>) => void;
   fetchJwks?: NexusJwksFetch;
+  exchangeOpaqueCode?: (
+    code: string,
+    input?: { env?: NexusHandoffVerifyOptions["env"] }
+  ) => Promise<HororaOpaqueExchangeResult>;
 };
 
 export type NexusHandoffInspectResult =
@@ -112,10 +120,31 @@ export async function inspectNexusHandoff(
   },
   deps: NexusCallbackDependencies = {}
 ): Promise<NexusHandoffInspectResult> {
-  const token = extractNexusHandoffToken({
+  const env = deps.verifyOptions?.env ?? process.env;
+  const credential = classifyNexusOpaqueCredential({
     searchParams: input.searchParams,
     body: input.body,
+    env,
   });
+  if (credential.kind === "contradictory") {
+    logNexusCallbackDecision("contradictory_parameters", deps.logger, "extract_token");
+    return { ok: false, reason: "contradictory_parameters" };
+  }
+  if (credential.kind === "rejected_code") {
+    logNexusCallbackDecision("opaque_code_rejected", deps.logger, "extract_token");
+    return { ok: false, reason: "opaque_code_rejected" };
+  }
+
+  let token: string | null = credential.kind === "assertion" ? credential.token : null;
+  if (credential.kind === "opaque_code") {
+    const exchange = deps.exchangeOpaqueCode ?? exchangeHororaOpaqueHandoffCode;
+    const exchanged = await exchange(credential.code, { env });
+    if (!exchanged.ok) {
+      logNexusCallbackDecision(exchanged.reason, deps.logger, "exchange");
+      return { ok: false, reason: exchanged.reason };
+    }
+    token = exchanged.assertion;
+  }
   if (!token) {
     logNexusCallbackDecision("missing_token", deps.logger, "extract_token");
     return { ok: false, reason: "missing_token" };

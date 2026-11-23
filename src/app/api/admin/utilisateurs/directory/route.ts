@@ -19,6 +19,7 @@ import {
   type HororaPreservedEmployeeDossier,
   type HororaPreservedMembership,
 } from "@/app/lib/auth/horora-authorized-module-directory.shared";
+import { readHororaStagingAuthorizedDirectory } from "@/app/lib/auth/horora-directory-es256.server";
 import { isProcessLocalNexusFixtureEnabled } from "@/app/lib/auth/horora-local-nexus-fixture";
 import { normalizePermissionList } from "@/app/lib/auth/permissions";
 import { isOrganizationMembershipRole } from "@/app/lib/saas/tenant-foundation.shared";
@@ -47,7 +48,7 @@ function serviceMessage(status: HororaDirectoryServiceStatus): string {
     return "Filtre tenant, organisation ou module incomplet. Aucune lecture distante n'est envoyée.";
   }
   if (status === "ready") {
-    return "Annuaire lu localement pour ce tenant, cette organisation et tagora_time.";
+    return "Annuaire Nexus lu pour ce tenant, cette organisation et tagora_time.";
   }
   return HORORA_AUTHORIZED_DIRECTORY_BLOCKER;
 }
@@ -55,7 +56,8 @@ function serviceMessage(status: HororaDirectoryServiceStatus): string {
 /**
  * Read-only preparation view.
  * Does not write dossiers, memberships, auth metadata, or Nexus tables.
- * The directory transport stays held until the Nexus contract is certified.
+ * Staging uses the signed directory when its private key is configured.
+ * A missing row stays ABSENT and does not revoke an existing dossier.
  */
 export async function GET(req: NextRequest) {
   try {
@@ -154,6 +156,7 @@ export async function GET(req: NextRequest) {
     let directory: AuthorizedModuleDirectory | null = null;
     let scope: HororaDirectoryScope | null = null;
     let canonicalLinks: HororaCanonicalIdentityLink[] = [];
+    let enforceRemoteRevocation = false;
     try {
       const mapResult = await supabase
         .from("horora_nexus_organization_map")
@@ -175,9 +178,22 @@ export async function GET(req: NextRequest) {
         serviceStatus = "query_rejected";
       } else {
         scope = resolved.query;
-        const read = await readAuthorizedModuleDirectory({ query: resolved.query });
-        serviceStatus = read.status;
-        if (read.ok) directory = read.directory;
+        const live = await readHororaStagingAuthorizedDirectory({ query: resolved.query });
+        if (live.ok) {
+          serviceStatus = "ready";
+          enforceRemoteRevocation = true;
+          directory = {
+            technicalKey: HORORA_AUTHORIZED_DIRECTORY_TECHNICAL_KEY,
+            connected: true,
+            entries: live.entries,
+          };
+        } else if (live.status !== "service_unavailable") {
+          serviceStatus = live.status;
+        } else {
+          const read = await readAuthorizedModuleDirectory({ query: resolved.query });
+          serviceStatus = read.status;
+          if (read.ok) directory = read.directory;
+        }
         const identityResult = await supabase
           .from("horora_nexus_identity_map")
           .select("nexus_actor_id, auth_user_id, disabled_at");
@@ -209,6 +225,7 @@ export async function GET(req: NextRequest) {
       validatedPermissionsByAuthUserId,
       canonicalLinks,
       scope,
+      enforceRemoteRevocation,
     });
 
     return NextResponse.json({
@@ -216,7 +233,7 @@ export async function GET(req: NextRequest) {
       directoryConnected: view.directoryConnected,
       serviceStatus,
       serviceMessage: serviceMessage(serviceStatus),
-      revocationEnforced: false,
+      revocationEnforced: enforceRemoteRevocation,
       refreshIntervalMs: HORORA_DIRECTORY_REFRESH_MS,
       persisted: false,
       productionUnchanged: true,

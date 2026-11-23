@@ -3,6 +3,7 @@
  * Opaque cookie + server hash. Not a Supabase Auth session.
  */
 
+import { certifiedDirectoryAccessForSession } from "@/app/lib/auth/horora-directory-es256.server";
 import type { NexusResolvedBinding } from "@/app/lib/auth/nexus-identity-mapping.server";
 import {
   encodeBrokeredSessionCookieValue,
@@ -434,6 +435,9 @@ export async function resolveBrokeredHororaSessionFromCookies(
     lookups?: NexusBrokeredRevalidationLookups;
     now?: Date;
     requestKey?: object;
+    directoryAccess?: (
+      record: NexusBrokeredSessionRecord
+    ) => Promise<"ACTIVE" | "PENDING" | "SUSPENDED" | "REVOKED" | "ABSENT" | "unknown">;
   } = {}
 ): Promise<
   | { readonly ok: true; readonly principal: NexusBrokeredPrincipal }
@@ -470,6 +474,18 @@ export async function resolveBrokeredHororaSessionFromCookies(
     }
     const role = mapOrganizationMembershipRoleToAppRole(membership.role);
     if (!role) {
+      return { ok: false, reason: "local_permissions_invalid" };
+    }
+    const directoryAccess = await (options.directoryAccess
+      ? options.directoryAccess(record)
+      : certifiedDirectoryAccessForSession({
+          nexusActorId: record.nexusActorId,
+          nexusOrganizationId: record.nexusOrganizationId,
+        }));
+    if (directoryAccess === "REVOKED") {
+      return { ok: false, reason: "session_revoked" };
+    }
+    if (directoryAccess === "SUSPENDED") {
       return { ok: false, reason: "local_permissions_invalid" };
     }
     const organization = await lookups.findOrganizationById(record.organizationId);

@@ -177,4 +177,24 @@ describe("brokered HORORA opaque session", () => {
     });
     expect(cross).toEqual({ ok: false, reason: "cross_tenant" });
   });
+
+  it("revokes a certified directory REVOKED user and keeps an absent user", async () => {
+    const store = createMemoryBrokeredSessionStore();
+    const created = await createBrokeredHororaSession(BINDING, { store, environment: "local" });
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+    const cookies = cookieReader(created.cookieHeader);
+    const revoked = await resolveBrokeredHororaSessionFromCookies(cookies, {
+      store,
+      lookups: lookups(),
+      directoryAccess: async () => "REVOKED",
+    });
+    expect(revoked).toEqual({ ok: false, reason: "session_revoked" });
+    const absent = await resolveBrokeredHororaSessionFromCookies(cookies, {
+      store,
+      lookups: lookups(),
+      directoryAccess: async () => "ABSENT",
+    });
+    expect(absent.ok).toBe(true);
+  });
 });
