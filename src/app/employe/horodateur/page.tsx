@@ -922,6 +922,14 @@ export default function EmployeHorodateurPage() {
           snapshot?.todayShift?.status === "en_attente",
         arrivalAt:
           snapshot?.currentState.startedAt ?? snapshot?.todayShift?.shift_start_at ?? null,
+        completedShiftArrival: snapshot?.latenessContext
+          ? {
+              canPunchNow: snapshot.latenessContext.canPunchNow,
+              isWithinScheduleWindow: snapshot.latenessContext.isWithinScheduleWindow,
+              scheduledStartAt: snapshot.latenessContext.scheduledStartAt,
+              currentAt: snapshot.latenessContext.currentAt,
+            }
+          : null,
       }),
     [snapshot]
   );

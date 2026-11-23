@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
+import { HORODATEUR_EARLY_PUNCH_SILENT_MAX_MINUTES } from "@/app/lib/horodateur-v1/rules";
 import {
   accrueOpenShiftDisplayMinutes,
   explainEmployeePunchError,
+  isCompletedShiftArrivalAdmissible,
   resolveEmployeePunchGuidance,
 } from "./employee-punch-guidance.shared";
 
@@ -29,6 +31,80 @@ describe("employee punch guidance", () => {
       eventType: null,
       label: "Consulter le pointage",
     });
+  });
+
+  it("offers one arrival after a finished shift only inside the existing schedule window", () => {
+    const start = "2026-11-06T11:00:00.000Z";
+    const inside = {
+      canPunchNow: true,
+      isWithinScheduleWindow: true,
+      scheduledStartAt: start,
+      currentAt: "2026-11-06T12:00:00.000Z",
+    };
+    const early = {
+      canPunchNow: true,
+      isWithinScheduleWindow: false,
+      scheduledStartAt: start,
+      currentAt: new Date(
+        Date.parse(start) - (HORODATEUR_EARLY_PUNCH_SILENT_MAX_MINUTES - 1) * 60_000
+      ).toISOString(),
+    };
+    const tooEarly = {
+      canPunchNow: true,
+      isWithinScheduleWindow: false,
+      scheduledStartAt: start,
+      currentAt: new Date(
+        Date.parse(start) - (HORODATEUR_EARLY_PUNCH_SILENT_MAX_MINUTES + 5) * 60_000
+      ).toISOString(),
+    };
+    const blockedDay = {
+      canPunchNow: false,
+      isWithinScheduleWindow: false,
+      scheduledStartAt: start,
+      currentAt: "2026-11-06T12:00:00.000Z",
+    };
+
+    expect(isCompletedShiftArrivalAdmissible(inside)).toBe(true);
+    expect(isCompletedShiftArrivalAdmissible(early)).toBe(true);
+    expect(isCompletedShiftArrivalAdmissible(tooEarly)).toBe(false);
+    expect(isCompletedShiftArrivalAdmissible(blockedDay)).toBe(false);
+    expect(
+      isCompletedShiftArrivalAdmissible({
+        canPunchNow: true,
+        isWithinScheduleWindow: true,
+      })
+    ).toBe(true);
+
+    expect(
+      resolveEmployeePunchGuidance({
+        currentState: "termine",
+        completedShiftArrival: inside,
+      }).primary
+    ).toEqual({ eventType: "punch_in", label: "Pointer mon arrivée" });
+    expect(
+      resolveEmployeePunchGuidance({
+        currentState: "termine",
+        completedShiftArrival: tooEarly,
+      }).guidance
+    ).toContain("Une nouvelle arrivée n'est pas proposée ici.");
+    expect(
+      resolveEmployeePunchGuidance({
+        currentState: "termine",
+        completedShiftArrival: blockedDay,
+      }).primary?.eventType
+    ).toBeNull();
+    expect(
+      resolveEmployeePunchGuidance({
+        currentState: "en_quart",
+        completedShiftArrival: inside,
+      }).primary?.eventType
+    ).toBe("punch_out");
+    expect(
+      resolveEmployeePunchGuidance({
+        currentState: "en_pause",
+        completedShiftArrival: inside,
+      }).arrivalBlocked
+    ).toBe(true);
   });
 
   it("hides pause and paid dinner buttons that a beginner must not press", () => {

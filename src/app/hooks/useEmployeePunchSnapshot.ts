@@ -15,6 +15,7 @@ import { employeePunchSuccessMessage } from "@/app/lib/horodateur-v1/punch-confi
 import {
   explainEmployeePunchError,
   resolveEmployeePunchGuidance,
+  type CompletedShiftArrivalContext,
   type EmployeePunchAction,
 } from "@/app/lib/employee-punch-guidance.shared";
 
@@ -79,6 +80,7 @@ export type EmployeePunchSnapshot = {
     impact_minutes: number;
     status: string;
   }>;
+  completedShiftArrival: CompletedShiftArrivalContext | null;
 };
 
 type PunchResponse = EmployeePunchSnapshot & {
@@ -154,7 +156,24 @@ function normalizeDashboardSnapshot(
       ? payload.pendingExceptions
       : [],
     todayTimeDisplay: normalizeTodayTimeDisplay(payload?.todayTimeDisplay),
+    completedShiftArrival: readCompletedShiftArrival(
+      (payload as { latenessContext?: unknown } | undefined)?.latenessContext
+    ),
   } satisfies EmployeePunchSnapshot;
+}
+
+function readCompletedShiftArrival(raw: unknown): CompletedShiftArrivalContext | null {
+  if (!raw || typeof raw !== "object") return null;
+  const value = raw as Record<string, unknown>;
+  if (typeof value.canPunchNow !== "boolean") return null;
+  if (typeof value.isWithinScheduleWindow !== "boolean") return null;
+  return {
+    canPunchNow: value.canPunchNow,
+    isWithinScheduleWindow: value.isWithinScheduleWindow,
+    scheduledStartAt:
+      typeof value.scheduledStartAt === "string" ? value.scheduledStartAt : null,
+    currentAt: typeof value.currentAt === "string" ? value.currentAt : null,
+  };
 }
 
 function normalizeTodayTimeDisplay(
@@ -279,6 +298,7 @@ export function useEmployeePunchSnapshot(enabled: boolean) {
           snapshot?.shift?.status === "en_attente",
         arrivalAt:
           snapshot?.currentState.startedAt ?? snapshot?.shift?.shift_start_at ?? null,
+        completedShiftArrival: snapshot?.completedShiftArrival ?? null,
       }),
     [currentState, enabled, pausePaid, snapshot]
   );

@@ -5,6 +5,8 @@
  * Does not write punches or payroll minutes.
  */
 
+import { HORODATEUR_EARLY_PUNCH_SILENT_MAX_MINUTES } from "@/app/lib/horodateur-v1/rules";
+
 export type EmployeePunchPhase =
   | "avant_quart"
   | "quart_actif"
@@ -36,6 +38,49 @@ export type EmployeePunchGuidance = {
   arrivalBlocked: boolean;
   arrivalBlockedMessage: string | null;
 };
+
+/**
+ * Sous-ensemble de `latenessContext`, déjà calculé par les règles d'horaire.
+ * `canPunchNow` est faux pour un jour non travaillé, un horaire effectif off
+ * ou une arrivée déjà en attente. La fenêtre reprend `isWithinScheduleWindow`,
+ * et l'avance reprend la fenêtre silencieuse serveur.
+ */
+export type CompletedShiftArrivalContext = {
+  canPunchNow: boolean;
+  isWithinScheduleWindow: boolean;
+  scheduledStartAt?: string | null;
+  currentAt?: string | null;
+};
+
+const ARRIVAL_GUIDANCE =
+  "Vous n'êtes pas encore en service. Pointez votre arrivée pour commencer le quart.";
+
+export function isCompletedShiftArrivalAdmissible(
+  context: CompletedShiftArrivalContext | null | undefined
+): boolean {
+  if (!context?.canPunchNow) return false;
+  if (context.isWithinScheduleWindow) return true;
+  if (!context.scheduledStartAt) return true;
+  if (!context.currentAt) return false;
+  const startMs = Date.parse(context.scheduledStartAt);
+  const nowMs = Date.parse(context.currentAt);
+  if (!Number.isFinite(startMs) || !Number.isFinite(nowMs)) return false;
+  const earliestMs = startMs - HORODATEUR_EARLY_PUNCH_SILENT_MAX_MINUTES * 60_000;
+  return nowMs >= earliestMs && nowMs < startMs;
+}
+
+function arrivalGuidance(): EmployeePunchGuidance {
+  return {
+    phase: "avant_quart",
+    statusLabel: "Non pointé",
+    serviceSinceLabel: null,
+    guidance: ARRIVAL_GUIDANCE,
+    primary: { eventType: "punch_in", label: "Pointer mon arrivée" },
+    secondary: [],
+    arrivalBlocked: false,
+    arrivalBlockedMessage: null,
+  };
+}
 
 export function formatPendingEmployeePunchOutBanner(occurredAt: string) {
   const label = new Date(occurredAt).toLocaleTimeString("fr-CA", {
@@ -161,6 +206,7 @@ export function resolveEmployeePunchGuidance(input: {
   pausePaid?: boolean;
   lunchPaid?: boolean;
   arrivalAt?: string | null;
+  completedShiftArrival?: CompletedShiftArrivalContext | null;
 }): EmployeePunchGuidance {
   if (input.available === false) {
     return {
@@ -244,6 +290,9 @@ export function resolveEmployeePunchGuidance(input: {
   }
 
   if (state === "termine") {
+    if (isCompletedShiftArrivalAdmissible(input.completedShiftArrival)) {
+      return arrivalGuidance();
+    }
     return {
       phase: "quart_termine",
       statusLabel: "Quart terminé",
@@ -257,15 +306,5 @@ export function resolveEmployeePunchGuidance(input: {
     };
   }
 
-  return {
-    phase: "avant_quart",
-    statusLabel: "Non pointé",
-    serviceSinceLabel: null,
-    guidance:
-      "Vous n'êtes pas encore en service. Pointez votre arrivée pour commencer le quart.",
-    primary: { eventType: "punch_in", label: "Pointer mon arrivée" },
-    secondary: [],
-    arrivalBlocked: false,
-    arrivalBlockedMessage: null,
-  };
+  return arrivalGuidance();
 }
